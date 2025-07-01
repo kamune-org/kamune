@@ -1,6 +1,7 @@
 # Kamune
 
-Secure communication over untrusted networks.  
+Cmmunication over untrusted networks. This is an experimental project, and all suggestions and feedbacks are greatly appreciated.
+
 Kamune provides `Ed25519_ML-KEM-768_HKDF_SHA512_ChaCha20-Poly1305` security
 suite.
 
