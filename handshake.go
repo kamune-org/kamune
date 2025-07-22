@@ -11,13 +11,6 @@ import (
 	"github.com/hossein1376/kamune/internal/exchange"
 )
 
-var motto = [][]byte{
-	[]byte("For those who kept on fighting, against all odds."),
-	[]byte("Nothing is really gone, just forgotten."),
-	[]byte("A beautiful illusion, or an ugly reality? Make your choice."),
-	[]byte("Will you still do it, even if it wouldn't matter in the end?"),
-}
-
 func requestHandshake(pt *plainTransport) (*Transport, error) {
 	ml, err := exchange.NewMLKEM()
 	if err != nil {
@@ -126,7 +119,7 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 }
 
 func sendVerification(t *Transport) error {
-	m := motto[mathrand.IntN(len(motto))]
+	m := []byte(rand.Text())
 	if _, err := t.Send(Bytes(m)); err != nil {
 		return fmt.Errorf("sending: %w", err)
 	}
