@@ -45,16 +45,17 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("decapsulating secret: %w", err)
 	}
 
-	encoder, err := enigma.NewEnigma(secret, nonce, enigma.C2S)
+	sessionID := resp.GetSessionID()
+	encoder, err := enigma.NewEnigma(secret, nonce, sessionID+enigma.C2S)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
-	decoder, err := enigma.NewEnigma(secret, resp.GetNonce(), enigma.S2C)
+	decoder, err := enigma.NewEnigma(secret, resp.GetNonce(), sessionID+enigma.S2C)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, resp.GetSessionID(), encoder, decoder)
+	t := newTransport(pt, sessionID, encoder, decoder)
 	if err := sendVerification(t); err != nil {
 		return nil, fmt.Errorf("sending verification: %w", err)
 	}
@@ -98,11 +99,11 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 	}
 	pt.sent.Add(1)
 
-	encoder, err := enigma.NewEnigma(secret, nonce, enigma.S2C)
+	encoder, err := enigma.NewEnigma(secret, nonce, sessionID+enigma.S2C)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
-	decoder, err := enigma.NewEnigma(secret, req.GetNonce(), enigma.C2S)
+	decoder, err := enigma.NewEnigma(secret, req.GetNonce(), sessionID+enigma.C2S)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}

@@ -22,8 +22,8 @@ const (
 var (
 	ErrInvalidNonceLength = errors.New("bad nonce length")
 
-	C2S    = []byte("client-to-server-cipher")
-	S2C    = []byte("server-to-client-cipher")
+	C2S    = "client-to-server-cipher"
+	S2C    = "server-to-client-cipher"
 	hasher = sha512.New
 )
 
@@ -32,11 +32,11 @@ type Enigma struct {
 	baseNonce []byte
 }
 
-func NewEnigma(secret, baseNonce, info []byte) (*Enigma, error) {
+func NewEnigma(secret, baseNonce []byte, info string) (*Enigma, error) {
 	if len(baseNonce) != BaseNonceSize {
 		return nil, ErrInvalidNonceLength
 	}
-	r := hkdf.Expand(hasher, secret, info)
+	r := hkdf.Expand(hasher, secret, []byte(info))
 	key := make([]byte, chacha20poly1305.KeySize)
 	if _, err := io.ReadFull(r, key); err != nil {
 		return nil, fmt.Errorf("read key: %w", err)
