@@ -13,9 +13,11 @@ import (
 	"github.com/hossein1376/kamune/internal/box/pb"
 )
 
-type RemoteVerifier func(key *attest.PublicKey) (err error)
+type PublicKey = *attest.PublicKey
 
-func defaultRemoteVerifier(remote *attest.PublicKey) error {
+type RemoteVerifier func(key PublicKey) (err error)
+
+func defaultRemoteVerifier(remote PublicKey) error {
 	key := base64.StdEncoding.EncodeToString(remote.Marshal())
 	keyBytes := []byte(key)
 	fmt.Printf("Peer's public key: %s\n", key)
