@@ -70,7 +70,6 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 	reqBytes, err := read(pt.conn)
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake request: %w", err)
-
 	}
 	var req pb.Handshake
 	if _, err = pt.deserialize(reqBytes, &req, pt.received.Load()); err != nil {

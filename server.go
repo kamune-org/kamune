@@ -1,6 +1,8 @@
 package kamune
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -11,25 +13,18 @@ import (
 type HandlerFunc func(t *Transport) error
 
 type Server struct {
-	Addr           string
-	HandlerFunc    HandlerFunc
-	RemoteVerifier RemoteVerifier
+	addr           string
+	handlerFunc    HandlerFunc
+	remoteVerifier RemoteVerifier
 	attest         *attest.Attest
 }
 
-func ListenAndServe(addr string, h HandlerFunc) error {
-	s, err := NewServer(addr, h)
-	if err != nil {
-		return fmt.Errorf("creating new server: %w", err)
-	}
-	return s.ListenAndServe()
-}
-
 func (s *Server) ListenAndServe() error {
-	l, err := net.Listen("tcp", s.Addr)
+	l, err := net.Listen("tcp", s.addr)
 	if err != nil {
-		return fmt.Errorf("listening on %s: %w", s.Addr, err)
+		return fmt.Errorf("listening on %s: %w", s.addr, err)
 	}
+	defer l.Close()
 	return s.Serve(l)
 }
 
@@ -66,7 +61,7 @@ func (s *Server) serve(c net.Conn) error {
 	if err != nil {
 		return fmt.Errorf("receive introduction: %w", err)
 	}
-	if err := s.RemoteVerifier(remote); err != nil {
+	if err := s.remoteVerifier(remote); err != nil {
 		return fmt.Errorf("verify remote: %w", err)
 	}
 	if err := sendIntroduction(conn, s.attest); err != nil {
@@ -78,7 +73,7 @@ func (s *Server) serve(c net.Conn) error {
 	if err != nil {
 		return fmt.Errorf("accept handshake: %w", err)
 	}
-	err = s.HandlerFunc(t)
+	err = s.handlerFunc(t)
 	if err != nil {
 		return fmt.Errorf("handler: %w", err)
 	}
@@ -87,18 +82,38 @@ func (s *Server) serve(c net.Conn) error {
 }
 
 func (s *Server) log(lvl slog.Level, msg string, args ...any) {
-	slog.Log(nil, lvl, msg, args...)
+	slog.Log(context.Background(), lvl, msg, args...)
 }
 
-func NewServer(addr string, handler HandlerFunc) (*Server, error) {
+func NewServer(
+	addr string, handler HandlerFunc, opts ...ServerOptions,
+) (*Server, error) {
 	at, err := attest.LoadFromDisk(privKeyPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("loading identity: %w", err)
 	}
-	return &Server{
-		attest:         at,
-		Addr:           addr,
-		HandlerFunc:    handler,
-		RemoteVerifier: defaultRemoteVerifier,
-	}, nil
+
+	s := &Server{attest: at, addr: addr, handlerFunc: handler}
+	for _, o := range opts {
+		if err := o(s); err != nil {
+			return nil, fmt.Errorf("applying options: %w", err)
+		}
+	}
+	if s.remoteVerifier == nil {
+		s.remoteVerifier = defaultRemoteVerifier
+	}
+
+	return s, nil
+}
+
+type ServerOptions func(*Server) error
+
+func ServeWithRemoteVerifier(remote RemoteVerifier) ServerOptions {
+	return func(s *Server) error {
+		if s.remoteVerifier != nil {
+			return errors.New("server already has a remote verifier")
+		}
+		s.remoteVerifier = remote
+		return nil
+	}
 }
