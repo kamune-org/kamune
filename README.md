@@ -1,12 +1,15 @@
 # Kamune
 
-Cmmunication over untrusted networks. This is an experimental project, and all suggestions and feedbacks are greatly appreciated.
+Communication over untrusted networks.
 
 Kamune provides `Ed25519_ML-KEM-768_HKDF_SHA512_ChaCha20-Poly1305` security
 suite.
 
 ![demo](.assets/demo.gif)
 
+> [!NOTE]
+> This is an experimental project. All suggestions and feedbacks are welcome and
+> greatly appreciated.
 
 ## Features
 
@@ -49,7 +52,7 @@ Client uses the received ciphertext and its private key (that was previously
 generated), to derive the same exact secret as the client. Then, encryption and
 decryption ciphers are created.
 
-Finally, to make sure everyone are on the same page, a static message is sent to 
+Finally, to make sure everyone are on the same page, a static message is sent to
 the other party. They should decrypt the message, encrypt it again with their
 own encryption cipher, and send it back. If each side receive and successfully
 decrypt the message, handshake is deemed successful!
