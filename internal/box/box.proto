@@ -25,5 +25,5 @@ message Handshake {
   bytes padding = 1;
   bytes Key = 2;
   bytes Nonce = 3;
-  optional string SessionID = 4;
+  string SessionKey = 4;
 }

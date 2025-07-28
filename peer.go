@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
-	"github.com/hossein1376/kamune/internal/attest"
+	"github.com/hossein1376/kamune/pkg/attest"
 )
 
 var baseDir, privKeyPath string
@@ -16,6 +17,14 @@ const (
 	keyName        = "id.key"
 	knownPeersName = "known"
 )
+
+type Peer struct {
+	transport   *Transport
+	pubKey      PublicKey
+	greetedAt   time.Time
+	lastSeenAt  time.Time
+	hasPeerLeft bool
+}
 
 func init() {
 	home, err := os.UserHomeDir()

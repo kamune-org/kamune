@@ -9,13 +9,14 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/hossein1376/kamune/internal/attest"
 	"github.com/hossein1376/kamune/internal/box/pb"
 	"github.com/hossein1376/kamune/internal/enigma"
+	"github.com/hossein1376/kamune/pkg/attest"
 )
 
 const (
 	maxTransportSize = 10 * 1024
+	challengeSize    = 32
 	introducePadding = 512
 	messagePadding   = 128
 	handshakePadding = 32
@@ -50,7 +51,7 @@ func newTransport(
 
 func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 	seqNum := t.received.Load()
-	payload, err := read(t.conn)
+	payload, err := t.conn.Read()
 	switch {
 	case err == nil:
 	case errors.Is(err, io.EOF):
@@ -78,7 +79,7 @@ func (t *Transport) Send(message Transferable) (*Metadata, error) {
 		return nil, fmt.Errorf("serializing: %w", err)
 	}
 	encrypted := t.encoder.Encrypt(payload, seqNum)
-	if _, err := t.conn.Write(encrypted); err != nil {
+	if err := t.conn.Write(encrypted); err != nil {
 		return nil, fmt.Errorf("writing: %w", err)
 	}
 	t.sent.Add(1)
@@ -147,13 +148,4 @@ func (pt *plainTransport) deserialize(
 	}
 
 	return &Metadata{st.GetMetadata()}, nil
-}
-
-func read(c Conn) ([]byte, error) {
-	buf := make([]byte, maxTransportSize)
-	n, err := c.Read(buf)
-	if err != nil {
-		return nil, err
-	}
-	return buf[:n], nil
 }

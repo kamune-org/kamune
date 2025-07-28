@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/hossein1376/kamune/internal/attest"
+	"github.com/hossein1376/kamune/pkg/attest"
 )
 
 type dialer struct {
@@ -32,7 +32,7 @@ func Dial(addr string, opts ...DialOption) (*Transport, error) {
 		if err != nil {
 			return nil, fmt.Errorf("dialing address: %w", err)
 		}
-		d.conn = Conn{Conn: conn}
+		d.conn = newConn(conn)
 	}
 
 	transport, err := d.handshake()

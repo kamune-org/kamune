@@ -9,8 +9,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/hossein1376/kamune/internal/attest"
 	"github.com/hossein1376/kamune/internal/box/pb"
+	"github.com/hossein1376/kamune/pkg/attest"
 )
 
 type PublicKey = *attest.PublicKey
@@ -54,7 +54,7 @@ func sendIntroduction(conn Conn, at *attest.Attest) error {
 	if err != nil {
 		return fmt.Errorf("marshalling: %w", err)
 	}
-	if _, err := conn.Write(introBytes); err != nil {
+	if err := conn.Write(introBytes); err != nil {
 		return fmt.Errorf("writing: %w", err)
 	}
 
@@ -62,7 +62,7 @@ func sendIntroduction(conn Conn, at *attest.Attest) error {
 }
 
 func receiveIntroduction(conn Conn) (*attest.PublicKey, error) {
-	payload, err := read(conn)
+	payload, err := conn.Read()
 	if err != nil {
 		return nil, fmt.Errorf("reading payload: %w", err)
 	}

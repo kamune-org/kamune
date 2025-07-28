@@ -36,10 +36,9 @@ func NewEnigma(secret, baseNonce []byte, info string) (*Enigma, error) {
 	if len(baseNonce) != BaseNonceSize {
 		return nil, ErrInvalidNonceLength
 	}
-	r := hkdf.Expand(hasher, secret, []byte(info))
-	key := make([]byte, chacha20poly1305.KeySize)
-	if _, err := io.ReadFull(r, key); err != nil {
-		return nil, fmt.Errorf("read key: %w", err)
+	key, err := Derive(secret, nil, []byte(info), chacha20poly1305.KeySize)
+	if err != nil {
+		return nil, fmt.Errorf("derive key: %w", err)
 	}
 	aead, err := chacha20poly1305.New(key)
 	if err != nil {
@@ -62,4 +61,13 @@ func (e *Enigma) nonce(counter uint64) []byte {
 	copy(nonce[:BaseNonceSize], e.baseNonce)
 	binary.LittleEndian.PutUint64(nonce[BaseNonceSize:], counter)
 	return nonce
+}
+
+func Derive(key, salt, info []byte, size int) ([]byte, error) {
+	r := hkdf.New(hasher, key, salt, info)
+	d := make([]byte, size)
+	if _, err := io.ReadFull(r, d); err != nil {
+		return nil, err
+	}
+	return d, nil
 }

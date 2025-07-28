@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/hossein1376/kamune/internal/attest"
+	"github.com/hossein1376/kamune/pkg/attest"
 )
 
 type HandlerFunc func(t *Transport) error
@@ -45,7 +45,7 @@ func (s *Server) Serve(l net.Listener) error {
 }
 
 func (s *Server) serve(c net.Conn) error {
-	conn := Conn{Conn: c}
+	conn := newConn(c)
 	defer func() {
 		if err := recover(); err != nil {
 			s.log(slog.LevelError, "serve panic", slog.Any("err", err))

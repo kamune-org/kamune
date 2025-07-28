@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hossein1376/kamune/internal/attest"
+	"github.com/hossein1376/kamune/pkg/attest"
 )
 
 func TestEd25519_SignVerify(t *testing.T) {

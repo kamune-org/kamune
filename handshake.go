@@ -1,14 +1,14 @@
 package kamune
 
 import (
-	"bytes"
 	"crypto/rand"
+	"crypto/subtle"
 	"fmt"
 	mathrand "math/rand/v2"
 
 	"github.com/hossein1376/kamune/internal/box/pb"
 	"github.com/hossein1376/kamune/internal/enigma"
-	"github.com/hossein1376/kamune/internal/exchange"
+	"github.com/hossein1376/kamune/pkg/exchange"
 )
 
 func requestHandshake(pt *plainTransport) (*Transport, error) {
@@ -16,22 +16,25 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating MLKEM keys: %w", err)
 	}
+
 	nonce := randomBytes(enigma.BaseNonceSize)
+	sessionKeyPrefix := rand.Text()
 	req := &pb.Handshake{
-		Key:     ml.PublicKey.Bytes(),
-		Nonce:   nonce,
-		Padding: padding(handshakePadding),
+		Key:        ml.PublicKey.Bytes(),
+		Nonce:      nonce,
+		SessionKey: sessionKeyPrefix,
+		Padding:    padding(handshakePadding),
 	}
 	reqBytes, _, err := pt.serialize(req, pt.sent.Load())
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake request: %w", err)
 	}
-	if _, err = pt.conn.Write(reqBytes); err != nil {
+	if err = pt.conn.Write(reqBytes); err != nil {
 		return nil, fmt.Errorf("writing handshake request: %w", err)
 	}
 	pt.sent.Add(1)
 
-	respBytes, err := read(pt.conn)
+	respBytes, err := pt.conn.Read()
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake response: %w", err)
 	}
@@ -45,7 +48,7 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("decapsulating secret: %w", err)
 	}
 
-	sessionID := resp.GetSessionID()
+	sessionID := sessionKeyPrefix + resp.GetSessionKey()
 	encoder, err := enigma.NewEnigma(secret, nonce, sessionID+enigma.C2S)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
@@ -56,18 +59,18 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 	}
 
 	t := newTransport(pt, sessionID, encoder, decoder)
-	if err := sendVerification(t); err != nil {
-		return nil, fmt.Errorf("sending verification: %w", err)
+	if err := sendChallenge(t, sessionID); err != nil {
+		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
-	if err := receiveVerification(t); err != nil {
-		return nil, fmt.Errorf("receiving verification: %w", err)
+	if err := acceptChallenge(t); err != nil {
+		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
 
 	return t, nil
 }
 
 func acceptHandshake(pt *plainTransport) (*Transport, error) {
-	reqBytes, err := read(pt.conn)
+	reqBytes, err := pt.conn.Read()
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake request: %w", err)
 	}
@@ -80,20 +83,20 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encapsulating key: %w", err)
 	}
-
-	sessionID := rand.Text()
+	sessionKeySuffix := rand.Text()
+	sessionID := req.GetSessionKey() + sessionKeySuffix
 	nonce := randomBytes(enigma.BaseNonceSize)
 	resp := &pb.Handshake{
-		Key:       ct,
-		Nonce:     nonce,
-		SessionID: &sessionID,
-		Padding:   padding(handshakePadding),
+		Key:        ct,
+		Nonce:      nonce,
+		SessionKey: sessionKeySuffix,
+		Padding:    padding(handshakePadding),
 	}
 	respBytes, _, err := pt.serialize(resp, pt.sent.Load())
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake response: %w", err)
 	}
-	if _, err = pt.conn.Write(respBytes); err != nil {
+	if err = pt.conn.Write(respBytes); err != nil {
 		return nil, fmt.Errorf("writing handshake response: %w", err)
 	}
 	pt.sent.Add(1)
@@ -108,33 +111,39 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 	}
 
 	t := newTransport(pt, sessionID, encoder, decoder)
-	if err := receiveVerification(t); err != nil {
-		return nil, fmt.Errorf("receiving verification: %w", err)
+	if err := acceptChallenge(t); err != nil {
+		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
-	if err := sendVerification(t); err != nil {
-		return nil, fmt.Errorf("sending verification: %w", err)
+	if err := sendChallenge(t, sessionID); err != nil {
+		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
 
 	return t, nil
 }
 
-func sendVerification(t *Transport) error {
-	m := []byte(rand.Text())
-	if _, err := t.Send(Bytes(m)); err != nil {
+func sendChallenge(t *Transport, sessionID string) error {
+	challenge, err := enigma.Derive(
+		[]byte(rand.Text()), nil, []byte(sessionID), challengeSize,
+	)
+	if err != nil {
+		return fmt.Errorf("deriving a challenge: %w", err)
+	}
+	if _, err := t.Send(Bytes(challenge)); err != nil {
 		return fmt.Errorf("sending: %w", err)
 	}
 	r := Bytes(nil)
 	if _, err := t.Receive(r); err != nil {
 		return fmt.Errorf("receiving: %w", err)
 	}
-	if !bytes.Equal(r.Value, m) {
+
+	if subtle.ConstantTimeCompare(r.Value, challenge) != 1 {
 		return ErrVerificationFailed
 	}
 
 	return nil
 }
 
-func receiveVerification(t *Transport) error {
+func acceptChallenge(t *Transport) error {
 	r := Bytes(nil)
 	if _, err := t.Receive(r); err != nil {
 		return fmt.Errorf("receiving: %w", err)

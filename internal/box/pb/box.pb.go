@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.6
 // 	protoc        v6.31.1
-// source: stp.proto
+// source: box.proto
 
 package pb
 
@@ -32,7 +32,7 @@ type Introduce struct {
 
 func (x *Introduce) Reset() {
 	*x = Introduce{}
-	mi := &file_stp_proto_msgTypes[0]
+	mi := &file_box_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -44,7 +44,7 @@ func (x *Introduce) String() string {
 func (*Introduce) ProtoMessage() {}
 
 func (x *Introduce) ProtoReflect() protoreflect.Message {
-	mi := &file_stp_proto_msgTypes[0]
+	mi := &file_box_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -57,7 +57,7 @@ func (x *Introduce) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Introduce.ProtoReflect.Descriptor instead.
 func (*Introduce) Descriptor() ([]byte, []int) {
-	return file_stp_proto_rawDescGZIP(), []int{0}
+	return file_box_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Introduce) GetPadding() []byte {
@@ -86,7 +86,7 @@ type SignedTransport struct {
 
 func (x *SignedTransport) Reset() {
 	*x = SignedTransport{}
-	mi := &file_stp_proto_msgTypes[1]
+	mi := &file_box_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -98,7 +98,7 @@ func (x *SignedTransport) String() string {
 func (*SignedTransport) ProtoMessage() {}
 
 func (x *SignedTransport) ProtoReflect() protoreflect.Message {
-	mi := &file_stp_proto_msgTypes[1]
+	mi := &file_box_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -111,7 +111,7 @@ func (x *SignedTransport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedTransport.ProtoReflect.Descriptor instead.
 func (*SignedTransport) Descriptor() ([]byte, []int) {
-	return file_stp_proto_rawDescGZIP(), []int{1}
+	return file_box_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *SignedTransport) GetData() []byte {
@@ -152,7 +152,7 @@ type Metadata struct {
 
 func (x *Metadata) Reset() {
 	*x = Metadata{}
-	mi := &file_stp_proto_msgTypes[2]
+	mi := &file_box_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -164,7 +164,7 @@ func (x *Metadata) String() string {
 func (*Metadata) ProtoMessage() {}
 
 func (x *Metadata) ProtoReflect() protoreflect.Message {
-	mi := &file_stp_proto_msgTypes[2]
+	mi := &file_box_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -177,7 +177,7 @@ func (x *Metadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Metadata.ProtoReflect.Descriptor instead.
 func (*Metadata) Descriptor() ([]byte, []int) {
-	return file_stp_proto_rawDescGZIP(), []int{2}
+	return file_box_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Metadata) GetSequence() uint64 {
@@ -199,14 +199,14 @@ type Handshake struct {
 	Padding       []byte                 `protobuf:"bytes,1,opt,name=padding,proto3" json:"padding,omitempty"`
 	Key           []byte                 `protobuf:"bytes,2,opt,name=Key,proto3" json:"Key,omitempty"`
 	Nonce         []byte                 `protobuf:"bytes,3,opt,name=Nonce,proto3" json:"Nonce,omitempty"`
-	SessionID     *string                `protobuf:"bytes,4,opt,name=SessionID,proto3,oneof" json:"SessionID,omitempty"`
+	SessionKey    string                 `protobuf:"bytes,4,opt,name=SessionKey,proto3" json:"SessionKey,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Handshake) Reset() {
 	*x = Handshake{}
-	mi := &file_stp_proto_msgTypes[3]
+	mi := &file_box_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -218,7 +218,7 @@ func (x *Handshake) String() string {
 func (*Handshake) ProtoMessage() {}
 
 func (x *Handshake) ProtoReflect() protoreflect.Message {
-	mi := &file_stp_proto_msgTypes[3]
+	mi := &file_box_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -231,7 +231,7 @@ func (x *Handshake) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Handshake.ProtoReflect.Descriptor instead.
 func (*Handshake) Descriptor() ([]byte, []int) {
-	return file_stp_proto_rawDescGZIP(), []int{3}
+	return file_box_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Handshake) GetPadding() []byte {
@@ -255,18 +255,18 @@ func (x *Handshake) GetNonce() []byte {
 	return nil
 }
 
-func (x *Handshake) GetSessionID() string {
-	if x != nil && x.SessionID != nil {
-		return *x.SessionID
+func (x *Handshake) GetSessionKey() string {
+	if x != nil {
+		return x.SessionKey
 	}
 	return ""
 }
 
-var File_stp_proto protoreflect.FileDescriptor
+var File_box_proto protoreflect.FileDescriptor
 
-const file_stp_proto_rawDesc = "" +
+const file_box_proto_rawDesc = "" +
 	"\n" +
-	"\tstp.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"=\n" +
+	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"=\n" +
 	"\tIntroduce\x12\x18\n" +
 	"\apadding\x18\x01 \x01(\fR\apadding\x12\x16\n" +
 	"\x06Public\x18\x02 \x01(\fR\x06Public\"\x88\x01\n" +
@@ -277,36 +277,36 @@ const file_stp_proto_rawDesc = "" +
 	"\apadding\x18\x04 \x01(\fR\apadding\"`\n" +
 	"\bMetadata\x12\x1a\n" +
 	"\bSequence\x18\x01 \x01(\x04R\bSequence\x128\n" +
-	"\tTimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\"~\n" +
+	"\tTimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\"m\n" +
 	"\tHandshake\x12\x18\n" +
 	"\apadding\x18\x01 \x01(\fR\apadding\x12\x10\n" +
 	"\x03Key\x18\x02 \x01(\fR\x03Key\x12\x14\n" +
-	"\x05Nonce\x18\x03 \x01(\fR\x05Nonce\x12!\n" +
-	"\tSessionID\x18\x04 \x01(\tH\x00R\tSessionID\x88\x01\x01B\f\n" +
+	"\x05Nonce\x18\x03 \x01(\fR\x05Nonce\x12\x1e\n" +
 	"\n" +
-	"_SessionIDB\x06Z\x04./pbb\x06proto3"
+	"SessionKey\x18\x04 \x01(\tR\n" +
+	"SessionKeyB\x06Z\x04./pbb\x06proto3"
 
 var (
-	file_stp_proto_rawDescOnce sync.Once
-	file_stp_proto_rawDescData []byte
+	file_box_proto_rawDescOnce sync.Once
+	file_box_proto_rawDescData []byte
 )
 
-func file_stp_proto_rawDescGZIP() []byte {
-	file_stp_proto_rawDescOnce.Do(func() {
-		file_stp_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_stp_proto_rawDesc), len(file_stp_proto_rawDesc)))
+func file_box_proto_rawDescGZIP() []byte {
+	file_box_proto_rawDescOnce.Do(func() {
+		file_box_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_box_proto_rawDesc), len(file_box_proto_rawDesc)))
 	})
-	return file_stp_proto_rawDescData
+	return file_box_proto_rawDescData
 }
 
-var file_stp_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_stp_proto_goTypes = []any{
+var file_box_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_box_proto_goTypes = []any{
 	(*Introduce)(nil),             // 0: box.Introduce
 	(*SignedTransport)(nil),       // 1: box.SignedTransport
 	(*Metadata)(nil),              // 2: box.Metadata
 	(*Handshake)(nil),             // 3: box.Handshake
 	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
 }
-var file_stp_proto_depIdxs = []int32{
+var file_box_proto_depIdxs = []int32{
 	2, // 0: box.SignedTransport.Metadata:type_name -> box.Metadata
 	4, // 1: box.Metadata.Timestamp:type_name -> google.protobuf.Timestamp
 	2, // [2:2] is the sub-list for method output_type
@@ -316,27 +316,26 @@ var file_stp_proto_depIdxs = []int32{
 	0, // [0:2] is the sub-list for field type_name
 }
 
-func init() { file_stp_proto_init() }
-func file_stp_proto_init() {
-	if File_stp_proto != nil {
+func init() { file_box_proto_init() }
+func file_box_proto_init() {
+	if File_box_proto != nil {
 		return
 	}
-	file_stp_proto_msgTypes[3].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_stp_proto_rawDesc), len(file_stp_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_box_proto_rawDesc), len(file_box_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_stp_proto_goTypes,
-		DependencyIndexes: file_stp_proto_depIdxs,
-		MessageInfos:      file_stp_proto_msgTypes,
+		GoTypes:           file_box_proto_goTypes,
+		DependencyIndexes: file_box_proto_depIdxs,
+		MessageInfos:      file_box_proto_msgTypes,
 	}.Build()
-	File_stp_proto = out.File
-	file_stp_proto_goTypes = nil
-	file_stp_proto_depIdxs = nil
+	File_box_proto = out.File
+	file_box_proto_goTypes = nil
+	file_box_proto_depIdxs = nil
 }
