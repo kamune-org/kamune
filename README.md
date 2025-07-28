@@ -23,6 +23,36 @@ suite.
 - **Direct peer-to-peer communication**, no intermediary server required
 - **Protobuf** for fast, compact binary message encoding
 
+## Roadmap
+
+The following is a list of features that are currently planned or have been
+conceived of. It is by no means exhaustive, and does not imply a commitment to
+fully implement any or all of them. It will be updated as the project progresses.
+
+Items marked with `*` are subject to edits, changes, and even partial or total
+removal.
+
+- [x] Settle on the cipher suite
+- [x] Write the core functionality
+- [x] Implement a minimal TUI
+- [x] Stabilize the package API
+- [ ] Bind ciphers to session-specific info
+- [ ] Better timeout and deadline management via context
+- [ ] Provide NAT traversal and/or hole punching strategies *
+- [ ] Handling remotes, connection retries, and session management
+  - [ ] Peer name *
+  - [ ] Key rotation *
+  - [ ] Remote's public key expiration
+  - [ ] QR code generation
+- [ ] Saving and restoring chat history *
+- [ ] Support other protocols such as udp, quic, webrtc, etc.
+- [ ] Considering FFI or an intermediary server for non-Go clients *
+- [ ] Native and/or web clients *
+- [ ] Relay server
+  - [ ] IP discovery
+  - [ ] Message conveying *
+  - [ ] Queue persistence *
+
 ## How does it work?
 
 There are three stages. In the following terminology, server is the party who is
