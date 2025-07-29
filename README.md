@@ -16,8 +16,7 @@ suite.
 - Message signing and verification using **Ed25519**
 - Ephemeral, quantum-resistant key encapsulation with **ML-KEM-768**
 - Key derivation via **HKDF-SHA512** (HMAC-based extract-and-expand)
-- End-to-End, bidirectional symmetric encryption using **ChaCha20-Poly1305**
-- **Replay attack protection** via message sequence numbering
+- End-to-End, bidirectional symmetric encryption using **ChaCha20-Poly1305X**
 - Lightweight, custom **TCP-based protocol** for minimal overhead
 - **Real-time, instant messaging** over socket-based connection
 - **Direct peer-to-peer communication**, no intermediary server required
@@ -36,7 +35,7 @@ removal.
 - [x] Write the core functionality
 - [x] Implement a minimal TUI
 - [x] Stabilize the package API
-- [ ] Bind ciphers to session-specific info
+- [x] Bind ciphers to session-specific info
 - [ ] Better timeout and deadline management via context
 - [ ] Provide NAT traversal and/or hole punching strategies *
 - [ ] Handling remotes, connection retries, and session management
@@ -48,6 +47,7 @@ removal.
 - [ ] Support other protocols such as udp, quic, webrtc, etc.
 - [ ] Considering FFI or an intermediary server for non-Go clients *
 - [ ] Native and/or web clients *
+- [ ] Replace Protobuf with a custom encoding\decoding protocol *
 - [ ] Relay server
   - [ ] IP discovery
   - [ ] Message conveying *
@@ -63,29 +63,33 @@ connection to the server.
 
 Client sends its public key (think of it like an ID card) to the server and
 server, in return, responds with its own public key (ID card). If both parties
-verify the other one's identity, handshake process gets started.
+**verify** the other one's identity, handshake process gets started.
 
 ### Handshake
 
-Client creates a new, ephemeral (one-time use) ml-kem key. Its public key,
-alongside a randomly generated nonce (a nonce prefix, to be exact) are sent to
-the server.
+Client creates a new, **ephemeral** (one-time use) ml-kem key. Its public key,
+alongside randomly generated salt and ID prefix are sent to the server.
 
-Server uses that public key to derive a secret (as well as a ciphertext that
-we'll get to in a minute). Using that secret, a decryption cipher is created. To
-decrypt each message, a combination of nonce-prefix and the sequence number are
-used.  
-By deriving another key from the secret, an encryption cipher is also created.
-The ciphertext and a newly generated nonce are sent back to the client.
+Server uses the received public key to derive a secret (also called shared 
+secret; as well as a ciphertext that we'll get to in a minute). With that secret,
+a decryption cipher is created to decrypt incoming messages. By deriving another
+key from the shared secret, an encryption cipher is also created to encrypt 
+outgoing messages. The ciphertext plus newly generated ID suffix and salt are
+sent back to the client.
 
-Client uses the received ciphertext and its private key (that was previously
-generated), to derive the same exact secret as the client. Then, encryption and
-decryption ciphers are created.
+Client uses the received ciphertext and their private key (that was previously
+generated), to derive the same exact shared secret. Then, encryption and
+decryption ciphers are created likewise.
 
-Finally, to make sure everyone are on the same page, a static message is sent to
-the other party. They should decrypt the message, encrypt it again with their
-own encryption cipher, and send it back. If each side receive and successfully
-decrypt the message, handshake is deemed successful!
+To make sure everyone are on the same page, each party performs a **challenge** 
+to verify that the other party (them) can decipher our messages, and if we can
+decipher their messages as well.  
+A random text is created by driving a new key from the shared secret and the
+agreed upon session ID (which was created by concatenating the ID prefix and
+suffix). It is encrypted and sent to the other party. They should decrypt the
+message, encrypt it again with their own encryption cipher, and send it back.  
+If each side receive and successfully verify their text, the handshake is deemed
+successful!
 
 ### Communication
 
@@ -100,4 +104,4 @@ it will deliver the package straight to the recipient.
 At destination, the parcel will be checked for any kind of temperaments or
 changes. Using pre-established keys from the handshake phase, smallest
 modifications will be detected and the package is rejected. If all checks pass
-successfully, the cargo will be delivered.
+successfully, the cargo will be delivered and opened.
