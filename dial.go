@@ -13,7 +13,7 @@ import (
 type dialer struct {
 	conn           Conn
 	verifyRemote   RemoteVerifier
-	isConnOverride bool
+	connOverridden bool
 }
 
 func Dial(addr string, opts ...DialOption) (*Transport, error) {
@@ -27,12 +27,12 @@ func Dial(addr string, opts ...DialOption) (*Transport, error) {
 	if d.verifyRemote == nil {
 		d.verifyRemote = defaultRemoteVerifier
 	}
-	if !d.isConnOverride {
+	if !d.connOverridden {
 		conn, err := net.Dial("tcp", addr)
 		if err != nil {
 			return nil, fmt.Errorf("dialing address: %w", err)
 		}
-		d.conn = newConn(conn)
+		d.conn, _ = newTCPConn(conn)
 	}
 
 	transport, err := d.handshake()
@@ -92,11 +92,11 @@ func DialWithRemoteVerifier(verifier RemoteVerifier) DialOption {
 
 func DialWithExistingConn(conn Conn) DialOption {
 	return func(d *dialer) error {
-		if d.isConnOverride {
+		if d.connOverridden {
 			return errors.New("already have a conn override")
 		}
 		d.conn = conn
-		d.isConnOverride = true
+		d.connOverridden = true
 		return nil
 	}
 }

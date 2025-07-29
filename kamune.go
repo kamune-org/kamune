@@ -27,5 +27,6 @@ func (m Metadata) Timestamp() time.Time {
 }
 
 func (m Metadata) SequenceNum() uint64 {
-	return m.pb.GetSequence()
+	// TODO(h.yazdani): reintroduce message sequencing in a more elegant approach
+	return 0
 }

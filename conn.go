@@ -3,19 +3,41 @@ package kamune
 import (
 	"bufio"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"time"
 )
 
-var (
-	ErrAlreadyClosed   = errors.New("connection has already been closed")
-	ErrTooLargeMessage = errors.New("message is too large")
-)
+type Conn interface {
+	Read() ([]byte, error)
+	Write([]byte) error
+	Close() error
+}
 
-type Conn struct {
+type ConnOption[
+	T any,
+	P interface {
+		*T
+		Conn
+	},
+] func(P) error
+
+func TCPConnWithReadTimeout(timeout time.Duration) ConnOption[tcpConn, *tcpConn] {
+	return func(conn *tcpConn) error {
+		conn.readDeadline = timeout
+		return nil
+	}
+}
+
+func TCPConnWithWriteTimeout(timeout time.Duration) ConnOption[tcpConn, *tcpConn] {
+	return func(conn *tcpConn) error {
+		conn.writeDeadline = timeout
+		return nil
+	}
+}
+
+type tcpConn struct {
 	conn          net.Conn
 	reader        *bufio.Reader
 	isClosed      bool
@@ -23,9 +45,9 @@ type Conn struct {
 	writeDeadline time.Duration
 }
 
-func (c *Conn) Close() error {
+func (c *tcpConn) Close() error {
 	if c.isClosed {
-		return ErrAlreadyClosed
+		return ErrConnClosed
 	}
 	err := c.conn.Close()
 	if err != nil {
@@ -36,24 +58,27 @@ func (c *Conn) Close() error {
 	return nil
 }
 
-//TODO: support chunked read and writes
+//TODO(h.yazdani): support chunked read and writes
 
-func (c *Conn) Read() ([]byte, error) {
+func (c *tcpConn) Read() ([]byte, error) {
 	err := c.conn.SetReadDeadline(time.Now().Add(c.readDeadline))
 	if err != nil {
 		return nil, fmt.Errorf("setting read deadline: %w", err)
 	}
 	if c.isClosed {
-		return nil, ErrAlreadyClosed
+		return nil, ErrConnClosed
 	}
 
-	var lenBuf [4]byte
+	// TODO(h.yazdani): Since the connection is being reused, even in case of an
+	//  error it must be fully read (and discarded).
+
+	var lenBuf [2]byte
 	if _, err := io.ReadFull(c.conn, lenBuf[:]); err != nil {
 		return nil, fmt.Errorf("reading length: %w", err)
 	}
-	msgLen := binary.BigEndian.Uint32(lenBuf[:])
+	msgLen := binary.BigEndian.Uint16(lenBuf[:])
 	if msgLen > maxTransportSize {
-		return nil, ErrTooLargeMessage
+		return nil, ErrMessageTooLarge
 	}
 
 	buf := make([]byte, msgLen)
@@ -64,21 +89,21 @@ func (c *Conn) Read() ([]byte, error) {
 	return buf[:n], nil
 }
 
-func (c *Conn) Write(data []byte) error {
+func (c *tcpConn) Write(data []byte) error {
 	err := c.conn.SetWriteDeadline(time.Now().Add(c.writeDeadline))
 	if err != nil {
 		return fmt.Errorf("setting write deadline: %w", err)
 	}
 	if c.isClosed {
-		return ErrAlreadyClosed
+		return ErrConnClosed
 	}
 
 	msgLen := len(data)
 	if len(data) > maxTransportSize {
-		return ErrTooLargeMessage
+		return ErrMessageTooLarge
 	}
-	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(msgLen))
+	var lenBuf [2]byte
+	binary.BigEndian.PutUint16(lenBuf[:], uint16(msgLen))
 	if _, err := c.conn.Write(lenBuf[:]); err != nil {
 		return fmt.Errorf("writing length: %w", err)
 	}
@@ -89,12 +114,22 @@ func (c *Conn) Write(data []byte) error {
 	return nil
 }
 
-func newConn(c net.Conn) Conn {
-	return Conn{
+func newTCPConn(
+	c net.Conn, opts ...ConnOption[tcpConn, *tcpConn],
+) (*tcpConn, error) {
+	tc := &tcpConn{
 		conn:          c,
 		reader:        bufio.NewReader(c),
 		isClosed:      false,
 		writeDeadline: 10 * time.Second,
 		readDeadline:  30 * time.Second,
 	}
+
+	for _, opt := range opts {
+		if err := opt(tc); err != nil {
+			return nil, err
+		}
+	}
+
+	return tc, nil
 }

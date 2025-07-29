@@ -2,28 +2,26 @@ package enigma
 
 import (
 	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha512"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"unsafe"
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
 )
 
 const (
-	nonceSize     = chacha20poly1305.NonceSize
-	uint64Size    = int(unsafe.Sizeof(uint64(0)))
-	BaseNonceSize = nonceSize - uint64Size
+	NonceSize      = chacha20poly1305.NonceSizeX
+	base32alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 )
 
 var (
-	ErrInvalidNonceLength = errors.New("bad nonce length")
+	ErrInvalidCiphertext = errors.New("ciphertext is not valid")
 
-	C2S    = "client-to-server-cipher"
-	S2C    = "server-to-client-cipher"
+	C2S    = "client-to-server"
+	S2C    = "server-to-client"
 	hasher = sha512.New
 )
 
@@ -32,35 +30,38 @@ type Enigma struct {
 	baseNonce []byte
 }
 
-func NewEnigma(secret, baseNonce []byte, info string) (*Enigma, error) {
-	if len(baseNonce) != BaseNonceSize {
-		return nil, ErrInvalidNonceLength
-	}
-	key, err := Derive(secret, nil, []byte(info), chacha20poly1305.KeySize)
+func NewEnigma(secret, salt, info []byte) (*Enigma, error) {
+	key, err := Derive(secret, salt, info, chacha20poly1305.KeySize)
 	if err != nil {
 		return nil, fmt.Errorf("derive key: %w", err)
 	}
-	aead, err := chacha20poly1305.New(key)
+	aead, err := chacha20poly1305.NewX(key)
 	if err != nil {
-		return nil, fmt.Errorf("chacha20poly1305: %w", err)
+		return nil, fmt.Errorf("chacha20poly1305X: %w", err)
 	}
 
-	return &Enigma{aead: aead, baseNonce: baseNonce}, nil
+	return &Enigma{aead: aead}, nil
 }
 
-func (e *Enigma) Encrypt(plaintext []byte, counter uint64) []byte {
-	return e.aead.Seal(nil, e.nonce(counter), plaintext, nil)
+func (e *Enigma) Encrypt(plaintext []byte) []byte {
+	nonce := make(
+		[]byte, NonceSize, NonceSize+len(plaintext)+e.aead.Overhead(),
+	)
+	rand.Read(nonce)
+	return e.aead.Seal(nonce, nonce, plaintext, nil)
 }
 
-func (e *Enigma) Decrypt(ciphertext []byte, counter uint64) ([]byte, error) {
-	return e.aead.Open(nil, e.nonce(counter), ciphertext, nil)
-}
+func (e *Enigma) Decrypt(ciphertext []byte) ([]byte, error) {
+	if len(ciphertext) < NonceSize {
+		return nil, ErrInvalidCiphertext
+	}
+	nonce, ciphertext := ciphertext[:NonceSize], ciphertext[NonceSize:]
+	plaintext, err := e.aead.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("aead.Open: %w", err)
+	}
 
-func (e *Enigma) nonce(counter uint64) []byte {
-	nonce := make([]byte, nonceSize)
-	copy(nonce[:BaseNonceSize], e.baseNonce)
-	binary.LittleEndian.PutUint64(nonce[BaseNonceSize:], counter)
-	return nonce
+	return plaintext, nil
 }
 
 func Derive(key, salt, info []byte, size int) ([]byte, error) {
@@ -70,4 +71,13 @@ func Derive(key, salt, info []byte, size int) ([]byte, error) {
 		return nil, err
 	}
 	return d, nil
+}
+
+func Text(l int) string {
+	src := make([]byte, l)
+	rand.Read(src)
+	for i := range src {
+		src[i] = base32alphabet[src[i]%32]
+	}
+	return string(src)
 }

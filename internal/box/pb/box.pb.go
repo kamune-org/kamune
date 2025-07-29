@@ -144,8 +144,7 @@ func (x *SignedTransport) GetPadding() []byte {
 
 type Metadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Sequence      uint64                 `protobuf:"varint,1,opt,name=Sequence,proto3" json:"Sequence,omitempty"`
-	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=Timestamp,proto3" json:"Timestamp,omitempty"`
+	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=Timestamp,proto3" json:"Timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -180,13 +179,6 @@ func (*Metadata) Descriptor() ([]byte, []int) {
 	return file_box_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *Metadata) GetSequence() uint64 {
-	if x != nil {
-		return x.Sequence
-	}
-	return 0
-}
-
 func (x *Metadata) GetTimestamp() *timestamppb.Timestamp {
 	if x != nil {
 		return x.Timestamp
@@ -198,7 +190,7 @@ type Handshake struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Padding       []byte                 `protobuf:"bytes,1,opt,name=padding,proto3" json:"padding,omitempty"`
 	Key           []byte                 `protobuf:"bytes,2,opt,name=Key,proto3" json:"Key,omitempty"`
-	Nonce         []byte                 `protobuf:"bytes,3,opt,name=Nonce,proto3" json:"Nonce,omitempty"`
+	Salt          []byte                 `protobuf:"bytes,3,opt,name=Salt,proto3" json:"Salt,omitempty"`
 	SessionKey    string                 `protobuf:"bytes,4,opt,name=SessionKey,proto3" json:"SessionKey,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -248,9 +240,9 @@ func (x *Handshake) GetKey() []byte {
 	return nil
 }
 
-func (x *Handshake) GetNonce() []byte {
+func (x *Handshake) GetSalt() []byte {
 	if x != nil {
-		return x.Nonce
+		return x.Salt
 	}
 	return nil
 }
@@ -274,14 +266,13 @@ const file_box_proto_rawDesc = "" +
 	"\x04Data\x18\x01 \x01(\fR\x04Data\x12\x1c\n" +
 	"\tSignature\x18\x02 \x01(\fR\tSignature\x12)\n" +
 	"\bMetadata\x18\x03 \x01(\v2\r.box.MetadataR\bMetadata\x12\x18\n" +
-	"\apadding\x18\x04 \x01(\fR\apadding\"`\n" +
-	"\bMetadata\x12\x1a\n" +
-	"\bSequence\x18\x01 \x01(\x04R\bSequence\x128\n" +
-	"\tTimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\"m\n" +
+	"\apadding\x18\x04 \x01(\fR\apadding\"D\n" +
+	"\bMetadata\x128\n" +
+	"\tTimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\"k\n" +
 	"\tHandshake\x12\x18\n" +
 	"\apadding\x18\x01 \x01(\fR\apadding\x12\x10\n" +
-	"\x03Key\x18\x02 \x01(\fR\x03Key\x12\x14\n" +
-	"\x05Nonce\x18\x03 \x01(\fR\x05Nonce\x12\x1e\n" +
+	"\x03Key\x18\x02 \x01(\fR\x03Key\x12\x12\n" +
+	"\x04Salt\x18\x03 \x01(\fR\x04Salt\x12\x1e\n" +
 	"\n" +
 	"SessionKey\x18\x04 \x01(\tR\n" +
 	"SessionKeyB\x06Z\x04./pbb\x06proto3"

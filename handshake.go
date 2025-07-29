@@ -17,49 +17,49 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("creating MLKEM keys: %w", err)
 	}
 
-	nonce := randomBytes(enigma.BaseNonceSize)
-	sessionKeyPrefix := rand.Text()
+	salt := randomBytes(saltSize)
+	sessionKeyPrefix := enigma.Text(sessionIDLength / 2)
 	req := &pb.Handshake{
 		Key:        ml.PublicKey.Bytes(),
-		Nonce:      nonce,
+		Salt:       salt,
 		SessionKey: sessionKeyPrefix,
 		Padding:    padding(handshakePadding),
 	}
-	reqBytes, _, err := pt.serialize(req, pt.sent.Load())
+	reqBytes, _, err := pt.serialize(req)
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake request: %w", err)
 	}
 	if err = pt.conn.Write(reqBytes); err != nil {
 		return nil, fmt.Errorf("writing handshake request: %w", err)
 	}
-	pt.sent.Add(1)
 
 	respBytes, err := pt.conn.Read()
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake response: %w", err)
 	}
 	var resp pb.Handshake
-	if _, err = pt.deserialize(respBytes, &resp, pt.received.Load()); err != nil {
+	if _, err = pt.deserialize(respBytes, &resp); err != nil {
 		return nil, fmt.Errorf("deserializing handshake response: %w", err)
 	}
-	pt.received.Add(1)
 	secret, err := ml.Decapsulate(resp.GetKey())
 	if err != nil {
 		return nil, fmt.Errorf("decapsulating secret: %w", err)
 	}
 
 	sessionID := sessionKeyPrefix + resp.GetSessionKey()
-	encoder, err := enigma.NewEnigma(secret, nonce, sessionID+enigma.C2S)
+	encoder, err := enigma.NewEnigma(secret, salt, []byte(sessionID+enigma.C2S))
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
-	decoder, err := enigma.NewEnigma(secret, resp.GetNonce(), sessionID+enigma.S2C)
+	decoder, err := enigma.NewEnigma(
+		secret, resp.GetSalt(), []byte(sessionID+enigma.S2C),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
 	t := newTransport(pt, sessionID, encoder, decoder)
-	if err := sendChallenge(t, sessionID); err != nil {
+	if err := sendChallenge(t, secret, []byte(sessionID)); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
 	if err := acceptChallenge(t); err != nil {
@@ -75,37 +75,38 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("reading handshake request: %w", err)
 	}
 	var req pb.Handshake
-	if _, err = pt.deserialize(reqBytes, &req, pt.received.Load()); err != nil {
+	if _, err = pt.deserialize(reqBytes, &req); err != nil {
 		return nil, fmt.Errorf("deserializing handshake request: %w", err)
 	}
-	pt.received.Add(1)
 	secret, ct, err := exchange.EncapsulateMLKEM(req.GetKey())
 	if err != nil {
 		return nil, fmt.Errorf("encapsulating key: %w", err)
 	}
-	sessionKeySuffix := rand.Text()
+
+	sessionKeySuffix := enigma.Text(sessionIDLength / 2)
 	sessionID := req.GetSessionKey() + sessionKeySuffix
-	nonce := randomBytes(enigma.BaseNonceSize)
+	salt := randomBytes(saltSize)
 	resp := &pb.Handshake{
 		Key:        ct,
-		Nonce:      nonce,
+		Salt:       salt,
 		SessionKey: sessionKeySuffix,
 		Padding:    padding(handshakePadding),
 	}
-	respBytes, _, err := pt.serialize(resp, pt.sent.Load())
+	respBytes, _, err := pt.serialize(resp)
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake response: %w", err)
 	}
 	if err = pt.conn.Write(respBytes); err != nil {
 		return nil, fmt.Errorf("writing handshake response: %w", err)
 	}
-	pt.sent.Add(1)
 
-	encoder, err := enigma.NewEnigma(secret, nonce, sessionID+enigma.S2C)
+	encoder, err := enigma.NewEnigma(secret, salt, []byte(sessionID+enigma.S2C))
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
-	decoder, err := enigma.NewEnigma(secret, req.GetNonce(), sessionID+enigma.C2S)
+	decoder, err := enigma.NewEnigma(
+		secret, req.GetSalt(), []byte(sessionID+enigma.C2S),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
@@ -114,17 +115,15 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 	if err := acceptChallenge(t); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
-	if err := sendChallenge(t, sessionID); err != nil {
+	if err := sendChallenge(t, secret, []byte(sessionID)); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
 
 	return t, nil
 }
 
-func sendChallenge(t *Transport, sessionID string) error {
-	challenge, err := enigma.Derive(
-		[]byte(rand.Text()), nil, []byte(sessionID), challengeSize,
-	)
+func sendChallenge(t *Transport, secret, sessionID []byte) error {
+	challenge, err := enigma.Derive(secret, nil, sessionID, challengeSize)
 	if err != nil {
 		return fmt.Errorf("deriving a challenge: %w", err)
 	}
@@ -157,9 +156,7 @@ func acceptChallenge(t *Transport) error {
 
 func randomBytes(l int) []byte {
 	rnd := make([]byte, l)
-	if _, err := rand.Read(rnd); err != nil {
-		panic(fmt.Errorf("generating random bytes: %w", err))
-	}
+	rand.Read(rnd)
 	return rnd
 }
 

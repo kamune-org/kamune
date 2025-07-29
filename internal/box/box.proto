@@ -17,13 +17,12 @@ message SignedTransport {
 }
 
 message Metadata {
-  uint64 Sequence = 1;
-  google.protobuf.Timestamp Timestamp = 2;
+  google.protobuf.Timestamp Timestamp = 1;
 }
 
 message Handshake {
   bytes padding = 1;
   bytes Key = 2;
-  bytes Nonce = 3;
+  bytes Salt = 3;
   string SessionKey = 4;
 }

@@ -30,32 +30,33 @@ func (s *Server) ListenAndServe() error {
 
 func (s *Server) Serve(l net.Listener) error {
 	for {
-		conn, err := l.Accept()
+		c, err := l.Accept()
 		if err != nil {
 			s.log(slog.LevelError, "accept conn", slog.Any("err", err))
 			continue
 		}
 		go func() {
+			conn, _ := newTCPConn(c)
 			if err := s.serve(conn); err != nil {
 				s.log(slog.LevelWarn, "serve conn", slog.Any("err", err))
-				return
 			}
 		}()
+
 	}
 }
 
-func (s *Server) serve(c net.Conn) error {
-	conn := newConn(c)
+func (s *Server) serve(conn Conn) error {
 	defer func() {
 		if err := recover(); err != nil {
 			s.log(slog.LevelError, "serve panic", slog.Any("err", err))
 		}
-		if !conn.isClosed {
-			if err := conn.Close(); err != nil {
-				s.log(slog.LevelError, "close conn", slog.Any("err", err))
-			}
+		err := conn.Close()
+		if err != nil && !errors.Is(err, ErrConnClosed) {
+			s.log(slog.LevelError, "close conn", slog.Any("err", err))
 		}
 	}()
+
+	// TODO(h.yazdani): support multiple routes
 
 	remote, err := receiveIntroduction(conn)
 	if err != nil {

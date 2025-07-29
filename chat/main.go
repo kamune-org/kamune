@@ -65,7 +65,7 @@ func serveHandler(t *kamune.Transport) error {
 		b := kamune.Bytes(nil)
 		metadata, err := t.Receive(b)
 		if err != nil {
-			if errors.Is(err, kamune.ErrConnClosedByRemote) {
+			if errors.Is(err, kamune.ErrConnClosed) {
 				p.Quit()
 				return nil
 			}
@@ -115,7 +115,7 @@ func client(addr string) {
 		b := kamune.Bytes(nil)
 		metadata, err := t.Receive(b)
 		if err != nil {
-			if errors.Is(err, kamune.ErrConnClosedByRemote) {
+			if errors.Is(err, kamune.ErrConnClosed) {
 				p.Quit()
 				return
 			}
