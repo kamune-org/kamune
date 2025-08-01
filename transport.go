@@ -32,7 +32,7 @@ var (
 )
 
 type plainTransport struct {
-	conn   Conn
+	conn   *Conn
 	attest *attest.Attest
 	remote *attest.PublicKey
 }

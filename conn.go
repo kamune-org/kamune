@@ -9,43 +9,25 @@ import (
 	"time"
 )
 
-type Conn interface {
-	Read() ([]byte, error)
-	Write([]byte) error
-	Close() error
-}
+type ConnType int
 
-type ConnOption[
-	T any,
-	P interface {
-		*T
-		Conn
-	},
-] func(P) error
+const (
+	TCP ConnType = iota
+	UDP
+)
 
-func TCPConnWithReadTimeout(timeout time.Duration) ConnOption[tcpConn, *tcpConn] {
-	return func(conn *tcpConn) error {
-		conn.readDeadline = timeout
-		return nil
-	}
-}
-
-func TCPConnWithWriteTimeout(timeout time.Duration) ConnOption[tcpConn, *tcpConn] {
-	return func(conn *tcpConn) error {
-		conn.writeDeadline = timeout
-		return nil
-	}
-}
-
-type tcpConn struct {
+type Conn struct {
 	conn          net.Conn
 	reader        *bufio.Reader
+	connType      ConnType
 	isClosed      bool
 	readDeadline  time.Duration
 	writeDeadline time.Duration
 }
 
-func (c *tcpConn) Close() error {
+type ConnOption func(*Conn) error
+
+func (c *Conn) Close() error {
 	if c.isClosed {
 		return ErrConnClosed
 	}
@@ -58,9 +40,9 @@ func (c *tcpConn) Close() error {
 	return nil
 }
 
-//TODO(h.yazdani): support chunked read and writes
+// TODO(h.yazdani): support chunked read and writes
 
-func (c *tcpConn) Read() ([]byte, error) {
+func (c *Conn) Read() ([]byte, error) {
 	err := c.conn.SetReadDeadline(time.Now().Add(c.readDeadline))
 	if err != nil {
 		return nil, fmt.Errorf("setting read deadline: %w", err)
@@ -73,7 +55,7 @@ func (c *tcpConn) Read() ([]byte, error) {
 	//  error it must be fully read (and discarded).
 
 	var lenBuf [2]byte
-	if _, err := io.ReadFull(c.conn, lenBuf[:]); err != nil {
+	if _, err := io.ReadFull(c.reader, lenBuf[:]); err != nil {
 		return nil, fmt.Errorf("reading length: %w", err)
 	}
 	msgLen := binary.BigEndian.Uint16(lenBuf[:])
@@ -82,14 +64,19 @@ func (c *tcpConn) Read() ([]byte, error) {
 	}
 
 	buf := make([]byte, msgLen)
-	n, err := c.reader.Read(buf)
-	if err != nil {
-		return nil, fmt.Errorf("reading message: %w", err)
+	var n int
+	if n, err = io.ReadFull(c.reader, buf[:]); err != nil {
+		return nil, fmt.Errorf("reading length: %w", err)
 	}
-	return buf[:n], nil
+	switch {
+	case n != int(msgLen):
+		return nil, fmt.Errorf("expected %d bytes, read %d", msgLen, n)
+	default:
+		return buf, nil
+	}
 }
 
-func (c *tcpConn) Write(data []byte) error {
+func (c *Conn) Write(data []byte) error {
 	err := c.conn.SetWriteDeadline(time.Now().Add(c.writeDeadline))
 	if err != nil {
 		return fmt.Errorf("setting write deadline: %w", err)
@@ -108,28 +95,41 @@ func (c *tcpConn) Write(data []byte) error {
 		return fmt.Errorf("writing length: %w", err)
 	}
 
-	if _, err := c.conn.Write(data); err != nil {
+	if _, err = c.conn.Write(data); err != nil {
 		return fmt.Errorf("writing message: %w", err)
 	}
 	return nil
 }
 
-func newTCPConn(
-	c net.Conn, opts ...ConnOption[tcpConn, *tcpConn],
-) (*tcpConn, error) {
-	tc := &tcpConn{
+func ConnWithReadTimeout(timeout time.Duration) ConnOption {
+	return func(conn *Conn) error {
+		conn.readDeadline = timeout
+		return nil
+	}
+}
+
+func ConnWithWriteTimeout(timeout time.Duration) ConnOption {
+	return func(conn *Conn) error {
+		conn.writeDeadline = timeout
+		return nil
+	}
+}
+
+func newConn(c net.Conn, opts ...ConnOption) (*Conn, error) {
+	conn := &Conn{
 		conn:          c,
 		reader:        bufio.NewReader(c),
+		connType:      TCP,
 		isClosed:      false,
-		writeDeadline: 10 * time.Second,
-		readDeadline:  30 * time.Second,
+		writeDeadline: 1 * time.Minute,
+		readDeadline:  10 * time.Minute,
 	}
 
 	for _, opt := range opts {
-		if err := opt(tc); err != nil {
+		if err := opt(conn); err != nil {
 			return nil, err
 		}
 	}
 
-	return tc, nil
+	return conn, nil
 }

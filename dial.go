@@ -6,33 +6,43 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
+
+	"github.com/xtaci/kcp-go/v5"
 
 	"github.com/hossein1376/kamune/pkg/attest"
 )
 
 type dialer struct {
-	conn           Conn
-	verifyRemote   RemoteVerifier
-	connOverridden bool
+	conn         *Conn
+	connType     ConnType
+	connOpts     []ConnOption
+	verifyRemote RemoteVerifier
+	readTimeout  time.Duration
+	writeTimeout time.Duration
+	dialTimeout  time.Duration
 }
 
 func Dial(addr string, opts ...DialOption) (*Transport, error) {
-	d := &dialer{}
+	d := &dialer{
+		connType:     TCP,
+		readTimeout:  10 * time.Minute,
+		writeTimeout: 1 * time.Minute,
+		dialTimeout:  10 * time.Second,
+		verifyRemote: defaultRemoteVerifier,
+	}
 	for _, opt := range opts {
 		if err := opt(d); err != nil {
 			return nil, fmt.Errorf("applying options: %w", err)
 		}
 	}
 
-	if d.verifyRemote == nil {
-		d.verifyRemote = defaultRemoteVerifier
-	}
-	if !d.connOverridden {
-		conn, err := net.Dial("tcp", addr)
+	if d.conn == nil {
+		c, err := d.dial(addr)
 		if err != nil {
-			return nil, fmt.Errorf("dialing address: %w", err)
+			return nil, fmt.Errorf("dialing: %w", err)
 		}
-		d.conn, _ = newTCPConn(conn)
+		d.conn = c
 	}
 
 	transport, err := d.handshake()
@@ -41,6 +51,33 @@ func Dial(addr string, opts ...DialOption) (*Transport, error) {
 	}
 
 	return transport, err
+}
+
+func (d dialer) dial(addr string) (*Conn, error) {
+	switch d.connType {
+	case TCP:
+		c, err := net.Dial("tcp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("dialing tcp: %w", err)
+		}
+		conn, err := newConn(c, d.connOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("new tcp conn: %w", err)
+		}
+		return conn, nil
+	case UDP:
+		c, err := kcp.Dial(addr)
+		if err != nil {
+			return nil, fmt.Errorf("dialing udp: %w", err)
+		}
+		conn, err := newConn(c, d.connOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("new udp conn: %w", err)
+		}
+		return conn, nil
+	default:
+		panic("unknown connection type")
+	}
 }
 
 func (d *dialer) handshake() (*Transport, error) {
@@ -90,13 +127,49 @@ func DialWithRemoteVerifier(verifier RemoteVerifier) DialOption {
 	}
 }
 
-func DialWithExistingConn(conn Conn) DialOption {
+func DialWithExistingConn(conn *Conn) DialOption {
 	return func(d *dialer) error {
-		if d.connOverridden {
+		if d.conn != nil {
 			return errors.New("already have a conn override")
 		}
 		d.conn = conn
-		d.connOverridden = true
+		return nil
+	}
+}
+
+func DialWithReadTimeout(timeout time.Duration) DialOption {
+	return func(d *dialer) error {
+		d.readTimeout = timeout
+		return nil
+	}
+}
+
+func DialWithWriteTimeout(timeout time.Duration) DialOption {
+	return func(d *dialer) error {
+		d.writeTimeout = timeout
+		return nil
+	}
+}
+
+func DialWithDialTimeout(timeout time.Duration) DialOption {
+	return func(d *dialer) error {
+		d.dialTimeout = timeout
+		return nil
+	}
+}
+
+func DialWithTCPConn(opts ...ConnOption) DialOption {
+	return func(d *dialer) error {
+		d.connType = TCP
+		d.connOpts = opts
+		return nil
+	}
+}
+
+func DialWithUDPConn(opts ...ConnOption) DialOption {
+	return func(d *dialer) error {
+		d.connType = UDP
+		d.connOpts = opts
 		return nil
 	}
 }

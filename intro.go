@@ -45,7 +45,7 @@ func defaultRemoteVerifier(remote PublicKey) error {
 	return nil
 }
 
-func sendIntroduction(conn Conn, at *attest.Attest) error {
+func sendIntroduction(conn *Conn, at *attest.Attest) error {
 	intro := &pb.Introduce{
 		Public:  at.MarshalPublicKey(),
 		Padding: padding(introducePadding),
@@ -61,7 +61,7 @@ func sendIntroduction(conn Conn, at *attest.Attest) error {
 	return nil
 }
 
-func receiveIntroduction(conn Conn) (*attest.PublicKey, error) {
+func receiveIntroduction(conn *Conn) (*attest.PublicKey, error) {
 	payload, err := conn.Read()
 	if err != nil {
 		return nil, fmt.Errorf("reading payload: %w", err)

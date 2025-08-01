@@ -77,7 +77,7 @@ func serveHandler(t *kamune.Transport) error {
 }
 
 func server(addr string) {
-	srv, err := kamune.NewServer(addr, serveHandler)
+	srv, err := kamune.NewServer(addr, serveHandler, kamune.ServeWithUDP())
 	if err != nil {
 		errCh <- fmt.Errorf("starting server: %w", err)
 		return
@@ -90,7 +90,7 @@ func client(addr string) {
 	for {
 		var opErr *net.OpError
 		var err error
-		t, err = kamune.Dial(addr)
+		t, err = kamune.Dial(addr, kamune.DialWithUDPConn())
 		if err == nil {
 			break
 		}

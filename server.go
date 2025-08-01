@@ -1,11 +1,12 @@
 package kamune
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+
+	"github.com/xtaci/kcp-go/v5"
 
 	"github.com/hossein1376/kamune/pkg/attest"
 )
@@ -16,43 +17,57 @@ type Server struct {
 	addr           string
 	handlerFunc    HandlerFunc
 	remoteVerifier RemoteVerifier
+	connType       ConnType
+	connOpts       []ConnOption
 	attest         *attest.Attest
 }
 
 func (s *Server) ListenAndServe() error {
-	l, err := net.Listen("tcp", s.addr)
+	l, err := s.listen()
 	if err != nil {
-		return fmt.Errorf("listening on %s: %w", s.addr, err)
+		return fmt.Errorf("listening: %w", err)
 	}
 	defer l.Close()
-	return s.Serve(l)
-}
 
-func (s *Server) Serve(l net.Listener) error {
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			s.log(slog.LevelError, "accept conn", slog.Any("err", err))
+			slog.Error("accept conn", slog.Any("err", err))
 			continue
 		}
 		go func() {
-			conn, _ := newTCPConn(c)
-			if err := s.serve(conn); err != nil {
-				s.log(slog.LevelWarn, "serve conn", slog.Any("err", err))
+			conn, err := newConn(c, s.connOpts...)
+			if err != nil {
+				slog.Error("new tcp conn", slog.Any("err", err))
+				return
+			}
+			err = s.serve(conn)
+			if err != nil {
+				slog.Error("serve conn", slog.Any("err", err))
 			}
 		}()
-
 	}
 }
 
-func (s *Server) serve(conn Conn) error {
+func (s *Server) listen() (net.Listener, error) {
+	switch s.connType {
+	case TCP:
+		return net.Listen("tcp", s.addr)
+	case UDP:
+		return kcp.Listen(s.addr)
+	default:
+		panic(fmt.Sprintf("unknown conn type: %v", s.connType))
+	}
+}
+
+func (s *Server) serve(conn *Conn) error {
 	defer func() {
 		if err := recover(); err != nil {
-			s.log(slog.LevelError, "serve panic", slog.Any("err", err))
+			slog.Error("serve panic", slog.Any("err", err))
 		}
 		err := conn.Close()
 		if err != nil && !errors.Is(err, ErrConnClosed) {
-			s.log(slog.LevelError, "close conn", slog.Any("err", err))
+			slog.Error("close conn", slog.Any("err", err))
 		}
 	}()
 
@@ -82,10 +97,6 @@ func (s *Server) serve(conn Conn) error {
 	return nil
 }
 
-func (s *Server) log(lvl slog.Level, msg string, args ...any) {
-	slog.Log(context.Background(), lvl, msg, args...)
-}
-
 func NewServer(
 	addr string, handler HandlerFunc, opts ...ServerOptions,
 ) (*Server, error) {
@@ -94,7 +105,12 @@ func NewServer(
 		return nil, fmt.Errorf("loading identity: %w", err)
 	}
 
-	s := &Server{attest: at, addr: addr, handlerFunc: handler}
+	s := &Server{
+		addr:        addr,
+		connType:    TCP,
+		attest:      at,
+		handlerFunc: handler,
+	}
 	for _, o := range opts {
 		if err := o(s); err != nil {
 			return nil, fmt.Errorf("applying options: %w", err)
@@ -115,6 +131,28 @@ func ServeWithRemoteVerifier(remote RemoteVerifier) ServerOptions {
 			return errors.New("server already has a remote verifier")
 		}
 		s.remoteVerifier = remote
+		return nil
+	}
+}
+
+func ServeWithTCP(opts ...ConnOption) ServerOptions {
+	return func(s *Server) error {
+		if s.connOpts != nil {
+			return errors.New("server already has a conn opts")
+		}
+		s.connType = TCP
+		s.connOpts = opts
+		return nil
+	}
+}
+
+func ServeWithUDP(opts ...ConnOption) ServerOptions {
+	return func(s *Server) error {
+		if s.connOpts != nil {
+			return errors.New("server already has a conn opts")
+		}
+		s.connType = UDP
+		s.connOpts = opts
 		return nil
 	}
 }
