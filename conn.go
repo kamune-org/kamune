@@ -9,17 +9,17 @@ import (
 	"time"
 )
 
-type ConnType int
+type connType int
 
 const (
-	TCP ConnType = iota
-	UDP
+	tcp connType = iota
+	udp
 )
 
 type Conn struct {
 	conn          net.Conn
 	reader        *bufio.Reader
-	connType      ConnType
+	connType      connType
 	isClosed      bool
 	readDeadline  time.Duration
 	writeDeadline time.Duration
@@ -119,7 +119,7 @@ func newConn(c net.Conn, opts ...ConnOption) (*Conn, error) {
 	conn := &Conn{
 		conn:          c,
 		reader:        bufio.NewReader(c),
-		connType:      TCP,
+		connType:      tcp,
 		isClosed:      false,
 		writeDeadline: 1 * time.Minute,
 		readDeadline:  10 * time.Minute,

@@ -13,17 +13,6 @@ import (
 	"github.com/hossein1376/kamune/pkg/attest"
 )
 
-const (
-	// must be less than or equal to [math.MaxUint16]
-	maxTransportSize = 10 * 1024
-	saltSize         = 16
-	sessionIDLength  = 30
-	challengeSize    = 32
-	introducePadding = 512
-	messagePadding   = 128
-	handshakePadding = 32
-)
-
 var (
 	ErrConnClosed         = errors.New("connection has been closed")
 	ErrInvalidSignature   = errors.New("invalid signature")

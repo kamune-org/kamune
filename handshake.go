@@ -47,19 +47,19 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 	}
 
 	sessionID := sessionKeyPrefix + resp.GetSessionKey()
-	encoder, err := enigma.NewEnigma(secret, salt, []byte(sessionID+enigma.C2S))
+	encoder, err := enigma.NewEnigma(secret, salt, []byte(sessionID+c2s))
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
 	decoder, err := enigma.NewEnigma(
-		secret, resp.GetSalt(), []byte(sessionID+enigma.S2C),
+		secret, resp.GetSalt(), []byte(sessionID+s2c),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
 	t := newTransport(pt, sessionID, encoder, decoder)
-	if err := sendChallenge(t, secret, []byte(sessionID)); err != nil {
+	if err := sendChallenge(t, secret, []byte(sessionID+c2s)); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
 	if err := acceptChallenge(t); err != nil {
@@ -100,12 +100,12 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("writing handshake response: %w", err)
 	}
 
-	encoder, err := enigma.NewEnigma(secret, salt, []byte(sessionID+enigma.S2C))
+	encoder, err := enigma.NewEnigma(secret, salt, []byte(sessionID+s2c))
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
 	decoder, err := enigma.NewEnigma(
-		secret, req.GetSalt(), []byte(sessionID+enigma.C2S),
+		secret, req.GetSalt(), []byte(sessionID+c2s),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
@@ -115,15 +115,15 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 	if err := acceptChallenge(t); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
-	if err := sendChallenge(t, secret, []byte(sessionID)); err != nil {
+	if err := sendChallenge(t, secret, []byte(sessionID+s2c)); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
 
 	return t, nil
 }
 
-func sendChallenge(t *Transport, secret, sessionID []byte) error {
-	challenge, err := enigma.Derive(secret, nil, sessionID, challengeSize)
+func sendChallenge(t *Transport, secret, info []byte) error {
+	challenge, err := enigma.Derive(secret, nil, info, challengeSize)
 	if err != nil {
 		return fmt.Errorf("deriving a challenge: %w", err)
 	}

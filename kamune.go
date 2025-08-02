@@ -10,6 +10,20 @@ import (
 	"github.com/hossein1376/kamune/internal/box/pb"
 )
 
+const (
+	// must be less than or equal to [math.MaxUint16]
+	maxTransportSize = 10 * 1024
+	saltSize         = 16
+	sessionIDLength  = 30
+	challengeSize    = 32
+	introducePadding = 512
+	messagePadding   = 128
+	handshakePadding = 32
+
+	c2s = "client-to-server"
+	s2c = "server-to-client"
+)
+
 type Transferable interface {
 	proto.Message
 }

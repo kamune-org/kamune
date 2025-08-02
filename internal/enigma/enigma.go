@@ -19,10 +19,7 @@ const (
 
 var (
 	ErrInvalidCiphertext = errors.New("ciphertext is not valid")
-
-	C2S    = "client-to-server"
-	S2C    = "server-to-client"
-	hasher = sha512.New
+	hasher               = sha512.New
 )
 
 type Enigma struct {

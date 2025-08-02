@@ -15,7 +15,7 @@ import (
 
 type dialer struct {
 	conn         *Conn
-	connType     ConnType
+	connType     connType
 	connOpts     []ConnOption
 	verifyRemote RemoteVerifier
 	readTimeout  time.Duration
@@ -25,7 +25,7 @@ type dialer struct {
 
 func Dial(addr string, opts ...DialOption) (*Transport, error) {
 	d := &dialer{
-		connType:     TCP,
+		connType:     tcp,
 		readTimeout:  10 * time.Minute,
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
@@ -55,7 +55,7 @@ func Dial(addr string, opts ...DialOption) (*Transport, error) {
 
 func (d dialer) dial(addr string) (*Conn, error) {
 	switch d.connType {
-	case TCP:
+	case tcp:
 		c, err := net.Dial("tcp", addr)
 		if err != nil {
 			return nil, fmt.Errorf("dialing tcp: %w", err)
@@ -65,7 +65,7 @@ func (d dialer) dial(addr string) (*Conn, error) {
 			return nil, fmt.Errorf("new tcp conn: %w", err)
 		}
 		return conn, nil
-	case UDP:
+	case udp:
 		c, err := kcp.Dial(addr)
 		if err != nil {
 			return nil, fmt.Errorf("dialing udp: %w", err)
@@ -160,7 +160,7 @@ func DialWithDialTimeout(timeout time.Duration) DialOption {
 
 func DialWithTCPConn(opts ...ConnOption) DialOption {
 	return func(d *dialer) error {
-		d.connType = TCP
+		d.connType = tcp
 		d.connOpts = opts
 		return nil
 	}
@@ -168,7 +168,7 @@ func DialWithTCPConn(opts ...ConnOption) DialOption {
 
 func DialWithUDPConn(opts ...ConnOption) DialOption {
 	return func(d *dialer) error {
-		d.connType = UDP
+		d.connType = udp
 		d.connOpts = opts
 		return nil
 	}

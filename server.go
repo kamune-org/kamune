@@ -17,7 +17,7 @@ type Server struct {
 	addr           string
 	handlerFunc    HandlerFunc
 	remoteVerifier RemoteVerifier
-	connType       ConnType
+	connType       connType
 	connOpts       []ConnOption
 	attest         *attest.Attest
 }
@@ -51,9 +51,9 @@ func (s *Server) ListenAndServe() error {
 
 func (s *Server) listen() (net.Listener, error) {
 	switch s.connType {
-	case TCP:
+	case tcp:
 		return net.Listen("tcp", s.addr)
-	case UDP:
+	case udp:
 		return kcp.Listen(s.addr)
 	default:
 		panic(fmt.Sprintf("unknown conn type: %v", s.connType))
@@ -107,7 +107,7 @@ func NewServer(
 
 	s := &Server{
 		addr:        addr,
-		connType:    TCP,
+		connType:    tcp,
 		attest:      at,
 		handlerFunc: handler,
 	}
@@ -140,7 +140,7 @@ func ServeWithTCP(opts ...ConnOption) ServerOptions {
 		if s.connOpts != nil {
 			return errors.New("server already has a conn opts")
 		}
-		s.connType = TCP
+		s.connType = tcp
 		s.connOpts = opts
 		return nil
 	}
@@ -151,7 +151,7 @@ func ServeWithUDP(opts ...ConnOption) ServerOptions {
 		if s.connOpts != nil {
 			return errors.New("server already has a conn opts")
 		}
-		s.connType = UDP
+		s.connType = udp
 		s.connOpts = opts
 		return nil
 	}
