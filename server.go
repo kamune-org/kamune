@@ -15,11 +15,11 @@ type HandlerFunc func(t *Transport) error
 
 type Server struct {
 	addr           string
+	connType       connType
 	handlerFunc    HandlerFunc
 	remoteVerifier RemoteVerifier
-	connType       connType
+	attest         attest.Attest
 	connOpts       []ConnOption
-	attest         *attest.Attest
 }
 
 func (s *Server) ListenAndServe() error {

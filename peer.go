@@ -2,6 +2,7 @@ package kamune
 
 import (
 	"bytes"
+	"crypto/sha3"
 	"errors"
 	"fmt"
 	"os"
@@ -47,13 +48,45 @@ func init() {
 	}
 }
 
-func isPeerKnown(claim []byte) bool {
+var emojiList = []string{
+	// 😀 Faces (16)
+	"😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂",
+	"🙂", "🙃", "😉", "😊", "😇", "😍", "😋", "😜",
+
+	// 🐾 Animals (8)
+	"🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼",
+
+	// 🌿 Nature (8)
+	"🌸", "🌼", "🌻", "🌹", "🌺", "🌷", "🌳", "🌵",
+
+	// 🍔 Food (8)
+	"🍎", "🍌", "🍇", "🍓", "🍒", "🍕", "🍔", "🍟",
+
+	// 💡 Objects (8)
+	"💡", "📱", "💻", "📷", "🎧", "🎮", "📚", "📦",
+
+	// 🔣 Symbols (16)
+	"❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍",
+	"✨", "🔥", "🌈", "🎉", "🎶", "🔒", "📌", "✅",
+}
+
+func emojiFingerprint(s string, length int) []string {
+	hash := sha3.Sum256([]byte(s))
+	emojis := make([]string, length)
+	for i := range length {
+		b := hash[i]
+		emojis[i] = emojiList[int(b)%len(emojiList)]
+	}
+	return emojis
+}
+
+func isPeerKnown(claim string) bool {
 	peers, err := os.ReadFile(filepath.Join(baseDir, knownPeersName))
 	if err != nil {
 		return false
 	}
 	for _, peer := range bytes.Split(peers, []byte("\n")) {
-		if bytes.Compare(peer, claim) == 0 {
+		if bytes.Compare(peer, []byte(claim)) == 0 {
 			return true
 		}
 	}
@@ -61,7 +94,7 @@ func isPeerKnown(claim []byte) bool {
 	return false
 }
 
-func trustPeer(peer []byte) error {
+func trustPeer(peer string) error {
 	f, err := os.OpenFile(
 		filepath.Join(baseDir, knownPeersName),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
@@ -71,7 +104,7 @@ func trustPeer(peer []byte) error {
 		return fmt.Errorf("opening file: %w", err)
 	}
 	defer f.Close()
-	if _, err := f.Write(append(peer, '\n')); err != nil {
+	if _, err := f.Write(append([]byte(peer), '\n')); err != nil {
 		return fmt.Errorf("writing to file: %w", err)
 	}
 
@@ -82,7 +115,7 @@ func newCert() error {
 	if err := os.MkdirAll(baseDir, 0700); err != nil {
 		return fmt.Errorf("MkdirAll: %w", err)
 	}
-	id, err := attest.New()
+	id, err := attest.NewEd25519()
 	if err != nil {
 		return fmt.Errorf("new attest: %w", err)
 	}

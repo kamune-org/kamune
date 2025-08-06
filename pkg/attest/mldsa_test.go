@@ -10,16 +10,16 @@ import (
 	"github.com/hossein1376/kamune/pkg/attest"
 )
 
-func TestEd25519(t *testing.T) {
+func TestMLDSA(t *testing.T) {
 	a := require.New(t)
 	msg := []byte(rand.Text())
 
-	e, err := attest.NewEd25519()
+	m, err := attest.NewMLDSA()
 	a.NoError(err)
-	a.NotNil(e)
-	pub := e.PublicKey()
+	a.NotNil(m)
+	pub := m.PublicKey()
 	a.NotNil(pub)
-	sig, err := e.Sign(msg, nil)
+	sig, err := m.Sign(msg, nil)
 	a.NoError(err)
 	a.NotNil(sig)
 
@@ -29,7 +29,7 @@ func TestEd25519(t *testing.T) {
 	})
 	t.Run("invalid signature", func(t *testing.T) {
 		sig := slices.Clone(sig)
-		sig[0] ^= 0xFF
+		sig[0] ^= 0xDD
 
 		verified := attest.Verify(pub, msg, sig)
 		a.False(verified)
@@ -41,7 +41,7 @@ func TestEd25519(t *testing.T) {
 		a.False(verified)
 	})
 	t.Run("invalid public key", func(t *testing.T) {
-		another, err := attest.NewEd25519()
+		another, err := attest.NewMLDSA()
 		a.NoError(err)
 		verified := attest.Verify(another.PublicKey(), msg, sig)
 		a.False(verified)

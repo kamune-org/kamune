@@ -22,8 +22,8 @@ var (
 
 type plainTransport struct {
 	conn   *Conn
-	attest *attest.Attest
-	remote *attest.PublicKey
+	attest attest.Attest
+	remote attest.PublicKey
 }
 
 func (pt *plainTransport) serialize(msg Transferable) ([]byte, *Metadata, error) {
@@ -31,7 +31,7 @@ func (pt *plainTransport) serialize(msg Transferable) ([]byte, *Metadata, error)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshalling message: %w", err)
 	}
-	sig, err := pt.attest.Sign(message)
+	sig, err := pt.attest.Sign(message, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("signing: %w", err)
 	}

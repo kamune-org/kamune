@@ -21,8 +21,8 @@ type ConcurrentMap[T comparable, S any] struct {
 	mu sync.RWMutex
 }
 
-func New[T comparable, S any]() *ConcurrentMap[T, S] {
-	return &ConcurrentMap[T, S]{m: make(map[T]S)}
+func New[T comparable, S any](capacity int) *ConcurrentMap[T, S] {
+	return &ConcurrentMap[T, S]{m: make(map[T]S, capacity)}
 }
 
 func (c *ConcurrentMap[T, S]) Add(key T, value S) {

@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	// must be less than or equal to [math.MaxUint16]
+	// must be less than or equal to 65535 ([math.MaxUint16])
 	maxTransportSize = 10 * 1024
 	saltSize         = 16
 	sessionIDLength  = 30

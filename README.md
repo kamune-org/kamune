@@ -3,7 +3,7 @@
 Communication over untrusted networks.
 
 Kamune provides `Ed25519_ML-KEM-768_HKDF_SHA512_ChaCha20-Poly1305X` security
-suite.
+suite. Optionally, `ML-DSA` can be used for full quantum safety.
 
 ![demo](.assets/demo.gif)
 
@@ -13,11 +13,13 @@ suite.
 
 ## Features
 
-- Message signing and verification using **Ed25519**
+- Message signing and verification using **Ed25519**, with support for
+  quantum safe **ML-DSA-65**
 - Ephemeral, quantum-resistant key encapsulation with **ML-KEM-768**
 - Key derivation via **HKDF-SHA512** (HMAC-based extract-and-expand)
 - End-to-End, bidirectional symmetric encryption using **ChaCha20-Poly1305X**
-- Lightweight, custom **TCP-based protocol** for minimal overhead
+- Lightweight, custom protocol implemented in both **TCP and UDP** for minimal
+  overhead and latency
 - **Real-time, instant messaging** over socket-based connection
 - **Direct peer-to-peer communication**, no intermediary server required
 - **Protobuf** for fast, compact binary message encoding

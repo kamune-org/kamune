@@ -2,7 +2,6 @@ package kamune
 
 import (
 	"bufio"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -13,17 +12,18 @@ import (
 	"github.com/hossein1376/kamune/pkg/attest"
 )
 
-type PublicKey = *attest.PublicKey
+type PublicKey = attest.PublicKey
 
 type RemoteVerifier func(key PublicKey) (err error)
 
 func defaultRemoteVerifier(remote PublicKey) error {
-	key := base64.StdEncoding.EncodeToString(remote.Marshal())
-	keyBytes := []byte(key)
-	fmt.Printf("Peer's public key: %s\n", key)
-	known := isPeerKnown(keyBytes)
+	key := remote.Base64Encoding()
+	fingerprint := emojiFingerprint(key, 8)
+	fmt.Printf("Peer's fingerprint: %s\n", strings.Join(fingerprint, " · "))
+
+	known := isPeerKnown(key)
 	if !known {
-		fmt.Println("Peer is not known. They will be added to the trusted list if you continue.")
+		fmt.Println("Peer is not known. They will be added to the known list if you continue.")
 	}
 	fmt.Printf("Proceed? (y/N)? ")
 
@@ -35,19 +35,19 @@ func defaultRemoteVerifier(remote PublicKey) error {
 	}
 
 	if !known {
-		if err := trustPeer(keyBytes); err != nil {
-			fmt.Printf("Error adding peer to the trusted list: %s\n", err)
+		if err := trustPeer(key); err != nil {
+			fmt.Printf("Error adding peer to the known list: %s\n", err)
 			return nil
 		}
-		fmt.Println("Peer was added to the trusted list.")
+		fmt.Println("Peer was added to the known list.")
 	}
 
 	return nil
 }
 
-func sendIntroduction(conn *Conn, at *attest.Attest) error {
+func sendIntroduction(conn *Conn, at attest.Attest) error {
 	intro := &pb.Introduce{
-		Public:  at.MarshalPublicKey(),
+		Public:  at.PublicKey().Marshal(),
 		Padding: padding(introducePadding),
 	}
 	introBytes, err := proto.Marshal(intro)
@@ -61,7 +61,7 @@ func sendIntroduction(conn *Conn, at *attest.Attest) error {
 	return nil
 }
 
-func receiveIntroduction(conn *Conn) (*attest.PublicKey, error) {
+func receiveIntroduction(conn *Conn) (attest.PublicKey, error) {
 	payload, err := conn.Read()
 	if err != nil {
 		return nil, fmt.Errorf("reading payload: %w", err)
