@@ -5,21 +5,21 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"path/filepath"
 
 	"github.com/xtaci/kcp-go/v5"
 
 	"github.com/hossein1376/kamune/pkg/attest"
 )
 
-type HandlerFunc func(t *Transport) error
-
 type Server struct {
 	addr           string
 	connType       connType
 	handlerFunc    HandlerFunc
 	remoteVerifier RemoteVerifier
-	attest         attest.Attest
+	attest         attest.Attester
 	connOpts       []ConnOption
+	attestation    attest.Attestation
 }
 
 func (s *Server) ListenAndServe() error {
@@ -73,7 +73,7 @@ func (s *Server) serve(conn *Conn) error {
 
 	// TODO(h.yazdani): support multiple routes
 
-	remote, err := receiveIntroduction(conn)
+	remote, err := receiveIntroduction(conn, s.attestation)
 	if err != nil {
 		return fmt.Errorf("receive introduction: %w", err)
 	}
@@ -100,15 +100,10 @@ func (s *Server) serve(conn *Conn) error {
 func NewServer(
 	addr string, handler HandlerFunc, opts ...ServerOptions,
 ) (*Server, error) {
-	at, err := attest.LoadFromDisk(privKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("loading identity: %w", err)
-	}
-
 	s := &Server{
 		addr:        addr,
 		connType:    tcp,
-		attest:      at,
+		attestation: attest.Ed25519,
 		handlerFunc: handler,
 	}
 	for _, o := range opts {
@@ -119,6 +114,14 @@ func NewServer(
 	if s.remoteVerifier == nil {
 		s.remoteVerifier = defaultRemoteVerifier
 	}
+
+	at, err := s.attestation.LoadFromDisk(
+		filepath.Join(keyPathDir, s.attestation.String()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("loading identity: %w", err)
+	}
+	s.attest = at
 
 	return s, nil
 }
@@ -153,6 +156,13 @@ func ServeWithUDP(opts ...ConnOption) ServerOptions {
 		}
 		s.connType = udp
 		s.connOpts = opts
+		return nil
+	}
+}
+
+func ServeWithAttester(a attest.Attestation) ServerOptions {
+	return func(s *Server) error {
+		s.attestation = a
 		return nil
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"path/filepath"
 	"time"
 
 	"github.com/xtaci/kcp-go/v5"
@@ -21,6 +22,7 @@ type dialer struct {
 	readTimeout  time.Duration
 	writeTimeout time.Duration
 	dialTimeout  time.Duration
+	attestation  attest.Attestation
 }
 
 func Dial(addr string, opts ...DialOption) (*Transport, error) {
@@ -30,6 +32,7 @@ func Dial(addr string, opts ...DialOption) (*Transport, error) {
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
 		verifyRemote: defaultRemoteVerifier,
+		attestation:  attest.Ed25519,
 	}
 	for _, opt := range opts {
 		if err := opt(d); err != nil {
@@ -86,7 +89,10 @@ func (d *dialer) handshake() (*Transport, error) {
 			d.log(slog.LevelError, "dial panic", slog.Any("err", err))
 		}
 	}()
-	at, err := attest.LoadFromDisk(privKeyPath)
+
+	at, err := d.attestation.LoadFromDisk(
+		filepath.Join(keyPathDir, d.attestation.String()),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("loading certificate: %w", err)
 	}
@@ -94,7 +100,7 @@ func (d *dialer) handshake() (*Transport, error) {
 	if err = sendIntroduction(d.conn, at); err != nil {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
-	remote, err := receiveIntroduction(d.conn)
+	remote, err := receiveIntroduction(d.conn, d.attestation)
 	if err != nil {
 		return nil, fmt.Errorf("receive introduction: %w", err)
 	}
@@ -170,6 +176,13 @@ func DialWithUDPConn(opts ...ConnOption) DialOption {
 	return func(d *dialer) error {
 		d.connType = udp
 		d.connOpts = opts
+		return nil
+	}
+}
+
+func DialWithAttester(a attest.Attestation) DialOption {
+	return func(d *dialer) error {
+		d.attestation = a
 		return nil
 	}
 }

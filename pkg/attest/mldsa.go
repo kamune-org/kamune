@@ -8,31 +8,31 @@ import (
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
 )
 
-type MLDSA struct {
+type mlDSA struct {
 	publicKey  *mldsa65.PublicKey
 	privateKey *mldsa65.PrivateKey
 }
 
-func NewMLDSA() (Attest, error) {
+func newMLDSA() (*mlDSA, error) {
 	public, private, err := mldsa65.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
 
-	return &MLDSA{publicKey: public, privateKey: private}, nil
+	return &mlDSA{publicKey: public, privateKey: private}, nil
 }
 
-func (m *MLDSA) PublicKey() PublicKey {
+func (m *mlDSA) PublicKey() PublicKey {
 	return &mldsaPublicKey{m.publicKey}
 }
 
-func (m *MLDSA) Sign(msg, ctx []byte) ([]byte, error) {
+func (m *mlDSA) Sign(msg []byte) ([]byte, error) {
 	sig := make([]byte, mldsa65.SignatureSize)
-	err := mldsa65.SignTo(m.privateKey, msg, ctx, true, sig)
+	err := mldsa65.SignTo(m.privateKey, msg, nil, true, sig)
 	return sig, err
 }
 
-func (m *MLDSA) Save(path string) error {
+func (m *mlDSA) Save(path string) error {
 	private, err := m.privateKey.MarshalBinary()
 	if err != nil {
 		return fmt.Errorf("marshalling private key: %w", err)
@@ -51,7 +51,7 @@ type mldsaPublicKey struct {
 func (m *mldsaPublicKey) Marshal() []byte {
 	b, err := m.key.MarshalBinary()
 	if err != nil {
-		panic(fmt.Errorf("marshalling MLDSA public key: %v", err))
+		panic(fmt.Errorf("marshalling mlDSA public key: %v", err))
 	}
 	return b
 }
@@ -62,4 +62,19 @@ func (m *mldsaPublicKey) Base64Encoding() string {
 
 func (m *mldsaPublicKey) Equal(key PublicKey) bool {
 	return m.key.Equal(key)
+}
+
+func loadMLDSA(path string) (*mlDSA, error) {
+	data, err := loadFromDisk(path)
+	if err != nil {
+		return nil, fmt.Errorf("load from disk: %w", err)
+	}
+	mlPrivate, err := mldsa65.Scheme().UnmarshalBinaryPrivateKey(data)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal private key: %w", err)
+	}
+	return &mlDSA{
+		privateKey: mlPrivate.(*mldsa65.PrivateKey),
+		publicKey:  mlPrivate.Public().(*mldsa65.PublicKey),
+	}, nil
 }

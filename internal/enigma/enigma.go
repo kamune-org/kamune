@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	NonceSize      = chacha20poly1305.NonceSizeX
 	base32alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+	nonceSize      = chacha20poly1305.NonceSizeX
 )
 
 var (
@@ -42,17 +42,17 @@ func NewEnigma(secret, salt, info []byte) (*Enigma, error) {
 
 func (e *Enigma) Encrypt(plaintext []byte) []byte {
 	nonce := make(
-		[]byte, NonceSize, NonceSize+len(plaintext)+e.aead.Overhead(),
+		[]byte, nonceSize, nonceSize+len(plaintext)+e.aead.Overhead(),
 	)
 	rand.Read(nonce)
 	return e.aead.Seal(nonce, nonce, plaintext, nil)
 }
 
 func (e *Enigma) Decrypt(ciphertext []byte) ([]byte, error) {
-	if len(ciphertext) < NonceSize {
+	if len(ciphertext) < nonceSize {
 		return nil, ErrInvalidCiphertext
 	}
-	nonce, ciphertext := ciphertext[:NonceSize], ciphertext[NonceSize:]
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 	plaintext, err := e.aead.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return nil, fmt.Errorf("aead.Open: %w", err)

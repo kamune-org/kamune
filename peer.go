@@ -2,86 +2,58 @@ package kamune
 
 import (
 	"bytes"
-	"crypto/sha3"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/hossein1376/kamune/pkg/attest"
 )
 
-var baseDir, privKeyPath string
-
 const (
-	keyName        = "id.key"
-	knownPeersName = "known"
+	knownPeersFilename = "known"
 )
 
-type Peer struct {
-	transport   *Transport
-	pubKey      PublicKey
-	greetedAt   time.Time
-	lastSeenAt  time.Time
-	hasPeerLeft bool
-}
+var keyPathDir string
 
 func init() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		panic(fmt.Errorf("getting home dir: %w", err))
+	keyPath, ok := os.LookupEnv("KAMUNE_KEY_PATH")
+	if !ok {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			panic(fmt.Errorf("getting home dir: %w", err))
+		}
+		keyPath = filepath.Join(home, ".config", "kamune")
 	}
-	baseDir = filepath.Join(home, ".config", "kamune")
-	privKeyPath = filepath.Join(baseDir, keyName)
+	keyPathDir = keyPath
 
-	_, err = os.Stat(privKeyPath)
+	err := checkExistence(filepath.Join(keyPath, attest.Ed25519.String()))
+	if err != nil {
+		panic(fmt.Errorf("ed25519 key: %w", err))
+	}
+	err = checkExistence(filepath.Join(keyPath, attest.MLDSA.String()))
+	if err != nil {
+		panic(fmt.Errorf("mldsa key: %w", err))
+	}
+}
+
+func checkExistence(path string) error {
+	_, err := os.Stat(path)
 	switch {
 	case err == nil:
-		return
+		return nil
 	case errors.Is(err, os.ErrNotExist):
 		if err := newCert(); err != nil {
-			panic(fmt.Errorf("creating certificate: %w", err))
+			return fmt.Errorf("creating cert in %s: %w", path, err)
 		}
 	default:
-		panic(fmt.Errorf("checking private key's existence: %w", err))
+		return fmt.Errorf("checking key's existence: %w", err)
 	}
-}
-
-var emojiList = []string{
-	// 😀 Faces (16)
-	"😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂",
-	"🙂", "🙃", "😉", "😊", "😇", "😍", "😋", "😜",
-
-	// 🐾 Animals (8)
-	"🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼",
-
-	// 🌿 Nature (8)
-	"🌸", "🌼", "🌻", "🌹", "🌺", "🌷", "🌳", "🌵",
-
-	// 🍔 Food (8)
-	"🍎", "🍌", "🍇", "🍓", "🍒", "🍕", "🍔", "🍟",
-
-	// 💡 Objects (8)
-	"💡", "📱", "💻", "📷", "🎧", "🎮", "📚", "📦",
-
-	// 🔣 Symbols (16)
-	"❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍",
-	"✨", "🔥", "🌈", "🎉", "🎶", "🔒", "📌", "✅",
-}
-
-func emojiFingerprint(s string, length int) []string {
-	hash := sha3.Sum256([]byte(s))
-	emojis := make([]string, length)
-	for i := range length {
-		b := hash[i]
-		emojis[i] = emojiList[int(b)%len(emojiList)]
-	}
-	return emojis
+	return nil
 }
 
 func isPeerKnown(claim string) bool {
-	peers, err := os.ReadFile(filepath.Join(baseDir, knownPeersName))
+	peers, err := os.ReadFile(filepath.Join(keyPathDir, knownPeersFilename))
 	if err != nil {
 		return false
 	}
@@ -96,7 +68,7 @@ func isPeerKnown(claim string) bool {
 
 func trustPeer(peer string) error {
 	f, err := os.OpenFile(
-		filepath.Join(baseDir, knownPeersName),
+		filepath.Join(keyPathDir, knownPeersFilename),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
 		0600,
 	)
@@ -112,15 +84,26 @@ func trustPeer(peer string) error {
 }
 
 func newCert() error {
-	if err := os.MkdirAll(baseDir, 0700); err != nil {
+	if err := os.MkdirAll(keyPathDir, 0700); err != nil {
 		return fmt.Errorf("MkdirAll: %w", err)
 	}
-	id, err := attest.NewEd25519()
+
+	ed, err := attest.Ed25519.New()
 	if err != nil {
-		return fmt.Errorf("new attest: %w", err)
+		return fmt.Errorf("new ed25519: %w", err)
 	}
-	if err := id.Save(privKeyPath); err != nil {
-		return fmt.Errorf("saving cert: %w", err)
+	err = ed.Save(filepath.Join(keyPathDir, attest.Ed25519.String()))
+	if err != nil {
+		return fmt.Errorf("saving ed25519: %w", err)
+	}
+
+	ml, err := attest.MLDSA.New()
+	if err != nil {
+		return fmt.Errorf("new mldsa: %w", err)
+	}
+	err = ml.Save(filepath.Join(keyPathDir, attest.MLDSA.String()))
+	if err != nil {
+		return fmt.Errorf("saving mldsa: %w", err)
 	}
 
 	return nil

@@ -22,9 +22,17 @@ var (
 	ErrInvalidKey  = errors.New("invalid key type")
 )
 
-type Attest interface {
+type Attestation int
+
+const (
+	invalidAttestation Attestation = iota
+	Ed25519
+	MLDSA
+)
+
+type Attester interface {
 	PublicKey() PublicKey
-	Sign(msg, ctx []byte) ([]byte, error)
+	Sign(msg []byte) ([]byte, error)
 	Save(path string) error
 }
 
@@ -34,36 +42,82 @@ type PublicKey interface {
 	Equal(PublicKey) bool
 }
 
-func Verify(publicKey PublicKey, msg, sig []byte) bool {
-	switch p := publicKey.(type) {
+func (a Attestation) New() (Attester, error) {
+	switch a {
+	case Ed25519:
+		return newEd25519DSA()
+	case MLDSA:
+		return newMLDSA()
 	default:
-		return false
-	case *mldsaPublicKey:
-		return mldsa65.Verify(p.key, msg, nil, sig)
-	case *ed25519PublicKey:
+		panic(fmt.Errorf("invalid attestation: %d", a))
+	}
+}
+
+func (a Attestation) Verify(pub PublicKey, msg, sig []byte) bool {
+	switch a {
+	case Ed25519:
+		p, ok := pub.(*ed25519PublicKey)
+		if !ok {
+			return false
+		}
 		return ed25519.Verify(p.key, msg, sig)
+	case MLDSA:
+		p, ok := pub.(*mldsaPublicKey)
+		if !ok {
+			return false
+		}
+		return mldsa65.Verify(p.key, msg, nil, sig)
+	default:
+		panic(fmt.Errorf("invalid attestation: %d", a))
 	}
 }
 
-func ParsePublicKey(remote []byte) (PublicKey, error) {
-	mlPub, err := mldsa65.Scheme().UnmarshalBinaryPublicKey(remote)
-	if err == nil {
-		return &mldsaPublicKey{mlPub.(*mldsa65.PublicKey)}, nil
-	}
-
-	pk, err := x509.ParsePKIXPublicKey(remote)
-	if err != nil {
-		return nil, fmt.Errorf("parse: %w", err)
-	}
-	edPub, ok := pk.(ed25519.PublicKey)
-	if ok {
+func (a Attestation) ParsePublicKey(remote []byte) (PublicKey, error) {
+	switch a {
+	case Ed25519:
+		pk, err := x509.ParsePKIXPublicKey(remote)
+		if err != nil {
+			return nil, fmt.Errorf("parse: %w", err)
+		}
+		edPub, ok := pk.(ed25519.PublicKey)
+		if !ok {
+			return nil, ErrInvalidKey
+		}
 		return &ed25519PublicKey{key: edPub}, nil
+	case MLDSA:
+		mlPub, err := mldsa65.Scheme().UnmarshalBinaryPublicKey(remote)
+		if err != nil {
+			return nil, err
+		}
+		return &mldsaPublicKey{mlPub.(*mldsa65.PublicKey)}, nil
+	default:
+		panic(fmt.Errorf("invalid attestation: %d", a))
 	}
-
-	return nil, ErrInvalidKey
 }
 
-func LoadFromDisk(path string) (Attest, error) {
+func (a Attestation) LoadFromDisk(path string) (Attester, error) {
+	switch a {
+	case Ed25519:
+		return loadEd25519(path)
+	case MLDSA:
+		return loadMLDSA(path)
+	default:
+		panic(fmt.Errorf("invalid attestation: %d", a))
+	}
+}
+
+func (a Attestation) String() string {
+	switch a {
+	case Ed25519:
+		return "ed25519"
+	case MLDSA:
+		return "mldsa"
+	default:
+		panic(fmt.Errorf("unknown attestation algorithm: %d", a))
+	}
+}
+
+func loadFromDisk(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -76,27 +130,7 @@ func LoadFromDisk(path string) (Attest, error) {
 		return nil, ErrMissingPEM
 	}
 
-	mlPrivate, err := mldsa65.Scheme().UnmarshalBinaryPrivateKey(block.Bytes)
-	if err == nil {
-		return &MLDSA{
-			privateKey: mlPrivate.(*mldsa65.PrivateKey),
-			publicKey:  mlPrivate.Public().(*mldsa65.PublicKey),
-		}, nil
-	}
-
-	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parsing key: %w", err)
-	}
-	edPrivate, ok := key.(ed25519.PrivateKey)
-	if ok {
-		return &Ed25519{
-			privateKey: edPrivate,
-			publicKey:  edPrivate.Public().(ed25519.PublicKey),
-		}, nil
-	}
-
-	return nil, ErrInvalidKey
+	return block.Bytes, nil
 }
 
 func save(private, public []byte, path string) error {

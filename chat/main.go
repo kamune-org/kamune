@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/hossein1376/kamune/pkg/attest"
 
 	"github.com/hossein1376/kamune"
 )
@@ -77,7 +78,12 @@ func serveHandler(t *kamune.Transport) error {
 }
 
 func server(addr string) {
-	srv, err := kamune.NewServer(addr, serveHandler, kamune.ServeWithUDP())
+	srv, err := kamune.NewServer(
+		addr,
+		serveHandler,
+		kamune.ServeWithUDP(),
+		kamune.ServeWithAttester(attest.MLDSA),
+	)
 	if err != nil {
 		errCh <- fmt.Errorf("starting server: %w", err)
 		return
@@ -90,7 +96,11 @@ func client(addr string) {
 	for {
 		var opErr *net.OpError
 		var err error
-		t, err = kamune.Dial(addr, kamune.DialWithUDPConn())
+		t, err = kamune.Dial(
+			addr,
+			kamune.DialWithUDPConn(),
+			kamune.DialWithAttester(attest.MLDSA),
+		)
 		if err == nil {
 			break
 		}

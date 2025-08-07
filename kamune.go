@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/hossein1376/kamune/internal/box/pb"
+	"github.com/hossein1376/kamune/pkg/attest"
 )
 
 const (
@@ -22,6 +23,12 @@ const (
 
 	c2s = "client-to-server"
 	s2c = "server-to-client"
+)
+
+type (
+	PublicKey      = attest.PublicKey
+	RemoteVerifier func(key PublicKey) (err error)
+	HandlerFunc    func(t *Transport) error
 )
 
 type Transferable interface {

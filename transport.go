@@ -21,9 +21,10 @@ var (
 )
 
 type plainTransport struct {
-	conn   *Conn
-	attest attest.Attest
-	remote attest.PublicKey
+	conn        *Conn
+	attest      attest.Attester
+	remote      attest.PublicKey
+	attestation attest.Attestation
 }
 
 func (pt *plainTransport) serialize(msg Transferable) ([]byte, *Metadata, error) {
@@ -31,7 +32,7 @@ func (pt *plainTransport) serialize(msg Transferable) ([]byte, *Metadata, error)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshalling message: %w", err)
 	}
-	sig, err := pt.attest.Sign(message, nil)
+	sig, err := pt.attest.Sign(message)
 	if err != nil {
 		return nil, nil, fmt.Errorf("signing: %w", err)
 	}
@@ -62,7 +63,7 @@ func (pt *plainTransport) deserialize(
 	//  can and should be accepted.
 
 	msg := st.GetData()
-	if !attest.Verify(pt.remote, msg, st.Signature) {
+	if !pt.attestation.Verify(pt.remote, msg, st.Signature) {
 		return nil, ErrInvalidSignature
 	}
 	if err := proto.Unmarshal(msg, dst); err != nil {

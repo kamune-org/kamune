@@ -9,28 +9,28 @@ import (
 	"golang.org/x/crypto/ed25519"
 )
 
-type Ed25519 struct {
+type ed25519DSA struct {
 	publicKey  ed25519.PublicKey
 	privateKey ed25519.PrivateKey
 }
 
-func NewEd25519() (Attest, error) {
+func newEd25519DSA() (*ed25519DSA, error) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	return &Ed25519{privateKey: private, publicKey: public}, nil
+	return &ed25519DSA{privateKey: private, publicKey: public}, nil
 }
 
-func (e *Ed25519) PublicKey() PublicKey {
+func (e *ed25519DSA) PublicKey() PublicKey {
 	return &ed25519PublicKey{e.publicKey}
 }
 
-func (e *Ed25519) Sign(msg, _ []byte) ([]byte, error) {
+func (e *ed25519DSA) Sign(msg []byte) ([]byte, error) {
 	return ed25519.Sign(e.privateKey, msg), nil
 }
 
-func (e *Ed25519) Save(path string) error {
+func (e *ed25519DSA) Save(path string) error {
 	private, err := x509.MarshalPKCS8PrivateKey(e.privateKey)
 	if err != nil {
 		return fmt.Errorf("marshalling private key: %w", err)
@@ -64,4 +64,23 @@ func (p *ed25519PublicKey) Equal(x PublicKey) bool {
 		p.key.Equal(x)
 	}
 	return p.key.Equal(pk.key)
+}
+
+func loadEd25519(path string) (*ed25519DSA, error) {
+	data, err := loadFromDisk(path)
+	if err != nil {
+		return nil, fmt.Errorf("load from disk: %w", err)
+	}
+	key, err := x509.ParsePKCS8PrivateKey(data)
+	if err != nil {
+		return nil, fmt.Errorf("parsing key: %w", err)
+	}
+	edPrivate, ok := key.(ed25519.PrivateKey)
+	if !ok {
+		return nil, ErrInvalidKey
+	}
+	return &ed25519DSA{
+		privateKey: edPrivate,
+		publicKey:  edPrivate.Public().(ed25519.PublicKey),
+	}, nil
 }

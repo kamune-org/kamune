@@ -10,16 +10,13 @@ import (
 
 	"github.com/hossein1376/kamune/internal/box/pb"
 	"github.com/hossein1376/kamune/pkg/attest"
+	"github.com/hossein1376/kamune/pkg/fingerprint"
 )
-
-type PublicKey = attest.PublicKey
-
-type RemoteVerifier func(key PublicKey) (err error)
 
 func defaultRemoteVerifier(remote PublicKey) error {
 	key := remote.Base64Encoding()
-	fingerprint := emojiFingerprint(key, 8)
-	fmt.Printf("Peer's fingerprint: %s\n", strings.Join(fingerprint, " · "))
+	fp := fingerprint.Emoji(remote.Marshal())
+	fmt.Printf("Peer's fingerprint: %s\n", strings.Join(fp, " · "))
 
 	known := isPeerKnown(key)
 	if !known {
@@ -45,7 +42,7 @@ func defaultRemoteVerifier(remote PublicKey) error {
 	return nil
 }
 
-func sendIntroduction(conn *Conn, at attest.Attest) error {
+func sendIntroduction(conn *Conn, at attest.Attester) error {
 	intro := &pb.Introduce{
 		Public:  at.PublicKey().Marshal(),
 		Padding: padding(introducePadding),
@@ -61,7 +58,9 @@ func sendIntroduction(conn *Conn, at attest.Attest) error {
 	return nil
 }
 
-func receiveIntroduction(conn *Conn) (attest.PublicKey, error) {
+func receiveIntroduction(
+	conn *Conn, attestation attest.Attestation,
+) (attest.PublicKey, error) {
 	payload, err := conn.Read()
 	if err != nil {
 		return nil, fmt.Errorf("reading payload: %w", err)
@@ -71,7 +70,7 @@ func receiveIntroduction(conn *Conn) (attest.PublicKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("deserializing: %w", err)
 	}
-	remote, err := attest.ParsePublicKey(introduce.GetPublic())
+	remote, err := attestation.ParsePublicKey(introduce.GetPublic())
 	if err != nil {
 		return nil, fmt.Errorf("parsing advertised key: %w", err)
 	}
