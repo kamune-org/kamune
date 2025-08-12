@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -18,13 +19,29 @@ var (
 	ErrInvalidSignature   = errors.New("invalid signature")
 	ErrVerificationFailed = errors.New("verification failed")
 	ErrMessageTooLarge    = errors.New("message is too large")
+	ErrOutOfSync          = errors.New("peers are out of sync")
 )
 
 type plainTransport struct {
-	conn        *Conn
-	attest      attest.Attester
-	remote      attest.PublicKey
-	attestation attest.Attestation
+	conn           *Conn
+	attest         attest.Attester
+	remote         attest.PublicKey
+	attestation    attest.Attestation
+	sent, received atomic.Uint64
+}
+
+func newPlainTransport(
+	conn *Conn,
+	remote attest.PublicKey,
+	attest attest.Attester,
+	attestation attest.Attestation,
+) *plainTransport {
+	return &plainTransport{
+		conn:        conn,
+		remote:      remote,
+		attest:      attest,
+		attestation: attestation,
+	}
 }
 
 func (pt *plainTransport) serialize(msg Transferable) ([]byte, *Metadata, error) {
@@ -36,7 +53,10 @@ func (pt *plainTransport) serialize(msg Transferable) ([]byte, *Metadata, error)
 	if err != nil {
 		return nil, nil, fmt.Errorf("signing: %w", err)
 	}
-	md := &pb.Metadata{Timestamp: timestamppb.Now()}
+	md := &pb.Metadata{
+		Timestamp: timestamppb.Now(),
+		Sequence:  pt.sent.Add(1),
+	}
 	st := &pb.SignedTransport{
 		Data:      message,
 		Signature: sig,
@@ -59,8 +79,12 @@ func (pt *plainTransport) deserialize(
 		return nil, fmt.Errorf("unmarshalling transport: %w", err)
 	}
 
-	// TODO(h.yazdani): Messages in a specific time window or a sequence frame
-	//  can and should be accepted.
+	md := st.GetMetadata()
+	if md.GetSequence() != pt.received.Add(1) {
+		// TODO(h.yazdani): Messages in a specific time window or a sequence frame
+		//  can and should be accepted.
+		return nil, ErrOutOfSync
+	}
 
 	msg := st.GetData()
 	if !pt.attestation.Verify(pt.remote, msg, st.Signature) {
@@ -70,7 +94,7 @@ func (pt *plainTransport) deserialize(
 		return nil, fmt.Errorf("unmarshalling message: %w", err)
 	}
 
-	return &Metadata{st.GetMetadata()}, nil
+	return &Metadata{md}, nil
 }
 
 type Transport struct {

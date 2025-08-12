@@ -108,7 +108,7 @@ func (d *dialer) handshake() (*Transport, error) {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
-	pt := &plainTransport{conn: d.conn, attest: at, remote: remote}
+	pt := newPlainTransport(d.conn, remote, at, d.attestation)
 	t, err := requestHandshake(pt)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)

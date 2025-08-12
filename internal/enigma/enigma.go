@@ -23,8 +23,7 @@ var (
 )
 
 type Enigma struct {
-	aead      cipher.AEAD
-	baseNonce []byte
+	aead cipher.AEAD
 }
 
 func NewEnigma(secret, salt, info []byte) (*Enigma, error) {

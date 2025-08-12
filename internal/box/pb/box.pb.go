@@ -145,6 +145,7 @@ func (x *SignedTransport) GetPadding() []byte {
 type Metadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=Timestamp,proto3" json:"Timestamp,omitempty"`
+	Sequence      uint64                 `protobuf:"varint,2,opt,name=Sequence,proto3" json:"Sequence,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -184,6 +185,13 @@ func (x *Metadata) GetTimestamp() *timestamppb.Timestamp {
 		return x.Timestamp
 	}
 	return nil
+}
+
+func (x *Metadata) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
 }
 
 type Handshake struct {
@@ -266,9 +274,10 @@ const file_box_proto_rawDesc = "" +
 	"\x04Data\x18\x01 \x01(\fR\x04Data\x12\x1c\n" +
 	"\tSignature\x18\x02 \x01(\fR\tSignature\x12)\n" +
 	"\bMetadata\x18\x03 \x01(\v2\r.box.MetadataR\bMetadata\x12\x18\n" +
-	"\apadding\x18\x04 \x01(\fR\apadding\"D\n" +
+	"\apadding\x18\x04 \x01(\fR\apadding\"`\n" +
 	"\bMetadata\x128\n" +
-	"\tTimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\"k\n" +
+	"\tTimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\x12\x1a\n" +
+	"\bSequence\x18\x02 \x01(\x04R\bSequence\"k\n" +
 	"\tHandshake\x12\x18\n" +
 	"\apadding\x18\x01 \x01(\fR\apadding\x12\x10\n" +
 	"\x03Key\x18\x02 \x01(\fR\x03Key\x12\x12\n" +

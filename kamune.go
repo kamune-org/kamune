@@ -43,11 +43,6 @@ type Metadata struct {
 	pb *pb.Metadata
 }
 
-func (m Metadata) Timestamp() time.Time {
-	return m.pb.Timestamp.AsTime()
-}
+func (m Metadata) Timestamp() time.Time { return m.pb.Timestamp.AsTime() }
 
-func (m Metadata) SequenceNum() uint64 {
-	// TODO(h.yazdani): reintroduce message sequencing in a more elegant approach
-	return 0
-}
+func (m Metadata) SequenceNum() uint64 { return m.pb.GetSequence() }

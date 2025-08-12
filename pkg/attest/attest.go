@@ -68,7 +68,7 @@ func (a Attestation) Verify(pub PublicKey, msg, sig []byte) bool {
 		}
 		return mldsa65.Verify(p.key, msg, nil, sig)
 	default:
-		panic(fmt.Errorf("invalid attestation: %d", a))
+		panic(fmt.Errorf("attest.Verify: invalid attestation: %d", a))
 	}
 }
 
@@ -91,7 +91,7 @@ func (a Attestation) ParsePublicKey(remote []byte) (PublicKey, error) {
 		}
 		return &mldsaPublicKey{mlPub.(*mldsa65.PublicKey)}, nil
 	default:
-		panic(fmt.Errorf("invalid attestation: %d", a))
+		panic(fmt.Errorf("attest.ParsePublicKey: invalid attestation: %d", a))
 	}
 }
 
@@ -102,7 +102,7 @@ func (a Attestation) LoadFromDisk(path string) (Attester, error) {
 	case MLDSA:
 		return loadMLDSA(path)
 	default:
-		panic(fmt.Errorf("invalid attestation: %d", a))
+		panic(fmt.Errorf("attest.LoadFromDisk: invalid attestation: %d", a))
 	}
 }
 

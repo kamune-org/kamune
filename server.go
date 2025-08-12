@@ -84,7 +84,7 @@ func (s *Server) serve(conn *Conn) error {
 		return fmt.Errorf("send introduction: %w", err)
 	}
 
-	pt := &plainTransport{conn: conn, remote: remote, attest: s.attest}
+	pt := newPlainTransport(conn, remote, s.attest, s.attestation)
 	t, err := acceptHandshake(pt)
 	if err != nil {
 		return fmt.Errorf("accept handshake: %w", err)

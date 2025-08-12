@@ -1,7 +1,7 @@
 package fingerprint
 
 import (
-	"crypto/sha3"
+	"crypto/sha256"
 	"encoding/binary"
 )
 
@@ -28,7 +28,7 @@ var emojiList = []string{
 }
 
 func Emoji(s []byte) []string {
-	hash := sha3.Sum256(s)
+	hash := sha256.Sum256(s)
 	offset := 0
 	l := uint32(len(emojiList))
 	emojis := make([]string, 8)
