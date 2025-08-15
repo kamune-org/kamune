@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/hossein1376/kamune/pkg/attest"
 
 	"github.com/hossein1376/kamune"
@@ -82,7 +83,13 @@ func server(addr string) {
 		addr,
 		serveHandler,
 		kamune.ServeWithUDP(),
-		kamune.ServeWithAttester(attest.MLDSA),
+		kamune.ServeWithStorageOpts(
+			kamune.StorageWithDBPath("./server.db"),
+			kamune.StorageWithIdentity(attest.MLDSA),
+			kamune.StorageWithPassphraseHandler(func() ([]byte, error) {
+				return []byte("123456"), nil
+			}),
+		),
 	)
 	if err != nil {
 		errCh <- fmt.Errorf("starting server: %w", err)
@@ -99,7 +106,13 @@ func client(addr string) {
 		t, err = kamune.Dial(
 			addr,
 			kamune.DialWithUDPConn(),
-			kamune.DialWithAttester(attest.MLDSA),
+			kamune.DialWithStorageOpts(
+				kamune.StorageWithDBPath("./client.db"),
+				kamune.StorageWithIdentity(attest.MLDSA),
+				kamune.StorageWithPassphraseHandler(func() ([]byte, error) {
+					return []byte("abcdef"), nil
+				}),
+			),
 		)
 		if err == nil {
 			break

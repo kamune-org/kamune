@@ -2,7 +2,6 @@ package attest
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
@@ -32,16 +31,8 @@ func (m *mlDSA) Sign(msg []byte) ([]byte, error) {
 	return sig, err
 }
 
-func (m *mlDSA) Save(path string) error {
-	private, err := m.privateKey.MarshalBinary()
-	if err != nil {
-		return fmt.Errorf("marshalling private key: %w", err)
-	}
-	public, err := m.publicKey.MarshalBinary()
-	if err != nil {
-		return fmt.Errorf("marshalling public key: %w", err)
-	}
-	return save(private, public, path)
+func (m *mlDSA) Save() ([]byte, error) {
+	return m.privateKey.MarshalBinary()
 }
 
 type mldsaPublicKey struct {
@@ -56,25 +47,21 @@ func (m *mldsaPublicKey) Marshal() []byte {
 	return b
 }
 
-func (m *mldsaPublicKey) Base64Encoding() string {
-	return base64.RawStdEncoding.EncodeToString(m.Marshal())
-}
-
 func (m *mldsaPublicKey) Equal(key PublicKey) bool {
 	return m.key.Equal(key)
 }
 
-func loadMLDSA(path string) (*mlDSA, error) {
-	data, err := loadFromDisk(path)
-	if err != nil {
-		return nil, fmt.Errorf("load from disk: %w", err)
-	}
-	mlPrivate, err := mldsa65.Scheme().UnmarshalBinaryPrivateKey(data)
+func loadMLDSA(data []byte) (*mlDSA, error) {
+	key, err := mldsa65.Scheme().UnmarshalBinaryPrivateKey(data)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal private key: %w", err)
 	}
+	private, ok := key.(*mldsa65.PrivateKey)
+	if !ok {
+		return nil, ErrInvalidKey
+	}
 	return &mlDSA{
-		privateKey: mlPrivate.(*mldsa65.PrivateKey),
-		publicKey:  mlPrivate.Public().(*mldsa65.PublicKey),
+		privateKey: private,
+		publicKey:  private.Public().(*mldsa65.PublicKey),
 	}, nil
 }

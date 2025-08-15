@@ -13,12 +13,14 @@ import (
 	"github.com/hossein1376/kamune/pkg/fingerprint"
 )
 
-func defaultRemoteVerifier(remote PublicKey) error {
-	key := remote.Base64Encoding()
-	fp := fingerprint.Emoji(remote.Marshal())
-	fmt.Printf("Peer's fingerprint: %s\n", strings.Join(fp, " · "))
+func defaultRemoteVerifier(store *Storage, remote PublicKey) error {
+	key := remote.Marshal()
+	fmt.Printf(
+		"Peer's emoji fingerprint: %s\n",
+		strings.Join(fingerprint.Emoji(key), " · "),
+	)
 
-	known := isPeerKnown(key)
+	known := store.IsPeerKnown(key)
 	if !known {
 		fmt.Println("Peer is not known. They will be added to the known list if you continue.")
 	}
@@ -32,7 +34,7 @@ func defaultRemoteVerifier(remote PublicKey) error {
 	}
 
 	if !known {
-		if err := trustPeer(key); err != nil {
+		if err := store.TrustPeer(key); err != nil {
 			fmt.Printf("Error adding peer to the known list: %s\n", err)
 			return nil
 		}
@@ -59,7 +61,7 @@ func sendIntroduction(conn *Conn, at attest.Attester) error {
 }
 
 func receiveIntroduction(
-	conn *Conn, attestation attest.Attestation,
+	conn *Conn, attestation attest.Identity,
 ) (attest.PublicKey, error) {
 	payload, err := conn.Read()
 	if err != nil {

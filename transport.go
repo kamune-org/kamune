@@ -26,7 +26,7 @@ type plainTransport struct {
 	conn           *Conn
 	attest         attest.Attester
 	remote         attest.PublicKey
-	attestation    attest.Attestation
+	attestation    attest.Identity
 	sent, received atomic.Uint64
 }
 
@@ -34,7 +34,7 @@ func newPlainTransport(
 	conn *Conn,
 	remote attest.PublicKey,
 	attest attest.Attester,
-	attestation attest.Attestation,
+	attestation attest.Identity,
 ) *plainTransport {
 	return &plainTransport{
 		conn:        conn,
@@ -73,33 +73,27 @@ func (pt *plainTransport) serialize(msg Transferable) ([]byte, *Metadata, error)
 
 func (pt *plainTransport) deserialize(
 	payload []byte, dst Transferable,
-) (*Metadata, error) {
+) (*Metadata, uint64, error) {
 	var st pb.SignedTransport
 	if err := proto.Unmarshal(payload, &st); err != nil {
-		return nil, fmt.Errorf("unmarshalling transport: %w", err)
-	}
-
-	md := st.GetMetadata()
-	if md.GetSequence() != pt.received.Add(1) {
-		// TODO(h.yazdani): Messages in a specific time window or a sequence frame
-		//  can and should be accepted.
-		return nil, ErrOutOfSync
+		return nil, 0, fmt.Errorf("unmarshalling transport: %w", err)
 	}
 
 	msg := st.GetData()
 	if !pt.attestation.Verify(pt.remote, msg, st.Signature) {
-		return nil, ErrInvalidSignature
+		return nil, 0, ErrInvalidSignature
 	}
 	if err := proto.Unmarshal(msg, dst); err != nil {
-		return nil, fmt.Errorf("unmarshalling message: %w", err)
+		return nil, 0, fmt.Errorf("unmarshalling message: %w", err)
 	}
 
-	return &Metadata{md}, nil
+	return &Metadata{st.GetMetadata()}, pt.received.Add(1), nil
 }
 
 type Transport struct {
 	*plainTransport
 	sessionID string
+	storage   *Storage
 	encoder   *enigma.Enigma
 	decoder   *enigma.Enigma
 }
@@ -107,11 +101,13 @@ type Transport struct {
 func newTransport(
 	pt *plainTransport,
 	sessionID string,
+	storage *Storage,
 	encoder, decoder *enigma.Enigma,
 ) *Transport {
 	return &Transport{
 		plainTransport: pt,
 		sessionID:      sessionID,
+		storage:        storage,
 		encoder:        encoder,
 		decoder:        decoder,
 	}
@@ -130,9 +126,16 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decrypting: %w", err)
 	}
-	metadata, err := t.deserialize(decrypted, dst)
+	metadata, seq, err := t.deserialize(decrypted, dst)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing: %w", err)
+	}
+
+	if metadata.SequenceNum() != seq {
+		// TODO(h.yazdani): Messages in a specific time window or a sequence frame
+		//  can and should be accepted. A more elegant approach is needed to take
+		//  these into consideration.
+		return nil, ErrOutOfSync
 	}
 
 	return metadata, nil
@@ -151,6 +154,14 @@ func (t *Transport) Send(message Transferable) (*Metadata, error) {
 	return metadata, nil
 }
 
-func (t *Transport) Close() error { return t.conn.Close() }
-
 func (t *Transport) SessionID() string { return t.sessionID }
+
+func (t *Transport) Close() error {
+	if err := t.conn.Close(); err != nil {
+		return fmt.Errorf("closing conn: %w", err)
+	}
+	if err := t.storage.Close(); err != nil {
+		return fmt.Errorf("closing storage: %w", err)
+	}
+	return nil
+}

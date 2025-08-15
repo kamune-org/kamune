@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"path/filepath"
 
 	"github.com/xtaci/kcp-go/v5"
 
@@ -14,12 +13,13 @@ import (
 
 type Server struct {
 	addr           string
+	attester       attest.Attester
+	storage        *Storage
 	connType       connType
 	handlerFunc    HandlerFunc
 	remoteVerifier RemoteVerifier
-	attest         attest.Attester
 	connOpts       []ConnOption
-	attestation    attest.Attestation
+	storageOpts    []StorageOption
 }
 
 func (s *Server) ListenAndServe() error {
@@ -73,19 +73,19 @@ func (s *Server) serve(conn *Conn) error {
 
 	// TODO(h.yazdani): support multiple routes
 
-	remote, err := receiveIntroduction(conn, s.attestation)
+	remote, err := receiveIntroduction(conn, s.storage.identity)
 	if err != nil {
 		return fmt.Errorf("receive introduction: %w", err)
 	}
-	if err := s.remoteVerifier(remote); err != nil {
+	if err := s.remoteVerifier(s.storage, remote); err != nil {
 		return fmt.Errorf("verify remote: %w", err)
 	}
-	if err := sendIntroduction(conn, s.attest); err != nil {
+	if err := sendIntroduction(conn, s.attester); err != nil {
 		return fmt.Errorf("send introduction: %w", err)
 	}
 
-	pt := newPlainTransport(conn, remote, s.attest, s.attestation)
-	t, err := acceptHandshake(pt)
+	pt := newPlainTransport(conn, remote, s.attester, s.storage.identity)
+	t, err := acceptHandshake(pt, s.storage)
 	if err != nil {
 		return fmt.Errorf("accept handshake: %w", err)
 	}
@@ -103,7 +103,6 @@ func NewServer(
 	s := &Server{
 		addr:        addr,
 		connType:    tcp,
-		attestation: attest.Ed25519,
 		handlerFunc: handler,
 	}
 	for _, o := range opts {
@@ -115,13 +114,16 @@ func NewServer(
 		s.remoteVerifier = defaultRemoteVerifier
 	}
 
-	at, err := s.attestation.LoadFromDisk(
-		filepath.Join(keyPathDir, s.attestation.String()),
-	)
+	storage, err := openStorage(s.storageOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("loading identity: %w", err)
+		return nil, fmt.Errorf("opening storage: %w", err)
 	}
-	s.attest = at
+	at, err := storage.attester()
+	if err != nil {
+		return nil, fmt.Errorf("loading attester: %w", err)
+	}
+	s.storage = storage
+	s.attester = at
 
 	return s, nil
 }
@@ -160,9 +162,9 @@ func ServeWithUDP(opts ...ConnOption) ServerOptions {
 	}
 }
 
-func ServeWithAttester(a attest.Attestation) ServerOptions {
+func ServeWithStorageOpts(opts ...StorageOption) ServerOptions {
 	return func(s *Server) error {
-		s.attestation = a
+		s.storageOpts = opts
 		return nil
 	}
 }

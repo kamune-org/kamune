@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"path/filepath"
 	"time"
 
 	"github.com/xtaci/kcp-go/v5"
@@ -16,13 +15,15 @@ import (
 
 type dialer struct {
 	conn         *Conn
+	storage      *Storage
+	attester     attest.Attester
 	connType     connType
-	connOpts     []ConnOption
 	verifyRemote RemoteVerifier
 	readTimeout  time.Duration
 	writeTimeout time.Duration
 	dialTimeout  time.Duration
-	attestation  attest.Attestation
+	connOpts     []ConnOption
+	storageOpts  []StorageOption
 }
 
 func Dial(addr string, opts ...DialOption) (*Transport, error) {
@@ -32,7 +33,6 @@ func Dial(addr string, opts ...DialOption) (*Transport, error) {
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
 		verifyRemote: defaultRemoteVerifier,
-		attestation:  attest.Ed25519,
 	}
 	for _, opt := range opts {
 		if err := opt(d); err != nil {
@@ -47,6 +47,17 @@ func Dial(addr string, opts ...DialOption) (*Transport, error) {
 		}
 		d.conn = c
 	}
+
+	storage, err := openStorage(d.storageOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("opening storage: %w", err)
+	}
+	at, err := storage.attester()
+	if err != nil {
+		return nil, fmt.Errorf("loading attester: %w", err)
+	}
+	d.storage = storage
+	d.attester = at
 
 	transport, err := d.handshake()
 	if err != nil {
@@ -90,26 +101,19 @@ func (d *dialer) handshake() (*Transport, error) {
 		}
 	}()
 
-	at, err := d.attestation.LoadFromDisk(
-		filepath.Join(keyPathDir, d.attestation.String()),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("loading certificate: %w", err)
-	}
-
-	if err = sendIntroduction(d.conn, at); err != nil {
+	if err := sendIntroduction(d.conn, d.attester); err != nil {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
-	remote, err := receiveIntroduction(d.conn, d.attestation)
+	remote, err := receiveIntroduction(d.conn, d.storage.identity)
 	if err != nil {
 		return nil, fmt.Errorf("receive introduction: %w", err)
 	}
-	if err = d.verifyRemote(remote); err != nil {
+	if err = d.verifyRemote(d.storage, remote); err != nil {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
-	pt := newPlainTransport(d.conn, remote, at, d.attestation)
-	t, err := requestHandshake(pt)
+	pt := newPlainTransport(d.conn, remote, d.attester, d.storage.identity)
+	t, err := requestHandshake(pt, d.storage)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
 	}
@@ -180,9 +184,9 @@ func DialWithUDPConn(opts ...ConnOption) DialOption {
 	}
 }
 
-func DialWithAttester(a attest.Attestation) DialOption {
+func DialWithStorageOpts(opts ...StorageOption) DialOption {
 	return func(d *dialer) error {
-		d.attestation = a
+		d.storageOpts = opts
 		return nil
 	}
 }

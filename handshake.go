@@ -11,7 +11,9 @@ import (
 	"github.com/hossein1376/kamune/pkg/exchange"
 )
 
-func requestHandshake(pt *plainTransport) (*Transport, error) {
+func requestHandshake(
+	pt *plainTransport, store *Storage,
+) (*Transport, error) {
 	ml, err := exchange.NewMLKEM()
 	if err != nil {
 		return nil, fmt.Errorf("creating MLKEM keys: %w", err)
@@ -38,7 +40,7 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("reading handshake response: %w", err)
 	}
 	var resp pb.Handshake
-	if _, err = pt.deserialize(respBytes, &resp); err != nil {
+	if _, _, err = pt.deserialize(respBytes, &resp); err != nil {
 		return nil, fmt.Errorf("deserializing handshake response: %w", err)
 	}
 	secret, err := ml.Decapsulate(resp.GetKey())
@@ -58,7 +60,7 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, sessionID, encoder, decoder)
+	t := newTransport(pt, sessionID, store, encoder, decoder)
 	if err := sendChallenge(t, secret, []byte(sessionID+c2s)); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
@@ -69,13 +71,15 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 	return t, nil
 }
 
-func acceptHandshake(pt *plainTransport) (*Transport, error) {
+func acceptHandshake(
+	pt *plainTransport, store *Storage,
+) (*Transport, error) {
 	reqBytes, err := pt.conn.Read()
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake request: %w", err)
 	}
 	var req pb.Handshake
-	if _, err = pt.deserialize(reqBytes, &req); err != nil {
+	if _, _, err = pt.deserialize(reqBytes, &req); err != nil {
 		return nil, fmt.Errorf("deserializing handshake request: %w", err)
 	}
 	secret, ct, err := exchange.EncapsulateMLKEM(req.GetKey())
@@ -111,7 +115,7 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, sessionID, encoder, decoder)
+	t := newTransport(pt, sessionID, store, encoder, decoder)
 	if err := acceptChallenge(t); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
@@ -156,7 +160,7 @@ func acceptChallenge(t *Transport) error {
 
 func randomBytes(l int) []byte {
 	rnd := make([]byte, l)
-	rand.Read(rnd)
+	_, _ = rand.Read(rnd)
 	return rnd
 }
 

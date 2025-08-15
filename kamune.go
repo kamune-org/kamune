@@ -27,7 +27,7 @@ const (
 
 type (
 	PublicKey      = attest.PublicKey
-	RemoteVerifier func(key PublicKey) (err error)
+	RemoteVerifier func(store *Storage, key PublicKey) (err error)
 	HandlerFunc    func(t *Transport) error
 )
 
