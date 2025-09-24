@@ -49,7 +49,12 @@ func openStorage(opts ...StorageOption) (*Storage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("getting user's home directory: %w", err)
 		}
-		s.dbPath = filepath.Join(home, ".config", "kamune", "db")
+		path := filepath.Join(home, ".config", "kamune")
+		err = os.MkdirAll(path, 0700)
+		if err != nil {
+			return nil, fmt.Errorf("creating config directory: %w", err)
+		}
+		s.dbPath = filepath.Join(path, "db")
 	}
 
 	pass, err := s.passphraseHandler()
