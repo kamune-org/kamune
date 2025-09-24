@@ -2,9 +2,11 @@ package kamune
 
 import (
 	"bufio"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -20,9 +22,11 @@ func defaultRemoteVerifier(store *Storage, remote PublicKey) error {
 		strings.Join(fingerprint.Emoji(key), " · "),
 	)
 
-	known := store.IsPeerKnown(key)
-	if !known {
-		fmt.Println("Peer is not known. They will be added to the known list if you continue.")
+	var newPeer bool
+	_, err := store.FindPeer(key)
+	if err != nil {
+		fmt.Println("Peer is not known. They will be added to the storage if you continue.")
+		newPeer = true
 	}
 	fmt.Printf("Proceed? (y/N)? ")
 
@@ -33,8 +37,15 @@ func defaultRemoteVerifier(store *Storage, remote PublicKey) error {
 		return ErrVerificationFailed
 	}
 
-	if !known {
-		if err := store.TrustPeer(key); err != nil {
+	if newPeer {
+		now := time.Now()
+		peer := &Peer{
+			Title:     rand.Text(),
+			PublicKey: remote,
+			FirstSeen: now,
+			LastSeen:  now,
+		}
+		if err := store.TrustPeer(peer); err != nil {
 			fmt.Printf("Error adding peer to the known list: %s\n", err)
 			return nil
 		}

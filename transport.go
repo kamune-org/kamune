@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -53,7 +54,9 @@ func (pt *plainTransport) serialize(msg Transferable) ([]byte, *Metadata, error)
 	if err != nil {
 		return nil, nil, fmt.Errorf("signing: %w", err)
 	}
+
 	md := &pb.Metadata{
+		ID:        rand.Text(),
 		Timestamp: timestamppb.Now(),
 		Sequence:  pt.sent.Add(1),
 	}
@@ -156,12 +159,4 @@ func (t *Transport) Send(message Transferable) (*Metadata, error) {
 
 func (t *Transport) SessionID() string { return t.sessionID }
 
-func (t *Transport) Close() error {
-	if err := t.conn.Close(); err != nil {
-		return fmt.Errorf("closing conn: %w", err)
-	}
-	if err := t.storage.Close(); err != nil {
-		return fmt.Errorf("closing storage: %w", err)
-	}
-	return nil
-}
+func (t *Transport) Close() error { return t.conn.Close() }

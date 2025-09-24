@@ -23,27 +23,36 @@ type Server struct {
 }
 
 func (s *Server) ListenAndServe() error {
+	defer func() {
+		if err := s.storage.Close(); err != nil {
+			slog.Warn("closing storage", slog.Any("error", err))
+		}
+	}()
 	l, err := s.listen()
 	if err != nil {
 		return fmt.Errorf("listening: %w", err)
 	}
-	defer l.Close()
+	defer func() {
+		if err := l.Close(); err != nil {
+			slog.Warn("closing listener", slog.Any("error", err))
+		}
+	}()
 
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			slog.Error("accept conn", slog.Any("err", err))
+			slog.Error("accept conn", slog.Any("error", err))
 			continue
 		}
 		go func() {
 			conn, err := newConn(c, s.connOpts...)
 			if err != nil {
-				slog.Error("new tcp conn", slog.Any("err", err))
+				slog.Error("new tcp conn", slog.Any("error", err))
 				return
 			}
 			err = s.serve(conn)
 			if err != nil {
-				slog.Error("serve conn", slog.Any("err", err))
+				slog.Error("serve conn", slog.Any("error", err))
 			}
 		}()
 	}

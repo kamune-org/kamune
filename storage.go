@@ -50,7 +50,7 @@ func openStorage(opts ...StorageOption) (*Storage, error) {
 			return nil, fmt.Errorf("getting user's home directory: %w", err)
 		}
 		path := filepath.Join(home, ".config", "kamune")
-		err = os.MkdirAll(path, 0700)
+		err = os.MkdirAll(path, 0740)
 		if err != nil {
 			return nil, fmt.Errorf("creating config directory: %w", err)
 		}
@@ -74,26 +74,18 @@ func (s *Storage) Close() error {
 	return s.store.Close()
 }
 
-func (s *Storage) IsPeerKnown(claim []byte) bool {
-	return s.store.PeerExists(claim)
-}
-
-func (s *Storage) TrustPeer(peer []byte) error {
-	return s.store.AddPeer(peer, time.Now().Add(s.expiryDuration))
-}
-
 func (s *Storage) attester() (attest.Attester, error) {
 	key := []byte(s.identity.String())
-	id, err := s.store.GetIdentity(key)
+	id, err := s.store.GetPlain(key)
 	switch {
 	case err == nil:
 		return s.identity.Load(id)
-	case errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, store.ErrMissing):
 		// continue
 	default:
 		return nil, fmt.Errorf("getting identity: %w", err)
 	}
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
+	if err != nil && !errors.Is(err, store.ErrMissing) {
 		return nil, err
 	}
 
@@ -105,7 +97,7 @@ func (s *Storage) attester() (attest.Attester, error) {
 	if err != nil {
 		return nil, fmt.Errorf("saving key: %w", err)
 	}
-	err = s.store.AddIdentity(key, data)
+	err = s.store.AddPlain(key, data)
 	if err != nil {
 		return nil, fmt.Errorf("persisting: %w", err)
 	}

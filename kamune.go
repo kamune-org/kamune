@@ -43,6 +43,8 @@ type Metadata struct {
 	pb *pb.Metadata
 }
 
+func (m Metadata) ID() string { return m.pb.GetID() }
+
 func (m Metadata) Timestamp() time.Time { return m.pb.Timestamp.AsTime() }
 
 func (m Metadata) SequenceNum() uint64 { return m.pb.GetSequence() }
