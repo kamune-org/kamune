@@ -18,15 +18,22 @@ import (
 func defaultRemoteVerifier(store *Storage, remote PublicKey) error {
 	key := remote.Marshal()
 	fmt.Printf(
-		"Peer's emoji fingerprint: %s\n",
+		"Recevied a connection request. Their emoji fingerprint: %s\n",
 		strings.Join(fingerprint.Emoji(key), " · "),
 	)
 
-	var newPeer bool
-	_, err := store.FindPeer(key)
+	var isPeerNew bool
+	p, err := store.FindPeer(key)
 	if err != nil {
-		fmt.Println("Peer is not known. They will be added to the storage if you continue.")
-		newPeer = true
+		fmt.Println(
+			"Peer is not known. They will be added to the storage if you continue.",
+		)
+		isPeerNew = true
+	} else {
+		fmt.Printf(
+			"Peer is known. First seen was at: %s.\n",
+			p.FirstSeen.Local().Format(time.DateTime),
+		)
 	}
 	fmt.Printf("Proceed? (y/N)? ")
 
@@ -37,13 +44,13 @@ func defaultRemoteVerifier(store *Storage, remote PublicKey) error {
 		return ErrVerificationFailed
 	}
 
-	if newPeer {
+	if isPeerNew {
 		now := time.Now()
 		peer := &Peer{
 			Title:     rand.Text(),
+			Identity:  remote.Identity(),
 			PublicKey: remote,
 			FirstSeen: now,
-			LastSeen:  now,
 		}
 		if err := store.TrustPeer(peer); err != nil {
 			fmt.Printf("Error adding peer to the known list: %s\n", err)
