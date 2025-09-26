@@ -34,5 +34,4 @@ message Peer {
   bytes PublicKey = 2;
   string Identity = 3;
   google.protobuf.Timestamp FirstSeen = 4;
-  google.protobuf.Timestamp LastSeen = 5;
 }
