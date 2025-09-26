@@ -53,6 +53,10 @@ func (p *ed25519PublicKey) Equal(x PublicKey) bool {
 	return p.key.Equal(pk.key)
 }
 
+func (p *ed25519PublicKey) Identity() Identity {
+	return Ed25519
+}
+
 func loadEd25519(data []byte) (*ed25519DSA, error) {
 	key, err := x509.ParsePKCS8PrivateKey(data)
 	if err != nil {

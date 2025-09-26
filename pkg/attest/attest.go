@@ -17,4 +17,5 @@ type Attester interface {
 type PublicKey interface {
 	Marshal() []byte
 	Equal(PublicKey) bool
+	Identity() Identity
 }

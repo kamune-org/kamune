@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	bucketName = "kamune"
+	defaultBucket = "kamune-store"
 
 	kek = "key-encryption-key"
 	dek = "data-encryption-key"
@@ -26,6 +26,8 @@ const (
 
 var (
 	ErrMissing = errors.New("item not found")
+
+	bucketName = []byte(defaultBucket)
 )
 
 type Store struct {
@@ -40,7 +42,7 @@ func New(passphrase []byte, path string) (*Store, error) {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(bucketName))
+		_, err := tx.CreateBucketIfNotExists(bucketName)
 		return err
 	})
 	if err != nil {
@@ -62,10 +64,16 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) Remove(key []byte) {
+	_ = s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketName).Delete(key)
+	})
+}
+
 func extractCipher(db *bolt.DB, pass []byte) (*enigma.Enigma, error) {
 	var secretSalt, deriveSalt, wrappedSalt, wrapped []byte
 	err := db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(bucketName))
+		bucket := tx.Bucket(bucketName)
 		wrapped = bucket.Get([]byte(wrappedKey))
 		deriveSalt = bucket.Get([]byte(deriveSaltKey))
 		wrappedSalt = bucket.Get([]byte(wrappedSaltKey))
@@ -120,7 +128,7 @@ func createCipher(db *bolt.DB, pass []byte) (*enigma.Enigma, error) {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(bucketName))
+		bucket := tx.Bucket(bucketName)
 		err := bucket.Put([]byte(wrappedKey), wrapped)
 		if err != nil {
 			return fmt.Errorf("put wrapped key: %w", err)

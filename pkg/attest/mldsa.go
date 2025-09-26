@@ -51,6 +51,10 @@ func (m *mldsaPublicKey) Equal(key PublicKey) bool {
 	return m.key.Equal(key)
 }
 
+func (m *mldsaPublicKey) Identity() Identity {
+	return MLDSA
+}
+
 func loadMLDSA(data []byte) (*mlDSA, error) {
 	key, err := mldsa65.Scheme().UnmarshalBinaryPrivateKey(data)
 	if err != nil {
