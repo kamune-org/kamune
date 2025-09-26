@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"runtime/debug"
 
 	"github.com/xtaci/kcp-go/v5"
 
@@ -71,8 +72,12 @@ func (s *Server) listen() (net.Listener, error) {
 
 func (s *Server) serve(conn *Conn) error {
 	defer func() {
-		if err := recover(); err != nil {
-			slog.Error("serve panic", slog.Any("err", err))
+		if msg := recover(); msg != nil {
+			slog.Error(
+				"serve panic",
+				slog.Any("message", msg),
+				slog.String("stack", string(debug.Stack())),
+			)
 		}
 		err := conn.Close()
 		if err != nil && !errors.Is(err, ErrConnClosed) {

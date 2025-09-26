@@ -1,11 +1,11 @@
 package kamune
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+	"runtime/debug"
 	"time"
 
 	"github.com/xtaci/kcp-go/v5"
@@ -96,8 +96,12 @@ func (d dialer) dial(addr string) (*Conn, error) {
 
 func (d *dialer) handshake() (*Transport, error) {
 	defer func() {
-		if err := recover(); err != nil {
-			d.log(slog.LevelError, "dial panic", slog.Any("err", err))
+		if msg := recover(); msg != nil {
+			slog.Error(
+				"dial panic",
+				slog.Any("message", msg),
+				slog.String("stack", string(debug.Stack())),
+			)
 		}
 	}()
 
@@ -119,10 +123,6 @@ func (d *dialer) handshake() (*Transport, error) {
 	}
 
 	return t, nil
-}
-
-func (dialer) log(lvl slog.Level, msg string, args ...any) {
-	slog.Log(context.Background(), lvl, msg, args...)
 }
 
 type DialOption func(*dialer) error
