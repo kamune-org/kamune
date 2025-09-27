@@ -6,9 +6,9 @@ import (
 	"fmt"
 	mathrand "math/rand/v2"
 
-	"github.com/hossein1376/kamune/internal/box/pb"
-	"github.com/hossein1376/kamune/internal/enigma"
-	"github.com/hossein1376/kamune/pkg/exchange"
+	"github.com/kamune-org/kamune/internal/box/pb"
+	"github.com/kamune-org/kamune/internal/enigma"
+	"github.com/kamune-org/kamune/pkg/exchange"
 )
 
 func requestHandshake(

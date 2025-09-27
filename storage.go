@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/hossein1376/kamune/pkg/attest"
-	"github.com/hossein1376/kamune/pkg/store"
+	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/store"
 )
 
 type PassphraseHandler func() ([]byte, error)

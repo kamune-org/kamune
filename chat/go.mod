@@ -1,14 +1,14 @@
-module github.com/hossein1376/kamune/chat
+module github.com/kamune-org/kamune/chat
 
 go 1.25
 
-replace github.com/hossein1376/kamune => ../
+replace github.com/kamune-org/kamune => ../
 
 require (
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.5
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/hossein1376/kamune v0.0.0-20250629014309-7cd4aec34d93
+	github.com/kamune-org/kamune v0.0.0-20250629014309-7cd4aec34d93
 )
 
 require (

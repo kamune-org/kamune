@@ -11,9 +11,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/hossein1376/kamune/pkg/attest"
-
-	"github.com/hossein1376/kamune"
+	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/attest"
 )
 
 var errCh = make(chan error)

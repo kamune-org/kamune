@@ -8,8 +8,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/hossein1376/kamune/internal/box/pb"
-	"github.com/hossein1376/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/internal/box/pb"
+	"github.com/kamune-org/kamune/pkg/attest"
 )
 
 type Peer struct {

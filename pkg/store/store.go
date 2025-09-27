@@ -8,7 +8,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/hossein1376/kamune/internal/enigma"
+	"github.com/kamune-org/kamune/internal/enigma"
 )
 
 const (

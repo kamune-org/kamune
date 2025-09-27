@@ -9,7 +9,7 @@ import (
 
 	"github.com/xtaci/kcp-go/v5"
 
-	"github.com/hossein1376/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/attest"
 )
 
 type Server struct {

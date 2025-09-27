@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hossein1376/kamune/internal/enigma"
+	"github.com/kamune-org/kamune/internal/enigma"
 )
 
 const benchSizePool = 1_000

@@ -1,4 +1,4 @@
-module github.com/hossein1376/kamune
+module github.com/kamune-org/kamune
 
 go 1.25
 
