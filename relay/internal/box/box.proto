@@ -1,0 +1,19 @@
+syntax = "proto3";
+package box;
+option go_package = "./pb";
+
+import "google/protobuf/timestamp.proto";
+
+enum DSA {
+  invalid = 0;
+  ed25519 = 1;
+  mldsa = 2;
+}
+
+message Peer {
+  bytes ID = 1;
+  bytes PublicKey = 2;
+  string Address = 3;
+  DSA Identity = 4;
+  google.protobuf.Timestamp RegisteredAt = 5;
+}

@@ -1,0 +1,207 @@
+openapi: 3.1.0
+info:
+  title: Kamune Relay server
+  description: Relay implementation for the Kamune project
+  version: 0.0.0
+paths:
+  /peers:
+    post:
+      operationId: registerAPeer
+      tags:
+        - peer
+      summary: Register a peer
+      responses:
+        "201":
+          description: The request was successful, and a new resource was created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  peer:
+                    $ref: "#/components/schemas/Peer"
+                required:
+                  - peer
+        "409":
+          description: The request could not be completed due to a conflict with the
+            current state of the resource. Resolve the conflict and try again.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  peer:
+                    $ref: "#/components/schemas/Peer"
+                required:
+                  - peer
+      requestBody:
+        required: true
+        description: ""
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                address:
+                  type: string
+                identity:
+                  type: string
+              required:
+                - key
+                - address
+                - identity
+    get:
+      operationId: inquiryAPeer
+      tags:
+        - peer
+      summary: Inquiry a peer
+      responses:
+        "200":
+          description: The request was successful, and the server has returned the
+            requested resource in the response body.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  peer:
+                    type: object
+                required:
+                  - peer
+        "404":
+          $ref: "#/components/responses/NotFound"
+      parameters:
+        - in: query
+          name: key
+          required: true
+          style: form
+          description: ""
+          explode: true
+          schema:
+            type: string
+          allowReserved: false
+  /identity:
+    get:
+      operationId: relayPublicKey
+      tags:
+        - identity
+      summary: Relay public key
+      responses:
+        "200":
+          description: The request was successful, and the server has returned the
+            requested resource in the response body.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                required:
+                  - id
+      parameters: []
+  /peers/{id}:
+    delete:
+      operationId: discardAPeer
+      tags:
+        - peer
+      summary: Discard a peer
+      responses:
+        "204":
+          description: The request was successful, but there is no content to return in
+            the response.
+          content:
+            application/json:
+              schema:
+                type: "null"
+      parameters:
+        - in: query
+          name: key
+          required: true
+          style: form
+          description: ""
+          explode: true
+          schema:
+            type: string
+          allowReserved: false
+        - $ref: "#/components/parameters/id"
+  /ip:
+    get:
+      operationId: clientsPublicIp
+      tags:
+        - ip
+      summary: Client's Public IP
+      responses:
+        "200":
+          description: The request was successful, and the server has returned the
+            requested resource in the response body.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ip:
+                    type: string
+                required:
+                  - ip
+servers:
+  - url: http://127.0.0.1:8888
+    description: Development server
+tags:
+  - name: peer
+  - name: identity
+  - name: ip
+components:
+  responses:
+    NotFound:
+      description: The server cannot find the requested resource. The endpoint may be
+        invalid or the resource may no longer exist.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+            required:
+              - message
+    Conflict:
+      description: The request could not be completed due to a conflict with the
+        current state of the resource. Resolve the conflict and try again.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+            required:
+              - message
+  schemas:
+    Peer:
+      type: object
+      properties:
+        add:
+          type: string
+        identity:
+          type: string
+        expires_in:
+          type: string
+        registered_at:
+          type: string
+        id:
+          type: string
+      required:
+        - add
+        - registered_at
+        - identity
+      description: Describing a registered peer
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
