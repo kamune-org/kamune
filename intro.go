@@ -19,7 +19,7 @@ func defaultRemoteVerifier(store *Storage, remote PublicKey) error {
 	key := remote.Marshal()
 	fmt.Printf(
 		"Recevied a connection request. Their emoji fingerprint: %s\n",
-		strings.Join(fingerprint.Emoji(key), " · "),
+		strings.Join(fingerprint.Emoji(key), " • "),
 	)
 
 	var isPeerNew bool

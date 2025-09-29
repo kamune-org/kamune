@@ -30,8 +30,8 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unmarshaling peer: %w", err)
 	}
-	identity, err := attest.ParseIdentity(p.Identity)
-	if err != nil {
+	var identity attest.Identity
+	if err = identity.UnmarshalText(p.Identity); err != nil {
 		return nil, fmt.Errorf("parsing identity: %w", err)
 	}
 	pubKey, err := identity.ParsePublicKey(p.PublicKey)
@@ -51,7 +51,7 @@ func (s *Storage) TrustPeer(peer *Peer) error {
 	pubKey := peer.PublicKey.Marshal()
 	p := &pb.Peer{
 		Title:     peer.Title,
-		Identity:  peer.Identity.String(),
+		Identity:  []byte(peer.Identity.String()),
 		PublicKey: pubKey,
 		FirstSeen: timestamppb.New(peer.FirstSeen),
 	}

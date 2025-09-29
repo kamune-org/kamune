@@ -274,7 +274,7 @@ type Peer struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Title         string                 `protobuf:"bytes,1,opt,name=Title,proto3" json:"Title,omitempty"`
 	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=PublicKey,proto3" json:"PublicKey,omitempty"`
-	Identity      string                 `protobuf:"bytes,3,opt,name=Identity,proto3" json:"Identity,omitempty"`
+	Identity      []byte                 `protobuf:"bytes,3,opt,name=Identity,proto3" json:"Identity,omitempty"`
 	FirstSeen     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=FirstSeen,proto3" json:"FirstSeen,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -324,11 +324,11 @@ func (x *Peer) GetPublicKey() []byte {
 	return nil
 }
 
-func (x *Peer) GetIdentity() string {
+func (x *Peer) GetIdentity() []byte {
 	if x != nil {
 		return x.Identity
 	}
-	return ""
+	return nil
 }
 
 func (x *Peer) GetFirstSeen() *timestamppb.Timestamp {
@@ -365,7 +365,7 @@ const file_box_proto_rawDesc = "" +
 	"\x04Peer\x12\x14\n" +
 	"\x05Title\x18\x01 \x01(\tR\x05Title\x12\x1c\n" +
 	"\tPublicKey\x18\x02 \x01(\fR\tPublicKey\x12\x1a\n" +
-	"\bIdentity\x18\x03 \x01(\tR\bIdentity\x128\n" +
+	"\bIdentity\x18\x03 \x01(\fR\bIdentity\x128\n" +
 	"\tFirstSeen\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tFirstSeenB\x06Z\x04./pbb\x06proto3"
 
 var (

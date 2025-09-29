@@ -3,6 +3,7 @@ package attest
 import (
 	"crypto/x509"
 	"fmt"
+	"strings"
 
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
 	"golang.org/x/crypto/ed25519"
@@ -91,13 +92,19 @@ func (a Identity) String() string {
 	}
 }
 
-func ParseIdentity(s string) (Identity, error) {
-	switch s {
+func (a Identity) MarshalText() ([]byte, error) {
+	return []byte(a.String()), nil
+}
+
+func (a *Identity) UnmarshalText(text []byte) error {
+	var err error
+	switch strings.ToLower(string(text)) {
 	case "ed25519":
-		return Ed25519, nil
+		*a = Ed25519
 	case "mldsa":
-		return MLDSA, nil
+		*a = MLDSA
 	default:
-		return invalidIdentity, fmt.Errorf("unknown identity: %s", s)
+		err = fmt.Errorf("unknown identity: %s", text)
 	}
+	return err
 }
