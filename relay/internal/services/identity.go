@@ -1,5 +1,9 @@
 package services
 
-func (s *Service) PublicKey() []byte {
-	return s.attester.PublicKey().Marshal()
+import (
+	"encoding/base64"
+)
+
+func (s *Service) PublicKey() string {
+	return base64.RawURLEncoding.EncodeToString(s.attester.PublicKey().Marshal())
 }
