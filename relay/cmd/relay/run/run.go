@@ -36,7 +36,11 @@ func Run() error {
 	if err != nil {
 		return fmt.Errorf("open storage: %w", err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			slog.Error("closing storage", slogger.Err("error", err))
+		}
+	}()
 
 	srvc, err := services.New(store, cfg)
 	if err != nil {

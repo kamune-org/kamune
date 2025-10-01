@@ -15,10 +15,12 @@ import (
 
 const (
 	attestation = "attestation"
+	identity    = "identity"
 )
 
 var (
 	attestationKey = []byte(attestation)
+	identityNS     = model.NewNameSpace(identity)
 )
 
 type Service struct {
@@ -42,7 +44,7 @@ func loadAttest(
 ) (attest.Attester, error) {
 	var at attest.Attester
 	err := store.Command(func(c model.Command) error {
-		attestBytes, err := c.Get(attestationKey)
+		attestBytes, err := c.Get(identityNS, attestationKey)
 		if err != nil {
 			return fmt.Errorf("getting data from storage: %w", err)
 		}
@@ -71,7 +73,7 @@ func loadAttest(
 		return nil, fmt.Errorf("marshalling attester: %w", err)
 	}
 	err = store.Command(func(c model.Command) error {
-		return c.Set(attestationKey, data)
+		return c.Set(identityNS, attestationKey, data)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("storing attester: %w", err)

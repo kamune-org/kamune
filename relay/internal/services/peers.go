@@ -17,8 +17,14 @@ import (
 	"github.com/kamune-org/kamune/relay/pkg/span"
 )
 
+const (
+	peers = "peers"
+)
+
 var (
 	ErrExistingPeer = errors.New("peer already exists")
+
+	peersNS = model.NewNameSpace(peers)
 )
 
 func (s *Service) RegisterPeer(
@@ -39,7 +45,7 @@ func (s *Service) RegisterPeer(
 		return nil, fmt.Errorf("marshalling peer: %w", err)
 	}
 	err = s.store.Command(func(c model.Command) error {
-		data, err := c.Get(pubKey)
+		data, err := c.Get(peersNS, pubKey)
 		switch {
 		case err == nil:
 			if err := proto.Unmarshal(data, &p); err != nil {
@@ -52,7 +58,7 @@ func (s *Service) RegisterPeer(
 		default:
 			return fmt.Errorf("checking peer's exists: %w", err)
 		}
-		err = c.SetTTL(pubKey, peerBytes, ttl)
+		err = c.SetTTL(peersNS, pubKey, peerBytes, ttl)
 		if err != nil {
 			return fmt.Errorf("inserting peer to storage: %w", err)
 		}
@@ -71,7 +77,7 @@ func (s *Service) InquiryPeer(pubKey []byte) (*model.Peer, error) {
 	var p pb.Peer
 	var ttl time.Duration
 	err := s.store.Query(func(c model.Query) error {
-		peerData, err := c.Get(pubKey)
+		peerData, err := c.Get(peersNS, pubKey)
 		if err != nil {
 			if errors.Is(err, storage.ErrMissing) {
 				return errs.NotFound(err)
@@ -82,7 +88,7 @@ func (s *Service) InquiryPeer(pubKey []byte) (*model.Peer, error) {
 		if err != nil {
 			return fmt.Errorf("unmarshalling peer: %w", err)
 		}
-		ttl, err = c.TTL(pubKey)
+		ttl, err = c.TTL(peersNS, pubKey)
 		if err != nil {
 			return fmt.Errorf("getting peer's TTL: %w", err)
 		}
@@ -107,6 +113,6 @@ func (s *Service) InquiryPeer(pubKey []byte) (*model.Peer, error) {
 
 func (s *Service) DeletePeer(pubKey []byte) error {
 	return s.store.Command(func(c model.Command) error {
-		return c.Delete(pubKey)
+		return c.Delete(peersNS, pubKey)
 	})
 }

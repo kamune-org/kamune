@@ -18,7 +18,9 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
-	opts := badger.DefaultOptions(path).WithLogger(newLogger(slog.LevelError))
+	opts := badger.DefaultOptions(path).
+		WithLogger(newLogger(slog.LevelError)).
+		WithNamespaceOffset(0)
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("openning storage: %w", err)

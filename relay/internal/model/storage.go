@@ -11,14 +11,14 @@ type Store interface {
 }
 
 type Query interface {
-	Get(key []byte) ([]byte, error)
-	Exists(key []byte) (bool, error)
-	TTL(key []byte) (time.Duration, error)
+	Get(ns Namespace, name []byte) ([]byte, error)
+	Exists(ns Namespace, name []byte) (bool, error)
+	TTL(ns Namespace, name []byte) (time.Duration, error)
 }
 
 type Command interface {
 	Query
-	Delete(key []byte) error
-	Set(key, value []byte) error
-	SetTTL(key, value []byte, ttl time.Duration) error
+	Delete(ns Namespace, name []byte) error
+	Set(ns Namespace, name, value []byte) error
+	SetTTL(ns Namespace, name, value []byte, ttl time.Duration) error
 }
