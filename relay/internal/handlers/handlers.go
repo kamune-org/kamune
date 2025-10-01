@@ -7,6 +7,7 @@ import (
 	"github.com/hossein1376/grape"
 	"github.com/hossein1376/grape/errs"
 
+	"github.com/kamune-org/kamune/relay/internal/config"
 	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/services"
 )
@@ -15,9 +16,9 @@ type Handler struct {
 	service *services.Service
 }
 
-func New(service *services.Service) *grape.Router {
+func New(service *services.Service, cfg config.Config) *grape.Router {
 	h := &Handler{service: service}
-	return newRouter(h)
+	return newRouter(h, cfg)
 }
 
 func (h *Handler) IdentityHandler(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +27,7 @@ func (h *Handler) IdentityHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) EchoIPHandler(w http.ResponseWriter, r *http.Request) {
-	grape.Respond(r.Context(), w, http.StatusOK, grape.Map{"ip": userIP(r)})
+	grape.Respond(r.Context(), w, http.StatusOK, grape.Map{"ip": clientIP(r)})
 }
 
 func (h *Handler) RegisterPeerHandler(w http.ResponseWriter, r *http.Request) {

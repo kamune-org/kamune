@@ -2,3 +2,8 @@ storage = "./db"
 identity = "ed25519"
 address = "127.0.0.1:8888"
 register_ttl = "30m"
+
+[rate_limit]
+enabled = true
+time_window = "1m"
+quota = 20

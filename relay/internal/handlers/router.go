@@ -4,9 +4,11 @@ import (
 	"net/http"
 
 	"github.com/hossein1376/grape"
+
+	"github.com/kamune-org/kamune/relay/internal/config"
 )
 
-func newRouter(h *Handler) *grape.Router {
+func newRouter(h *Handler, cfg config.Config) *grape.Router {
 	r := grape.NewRouter()
 	r.UseAll(
 		grape.RequestIDMiddleware,
@@ -14,6 +16,9 @@ func newRouter(h *Handler) *grape.Router {
 		grape.RecoverMiddleware,
 		grape.CORSMiddleware,
 	)
+	if cfg.RateLimit.Enabled {
+		r.UseAll(rateLimitMiddleware(h.service))
+	}
 
 	r.Get("/identity", h.IdentityHandler)
 	r.Get("/ip", h.EchoIPHandler)
@@ -26,7 +31,7 @@ func newRouter(h *Handler) *grape.Router {
 	return r
 }
 
-func userIP(r *http.Request) string {
+func clientIP(r *http.Request) string {
 	ip := r.Header.Get("X-Real-Ip")
 	if ip == "" {
 		ip = r.Header.Get("X-Forwarded-For")

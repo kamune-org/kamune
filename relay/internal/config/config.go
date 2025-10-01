@@ -15,6 +15,13 @@ type Config struct {
 	Identity    attest.Identity `toml:"identity"`
 	Address     string          `toml:"address"`
 	RegisterTTL time.Duration   `toml:"register_ttl"`
+	RateLimit   RateLimit       `toml:"rate_limit"`
+}
+
+type RateLimit struct {
+	Enabled    bool          `toml:"enabled"`
+	TimeWindow time.Duration `toml:"time_window"`
+	Quota      uint64        `toml:"quota"`
 }
 
 func New(path string) (Config, error) {

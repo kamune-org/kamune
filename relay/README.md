@@ -14,7 +14,8 @@ Currently, these are implemented:
 
 - Public IP discovery
 - Register and find other peers
-- On-disk storage
+- On-disk storage with [badger](https://github.com/hypermodeinc/badger)
+- Rate limit via the embedded database
 
 Possible features that may be implemented in the future:
 

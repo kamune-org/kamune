@@ -46,7 +46,7 @@ func Run() error {
 	if err != nil {
 		return fmt.Errorf("new service: %w", err)
 	}
-	router := handlers.New(srvc)
+	router := handlers.New(srvc, cfg)
 
 	server := &http.Server{
 		Addr:         cfg.Address,
