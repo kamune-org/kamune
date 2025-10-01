@@ -27,25 +27,9 @@ type dialer struct {
 }
 
 func Dial(addr string, opts ...DialOption) (*Transport, error) {
-	d := &dialer{
-		connType:     tcp,
-		readTimeout:  10 * time.Minute,
-		writeTimeout: 1 * time.Minute,
-		dialTimeout:  10 * time.Second,
-		verifyRemote: defaultRemoteVerifier,
-	}
-	for _, opt := range opts {
-		if err := opt(d); err != nil {
-			return nil, fmt.Errorf("applying options: %w", err)
-		}
-	}
-
-	if d.conn == nil {
-		c, err := d.dial(addr)
-		if err != nil {
-			return nil, fmt.Errorf("dialing: %w", err)
-		}
-		d.conn = c
+	d, err := newDialer(addr, opts)
+	if err != nil {
+		return nil, err
 	}
 
 	storage, err := openStorage(d.storageOpts...)
@@ -67,7 +51,7 @@ func Dial(addr string, opts ...DialOption) (*Transport, error) {
 	return transport, err
 }
 
-func (d dialer) dial(addr string) (*Conn, error) {
+func (d *dialer) dial(addr string) (*Conn, error) {
 	switch d.connType {
 	case tcp:
 		c, err := net.Dial("tcp", addr)
@@ -90,7 +74,7 @@ func (d dialer) dial(addr string) (*Conn, error) {
 		}
 		return conn, nil
 	default:
-		panic("unknown connection type")
+		panic(fmt.Errorf("unknown connection type: %v", d.connType))
 	}
 }
 
@@ -117,12 +101,37 @@ func (d *dialer) handshake() (*Transport, error) {
 	}
 
 	pt := newPlainTransport(d.conn, remote, d.attester, d.storage.identity)
-	t, err := requestHandshake(pt, d.storage)
+	t, err := requestHandshake(pt)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
 	}
 
 	return t, nil
+}
+
+func newDialer(addr string, opts []DialOption) (*dialer, error) {
+	d := &dialer{
+		connType:     tcp,
+		readTimeout:  10 * time.Minute,
+		writeTimeout: 1 * time.Minute,
+		dialTimeout:  10 * time.Second,
+		verifyRemote: defaultRemoteVerifier,
+	}
+	for _, opt := range opts {
+		if err := opt(d); err != nil {
+			return nil, fmt.Errorf("applying options: %w", err)
+		}
+	}
+
+	if d.conn == nil {
+		c, err := d.dial(addr)
+		if err != nil {
+			return nil, fmt.Errorf("dialing: %w", err)
+		}
+		d.conn = c
+	}
+
+	return d, nil
 }
 
 type DialOption func(*dialer) error

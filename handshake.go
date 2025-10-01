@@ -11,9 +11,7 @@ import (
 	"github.com/kamune-org/kamune/pkg/exchange"
 )
 
-func requestHandshake(
-	pt *plainTransport, store *Storage,
-) (*Transport, error) {
+func requestHandshake(pt *plainTransport) (*Transport, error) {
 	ml, err := exchange.NewMLKEM()
 	if err != nil {
 		return nil, fmt.Errorf("creating MLKEM keys: %w", err)
@@ -31,11 +29,11 @@ func requestHandshake(
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake request: %w", err)
 	}
-	if err = pt.conn.Write(reqBytes); err != nil {
+	if err = pt.conn.WriteBytes(reqBytes); err != nil {
 		return nil, fmt.Errorf("writing handshake request: %w", err)
 	}
 
-	respBytes, err := pt.conn.Read()
+	respBytes, err := pt.conn.ReadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake response: %w", err)
 	}
@@ -60,7 +58,7 @@ func requestHandshake(
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, sessionID, store, encoder, decoder)
+	t := newTransport(pt, sessionID, encoder, decoder)
 	if err := sendChallenge(t, secret, []byte(sessionID+c2s)); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
@@ -71,10 +69,8 @@ func requestHandshake(
 	return t, nil
 }
 
-func acceptHandshake(
-	pt *plainTransport, store *Storage,
-) (*Transport, error) {
-	reqBytes, err := pt.conn.Read()
+func acceptHandshake(pt *plainTransport) (*Transport, error) {
+	reqBytes, err := pt.conn.ReadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake request: %w", err)
 	}
@@ -100,7 +96,7 @@ func acceptHandshake(
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake response: %w", err)
 	}
-	if err = pt.conn.Write(respBytes); err != nil {
+	if err = pt.conn.WriteBytes(respBytes); err != nil {
 		return nil, fmt.Errorf("writing handshake response: %w", err)
 	}
 
@@ -115,7 +111,7 @@ func acceptHandshake(
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, sessionID, store, encoder, decoder)
+	t := newTransport(pt, sessionID, encoder, decoder)
 	if err := acceptChallenge(t); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}

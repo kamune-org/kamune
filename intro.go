@@ -71,7 +71,7 @@ func sendIntroduction(conn *Conn, at attest.Attester) error {
 	if err != nil {
 		return fmt.Errorf("marshalling: %w", err)
 	}
-	if err := conn.Write(introBytes); err != nil {
+	if err := conn.WriteBytes(introBytes); err != nil {
 		return fmt.Errorf("writing: %w", err)
 	}
 
@@ -81,7 +81,7 @@ func sendIntroduction(conn *Conn, at attest.Attester) error {
 func receiveIntroduction(
 	conn *Conn, attestation attest.Identity,
 ) (attest.PublicKey, error) {
-	payload, err := conn.Read()
+	payload, err := conn.ReadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("reading payload: %w", err)
 	}

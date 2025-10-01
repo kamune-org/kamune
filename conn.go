@@ -1,10 +1,8 @@
 package kamune
 
 import (
-	"bufio"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"net"
 	"time"
 )
@@ -12,20 +10,18 @@ import (
 type connType int
 
 const (
-	tcp connType = iota
+	invalidConn connType = iota
+	tcp
 	udp
 )
 
 type Conn struct {
 	conn          net.Conn
-	reader        *bufio.Reader
 	connType      connType
 	isClosed      bool
 	readDeadline  time.Duration
 	writeDeadline time.Duration
 }
-
-type ConnOption func(*Conn) error
 
 func (c *Conn) Close() error {
 	if c.isClosed {
@@ -42,64 +38,120 @@ func (c *Conn) Close() error {
 
 // TODO(h.yazdani): support chunked read and writes
 
-func (c *Conn) Read() ([]byte, error) {
-	err := c.conn.SetReadDeadline(time.Now().Add(c.readDeadline))
-	if err != nil {
-		return nil, fmt.Errorf("setting read deadline: %w", err)
-	}
-	if c.isClosed {
-		return nil, ErrConnClosed
+func (c *Conn) Read(buf []byte) (int, error) {
+	if err := c.checkAndSetDeadline(c.readDeadline); err != nil {
+		return 0, err
 	}
 
 	// TODO(h.yazdani): Since the connection is being reused, even in case of an
 	//  error it must be fully read (and discarded).
 
-	var lenBuf [2]byte
-	if _, err := io.ReadFull(c.reader, lenBuf[:]); err != nil {
-		return nil, fmt.Errorf("reading length: %w", err)
-	}
-	msgLen := binary.BigEndian.Uint16(lenBuf[:])
-	if msgLen > maxTransportSize {
-		return nil, ErrMessageTooLarge
-	}
-
-	buf := make([]byte, msgLen)
-	var n int
-	if n, err = io.ReadFull(c.reader, buf[:]); err != nil {
-		return nil, fmt.Errorf("reading length: %w", err)
-	}
+	n, err := c.conn.Read(buf)
 	switch {
-	case n != int(msgLen):
-		return nil, fmt.Errorf("expected %d bytes, read %d", msgLen, n)
 	default:
-		return buf, nil
+		return n, nil
+	case err != nil:
+		return 0, fmt.Errorf("reading full: %w", err)
 	}
 }
 
-func (c *Conn) Write(data []byte) error {
-	err := c.conn.SetWriteDeadline(time.Now().Add(c.writeDeadline))
+func (c *Conn) ReadBytes() ([]byte, error) {
+	l, err := c.readLen()
 	if err != nil {
-		return fmt.Errorf("setting write deadline: %w", err)
+		return nil, fmt.Errorf("message length: %w", err)
 	}
-	if c.isClosed {
-		return ErrConnClosed
+	buf := make([]byte, l)
+	_, err = c.Read(buf)
+	if err != nil {
+		return nil, fmt.Errorf("reading message: %w", err)
+	}
+	return buf, nil
+}
+
+func (c *Conn) Write(data []byte) (int, error) {
+	if err := c.checkAndSetDeadline(c.writeDeadline); err != nil {
+		return 0, err
 	}
 
-	msgLen := len(data)
-	if len(data) > maxTransportSize {
-		return ErrMessageTooLarge
+	n, err := c.conn.Write(data)
+	if err != nil {
+		return 0, fmt.Errorf("writing message: %w", err)
 	}
-	var lenBuf [2]byte
-	binary.BigEndian.PutUint16(lenBuf[:], uint16(msgLen))
-	if _, err := c.conn.Write(lenBuf[:]); err != nil {
+	return n, nil
+}
+
+func (c *Conn) WriteBytes(data []byte) error {
+	_, err := c.writeLen(data)
+	if err != nil {
 		return fmt.Errorf("writing length: %w", err)
 	}
-
-	if _, err = c.conn.Write(data); err != nil {
+	_, err = c.Write(data)
+	if err != nil {
 		return fmt.Errorf("writing message: %w", err)
 	}
 	return nil
 }
+
+func (c *Conn) readLen() (int, error) {
+	if err := c.checkAndSetDeadline(c.readDeadline); err != nil {
+		return 0, err
+	}
+
+	lenBuf := make([]byte, 2)
+	n, err := c.conn.Read(lenBuf)
+	switch {
+	case err != nil:
+		return 0, fmt.Errorf("reading: %w", err)
+	case n != 2:
+		return 0, fmt.Errorf("expected 2 bytes, got %d", n)
+	}
+	msgLen := binary.BigEndian.Uint16(lenBuf)
+	if msgLen > maxTransportSize {
+		return 0, ErrMessageTooLarge
+	}
+
+	return int(msgLen), nil
+}
+
+func (c *Conn) writeLen(data []byte) (int, error) {
+	if err := c.checkAndSetDeadline(c.writeDeadline); err != nil {
+		return 0, err
+	}
+
+	msgLen := len(data)
+	if len(data) > maxTransportSize {
+		return 0, ErrMessageTooLarge
+	}
+	var lenBuf [2]byte
+	binary.BigEndian.PutUint16(lenBuf[:], uint16(msgLen))
+	switch n, err := c.conn.Write(lenBuf[:]); {
+	case err != nil:
+		return 0, fmt.Errorf("writing length: %w", err)
+	case n != 2:
+		return 0, fmt.Errorf("expected to write 2 bytes, wrote %d", n)
+	default:
+		return n, nil
+	}
+}
+
+func (c *Conn) checkAndSetDeadline(deadline time.Duration) error {
+	if c.isClosed {
+		return ErrConnClosed
+	}
+	err := c.SetReadDeadline(time.Now().Add(deadline))
+	if err != nil {
+		return fmt.Errorf("setting read deadline: %w", err)
+	}
+	return nil
+}
+
+func (c *Conn) LocalAddr() net.Addr                { return c.conn.LocalAddr() }
+func (c *Conn) RemoteAddr() net.Addr               { return c.conn.RemoteAddr() }
+func (c *Conn) SetDeadline(t time.Time) error      { return c.conn.SetDeadline(t) }
+func (c *Conn) SetReadDeadline(t time.Time) error  { return c.conn.SetReadDeadline(t) }
+func (c *Conn) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
+
+type ConnOption func(*Conn) error
 
 func ConnWithReadTimeout(timeout time.Duration) ConnOption {
 	return func(conn *Conn) error {
@@ -118,7 +170,6 @@ func ConnWithWriteTimeout(timeout time.Duration) ConnOption {
 func newConn(c net.Conn, opts ...ConnOption) (*Conn, error) {
 	conn := &Conn{
 		conn:          c,
-		reader:        bufio.NewReader(c),
 		connType:      tcp,
 		isClosed:      false,
 		writeDeadline: 1 * time.Minute,

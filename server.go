@@ -99,7 +99,7 @@ func (s *Server) serve(conn *Conn) error {
 	}
 
 	pt := newPlainTransport(conn, remote, s.attester, s.storage.identity)
-	t, err := acceptHandshake(pt, s.storage)
+	t, err := acceptHandshake(pt)
 	if err != nil {
 		return fmt.Errorf("accept handshake: %w", err)
 	}

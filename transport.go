@@ -96,7 +96,6 @@ func (pt *plainTransport) deserialize(
 type Transport struct {
 	*plainTransport
 	sessionID string
-	storage   *Storage
 	encoder   *enigma.Enigma
 	decoder   *enigma.Enigma
 }
@@ -104,20 +103,18 @@ type Transport struct {
 func newTransport(
 	pt *plainTransport,
 	sessionID string,
-	storage *Storage,
 	encoder, decoder *enigma.Enigma,
 ) *Transport {
 	return &Transport{
 		plainTransport: pt,
 		sessionID:      sessionID,
-		storage:        storage,
 		encoder:        encoder,
 		decoder:        decoder,
 	}
 }
 
 func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
-	payload, err := t.conn.Read()
+	payload, err := t.conn.ReadBytes()
 	switch {
 	case err == nil: // continue
 	case errors.Is(err, io.EOF):
@@ -150,7 +147,7 @@ func (t *Transport) Send(message Transferable) (*Metadata, error) {
 		return nil, fmt.Errorf("serializing: %w", err)
 	}
 	encrypted := t.encoder.Encrypt(payload)
-	if err := t.conn.Write(encrypted); err != nil {
+	if err := t.conn.WriteBytes(encrypted); err != nil {
 		return nil, fmt.Errorf("writing: %w", err)
 	}
 
