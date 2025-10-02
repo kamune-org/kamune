@@ -75,9 +75,10 @@ type Peer struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ID            []byte                 `protobuf:"bytes,1,opt,name=ID,proto3" json:"ID,omitempty"`
 	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=PublicKey,proto3" json:"PublicKey,omitempty"`
-	Address       string                 `protobuf:"bytes,3,opt,name=Address,proto3" json:"Address,omitempty"`
-	Identity      DSA                    `protobuf:"varint,4,opt,name=Identity,proto3,enum=box.DSA" json:"Identity,omitempty"`
-	RegisteredAt  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=RegisteredAt,proto3" json:"RegisteredAt,omitempty"`
+	Address       []string               `protobuf:"bytes,3,rep,name=Address,proto3" json:"Address,omitempty"`
+	Title         string                 `protobuf:"bytes,4,opt,name=Title,proto3" json:"Title,omitempty"`
+	Identity      DSA                    `protobuf:"varint,5,opt,name=Identity,proto3,enum=box.DSA" json:"Identity,omitempty"`
+	RegisteredAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=RegisteredAt,proto3" json:"RegisteredAt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -126,9 +127,16 @@ func (x *Peer) GetPublicKey() []byte {
 	return nil
 }
 
-func (x *Peer) GetAddress() string {
+func (x *Peer) GetAddress() []string {
 	if x != nil {
 		return x.Address
+	}
+	return nil
+}
+
+func (x *Peer) GetTitle() string {
+	if x != nil {
+		return x.Title
 	}
 	return ""
 }
@@ -147,17 +155,93 @@ func (x *Peer) GetRegisteredAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type Message struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SequenceNum   uint64                 `protobuf:"varint,1,opt,name=SequenceNum,proto3" json:"SequenceNum,omitempty"`
+	SenderID      []byte                 `protobuf:"bytes,2,opt,name=SenderID,proto3" json:"SenderID,omitempty"`
+	ReceiverID    []byte                 `protobuf:"bytes,3,opt,name=ReceiverID,proto3" json:"ReceiverID,omitempty"`
+	Data          []byte                 `protobuf:"bytes,4,opt,name=Data,proto3" json:"Data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Message) Reset() {
+	*x = Message{}
+	mi := &file_box_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Message) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Message) ProtoMessage() {}
+
+func (x *Message) ProtoReflect() protoreflect.Message {
+	mi := &file_box_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Message.ProtoReflect.Descriptor instead.
+func (*Message) Descriptor() ([]byte, []int) {
+	return file_box_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Message) GetSequenceNum() uint64 {
+	if x != nil {
+		return x.SequenceNum
+	}
+	return 0
+}
+
+func (x *Message) GetSenderID() []byte {
+	if x != nil {
+		return x.SenderID
+	}
+	return nil
+}
+
+func (x *Message) GetReceiverID() []byte {
+	if x != nil {
+		return x.ReceiverID
+	}
+	return nil
+}
+
+func (x *Message) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
 var File_box_proto protoreflect.FileDescriptor
 
 const file_box_proto_rawDesc = "" +
 	"\n" +
-	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb4\x01\n" +
+	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"\xca\x01\n" +
 	"\x04Peer\x12\x0e\n" +
 	"\x02ID\x18\x01 \x01(\fR\x02ID\x12\x1c\n" +
 	"\tPublicKey\x18\x02 \x01(\fR\tPublicKey\x12\x18\n" +
-	"\aAddress\x18\x03 \x01(\tR\aAddress\x12$\n" +
-	"\bIdentity\x18\x04 \x01(\x0e2\b.box.DSAR\bIdentity\x12>\n" +
-	"\fRegisteredAt\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fRegisteredAt**\n" +
+	"\aAddress\x18\x03 \x03(\tR\aAddress\x12\x14\n" +
+	"\x05Title\x18\x04 \x01(\tR\x05Title\x12$\n" +
+	"\bIdentity\x18\x05 \x01(\x0e2\b.box.DSAR\bIdentity\x12>\n" +
+	"\fRegisteredAt\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fRegisteredAt\"{\n" +
+	"\aMessage\x12 \n" +
+	"\vSequenceNum\x18\x01 \x01(\x04R\vSequenceNum\x12\x1a\n" +
+	"\bSenderID\x18\x02 \x01(\fR\bSenderID\x12\x1e\n" +
+	"\n" +
+	"ReceiverID\x18\x03 \x01(\fR\n" +
+	"ReceiverID\x12\x12\n" +
+	"\x04Data\x18\x04 \x01(\fR\x04Data**\n" +
 	"\x03DSA\x12\v\n" +
 	"\ainvalid\x10\x00\x12\v\n" +
 	"\aed25519\x10\x01\x12\t\n" +
@@ -176,15 +260,16 @@ func file_box_proto_rawDescGZIP() []byte {
 }
 
 var file_box_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_box_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_box_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_box_proto_goTypes = []any{
 	(DSA)(0),                      // 0: box.DSA
 	(*Peer)(nil),                  // 1: box.Peer
-	(*timestamppb.Timestamp)(nil), // 2: google.protobuf.Timestamp
+	(*Message)(nil),               // 2: box.Message
+	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
 }
 var file_box_proto_depIdxs = []int32{
 	0, // 0: box.Peer.Identity:type_name -> box.DSA
-	2, // 1: box.Peer.RegisteredAt:type_name -> google.protobuf.Timestamp
+	3, // 1: box.Peer.RegisteredAt:type_name -> google.protobuf.Timestamp
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -203,7 +288,7 @@ func file_box_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_box_proto_rawDesc), len(file_box_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   1,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

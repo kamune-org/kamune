@@ -17,20 +17,16 @@ import (
 	"github.com/kamune-org/kamune/relay/pkg/span"
 )
 
-const (
-	peers = "peers"
-)
-
 var (
 	ErrExistingPeer = errors.New("peer already exists")
 
-	peersNS = model.NewNameSpace(peers)
+	peersNS = model.NewNameSpace("peers")
 )
 
 func (s *Service) RegisterPeer(
-	pubKey []byte, identity attest.Identity, addr string,
+	pubKey []byte, identity attest.Identity, addr []string,
 ) (*model.Peer, error) {
-	ttl := s.cfg.RegisterTTL
+	ttl := s.cfg.Storage.RegisterTTL
 	peerID := model.PeerID(uuid.New())
 	peerIDBytes, _ := peerID.MarshalBinary()
 	p := pb.Peer{

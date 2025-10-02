@@ -9,12 +9,8 @@ import (
 	"github.com/kamune-org/kamune/relay/internal/storage"
 )
 
-const (
-	rateLimit = "rt_limit"
-)
-
 var (
-	rateLimitNS = model.NewNameSpace(rateLimit)
+	rateLimitNS = model.NewNameSpace("rate_lmt")
 )
 
 func (s *Service) RateLimit(remoteIP string) (bool, error) {

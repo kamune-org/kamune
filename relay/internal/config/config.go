@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -11,11 +12,23 @@ import (
 )
 
 type Config struct {
-	Storage     string          `toml:"storage"`
-	Identity    attest.Identity `toml:"identity"`
-	Address     string          `toml:"address"`
-	RegisterTTL time.Duration   `toml:"register_ttl"`
-	RateLimit   RateLimit       `toml:"rate_limit"`
+	Server    Server    `toml:"server"`
+	Storage   Storage   `toml:"storage"`
+	RateLimit RateLimit `toml:"rate_limit"`
+}
+
+type Server struct {
+	Address  string          `toml:"address"`
+	Identity attest.Identity `toml:"identity"`
+}
+
+type Storage struct {
+	Path           string        `toml:"path"`
+	LogLevel       slog.Level    `toml:"log_level"`
+	InMemory       bool          `toml:"in_memory"`
+	RegisterTTL    time.Duration `toml:"register_ttl"`
+	MaxMessageSize int           `toml:"max_message_size"`
+	MaxQueueSize   uint64        `toml:"max_queue_size"`
 }
 
 type RateLimit struct {

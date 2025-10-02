@@ -12,7 +12,7 @@ import (
 
 type Peer struct {
 	ID           PeerID          `json:"id,omitzero"`
-	Address      string          `json:"address"`
+	Address      []string        `json:"address"`
 	Identity     attest.Identity `json:"identity"`
 	RegisteredAt time.Time       `json:"registered_at"`
 	ExpiresIn    span.Duration   `json:"expires_in,omitzero"`

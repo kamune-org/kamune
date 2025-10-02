@@ -10,6 +10,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/hossein1376/grape/slogger"
 
+	"github.com/kamune-org/kamune/relay/internal/config"
 	"github.com/kamune-org/kamune/relay/internal/model"
 )
 
@@ -17,10 +18,18 @@ type Store struct {
 	db *badger.DB
 }
 
-func Open(path string) (*Store, error) {
-	opts := badger.DefaultOptions(path).
-		WithLogger(newLogger(slog.LevelError)).
+func Open(cfg config.Storage) (*Store, error) {
+	opts := badger.DefaultOptions(cfg.Path).
+		WithLogger(newLogger(cfg.LogLevel)).
 		WithNamespaceOffset(0)
+	if cfg.InMemory {
+		slog.Warn("Serving from an in-memory storage")
+		slog.Warn("This is NOT RECOMMENDED!")
+		slog.Warn("It may cause high RAM usage, and data will be lost on shutdown.")
+		opts.Dir = ""
+		opts.ValueDir = ""
+		opts = opts.WithInMemory(true)
+	}
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("openning storage: %w", err)

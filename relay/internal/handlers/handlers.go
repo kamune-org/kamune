@@ -37,7 +37,13 @@ func (h *Handler) RegisterPeerHandler(w http.ResponseWriter, r *http.Request) {
 		grape.RespondFromErr(ctx, w, errs.BadRequest(err))
 		return
 	}
-	peer, err := h.service.RegisterPeer(req.publicKey, req.Identity, req.Addr)
+	l := len(req.Addr)
+	addr := make([]string, l, l+1)
+	for i := range addr {
+		addr[i] = req.Addr[i]
+	}
+	addr = append(addr, clientIP(r))
+	peer, err := h.service.RegisterPeer(req.publicKey, req.Identity, addr)
 	if err != nil {
 		if errors.Is(err, services.ErrExistingPeer) {
 			peer.ID = model.NewPeerID()

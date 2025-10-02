@@ -13,7 +13,15 @@ enum DSA {
 message Peer {
   bytes ID = 1;
   bytes PublicKey = 2;
-  string Address = 3;
-  DSA Identity = 4;
-  google.protobuf.Timestamp RegisteredAt = 5;
+  repeated string Address = 3;
+  string Title = 4;
+  DSA Identity = 5;
+  google.protobuf.Timestamp RegisteredAt = 6;
+}
+
+message Message {
+  uint64 SequenceNum = 1;
+  bytes SenderID = 2;
+  bytes ReceiverID = 3;
+  bytes Data = 4;
 }

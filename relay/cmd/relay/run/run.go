@@ -49,7 +49,7 @@ func Run() error {
 	router := handlers.New(srvc, cfg)
 
 	server := &http.Server{
-		Addr:         cfg.Address,
+		Addr:         cfg.Server.Address,
 		Handler:      router,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,

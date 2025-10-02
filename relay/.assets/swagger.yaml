@@ -22,6 +22,7 @@ paths:
                     $ref: "#/components/schemas/Peer"
                 required:
                   - peer
+                title: RegisterAPeerCreated
         "409":
           description: The request could not be completed due to a conflict with the
             current state of the resource. Resolve the conflict and try again.
@@ -34,6 +35,7 @@ paths:
                     $ref: "#/components/schemas/Peer"
                 required:
                   - peer
+                title: RegisterAPeerConflict
       requestBody:
         required: true
         description: ""
@@ -42,16 +44,20 @@ paths:
             schema:
               type: object
               properties:
-                key:
-                  type: string
                 address:
-                  type: string
+                  type: array
+                  items:
+                    type: string
                 identity:
                   type: string
+                public_key:
+                  type: string
+                title:
+                  type: string
               required:
-                - key
-                - address
                 - identity
+                - public_key
+                - title
     get:
       operationId: inquiryAPeer
       tags:
@@ -67,9 +73,10 @@ paths:
                 type: object
                 properties:
                   peer:
-                    type: object
+                    $ref: "#/components/schemas/Peer"
                 required:
                   - peer
+                title: InquiryAPeerOk
         "404":
           $ref: "#/components/responses/NotFound"
       parameters:
@@ -101,6 +108,7 @@ paths:
                     type: string
                 required:
                   - id
+                title: RelayPublicKeyOk
       parameters: []
   /peers/{id}:
     delete:
@@ -116,6 +124,7 @@ paths:
             application/json:
               schema:
                 type: "null"
+                title: DiscardAPeerNoContent
       parameters:
         - in: query
           name: key
@@ -146,6 +155,7 @@ paths:
                     type: string
                 required:
                   - ip
+                title: ClientsPublicIpOk
 servers:
   - url: http://127.0.0.1:8888
     description: Development server
@@ -183,8 +193,6 @@ components:
     Peer:
       type: object
       properties:
-        add:
-          type: string
         identity:
           type: string
         expires_in:
@@ -193,10 +201,14 @@ components:
           type: string
         id:
           type: string
+        address:
+          type: array
+          items:
+            type: string
       required:
-        - add
         - registered_at
         - identity
+        - address
       description: Describing a registered peer
   parameters:
     id:

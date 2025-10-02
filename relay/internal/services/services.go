@@ -13,14 +13,9 @@ import (
 	"github.com/kamune-org/kamune/relay/internal/storage"
 )
 
-const (
-	attestation = "attestation"
-	identity    = "identity"
-)
-
 var (
-	attestationKey = []byte(attestation)
-	identityNS     = model.NewNameSpace(identity)
+	attestationKey = []byte("attestation")
+	identityNS     = model.NewNameSpace("identity")
 )
 
 type Service struct {
@@ -30,7 +25,7 @@ type Service struct {
 }
 
 func New(store *storage.Store, cfg config.Config) (*Service, error) {
-	at, err := loadAttest(store, cfg.Identity)
+	at, err := loadAttest(store, cfg.Server.Identity)
 	if err != nil {
 		return nil, fmt.Errorf("loading attester: %w", err)
 	}
@@ -58,7 +53,7 @@ func loadAttest(
 	case err == nil:
 		return at, nil
 	case errors.Is(err, storage.ErrMissing):
-		slog.Warn("no identity found, creating a new one...")
+		slog.Info("no identity found, creating a new one...")
 		// continue
 	default:
 		return nil, fmt.Errorf("command: %w", err)

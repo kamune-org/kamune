@@ -13,13 +13,13 @@ import (
 )
 
 var (
-	ErrMissingKey = errors.New("key param is required")
+	ErrMissingPubKey = errors.New("public key param is required")
 )
 
 type registerPeerRequest struct {
-	PublicKey string          `json:"key"`
+	PublicKey string          `json:"public_key"`
 	Identity  attest.Identity `json:"identity"`
-	Addr      string          `json:"address"`
+	Addr      []string        `json:"address"`
 
 	publicKey []byte
 }
@@ -35,7 +35,7 @@ func registerPeerBinder(
 	pubKey := make([]byte, base64.RawURLEncoding.DecodedLen(len(req.PublicKey)))
 	n, err := base64.RawURLEncoding.Decode(pubKey, []byte(req.PublicKey))
 	if err != nil {
-		return req, fmt.Errorf("decoding key: %w", err)
+		return req, fmt.Errorf("decoding public fkey: %w", err)
 	}
 
 	req.publicKey = pubKey[:n]
@@ -43,16 +43,15 @@ func registerPeerBinder(
 }
 
 func readKeyFromQuery(q url.Values) ([]byte, error) {
-	keyEncoded := []byte(q.Get("key"))
-	if len(keyEncoded) == 0 {
-		return nil, ErrMissingKey
+	pubKeyEncoded := []byte(q.Get("key"))
+	if len(pubKeyEncoded) == 0 {
+		return nil, ErrMissingPubKey
 	}
-	key := make([]byte, base64.RawURLEncoding.DecodedLen(len(keyEncoded)))
-	n, err := base64.RawURLEncoding.Decode(key, keyEncoded)
+	pubKey := make([]byte, base64.RawURLEncoding.DecodedLen(len(pubKeyEncoded)))
+	n, err := base64.RawURLEncoding.Decode(pubKey, pubKeyEncoded)
 	if err != nil {
-		return nil, fmt.Errorf("decoding key: %w", err)
+		return nil, fmt.Errorf("decoding public key: %w", err)
 	}
-	key = key[:n]
 
-	return key, nil
+	return pubKey[:n], nil
 }
