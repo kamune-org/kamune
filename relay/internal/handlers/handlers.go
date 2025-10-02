@@ -89,3 +89,13 @@ func (h *Handler) DiscardPeerHandler(w http.ResponseWriter, r *http.Request) {
 
 	grape.Respond(ctx, w, http.StatusNoContent, nil)
 }
+
+func (h *Handler) StoreMessageHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	req, err := storeMessageBinder(r)
+	if err != nil {
+		grape.RespondFromErr(ctx, w, errs.BadRequest(err))
+		return
+	}
+	err := h.service.QueueMessage()
+}

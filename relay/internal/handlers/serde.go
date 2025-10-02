@@ -10,6 +10,7 @@ import (
 	"github.com/hossein1376/grape"
 
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/relay/internal/model"
 )
 
 var (
@@ -39,6 +40,18 @@ func registerPeerBinder(
 	}
 
 	req.publicKey = pubKey[:n]
+	return req, nil
+}
+
+type storeMessageRequest struct {
+	SenderID   model.PeerID `json:"sender_id"`
+	ReceiverID model.PeerID `json:"receiver_id"`
+	Data       []byte       `json:"data"`
+}
+
+func storeMessageBinder(r *http.Request) (storeMessageRequest, error) {
+	var req storeMessageRequest
+
 	return req, nil
 }
 
