@@ -12,6 +12,8 @@ import (
 
 func TestHandshake(t *testing.T) {
 	a := require.New(t)
+	sig := make(chan struct{})
+	defer close(sig)
 	id := attest.Ed25519
 	c1, c2 := net.Pipe()
 	conn1, err := newConn(c1)
@@ -34,19 +36,27 @@ func TestHandshake(t *testing.T) {
 	go func() {
 		t1, err = requestHandshake(pt1)
 		a.NoError(err)
+		sig <- struct{}{}
 	}()
 	t2, err := acceptHandshake(pt2)
 	a.NoError(err)
+	<-sig
+	a.NotNil(t1)
+	a.NotNil(t2)
 
 	msg1 := Bytes([]byte(rand.Text()))
 	var metadata1 *Metadata
 	go func() {
 		metadata1, err = t1.Send(msg1)
 		a.NoError(err)
+		sig <- struct{}{}
 	}()
 	receivedMsg1 := Bytes(nil)
 	receivedMetadata1, err := t2.Receive(receivedMsg1)
 	a.NoError(err)
+	<-sig
+	a.NotNil(metadata1)
+	a.NotNil(receivedMetadata1)
 	a.Equal(msg1.Value, receivedMsg1.Value)
 	a.Equal(metadata1.ID(), receivedMetadata1.ID())
 	a.Equal(metadata1.Timestamp(), receivedMetadata1.Timestamp())
@@ -57,10 +67,14 @@ func TestHandshake(t *testing.T) {
 	go func() {
 		metadata2, err = t2.Send(msg2)
 		a.NoError(err)
+		sig <- struct{}{}
 	}()
 	receivedMsg2 := Bytes(nil)
 	receivedMetadata2, err := t1.Receive(receivedMsg2)
 	a.NoError(err)
+	<-sig
+	a.NotNil(metadata2)
+	a.NotNil(receivedMetadata2)
 	a.Equal(msg2.Value, receivedMsg2.Value)
 	a.Equal(metadata2.ID(), receivedMetadata2.ID())
 	a.Equal(metadata2.Timestamp(), receivedMetadata2.Timestamp())
