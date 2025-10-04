@@ -12,7 +12,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kamune-org/kamune"
-	"github.com/kamune-org/kamune/pkg/attest"
 )
 
 var errCh = make(chan error)
@@ -84,7 +83,6 @@ func server(addr string) {
 		kamune.ServeWithUDP(),
 		kamune.ServeWithStorageOpts(
 			kamune.StorageWithDBPath("./server.db"),
-			kamune.StorageWithIdentity(attest.MLDSA),
 			kamune.StorageWithPassphraseHandler(func() ([]byte, error) {
 				return []byte("123456"), nil
 			}),
@@ -107,7 +105,6 @@ func client(addr string) {
 			kamune.DialWithUDPConn(),
 			kamune.DialWithStorageOpts(
 				kamune.StorageWithDBPath("./client.db"),
-				kamune.StorageWithIdentity(attest.MLDSA),
 				kamune.StorageWithPassphraseHandler(func() ([]byte, error) {
 					return []byte("abcdef"), nil
 				}),

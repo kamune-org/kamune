@@ -9,12 +9,15 @@ import (
 
 	"github.com/xtaci/kcp-go/v5"
 
+	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
 )
 
 type Server struct {
 	addr           string
+	serverName     string
 	attester       attest.Attester
+	identity       attest.Identity
 	storage        *Storage
 	connType       connType
 	handlerFunc    HandlerFunc
@@ -87,18 +90,19 @@ func (s *Server) serve(conn *Conn) error {
 
 	// TODO(h.yazdani): support multiple routes
 
-	remote, err := receiveIntroduction(conn, s.storage.identity)
+	peer, err := receiveIntroduction(conn)
 	if err != nil {
 		return fmt.Errorf("receive introduction: %w", err)
 	}
-	if err := s.remoteVerifier(s.storage, remote); err != nil {
+	if err := s.remoteVerifier(s.storage, peer); err != nil {
 		return fmt.Errorf("verify remote: %w", err)
 	}
-	if err := sendIntroduction(conn, s.attester); err != nil {
+	err = sendIntroduction(conn, s.serverName, s.attester, s.identity)
+	if err != nil {
 		return fmt.Errorf("send introduction: %w", err)
 	}
 
-	pt := newPlainTransport(conn, remote, s.attester, s.storage.identity)
+	pt := newPlainTransport(conn, peer.PublicKey, s.attester, s.storage.identity)
 	t, err := acceptHandshake(pt)
 	if err != nil {
 		return fmt.Errorf("accept handshake: %w", err)
@@ -117,6 +121,8 @@ func NewServer(
 	s := &Server{
 		addr:        addr,
 		connType:    tcp,
+		serverName:  enigma.Text(10),
+		identity:    attest.Ed25519,
 		handlerFunc: handler,
 	}
 	for _, o := range opts {
@@ -161,6 +167,20 @@ func ServeWithTCP(opts ...ConnOption) ServerOptions {
 		}
 		s.connType = tcp
 		s.connOpts = opts
+		return nil
+	}
+}
+
+func ServeWithName(name string) ServerOptions {
+	return func(s *Server) error {
+		s.serverName = name
+		return nil
+	}
+}
+
+func ServeWithIdentity(id attest.Identity) ServerOptions {
+	return func(s *Server) error {
+		s.identity = id
 		return nil
 	}
 }

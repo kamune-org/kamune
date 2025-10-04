@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"crypto/rand"
 	"net"
 	"testing"
 
@@ -27,18 +28,18 @@ func TestIntroduce(t *testing.T) {
 	a.NoError(err)
 
 	go func() {
-		err = sendIntroduction(conn1, attester1)
+		err = sendIntroduction(conn1, rand.Text(), attester1, id)
 		a.NoError(err)
 	}()
-	remote, err := receiveIntroduction(conn2, id)
+	peer, err := receiveIntroduction(conn2)
 	a.NoError(err)
-	a.Equal(attester1.PublicKey(), remote)
+	a.Equal(attester1.PublicKey(), peer.PublicKey)
 
 	go func() {
-		err = sendIntroduction(conn2, attester2)
+		err = sendIntroduction(conn2, rand.Text(), attester2, id)
 		a.NoError(err)
 	}()
-	remote, err = receiveIntroduction(conn1, id)
+	peer, err = receiveIntroduction(conn1)
 	a.NoError(err)
-	a.Equal(attester2.PublicKey(), remote)
+	a.Equal(attester2.PublicKey(), peer.PublicKey)
 }

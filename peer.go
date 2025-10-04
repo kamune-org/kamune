@@ -13,7 +13,7 @@ import (
 )
 
 type Peer struct {
-	Title     string
+	Name      string
 	PublicKey PublicKey
 	Identity  attest.Identity
 	FirstSeen time.Time
@@ -31,7 +31,7 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 		return nil, fmt.Errorf("unmarshaling peer: %w", err)
 	}
 	var identity attest.Identity
-	if err = identity.UnmarshalText(p.Identity); err != nil {
+	if err = identity.UnmarshalText([]byte(p.Identity.String())); err != nil {
 		return nil, fmt.Errorf("parsing identity: %w", err)
 	}
 	pubKey, err := identity.ParsePublicKey(p.PublicKey)
@@ -40,7 +40,7 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	}
 
 	return &Peer{
-		Title:     p.Title,
+		Name:      p.Name,
 		PublicKey: pubKey,
 		Identity:  identity,
 		FirstSeen: p.FirstSeen.AsTime(),
@@ -50,8 +50,8 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 func (s *Storage) TrustPeer(peer *Peer) error {
 	pubKey := peer.PublicKey.Marshal()
 	p := &pb.Peer{
-		Title:     peer.Title,
-		Identity:  []byte(peer.Identity.String()),
+		Name:      peer.Name,
+		Identity:  pb.Identity(peer.Identity),
 		PublicKey: pubKey,
 		FirstSeen: timestamppb.New(peer.FirstSeen),
 	}

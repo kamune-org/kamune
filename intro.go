@@ -2,7 +2,6 @@ package kamune
 
 import (
 	"bufio"
-	"crypto/rand"
 	"fmt"
 	"os"
 	"strings"
@@ -15,11 +14,11 @@ import (
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 )
 
-func defaultRemoteVerifier(store *Storage, remote PublicKey) error {
-	key := remote.Marshal()
+func defaultRemoteVerifier(store *Storage, peer *Peer) error {
+	key := peer.PublicKey.Marshal()
 	fmt.Printf(
-		"Recevied a connection request. Their emoji fingerprint: %s\n",
-		strings.Join(fingerprint.Emoji(key), " • "),
+		"Recevied a connection request from %q. Their emoji fingerprint: %s\n",
+		peer.Name, strings.Join(fingerprint.Emoji(key), " • "),
 	)
 
 	var isPeerNew bool
@@ -45,13 +44,7 @@ func defaultRemoteVerifier(store *Storage, remote PublicKey) error {
 	}
 
 	if isPeerNew {
-		now := time.Now()
-		peer := &Peer{
-			Title:     rand.Text(),
-			Identity:  remote.Identity(),
-			PublicKey: remote,
-			FirstSeen: now,
-		}
+		peer.FirstSeen = time.Now()
 		if err := store.TrustPeer(peer); err != nil {
 			fmt.Printf("Error adding peer to the known list: %s\n", err)
 			return nil
@@ -62,38 +55,77 @@ func defaultRemoteVerifier(store *Storage, remote PublicKey) error {
 	return nil
 }
 
-func sendIntroduction(conn *Conn, at attest.Attester) error {
+func sendIntroduction(
+	conn *Conn, name string, at attest.Attester, id attest.Identity,
+) error {
 	intro := &pb.Introduce{
-		Public:  at.PublicKey().Marshal(),
-		Padding: padding(introducePadding),
+		Name:      name,
+		PublicKey: at.PublicKey().Marshal(),
+		Identity:  pb.Identity(id),
 	}
-	introBytes, err := proto.Marshal(intro)
+	message, err := proto.Marshal(intro)
 	if err != nil {
-		return fmt.Errorf("marshalling: %w", err)
+		return fmt.Errorf("marshalling intro: %w", err)
 	}
-	if err := conn.WriteBytes(introBytes); err != nil {
+	sig, err := at.Sign(message)
+	if err != nil {
+		return fmt.Errorf("signing message: %w", err)
+	}
+
+	st := &pb.SignedTransport{
+		Data:      message,
+		Signature: sig,
+		Metadata:  nil,
+		Padding:   padding(maxPadding),
+	}
+	payload, err := proto.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("marshalling transport: %w", err)
+	}
+
+	if err := conn.WriteBytes(payload); err != nil {
 		return fmt.Errorf("writing: %w", err)
 	}
 
 	return nil
 }
 
-func receiveIntroduction(
-	conn *Conn, attestation attest.Identity,
-) (attest.PublicKey, error) {
+func receiveIntroduction(conn *Conn) (*Peer, error) {
 	payload, err := conn.ReadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("reading payload: %w", err)
 	}
+
+	var st pb.SignedTransport
+	if err := proto.Unmarshal(payload, &st); err != nil {
+		return nil, fmt.Errorf("unmarshalling transport: %w", err)
+	}
+
 	var introduce pb.Introduce
-	err = proto.Unmarshal(payload, &introduce)
+	err = proto.Unmarshal(st.GetData(), &introduce)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing: %w", err)
 	}
-	remote, err := attestation.ParsePublicKey(introduce.GetPublic())
+
+	var id attest.Identity
+	err = id.UnmarshalText([]byte(introduce.Identity.String()))
+	if err != nil {
+		return nil, fmt.Errorf("parsing identity: %w", err)
+	}
+
+	remote, err := id.ParsePublicKey(introduce.GetPublicKey())
 	if err != nil {
 		return nil, fmt.Errorf("parsing advertised key: %w", err)
 	}
 
-	return remote, nil
+	msg := st.GetData()
+	if !id.Verify(remote, msg, st.Signature) {
+		return nil, ErrInvalidSignature
+	}
+
+	return &Peer{
+		Name:      introduce.Name,
+		Identity:  id,
+		PublicKey: remote,
+	}, nil
 }

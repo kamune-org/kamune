@@ -107,13 +107,6 @@ func (s *Storage) attester() (attest.Attester, error) {
 
 type StorageOption func(*Storage) error
 
-func StorageWithIdentity(identity attest.Identity) StorageOption {
-	return func(p *Storage) error {
-		p.identity = identity
-		return nil
-	}
-}
-
 func StorageWithDBPath(path string) StorageOption {
 	return func(p *Storage) error {
 		if p.dbPath != "" {

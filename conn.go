@@ -39,7 +39,7 @@ func (c *Conn) Close() error {
 // TODO(h.yazdani): support chunked read and writes
 
 func (c *Conn) Read(buf []byte) (int, error) {
-	if err := c.checkAndSetDeadline(c.readDeadline); err != nil {
+	if err := c.checkReadDeadline(c.readDeadline); err != nil {
 		return 0, err
 	}
 
@@ -47,12 +47,10 @@ func (c *Conn) Read(buf []byte) (int, error) {
 	//  error it must be fully read (and discarded).
 
 	n, err := c.conn.Read(buf)
-	switch {
-	default:
-		return n, nil
-	case err != nil:
-		return 0, fmt.Errorf("reading full: %w", err)
+	if err != nil {
+		return 0, fmt.Errorf("reading from conn: %w", err)
 	}
+	return n, nil
 }
 
 func (c *Conn) ReadBytes() ([]byte, error) {
@@ -61,15 +59,18 @@ func (c *Conn) ReadBytes() ([]byte, error) {
 		return nil, fmt.Errorf("message length: %w", err)
 	}
 	buf := make([]byte, l)
-	_, err = c.Read(buf)
-	if err != nil {
+	switch n, err := c.Read(buf); {
+	case err != nil:
 		return nil, fmt.Errorf("reading message: %w", err)
+	case n != l:
+		return nil, fmt.Errorf("read %d instead of %d", n, l)
+	default:
+		return buf, nil
 	}
-	return buf, nil
 }
 
 func (c *Conn) Write(data []byte) (int, error) {
-	if err := c.checkAndSetDeadline(c.writeDeadline); err != nil {
+	if err := c.checkWriteDeadline(c.writeDeadline); err != nil {
 		return 0, err
 	}
 
@@ -81,19 +82,22 @@ func (c *Conn) Write(data []byte) (int, error) {
 }
 
 func (c *Conn) WriteBytes(data []byte) error {
-	_, err := c.writeLen(data)
+	l, err := c.writeLen(data)
 	if err != nil {
 		return fmt.Errorf("writing length: %w", err)
 	}
-	_, err = c.Write(data)
-	if err != nil {
+	switch n, err := c.Write(data); {
+	case err != nil:
 		return fmt.Errorf("writing message: %w", err)
+	case n != l:
+		return fmt.Errorf("wrote %d instead of %d", n, l)
+	default:
+		return nil
 	}
-	return nil
 }
 
 func (c *Conn) readLen() (int, error) {
-	if err := c.checkAndSetDeadline(c.readDeadline); err != nil {
+	if err := c.checkReadDeadline(c.readDeadline); err != nil {
 		return 0, err
 	}
 
@@ -114,12 +118,12 @@ func (c *Conn) readLen() (int, error) {
 }
 
 func (c *Conn) writeLen(data []byte) (int, error) {
-	if err := c.checkAndSetDeadline(c.writeDeadline); err != nil {
+	if err := c.checkWriteDeadline(c.writeDeadline); err != nil {
 		return 0, err
 	}
 
 	msgLen := len(data)
-	if len(data) > maxTransportSize {
+	if msgLen > maxTransportSize {
 		return 0, ErrMessageTooLarge
 	}
 	var lenBuf [2]byte
@@ -130,11 +134,22 @@ func (c *Conn) writeLen(data []byte) (int, error) {
 	case n != 2:
 		return 0, fmt.Errorf("expected to write 2 bytes, wrote %d", n)
 	default:
-		return n, nil
+		return msgLen, nil
 	}
 }
 
-func (c *Conn) checkAndSetDeadline(deadline time.Duration) error {
+func (c *Conn) checkReadDeadline(deadline time.Duration) error {
+	if c.isClosed {
+		return ErrConnClosed
+	}
+	err := c.SetReadDeadline(time.Now().Add(deadline))
+	if err != nil {
+		return fmt.Errorf("setting read deadline: %w", err)
+	}
+	return nil
+}
+
+func (c *Conn) checkWriteDeadline(deadline time.Duration) error {
 	if c.isClosed {
 		return ErrConnClosed
 	}

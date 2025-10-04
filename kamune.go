@@ -13,21 +13,21 @@ import (
 
 const (
 	// must be less than or equal to 65535 ([math.MaxUint16])
-	maxTransportSize = 10 * 1024
+	maxTransportSize = 50 * 1024
 	saltSize         = 16
 	sessionIDLength  = 30
 	challengeSize    = 32
-	introducePadding = 512
-	messagePadding   = 128
-	handshakePadding = 32
+	maxPadding       = 256
 
 	c2s = "client-to-server"
 	s2c = "server-to-client"
 )
 
+var _ uint16 = maxTransportSize
+
 type (
 	PublicKey      = attest.PublicKey
-	RemoteVerifier func(store *Storage, key PublicKey) (err error)
+	RemoteVerifier func(store *Storage, peer *Peer) (err error)
 	HandlerFunc    func(t *Transport) error
 )
 

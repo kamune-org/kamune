@@ -23,7 +23,6 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 		Key:        ml.PublicKey.Bytes(),
 		Salt:       salt,
 		SessionKey: sessionKeyPrefix,
-		Padding:    padding(handshakePadding),
 	}
 	reqBytes, _, err := pt.serialize(req)
 	if err != nil {
@@ -90,7 +89,6 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 		Key:        ct,
 		Salt:       salt,
 		SessionKey: sessionKeySuffix,
-		Padding:    padding(handshakePadding),
 	}
 	respBytes, _, err := pt.serialize(resp)
 	if err != nil {
@@ -155,9 +153,9 @@ func acceptChallenge(t *Transport) error {
 }
 
 func randomBytes(l int) []byte {
-	rnd := make([]byte, l)
-	_, _ = rand.Read(rnd)
-	return rnd
+	buf := make([]byte, l)
+	_, _ = rand.Read(buf)
+	return buf
 }
 
 func padding(maxSize int) []byte {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/xtaci/kcp-go/v5"
 
+	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
 )
 
@@ -17,6 +18,8 @@ type dialer struct {
 	conn         *Conn
 	storage      *Storage
 	attester     attest.Attester
+	identity     attest.Identity
+	clientName   string
 	connType     connType
 	verifyRemote RemoteVerifier
 	readTimeout  time.Duration
@@ -89,18 +92,20 @@ func (d *dialer) handshake() (*Transport, error) {
 		}
 	}()
 
-	if err := sendIntroduction(d.conn, d.attester); err != nil {
+	err := sendIntroduction(d.conn, d.clientName, d.attester, d.identity)
+	if err != nil {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
-	remote, err := receiveIntroduction(d.conn, d.storage.identity)
+	peer, err := receiveIntroduction(d.conn)
 	if err != nil {
 		return nil, fmt.Errorf("receive introduction: %w", err)
 	}
-	if err = d.verifyRemote(d.storage, remote); err != nil {
+	err = d.verifyRemote(d.storage, peer)
+	if err != nil {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
-	pt := newPlainTransport(d.conn, remote, d.attester, d.storage.identity)
+	pt := newPlainTransport(d.conn, peer.PublicKey, d.attester, d.storage.identity)
 	t, err := requestHandshake(pt)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
@@ -112,6 +117,8 @@ func (d *dialer) handshake() (*Transport, error) {
 func newDialer(addr string, opts []DialOption) (*dialer, error) {
 	d := &dialer{
 		connType:     tcp,
+		identity:     attest.Ed25519,
+		clientName:   enigma.Text(10),
 		readTimeout:  10 * time.Minute,
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
@@ -189,6 +196,20 @@ func DialWithUDPConn(opts ...ConnOption) DialOption {
 	return func(d *dialer) error {
 		d.connType = udp
 		d.connOpts = opts
+		return nil
+	}
+}
+
+func DialWithIdentity(id attest.Identity) DialOption {
+	return func(d *dialer) error {
+		d.identity = id
+		return nil
+	}
+}
+
+func DialWithClientName(name string) DialOption {
+	return func(d *dialer) error {
+		d.clientName = name
 		return nil
 	}
 }
