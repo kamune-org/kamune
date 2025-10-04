@@ -1,0 +1,30 @@
+syntax = "proto3";
+package box;
+option go_package = "./pb";
+
+import "google/protobuf/timestamp.proto";
+
+enum Identity {
+  invalid = 0;
+  Ed25519 = 1;
+  MLDSA = 2;
+}
+
+message Introduce {
+  string Name = 1;
+  bytes PublicKey = 2;
+  Identity Identity = 3;
+}
+
+message Handshake {
+  bytes Key = 1;
+  bytes Salt = 2;
+  string SessionKey = 3;
+}
+
+message Peer {
+  string Name = 1;
+  bytes PublicKey = 2;
+  Identity Identity = 3;
+  google.protobuf.Timestamp FirstSeen = 4;
+}
