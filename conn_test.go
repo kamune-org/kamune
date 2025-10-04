@@ -4,4 +4,7 @@ import (
 	"net"
 )
 
-var _ net.Conn = &Conn{}
+var (
+	_ net.Conn = &conn{}
+	_ Conn     = &conn{}
+)

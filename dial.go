@@ -15,7 +15,7 @@ import (
 )
 
 type dialer struct {
-	conn         *Conn
+	conn         Conn
 	storage      *Storage
 	attester     attest.Attester
 	identity     attest.Identity
@@ -54,7 +54,7 @@ func Dial(addr string, opts ...DialOption) (*Transport, error) {
 	return transport, err
 }
 
-func (d *dialer) dial(addr string) (*Conn, error) {
+func (d *dialer) dial(addr string) (*conn, error) {
 	switch d.connType {
 	case tcp:
 		c, err := net.Dial("tcp", addr)
@@ -153,7 +153,7 @@ func DialWithRemoteVerifier(verifier RemoteVerifier) DialOption {
 	}
 }
 
-func DialWithExistingConn(conn *Conn) DialOption {
+func DialWithExistingConn(conn Conn) DialOption {
 	return func(d *dialer) error {
 		if d.conn != nil {
 			return errors.New("already have a conn override")

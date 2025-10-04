@@ -49,12 +49,12 @@ func (s *Server) ListenAndServe() error {
 			continue
 		}
 		go func() {
-			conn, err := newConn(c, s.connOpts...)
+			cn, err := newConn(c, s.connOpts...)
 			if err != nil {
 				slog.Error("new tcp conn", slog.Any("error", err))
 				return
 			}
-			err = s.serve(conn)
+			err = s.serve(cn)
 			if err != nil {
 				slog.Error("serve conn", slog.Any("error", err))
 			}
@@ -73,7 +73,7 @@ func (s *Server) listen() (net.Listener, error) {
 	}
 }
 
-func (s *Server) serve(conn *Conn) error {
+func (s *Server) serve(cn Conn) error {
 	defer func() {
 		if msg := recover(); msg != nil {
 			slog.Error(
@@ -82,7 +82,7 @@ func (s *Server) serve(conn *Conn) error {
 				slog.String("stack", string(debug.Stack())),
 			)
 		}
-		err := conn.Close()
+		err := cn.Close()
 		if err != nil && !errors.Is(err, ErrConnClosed) {
 			slog.Error("close conn", slog.Any("err", err))
 		}
@@ -90,19 +90,19 @@ func (s *Server) serve(conn *Conn) error {
 
 	// TODO(h.yazdani): support multiple routes
 
-	peer, err := receiveIntroduction(conn)
+	peer, err := receiveIntroduction(cn)
 	if err != nil {
 		return fmt.Errorf("receive introduction: %w", err)
 	}
 	if err := s.remoteVerifier(s.storage, peer); err != nil {
 		return fmt.Errorf("verify remote: %w", err)
 	}
-	err = sendIntroduction(conn, s.serverName, s.attester, s.identity)
+	err = sendIntroduction(cn, s.serverName, s.attester, s.identity)
 	if err != nil {
 		return fmt.Errorf("send introduction: %w", err)
 	}
 
-	pt := newPlainTransport(conn, peer.PublicKey, s.attester, s.storage.identity)
+	pt := newPlainTransport(cn, peer.PublicKey, s.attester, s.storage.identity)
 	t, err := acceptHandshake(pt)
 	if err != nil {
 		return fmt.Errorf("accept handshake: %w", err)

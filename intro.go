@@ -56,7 +56,7 @@ func defaultRemoteVerifier(store *Storage, peer *Peer) error {
 }
 
 func sendIntroduction(
-	conn *Conn, name string, at attest.Attester, id attest.Identity,
+	conn Conn, name string, at attest.Attester, id attest.Identity,
 ) error {
 	intro := &pb.Introduce{
 		Name:      name,
@@ -90,7 +90,7 @@ func sendIntroduction(
 	return nil
 }
 
-func receiveIntroduction(conn *Conn) (*Peer, error) {
+func receiveIntroduction(conn Conn) (*Peer, error) {
 	payload, err := conn.ReadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("reading payload: %w", err)

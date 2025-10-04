@@ -24,7 +24,7 @@ var (
 )
 
 type plainTransport struct {
-	conn           *Conn
+	conn           Conn
 	attest         attest.Attester
 	remote         attest.PublicKey
 	identity       attest.Identity
@@ -32,7 +32,7 @@ type plainTransport struct {
 }
 
 func newPlainTransport(
-	conn *Conn,
+	conn Conn,
 	remote attest.PublicKey,
 	attest attest.Attester,
 	attestation attest.Identity,

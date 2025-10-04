@@ -15,7 +15,13 @@ const (
 	udp
 )
 
-type Conn struct {
+type Conn interface {
+	net.Conn
+	ReadBytes() ([]byte, error)
+	WriteBytes(data []byte) error
+}
+
+type conn struct {
 	conn          net.Conn
 	connType      connType
 	isClosed      bool
@@ -23,7 +29,7 @@ type Conn struct {
 	writeDeadline time.Duration
 }
 
-func (c *Conn) Close() error {
+func (c *conn) Close() error {
 	if c.isClosed {
 		return ErrConnClosed
 	}
@@ -38,7 +44,7 @@ func (c *Conn) Close() error {
 
 // TODO(h.yazdani): support chunked read and writes
 
-func (c *Conn) Read(buf []byte) (int, error) {
+func (c *conn) Read(buf []byte) (int, error) {
 	if err := c.checkReadDeadline(c.readDeadline); err != nil {
 		return 0, err
 	}
@@ -53,7 +59,7 @@ func (c *Conn) Read(buf []byte) (int, error) {
 	return n, nil
 }
 
-func (c *Conn) ReadBytes() ([]byte, error) {
+func (c *conn) ReadBytes() ([]byte, error) {
 	l, err := c.readLen()
 	if err != nil {
 		return nil, fmt.Errorf("message length: %w", err)
@@ -69,7 +75,7 @@ func (c *Conn) ReadBytes() ([]byte, error) {
 	}
 }
 
-func (c *Conn) Write(data []byte) (int, error) {
+func (c *conn) Write(data []byte) (int, error) {
 	if err := c.checkWriteDeadline(c.writeDeadline); err != nil {
 		return 0, err
 	}
@@ -81,7 +87,7 @@ func (c *Conn) Write(data []byte) (int, error) {
 	return n, nil
 }
 
-func (c *Conn) WriteBytes(data []byte) error {
+func (c *conn) WriteBytes(data []byte) error {
 	l, err := c.writeLen(data)
 	if err != nil {
 		return fmt.Errorf("writing length: %w", err)
@@ -96,7 +102,7 @@ func (c *Conn) WriteBytes(data []byte) error {
 	}
 }
 
-func (c *Conn) readLen() (int, error) {
+func (c *conn) readLen() (int, error) {
 	if err := c.checkReadDeadline(c.readDeadline); err != nil {
 		return 0, err
 	}
@@ -117,7 +123,7 @@ func (c *Conn) readLen() (int, error) {
 	return int(msgLen), nil
 }
 
-func (c *Conn) writeLen(data []byte) (int, error) {
+func (c *conn) writeLen(data []byte) (int, error) {
 	if err := c.checkWriteDeadline(c.writeDeadline); err != nil {
 		return 0, err
 	}
@@ -138,7 +144,7 @@ func (c *Conn) writeLen(data []byte) (int, error) {
 	}
 }
 
-func (c *Conn) checkReadDeadline(deadline time.Duration) error {
+func (c *conn) checkReadDeadline(deadline time.Duration) error {
 	if c.isClosed {
 		return ErrConnClosed
 	}
@@ -149,7 +155,7 @@ func (c *Conn) checkReadDeadline(deadline time.Duration) error {
 	return nil
 }
 
-func (c *Conn) checkWriteDeadline(deadline time.Duration) error {
+func (c *conn) checkWriteDeadline(deadline time.Duration) error {
 	if c.isClosed {
 		return ErrConnClosed
 	}
@@ -160,42 +166,42 @@ func (c *Conn) checkWriteDeadline(deadline time.Duration) error {
 	return nil
 }
 
-func (c *Conn) LocalAddr() net.Addr                { return c.conn.LocalAddr() }
-func (c *Conn) RemoteAddr() net.Addr               { return c.conn.RemoteAddr() }
-func (c *Conn) SetDeadline(t time.Time) error      { return c.conn.SetDeadline(t) }
-func (c *Conn) SetReadDeadline(t time.Time) error  { return c.conn.SetReadDeadline(t) }
-func (c *Conn) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
+func (c *conn) LocalAddr() net.Addr                { return c.conn.LocalAddr() }
+func (c *conn) RemoteAddr() net.Addr               { return c.conn.RemoteAddr() }
+func (c *conn) SetDeadline(t time.Time) error      { return c.conn.SetDeadline(t) }
+func (c *conn) SetReadDeadline(t time.Time) error  { return c.conn.SetReadDeadline(t) }
+func (c *conn) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
 
-type ConnOption func(*Conn) error
+type ConnOption func(*conn) error
 
 func ConnWithReadTimeout(timeout time.Duration) ConnOption {
-	return func(conn *Conn) error {
+	return func(conn *conn) error {
 		conn.readDeadline = timeout
 		return nil
 	}
 }
 
 func ConnWithWriteTimeout(timeout time.Duration) ConnOption {
-	return func(conn *Conn) error {
+	return func(conn *conn) error {
 		conn.writeDeadline = timeout
 		return nil
 	}
 }
 
-func newConn(c net.Conn, opts ...ConnOption) (*Conn, error) {
-	conn := &Conn{
+func newConn(c net.Conn, opts ...ConnOption) (*conn, error) {
+	cn := &conn{
 		conn:          c,
 		connType:      tcp,
 		isClosed:      false,
 		writeDeadline: 1 * time.Minute,
-		readDeadline:  10 * time.Minute,
+		readDeadline:  5 * time.Minute,
 	}
 
 	for _, opt := range opts {
-		if err := opt(conn); err != nil {
+		if err := opt(cn); err != nil {
 			return nil, err
 		}
 	}
 
-	return conn, nil
+	return cn, nil
 }
