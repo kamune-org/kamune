@@ -47,7 +47,7 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	}, nil
 }
 
-func (s *Storage) TrustPeer(peer *Peer) error {
+func (s *Storage) StorePeer(peer *Peer) error {
 	pubKey := peer.PublicKey.Marshal()
 	p := &pb.Peer{
 		Name:      peer.Name,

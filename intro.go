@@ -45,7 +45,7 @@ func defaultRemoteVerifier(store *Storage, peer *Peer) error {
 
 	if isPeerNew {
 		peer.FirstSeen = time.Now()
-		if err := store.TrustPeer(peer); err != nil {
+		if err := store.StorePeer(peer); err != nil {
 			fmt.Printf("Error adding peer to the known list: %s\n", err)
 			return nil
 		}

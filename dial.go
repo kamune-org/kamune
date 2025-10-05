@@ -61,21 +61,21 @@ func (d *dialer) dial(addr string) (*conn, error) {
 		if err != nil {
 			return nil, fmt.Errorf("dialing tcp: %w", err)
 		}
-		conn, err := newConn(c, d.connOpts...)
+		cn, err := newConn(c, d.connOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("new tcp conn: %w", err)
 		}
-		return conn, nil
+		return cn, nil
 	case udp:
 		c, err := kcp.Dial(addr)
 		if err != nil {
 			return nil, fmt.Errorf("dialing udp: %w", err)
 		}
-		conn, err := newConn(c, d.connOpts...)
+		cn, err := newConn(c, d.connOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("new udp conn: %w", err)
 		}
-		return conn, nil
+		return cn, nil
 	default:
 		panic(fmt.Errorf("unknown connection type: %v", d.connType))
 	}

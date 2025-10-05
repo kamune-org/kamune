@@ -80,7 +80,6 @@ func server(addr string) {
 	srv, err := kamune.NewServer(
 		addr,
 		serveHandler,
-		kamune.ServeWithUDP(),
 		kamune.ServeWithStorageOpts(
 			kamune.StorageWithDBPath("./server.db"),
 			kamune.StorageWithPassphraseHandler(func() ([]byte, error) {
@@ -102,7 +101,6 @@ func client(addr string) {
 		var err error
 		t, err = kamune.Dial(
 			addr,
-			kamune.DialWithUDPConn(),
 			kamune.DialWithStorageOpts(
 				kamune.StorageWithDBPath("./client.db"),
 				kamune.StorageWithPassphraseHandler(func() ([]byte, error) {
