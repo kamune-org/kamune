@@ -157,6 +157,27 @@ func createCipher(db *bolt.DB, pass []byte) (*enigma.Enigma, error) {
 
 func randomBits(bits int) []byte {
 	src := make([]byte, bits)
-	rand.Read(src)
+	_, _ = rand.Read(src)
 	return src
+}
+
+type Query struct {
+	tx    *bolt.Tx
+	store *Store
+}
+
+func (s *Store) Query(f func(q Query) error) error {
+	return s.db.View(func(tx *bolt.Tx) error {
+		return f(Query{tx: tx, store: s})
+	})
+}
+
+type Command struct {
+	Query
+}
+
+func (s *Store) Command(f func(c Command) error) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return f(Command{Query{tx: tx, store: s}})
+	})
 }

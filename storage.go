@@ -76,7 +76,12 @@ func (s *Storage) Close() error {
 
 func (s *Storage) attester() (attest.Attester, error) {
 	key := []byte(s.identity.String())
-	id, err := s.store.GetPlain(key)
+	var id []byte
+	err := s.store.Query(func(q store.Query) error {
+		var err error
+		id, err = q.GetPlain(key)
+		return err
+	})
 	switch {
 	case err == nil:
 		return s.identity.Load(id)
@@ -97,7 +102,9 @@ func (s *Storage) attester() (attest.Attester, error) {
 	if err != nil {
 		return nil, fmt.Errorf("saving key: %w", err)
 	}
-	err = s.store.AddPlain(key, data)
+	err = s.store.Command(func(c store.Command) error {
+		return c.AddPlain(key, data)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("persisting: %w", err)
 	}

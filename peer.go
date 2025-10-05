@@ -10,6 +10,7 @@ import (
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/store"
 )
 
 type Peer struct {
@@ -20,8 +21,15 @@ type Peer struct {
 }
 
 func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
-	key := sha3.Sum512(claim)
-	data, err := s.store.GetEncrypted(key[:])
+	var (
+		key  = sha3.Sum512(claim)
+		data []byte
+	)
+	err := s.store.Query(func(q store.Query) error {
+		var err error
+		data, err = q.GetEncrypted(key[:])
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("getting peer from storage: %w", err)
 	}
@@ -60,7 +68,9 @@ func (s *Storage) StorePeer(peer *Peer) error {
 		return fmt.Errorf("marshaling peer: %w", err)
 	}
 	key := sha3.Sum512(pubKey)
-	err = s.store.AddEncrypted(key[:], data)
+	err = s.store.Command(func(c store.Command) error {
+		return c.AddEncrypted(key[:], data)
+	})
 	if err != nil {
 		return fmt.Errorf("adding peer to storage: %w", err)
 	}
