@@ -14,7 +14,7 @@ func TestHandshake(t *testing.T) {
 	a := require.New(t)
 	sig := make(chan struct{})
 	defer close(sig)
-	id := attest.Ed25519
+	alg := attest.Ed25519Algorithm
 	c1, c2 := net.Pipe()
 	conn1, err := newConn(c1)
 	a.NoError(err)
@@ -24,13 +24,13 @@ func TestHandshake(t *testing.T) {
 		a.NoError(conn1.Close())
 		a.NoError(conn2.Close())
 	}()
-	attester1, err := id.NewAttest()
+	attester1, err := attest.NewAttester(alg)
 	a.NoError(err)
-	attester2, err := id.NewAttest()
+	attester2, err := attest.NewAttester(alg)
 	a.NoError(err)
 
-	pt1 := newPlainTransport(conn1, attester2.PublicKey(), attester1, id)
-	pt2 := newPlainTransport(conn2, attester1.PublicKey(), attester2, id)
+	pt1 := newPlainTransport(conn1, attester2.PublicKey(), attester1, alg.Identitfier())
+	pt2 := newPlainTransport(conn2, attester1.PublicKey(), attester2, alg.Identitfier())
 
 	var t1 *Transport
 	go func() {

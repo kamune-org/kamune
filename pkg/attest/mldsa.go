@@ -7,39 +7,50 @@ import (
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
 )
 
-type mlDSA struct {
+type MLDSA struct {
 	publicKey  *mldsa65.PublicKey
 	privateKey *mldsa65.PrivateKey
 }
 
-func newMLDSA() (*mlDSA, error) {
-	public, private, err := mldsa65.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-
-	return &mlDSA{publicKey: public, privateKey: private}, nil
+func (m MLDSA) PublicKey() PublicKey {
+	return &MLDSAPublicKey{m.publicKey}
 }
 
-func (m *mlDSA) PublicKey() PublicKey {
-	return &mldsaPublicKey{m.publicKey}
-}
-
-func (m *mlDSA) Sign(msg []byte) ([]byte, error) {
+func (m MLDSA) Sign(msg []byte) ([]byte, error) {
 	sig := make([]byte, mldsa65.SignatureSize)
 	err := mldsa65.SignTo(m.privateKey, msg, nil, true, sig)
 	return sig, err
 }
 
-func (m *mlDSA) Save() ([]byte, error) {
+func (m MLDSA) Save() ([]byte, error) {
 	return m.privateKey.MarshalBinary()
 }
 
-type mldsaPublicKey struct {
+func (MLDSA) Verify(remote PublicKey, msg, sig []byte) bool {
+	p, ok := remote.(*MLDSAPublicKey)
+	if !ok {
+		return false
+	}
+	return mldsa65.Verify(p.key, msg, nil, sig)
+}
+
+func (MLDSA) ParsePublicKey(key []byte) (PublicKey, error) {
+	mlPub, err := mldsa65.Scheme().UnmarshalBinaryPublicKey(key)
+	if err != nil {
+		return nil, err
+	}
+	return &MLDSAPublicKey{mlPub.(*mldsa65.PublicKey)}, nil
+}
+
+func (MLDSA) String() string {
+	return "mldsa"
+}
+
+type MLDSAPublicKey struct {
 	key *mldsa65.PublicKey
 }
 
-func (m *mldsaPublicKey) Marshal() []byte {
+func (m MLDSAPublicKey) Marshal() []byte {
 	b, err := m.key.MarshalBinary()
 	if err != nil {
 		panic(fmt.Errorf("marshalling mlDSA public key: %v", err))
@@ -47,15 +58,20 @@ func (m *mldsaPublicKey) Marshal() []byte {
 	return b
 }
 
-func (m *mldsaPublicKey) Equal(key PublicKey) bool {
+func (m MLDSAPublicKey) Equal(key PublicKey) bool {
 	return m.key.Equal(key)
 }
 
-func (m *mldsaPublicKey) Identity() Identity {
-	return MLDSA
+func newMLDSA() (*MLDSA, error) {
+	public, private, err := mldsa65.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MLDSA{publicKey: public, privateKey: private}, nil
 }
 
-func loadMLDSA(data []byte) (*mlDSA, error) {
+func loadMLDSA(data []byte) (*MLDSA, error) {
 	key, err := mldsa65.Scheme().UnmarshalBinaryPrivateKey(data)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal private key: %w", err)
@@ -64,7 +80,7 @@ func loadMLDSA(data []byte) (*mlDSA, error) {
 	if !ok {
 		return nil, ErrInvalidKey
 	}
-	return &mlDSA{
+	return &MLDSA{
 		privateKey: private,
 		publicKey:  private.Public().(*mldsa65.PublicKey),
 	}, nil

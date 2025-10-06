@@ -56,12 +56,12 @@ func defaultRemoteVerifier(store *Storage, peer *Peer) error {
 }
 
 func sendIntroduction(
-	conn Conn, name string, at attest.Attester, id attest.Identity,
+	conn Conn, name string, at attest.Attester, a attest.Algorithm,
 ) error {
 	intro := &pb.Introduce{
 		Name:      name,
 		PublicKey: at.PublicKey().Marshal(),
-		Identity:  pb.Identity(id),
+		Algorithm: pb.Algorithm(a),
 	}
 	message, err := proto.Marshal(intro)
 	if err != nil {
@@ -107,12 +107,12 @@ func receiveIntroduction(conn Conn) (*Peer, error) {
 		return nil, fmt.Errorf("deserializing: %w", err)
 	}
 
-	var id attest.Identity
-	err = id.UnmarshalText([]byte(introduce.Identity.String()))
+	var a attest.Algorithm
+	err = a.UnmarshalText([]byte(introduce.Algorithm.String()))
 	if err != nil {
 		return nil, fmt.Errorf("parsing identity: %w", err)
 	}
-
+	id := a.Identitfier()
 	remote, err := id.ParsePublicKey(introduce.GetPublicKey())
 	if err != nil {
 		return nil, fmt.Errorf("parsing advertised key: %w", err)
@@ -125,7 +125,7 @@ func receiveIntroduction(conn Conn) (*Peer, error) {
 
 	return &Peer{
 		Name:      introduce.Name,
-		Identity:  id,
+		Algorithm: a,
 		PublicKey: remote,
 	}, nil
 }

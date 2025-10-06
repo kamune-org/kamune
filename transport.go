@@ -27,7 +27,7 @@ type plainTransport struct {
 	conn           Conn
 	attest         attest.Attester
 	remote         attest.PublicKey
-	identity       attest.Identity
+	id             attest.Identifier
 	sent, received atomic.Uint64
 }
 
@@ -35,13 +35,13 @@ func newPlainTransport(
 	conn Conn,
 	remote attest.PublicKey,
 	attest attest.Attester,
-	attestation attest.Identity,
+	id attest.Identifier,
 ) *plainTransport {
 	return &plainTransport{
-		conn:     conn,
-		remote:   remote,
-		attest:   attest,
-		identity: attestation,
+		conn:   conn,
+		remote: remote,
+		attest: attest,
+		id:     id,
 	}
 }
 
@@ -83,7 +83,7 @@ func (pt *plainTransport) deserialize(
 	}
 
 	msg := st.GetData()
-	if !pt.identity.Verify(pt.remote, msg, st.Signature) {
+	if !pt.id.Verify(pt.remote, msg, st.Signature) {
 		return nil, 0, ErrInvalidSignature
 	}
 	if err := proto.Unmarshal(msg, dst); err != nil {

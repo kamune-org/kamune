@@ -17,7 +17,7 @@ type Server struct {
 	addr           string
 	serverName     string
 	attester       attest.Attester
-	identity       attest.Identity
+	algorithm      attest.Algorithm
 	storage        *Storage
 	connType       connType
 	handlerFunc    HandlerFunc
@@ -97,12 +97,14 @@ func (s *Server) serve(cn Conn) error {
 	if err := s.remoteVerifier(s.storage, peer); err != nil {
 		return fmt.Errorf("verify remote: %w", err)
 	}
-	err = sendIntroduction(cn, s.serverName, s.attester, s.identity)
+	err = sendIntroduction(cn, s.serverName, s.attester, s.algorithm)
 	if err != nil {
 		return fmt.Errorf("send introduction: %w", err)
 	}
 
-	pt := newPlainTransport(cn, peer.PublicKey, s.attester, s.storage.identity)
+	pt := newPlainTransport(
+		cn, peer.PublicKey, s.attester, s.storage.algorithm.Identitfier(),
+	)
 	t, err := acceptHandshake(pt)
 	if err != nil {
 		return fmt.Errorf("accept handshake: %w", err)
@@ -122,7 +124,7 @@ func NewServer(
 		addr:        addr,
 		connType:    tcp,
 		serverName:  enigma.Text(10),
-		identity:    attest.Ed25519,
+		algorithm:   attest.Ed25519Algorithm,
 		handlerFunc: handler,
 	}
 	for _, o := range opts {
@@ -178,9 +180,9 @@ func ServeWithName(name string) ServerOptions {
 	}
 }
 
-func ServeWithIdentity(id attest.Identity) ServerOptions {
+func ServeWithAlgorithm(a attest.Algorithm) ServerOptions {
 	return func(s *Server) error {
-		s.identity = id
+		s.algorithm = a
 		return nil
 	}
 }

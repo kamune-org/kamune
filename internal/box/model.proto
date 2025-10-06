@@ -4,7 +4,7 @@ option go_package = "./pb";
 
 import "google/protobuf/timestamp.proto";
 
-enum Identity {
+enum Algorithm {
   invalid = 0;
   Ed25519 = 1;
   MLDSA = 2;
@@ -13,7 +13,7 @@ enum Identity {
 message Introduce {
   string Name = 1;
   bytes PublicKey = 2;
-  Identity Identity = 3;
+  Algorithm Algorithm = 3;
 }
 
 message Handshake {
@@ -25,6 +25,6 @@ message Handshake {
 message Peer {
   string Name = 1;
   bytes PublicKey = 2;
-  Identity Identity = 3;
+  Algorithm Algorithm = 3;
   google.protobuf.Timestamp FirstSeen = 4;
 }

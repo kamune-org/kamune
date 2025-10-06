@@ -18,7 +18,7 @@ type dialer struct {
 	conn         Conn
 	storage      *Storage
 	attester     attest.Attester
-	identity     attest.Identity
+	algorithm    attest.Algorithm
 	clientName   string
 	connType     connType
 	verifyRemote RemoteVerifier
@@ -92,7 +92,7 @@ func (d *dialer) handshake() (*Transport, error) {
 		}
 	}()
 
-	err := sendIntroduction(d.conn, d.clientName, d.attester, d.identity)
+	err := sendIntroduction(d.conn, d.clientName, d.attester, d.algorithm)
 	if err != nil {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
@@ -105,7 +105,9 @@ func (d *dialer) handshake() (*Transport, error) {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
-	pt := newPlainTransport(d.conn, peer.PublicKey, d.attester, d.storage.identity)
+	pt := newPlainTransport(
+		d.conn, peer.PublicKey, d.attester, d.storage.algorithm.Identitfier(),
+	)
 	t, err := requestHandshake(pt)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
@@ -117,7 +119,7 @@ func (d *dialer) handshake() (*Transport, error) {
 func newDialer(addr string, opts []DialOption) (*dialer, error) {
 	d := &dialer{
 		connType:     tcp,
-		identity:     attest.Ed25519,
+		algorithm:    attest.Ed25519Algorithm,
 		clientName:   enigma.Text(10),
 		readTimeout:  10 * time.Minute,
 		writeTimeout: 1 * time.Minute,
@@ -200,9 +202,9 @@ func DialWithUDPConn(opts ...ConnOption) DialOption {
 	}
 }
 
-func DialWithIdentity(id attest.Identity) DialOption {
+func DialWithAlgorithm(a attest.Algorithm) DialOption {
 	return func(d *dialer) error {
-		d.identity = id
+		d.algorithm = a
 		return nil
 	}
 }

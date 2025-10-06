@@ -28,14 +28,14 @@ func defaultPassphraseHandler() ([]byte, error) {
 type Storage struct {
 	dbPath            string
 	passphraseHandler PassphraseHandler
-	identity          attest.Identity
+	algorithm         attest.Algorithm
 	expiryDuration    time.Duration
 	store             *store.Store
 }
 
 func openStorage(opts ...StorageOption) (*Storage, error) {
 	s := &Storage{
-		identity:          attest.Ed25519,
+		algorithm:         attest.Ed25519Algorithm,
 		passphraseHandler: defaultPassphraseHandler,
 	}
 	for _, opt := range opts {
@@ -75,7 +75,7 @@ func (s *Storage) Close() error {
 }
 
 func (s *Storage) attester() (attest.Attester, error) {
-	key := []byte(s.identity.String())
+	key := []byte(s.algorithm.String())
 	var id []byte
 	err := s.store.Query(func(q store.Query) error {
 		var err error
@@ -84,7 +84,7 @@ func (s *Storage) attester() (attest.Attester, error) {
 	})
 	switch {
 	case err == nil:
-		return s.identity.Load(id)
+		return attest.LoadAttester(s.algorithm, id)
 	case errors.Is(err, store.ErrMissing):
 		// continue
 	default:
@@ -94,9 +94,9 @@ func (s *Storage) attester() (attest.Attester, error) {
 		return nil, err
 	}
 
-	at, err := s.identity.NewAttest()
+	at, err := attest.NewAttester(s.algorithm)
 	if err != nil {
-		return nil, fmt.Errorf("new %s: %w", s.identity, err)
+		return nil, fmt.Errorf("new %s: %w", s.algorithm, err)
 	}
 	data, err := at.Save()
 	if err != nil {

@@ -22,52 +22,52 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type Identity int32
+type Algorithm int32
 
 const (
-	Identity_invalid Identity = 0
-	Identity_Ed25519 Identity = 1
-	Identity_MLDSA   Identity = 2
+	Algorithm_invalid Algorithm = 0
+	Algorithm_Ed25519 Algorithm = 1
+	Algorithm_MLDSA   Algorithm = 2
 )
 
-// Enum value maps for Identity.
+// Enum value maps for Algorithm.
 var (
-	Identity_name = map[int32]string{
+	Algorithm_name = map[int32]string{
 		0: "invalid",
 		1: "Ed25519",
 		2: "MLDSA",
 	}
-	Identity_value = map[string]int32{
+	Algorithm_value = map[string]int32{
 		"invalid": 0,
 		"Ed25519": 1,
 		"MLDSA":   2,
 	}
 )
 
-func (x Identity) Enum() *Identity {
-	p := new(Identity)
+func (x Algorithm) Enum() *Algorithm {
+	p := new(Algorithm)
 	*p = x
 	return p
 }
 
-func (x Identity) String() string {
+func (x Algorithm) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (Identity) Descriptor() protoreflect.EnumDescriptor {
+func (Algorithm) Descriptor() protoreflect.EnumDescriptor {
 	return file_model_proto_enumTypes[0].Descriptor()
 }
 
-func (Identity) Type() protoreflect.EnumType {
+func (Algorithm) Type() protoreflect.EnumType {
 	return &file_model_proto_enumTypes[0]
 }
 
-func (x Identity) Number() protoreflect.EnumNumber {
+func (x Algorithm) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use Identity.Descriptor instead.
-func (Identity) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use Algorithm.Descriptor instead.
+func (Algorithm) EnumDescriptor() ([]byte, []int) {
 	return file_model_proto_rawDescGZIP(), []int{0}
 }
 
@@ -75,7 +75,7 @@ type Introduce struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=Name,proto3" json:"Name,omitempty"`
 	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=PublicKey,proto3" json:"PublicKey,omitempty"`
-	Identity      Identity               `protobuf:"varint,3,opt,name=Identity,proto3,enum=box.Identity" json:"Identity,omitempty"`
+	Algorithm     Algorithm              `protobuf:"varint,3,opt,name=Algorithm,proto3,enum=box.Algorithm" json:"Algorithm,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -124,11 +124,11 @@ func (x *Introduce) GetPublicKey() []byte {
 	return nil
 }
 
-func (x *Introduce) GetIdentity() Identity {
+func (x *Introduce) GetAlgorithm() Algorithm {
 	if x != nil {
-		return x.Identity
+		return x.Algorithm
 	}
-	return Identity_invalid
+	return Algorithm_invalid
 }
 
 type Handshake struct {
@@ -195,7 +195,7 @@ type Peer struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=Name,proto3" json:"Name,omitempty"`
 	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=PublicKey,proto3" json:"PublicKey,omitempty"`
-	Identity      Identity               `protobuf:"varint,3,opt,name=Identity,proto3,enum=box.Identity" json:"Identity,omitempty"`
+	Algorithm     Algorithm              `protobuf:"varint,3,opt,name=Algorithm,proto3,enum=box.Algorithm" json:"Algorithm,omitempty"`
 	FirstSeen     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=FirstSeen,proto3" json:"FirstSeen,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -245,11 +245,11 @@ func (x *Peer) GetPublicKey() []byte {
 	return nil
 }
 
-func (x *Peer) GetIdentity() Identity {
+func (x *Peer) GetAlgorithm() Algorithm {
 	if x != nil {
-		return x.Identity
+		return x.Algorithm
 	}
-	return Identity_invalid
+	return Algorithm_invalid
 }
 
 func (x *Peer) GetFirstSeen() *timestamppb.Timestamp {
@@ -263,23 +263,23 @@ var File_model_proto protoreflect.FileDescriptor
 
 const file_model_proto_rawDesc = "" +
 	"\n" +
-	"\vmodel.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"h\n" +
+	"\vmodel.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"k\n" +
 	"\tIntroduce\x12\x12\n" +
 	"\x04Name\x18\x01 \x01(\tR\x04Name\x12\x1c\n" +
-	"\tPublicKey\x18\x02 \x01(\fR\tPublicKey\x12)\n" +
-	"\bIdentity\x18\x03 \x01(\x0e2\r.box.IdentityR\bIdentity\"Q\n" +
+	"\tPublicKey\x18\x02 \x01(\fR\tPublicKey\x12,\n" +
+	"\tAlgorithm\x18\x03 \x01(\x0e2\x0e.box.AlgorithmR\tAlgorithm\"Q\n" +
 	"\tHandshake\x12\x10\n" +
 	"\x03Key\x18\x01 \x01(\fR\x03Key\x12\x12\n" +
 	"\x04Salt\x18\x02 \x01(\fR\x04Salt\x12\x1e\n" +
 	"\n" +
 	"SessionKey\x18\x03 \x01(\tR\n" +
-	"SessionKey\"\x9d\x01\n" +
+	"SessionKey\"\xa0\x01\n" +
 	"\x04Peer\x12\x12\n" +
 	"\x04Name\x18\x01 \x01(\tR\x04Name\x12\x1c\n" +
-	"\tPublicKey\x18\x02 \x01(\fR\tPublicKey\x12)\n" +
-	"\bIdentity\x18\x03 \x01(\x0e2\r.box.IdentityR\bIdentity\x128\n" +
-	"\tFirstSeen\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tFirstSeen*/\n" +
-	"\bIdentity\x12\v\n" +
+	"\tPublicKey\x18\x02 \x01(\fR\tPublicKey\x12,\n" +
+	"\tAlgorithm\x18\x03 \x01(\x0e2\x0e.box.AlgorithmR\tAlgorithm\x128\n" +
+	"\tFirstSeen\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tFirstSeen*0\n" +
+	"\tAlgorithm\x12\v\n" +
 	"\ainvalid\x10\x00\x12\v\n" +
 	"\aEd25519\x10\x01\x12\t\n" +
 	"\x05MLDSA\x10\x02B\x06Z\x04./pbb\x06proto3"
@@ -299,15 +299,15 @@ func file_model_proto_rawDescGZIP() []byte {
 var file_model_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_model_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_model_proto_goTypes = []any{
-	(Identity)(0),                 // 0: box.Identity
+	(Algorithm)(0),                // 0: box.Algorithm
 	(*Introduce)(nil),             // 1: box.Introduce
 	(*Handshake)(nil),             // 2: box.Handshake
 	(*Peer)(nil),                  // 3: box.Peer
 	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
 }
 var file_model_proto_depIdxs = []int32{
-	0, // 0: box.Introduce.Identity:type_name -> box.Identity
-	0, // 1: box.Peer.Identity:type_name -> box.Identity
+	0, // 0: box.Introduce.Algorithm:type_name -> box.Algorithm
+	0, // 1: box.Peer.Algorithm:type_name -> box.Algorithm
 	4, // 2: box.Peer.FirstSeen:type_name -> google.protobuf.Timestamp
 	3, // [3:3] is the sub-list for method output_type
 	3, // [3:3] is the sub-list for method input_type

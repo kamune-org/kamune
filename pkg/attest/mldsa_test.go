@@ -8,6 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	_ Attester   = MLDSA{}
+	_ Identifier = MLDSA{}
+	_ PublicKey  = MLDSAPublicKey{}
+)
+
 func TestMLDSA(t *testing.T) {
 	a := require.New(t)
 	msg := []byte(rand.Text())
@@ -21,29 +27,28 @@ func TestMLDSA(t *testing.T) {
 	a.NoError(err)
 	a.NotNil(sig)
 
-	attestation := MLDSA
-
+	id := MLDSA{}
 	t.Run("valid signature", func(t *testing.T) {
-		verified := attestation.Verify(pub, msg, sig)
+		verified := id.Verify(pub, msg, sig)
 		a.True(verified)
 	})
 	t.Run("invalid signature", func(t *testing.T) {
 		sig := slices.Clone(sig)
 		sig[0] ^= 0xDD
 
-		verified := attestation.Verify(pub, msg, sig)
+		verified := id.Verify(pub, msg, sig)
 		a.False(verified)
 	})
 	t.Run("invalid hash", func(t *testing.T) {
 		msg = append(msg, []byte("!")...)
 
-		verified := attestation.Verify(pub, msg, sig)
+		verified := id.Verify(pub, msg, sig)
 		a.False(verified)
 	})
 	t.Run("invalid public key", func(t *testing.T) {
 		another, err := newMLDSA()
 		a.NoError(err)
-		verified := attestation.Verify(another.PublicKey(), msg, sig)
+		verified := id.Verify(another.PublicKey(), msg, sig)
 		a.False(verified)
 	})
 }

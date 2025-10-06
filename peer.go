@@ -16,7 +16,7 @@ import (
 type Peer struct {
 	Name      string
 	PublicKey PublicKey
-	Identity  attest.Identity
+	Algorithm attest.Algorithm
 	FirstSeen time.Time
 }
 
@@ -38,11 +38,11 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unmarshaling peer: %w", err)
 	}
-	var identity attest.Identity
-	if err = identity.UnmarshalText([]byte(p.Identity.String())); err != nil {
+	var a attest.Algorithm
+	if err = a.UnmarshalText([]byte(p.Algorithm.String())); err != nil {
 		return nil, fmt.Errorf("parsing identity: %w", err)
 	}
-	pubKey, err := identity.ParsePublicKey(p.PublicKey)
+	pubKey, err := a.Identitfier().ParsePublicKey(p.PublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("parsing public key: %w", err)
 	}
@@ -50,7 +50,7 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	return &Peer{
 		Name:      p.Name,
 		PublicKey: pubKey,
-		Identity:  identity,
+		Algorithm: a,
 		FirstSeen: p.FirstSeen.AsTime(),
 	}, nil
 }
@@ -59,7 +59,7 @@ func (s *Storage) StorePeer(peer *Peer) error {
 	pubKey := peer.PublicKey.Marshal()
 	p := &pb.Peer{
 		Name:      peer.Name,
-		Identity:  pb.Identity(peer.Identity),
+		Algorithm: pb.Algorithm(peer.Algorithm),
 		PublicKey: pubKey,
 		FirstSeen: timestamppb.New(peer.FirstSeen),
 	}
