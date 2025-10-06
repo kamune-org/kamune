@@ -31,7 +31,9 @@ func TestIntroduce(t *testing.T) {
 		err = sendIntroduction(conn1, rand.Text(), attester1, alg)
 		a.NoError(err)
 	}()
-	peer, err := receiveIntroduction(conn2)
+	st2, err := readSignedTransport(conn2)
+	a.NoError(err)
+	peer, err := receiveIntroduction(st2)
 	a.NoError(err)
 	a.Equal(attester1.PublicKey(), peer.PublicKey)
 
@@ -39,7 +41,9 @@ func TestIntroduce(t *testing.T) {
 		err = sendIntroduction(conn2, rand.Text(), attester2, alg)
 		a.NoError(err)
 	}()
-	peer, err = receiveIntroduction(conn1)
+	st1, err := readSignedTransport(conn1)
+	a.NoError(err)
+	peer, err = receiveIntroduction(st1)
 	a.NoError(err)
 	a.Equal(attester2.PublicKey(), peer.PublicKey)
 }

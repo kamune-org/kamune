@@ -90,19 +90,9 @@ func sendIntroduction(
 	return nil
 }
 
-func receiveIntroduction(conn Conn) (*Peer, error) {
-	payload, err := conn.ReadBytes()
-	if err != nil {
-		return nil, fmt.Errorf("reading payload: %w", err)
-	}
-
-	var st pb.SignedTransport
-	if err := proto.Unmarshal(payload, &st); err != nil {
-		return nil, fmt.Errorf("unmarshalling transport: %w", err)
-	}
-
+func receiveIntroduction(st *pb.SignedTransport) (*Peer, error) {
 	var introduce pb.Introduce
-	err = proto.Unmarshal(st.GetData(), &introduce)
+	err := proto.Unmarshal(st.GetData(), &introduce)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing: %w", err)
 	}
@@ -123,9 +113,5 @@ func receiveIntroduction(conn Conn) (*Peer, error) {
 		return nil, ErrInvalidSignature
 	}
 
-	return &Peer{
-		Name:      introduce.Name,
-		Algorithm: a,
-		PublicKey: remote,
-	}, nil
+	return &Peer{Name: introduce.Name, Algorithm: a, PublicKey: remote}, nil
 }

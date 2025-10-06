@@ -90,16 +90,21 @@ func (s *Server) serve(cn Conn) error {
 
 	// TODO(h.yazdani): support multiple routes
 
-	peer, err := receiveIntroduction(cn)
+	st, err := readSignedTransport(cn)
 	if err != nil {
-		return fmt.Errorf("receive introduction: %w", err)
+		return fmt.Errorf("reading transport: %w", err)
+	}
+
+	peer, err := receiveIntroduction(st)
+	if err != nil {
+		return fmt.Errorf("receiving introduction: %w", err)
 	}
 	if err := s.remoteVerifier(s.storage, peer); err != nil {
 		return fmt.Errorf("verify remote: %w", err)
 	}
 	err = sendIntroduction(cn, s.serverName, s.attester, s.algorithm)
 	if err != nil {
-		return fmt.Errorf("send introduction: %w", err)
+		return fmt.Errorf("sending introduction: %w", err)
 	}
 
 	pt := newPlainTransport(
@@ -107,7 +112,7 @@ func (s *Server) serve(cn Conn) error {
 	)
 	t, err := acceptHandshake(pt)
 	if err != nil {
-		return fmt.Errorf("accept handshake: %w", err)
+		return fmt.Errorf("accepting handshake: %w", err)
 	}
 	err = s.handlerFunc(t)
 	if err != nil {

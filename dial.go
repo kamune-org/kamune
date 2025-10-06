@@ -96,7 +96,11 @@ func (d *dialer) handshake() (*Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
-	peer, err := receiveIntroduction(d.conn)
+	st, err := readSignedTransport(d.conn)
+	if err != nil {
+		return nil, fmt.Errorf("read transport: %w", err)
+	}
+	peer, err := receiveIntroduction(st)
 	if err != nil {
 		return nil, fmt.Errorf("receive introduction: %w", err)
 	}

@@ -9,6 +9,8 @@ message SignedTransport {
   bytes Signature = 2;
   Metadata Metadata = 3;
   bytes Padding = 4;
+  uint32 Path = 5;
+  optional bytes NextKey = 6;
 }
 
 message Metadata {

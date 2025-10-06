@@ -42,16 +42,19 @@ removal.
   - [x] TCP
   - [x] UDP
   - [ ] QUIC, WebRTC, or others? *
-- [ ] Better timeout and deadline management via context
-- [ ] Handling remotes, connection retries, and session management
-  - [ ] Remote's public key expiration
-  - [ ] QR code generation
-  - [ ] Key rotation *
-  - [ ] Peer name *
-- [ ] Relay server
-  - [ ] IP discovery
+- [x] Better timeout and deadline management
+- [ ] Double Ratchet
+- [ ] Routes and session reconnection
+- [x] Relay server
+  - [x] IP discovery
   - [ ] Message conveying *
   - [ ] Queue persistence *
+- [ ] Handling remotes, connection retries, and session management
+  - [ ] Remote's public key expiration
+  - [x] QR code generation
+  - [ ] Key rotation *
+  - [ ] Peer name *
+- [ ] Messaging Layer Security (MLS) and group chats *
 - [ ] Provide NAT traversal and/or hole punching strategies *
 - [ ] Saving and restoring chat history *
 - [ ] Considering FFI or an intermediary server for non-Go clients *

@@ -28,6 +28,8 @@ type SignedTransport struct {
 	Signature     []byte                 `protobuf:"bytes,2,opt,name=Signature,proto3" json:"Signature,omitempty"`
 	Metadata      *Metadata              `protobuf:"bytes,3,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
 	Padding       []byte                 `protobuf:"bytes,4,opt,name=Padding,proto3" json:"Padding,omitempty"`
+	Path          uint32                 `protobuf:"varint,5,opt,name=Path,proto3" json:"Path,omitempty"`
+	NextKey       []byte                 `protobuf:"bytes,6,opt,name=NextKey,proto3,oneof" json:"NextKey,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -86,6 +88,20 @@ func (x *SignedTransport) GetMetadata() *Metadata {
 func (x *SignedTransport) GetPadding() []byte {
 	if x != nil {
 		return x.Padding
+	}
+	return nil
+}
+
+func (x *SignedTransport) GetPath() uint32 {
+	if x != nil {
+		return x.Path
+	}
+	return 0
+}
+
+func (x *SignedTransport) GetNextKey() []byte {
+	if x != nil {
+		return x.NextKey
 	}
 	return nil
 }
@@ -154,12 +170,16 @@ var File_box_proto protoreflect.FileDescriptor
 
 const file_box_proto_rawDesc = "" +
 	"\n" +
-	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"\x88\x01\n" +
+	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc7\x01\n" +
 	"\x0fSignedTransport\x12\x12\n" +
 	"\x04Data\x18\x01 \x01(\fR\x04Data\x12\x1c\n" +
 	"\tSignature\x18\x02 \x01(\fR\tSignature\x12)\n" +
 	"\bMetadata\x18\x03 \x01(\v2\r.box.MetadataR\bMetadata\x12\x18\n" +
-	"\aPadding\x18\x04 \x01(\fR\aPadding\"p\n" +
+	"\aPadding\x18\x04 \x01(\fR\aPadding\x12\x12\n" +
+	"\x04Path\x18\x05 \x01(\rR\x04Path\x12\x1d\n" +
+	"\aNextKey\x18\x06 \x01(\fH\x00R\aNextKey\x88\x01\x01B\n" +
+	"\n" +
+	"\b_NextKey\"p\n" +
 	"\bMetadata\x12\x0e\n" +
 	"\x02ID\x18\x01 \x01(\tR\x02ID\x128\n" +
 	"\tTimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\x12\x1a\n" +
@@ -198,6 +218,7 @@ func file_box_proto_init() {
 	if File_box_proto != nil {
 		return
 	}
+	file_box_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

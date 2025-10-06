@@ -157,3 +157,15 @@ func (t *Transport) Send(message Transferable) (*Metadata, error) {
 func (t *Transport) SessionID() string { return t.sessionID }
 
 func (t *Transport) Close() error { return t.conn.Close() }
+
+func readSignedTransport(c Conn) (*pb.SignedTransport, error) {
+	payload, err := c.ReadBytes()
+	if err != nil {
+		return nil, fmt.Errorf("reading payload: %w", err)
+	}
+	var st pb.SignedTransport
+	if err := proto.Unmarshal(payload, &st); err != nil {
+		return nil, fmt.Errorf("unmarshalling transport: %w", err)
+	}
+	return &st, nil
+}
