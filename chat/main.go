@@ -6,12 +6,14 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 )
 
 var errCh = make(chan error)
@@ -89,6 +91,9 @@ func server(addr string) {
 		errCh <- fmt.Errorf("starting server: %w", err)
 		return
 	}
+	fp := strings.Join(fingerprint.Emoji(srv.PublicKey().Marshal()), " • ")
+	fmt.Printf("Your emoji fingerprint: %s\n", fp)
+	fmt.Printf("Starting server on %s\n", addr)
 	errCh <- srv.ListenAndServe()
 }
 
