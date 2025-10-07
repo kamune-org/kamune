@@ -95,19 +95,22 @@ func server(addr string) {
 }
 
 func client(addr string) {
+	dialer, err := kamune.NewDialer(
+		addr,
+		kamune.DialWithStorageOpts(
+			kamune.StorageWithDBPath("./client.db"),
+			kamune.StorageWithNoPassphrase(),
+		),
+	)
+	if err != nil {
+		log.Fatalf("create new dialer: %v\n", err)
+	}
+
 	var t *kamune.Transport
 	for {
 		var opErr *net.OpError
 		var err error
-		t, err = kamune.Dial(
-			addr,
-			kamune.DialWithStorageOpts(
-				kamune.StorageWithDBPath("./client.db"),
-				kamune.StorageWithPassphraseHandler(func() ([]byte, error) {
-					return []byte("abcdef"), nil
-				}),
-			),
-		)
+		t, err = dialer.Dial()
 		if err == nil {
 			break
 		}

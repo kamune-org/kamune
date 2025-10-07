@@ -14,7 +14,8 @@ import (
 	"github.com/kamune-org/kamune/pkg/attest"
 )
 
-type dialer struct {
+type Dialer struct {
+	address      string
 	conn         Conn
 	storage      *Storage
 	attester     attest.Attester
@@ -29,22 +30,14 @@ type dialer struct {
 	storageOpts  []StorageOption
 }
 
-func Dial(addr string, opts ...DialOption) (*Transport, error) {
-	d, err := newDialer(addr, opts)
-	if err != nil {
-		return nil, err
+func (d *Dialer) Dial() (*Transport, error) {
+	if d.conn == nil {
+		c, err := d.dial(d.address)
+		if err != nil {
+			return nil, fmt.Errorf("dialing: %w", err)
+		}
+		d.conn = c
 	}
-
-	storage, err := openStorage(d.storageOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("opening storage: %w", err)
-	}
-	at, err := storage.attester()
-	if err != nil {
-		return nil, fmt.Errorf("loading attester: %w", err)
-	}
-	d.storage = storage
-	d.attester = at
 
 	transport, err := d.handshake()
 	if err != nil {
@@ -54,7 +47,7 @@ func Dial(addr string, opts ...DialOption) (*Transport, error) {
 	return transport, err
 }
 
-func (d *dialer) dial(addr string) (*conn, error) {
+func (d *Dialer) dial(addr string) (*conn, error) {
 	switch d.connType {
 	case tcp:
 		c, err := net.Dial("tcp", addr)
@@ -81,7 +74,7 @@ func (d *dialer) dial(addr string) (*conn, error) {
 	}
 }
 
-func (d *dialer) handshake() (*Transport, error) {
+func (d *Dialer) handshake() (*Transport, error) {
 	defer func() {
 		if msg := recover(); msg != nil {
 			slog.Error(
@@ -109,9 +102,7 @@ func (d *dialer) handshake() (*Transport, error) {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
-	pt := newPlainTransport(
-		d.conn, peer.PublicKey, d.attester, d.storage.algorithm.Identitfier(),
-	)
+	pt := newPlainTransport(d.conn, peer.PublicKey, d.attester, d.storage)
 	t, err := requestHandshake(pt)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
@@ -120,12 +111,17 @@ func (d *dialer) handshake() (*Transport, error) {
 	return t, nil
 }
 
-func newDialer(addr string, opts []DialOption) (*dialer, error) {
-	d := &dialer{
+func (d *Dialer) PublicKey() PublicKey {
+	return d.attester.PublicKey()
+}
+
+func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
+	d := &Dialer{
+		address:      addr,
 		connType:     tcp,
 		algorithm:    attest.Ed25519Algorithm,
 		clientName:   enigma.Text(10),
-		readTimeout:  10 * time.Minute,
+		readTimeout:  5 * time.Minute,
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
 		verifyRemote: defaultRemoteVerifier,
@@ -136,21 +132,24 @@ func newDialer(addr string, opts []DialOption) (*dialer, error) {
 		}
 	}
 
-	if d.conn == nil {
-		c, err := d.dial(addr)
-		if err != nil {
-			return nil, fmt.Errorf("dialing: %w", err)
-		}
-		d.conn = c
+	storage, err := openStorage(d.storageOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("opening storage: %w", err)
 	}
+	at, err := storage.attester()
+	if err != nil {
+		return nil, fmt.Errorf("loading attester: %w", err)
+	}
+	d.storage = storage
+	d.attester = at
 
 	return d, nil
 }
 
-type DialOption func(*dialer) error
+type DialOption func(*Dialer) error
 
 func DialWithRemoteVerifier(verifier RemoteVerifier) DialOption {
-	return func(d *dialer) error {
+	return func(d *Dialer) error {
 		if d.verifyRemote != nil {
 			return errors.New("already have a remote verifier")
 		}
@@ -160,7 +159,7 @@ func DialWithRemoteVerifier(verifier RemoteVerifier) DialOption {
 }
 
 func DialWithExistingConn(conn Conn) DialOption {
-	return func(d *dialer) error {
+	return func(d *Dialer) error {
 		if d.conn != nil {
 			return errors.New("already have a conn override")
 		}
@@ -170,28 +169,28 @@ func DialWithExistingConn(conn Conn) DialOption {
 }
 
 func DialWithReadTimeout(timeout time.Duration) DialOption {
-	return func(d *dialer) error {
+	return func(d *Dialer) error {
 		d.readTimeout = timeout
 		return nil
 	}
 }
 
 func DialWithWriteTimeout(timeout time.Duration) DialOption {
-	return func(d *dialer) error {
+	return func(d *Dialer) error {
 		d.writeTimeout = timeout
 		return nil
 	}
 }
 
 func DialWithDialTimeout(timeout time.Duration) DialOption {
-	return func(d *dialer) error {
+	return func(d *Dialer) error {
 		d.dialTimeout = timeout
 		return nil
 	}
 }
 
 func DialWithTCPConn(opts ...ConnOption) DialOption {
-	return func(d *dialer) error {
+	return func(d *Dialer) error {
 		d.connType = tcp
 		d.connOpts = opts
 		return nil
@@ -199,7 +198,7 @@ func DialWithTCPConn(opts ...ConnOption) DialOption {
 }
 
 func DialWithUDPConn(opts ...ConnOption) DialOption {
-	return func(d *dialer) error {
+	return func(d *Dialer) error {
 		d.connType = udp
 		d.connOpts = opts
 		return nil
@@ -207,21 +206,21 @@ func DialWithUDPConn(opts ...ConnOption) DialOption {
 }
 
 func DialWithAlgorithm(a attest.Algorithm) DialOption {
-	return func(d *dialer) error {
+	return func(d *Dialer) error {
 		d.algorithm = a
 		return nil
 	}
 }
 
 func DialWithClientName(name string) DialOption {
-	return func(d *dialer) error {
+	return func(d *Dialer) error {
 		d.clientName = name
 		return nil
 	}
 }
 
 func DialWithStorageOpts(opts ...StorageOption) DialOption {
-	return func(d *dialer) error {
+	return func(d *Dialer) error {
 		d.storageOpts = opts
 		return nil
 	}
