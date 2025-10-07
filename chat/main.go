@@ -82,9 +82,7 @@ func server(addr string) {
 		serveHandler,
 		kamune.ServeWithStorageOpts(
 			kamune.StorageWithDBPath("./server.db"),
-			kamune.StorageWithPassphraseHandler(func() ([]byte, error) {
-				return []byte("123456"), nil
-			}),
+			kamune.StorageWithNoPassphrase(),
 		),
 	)
 	if err != nil {
@@ -105,6 +103,8 @@ func client(addr string) {
 	if err != nil {
 		log.Fatalf("create new dialer: %v\n", err)
 	}
+	fp := strings.Join(fingerprint.Emoji(dialer.PublicKey().Marshal()), " • ")
+	fmt.Printf("Your emoji fingerprint: %s\n", fp)
 
 	var t *kamune.Transport
 	for {

@@ -3,6 +3,7 @@ package kamune
 import (
 	"crypto/rand"
 	"net"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,16 @@ func TestHandshake(t *testing.T) {
 	a := require.New(t)
 	sig := make(chan struct{})
 	defer close(sig)
-	alg := attest.Ed25519Algorithm
+	f, err := os.CreateTemp("", "kamune")
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer a.NoError(os.Remove(f.Name()))
+	store, err := openStorage(
+		StorageWithDBPath(f.Name()),
+		StorageWithAlgorithm(attest.Ed25519Algorithm),
+		StorageWithNoPassphrase(),
+	)
+	a.NoError(err)
 	c1, c2 := net.Pipe()
 	conn1, err := newConn(c1)
 	a.NoError(err)
@@ -24,13 +34,13 @@ func TestHandshake(t *testing.T) {
 		a.NoError(conn1.Close())
 		a.NoError(conn2.Close())
 	}()
-	attester1, err := attest.NewAttester(alg)
+	attester1, err := attest.NewAttester(store.algorithm)
 	a.NoError(err)
-	attester2, err := attest.NewAttester(alg)
+	attester2, err := attest.NewAttester(store.algorithm)
 	a.NoError(err)
 
-	pt1 := newPlainTransport(conn1, attester2.PublicKey(), attester1, alg.Identitfier())
-	pt2 := newPlainTransport(conn2, attester1.PublicKey(), attester2, alg.Identitfier())
+	pt1 := newPlainTransport(conn1, attester2.PublicKey(), attester1, store)
+	pt2 := newPlainTransport(conn2, attester1.PublicKey(), attester2, store)
 
 	var t1 *Transport
 	go func() {

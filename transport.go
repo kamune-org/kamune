@@ -29,19 +29,21 @@ type plainTransport struct {
 	remote         attest.PublicKey
 	id             attest.Identifier
 	sent, received atomic.Uint64
+	storage        *Storage
 }
 
 func newPlainTransport(
 	conn Conn,
 	remote attest.PublicKey,
 	attest attest.Attester,
-	id attest.Identifier,
+	storage *Storage,
 ) *plainTransport {
 	return &plainTransport{
-		conn:   conn,
-		remote: remote,
-		attest: attest,
-		id:     id,
+		conn:    conn,
+		remote:  remote,
+		attest:  attest,
+		storage: storage,
+		id:      storage.algorithm.Identitfier(),
 	}
 }
 

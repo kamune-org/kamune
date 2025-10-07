@@ -14,6 +14,10 @@ import (
 	"github.com/kamune-org/kamune/pkg/store"
 )
 
+var (
+	defaultBucket = []byte(store.DefaultBucket)
+)
+
 type PassphraseHandler func() ([]byte, error)
 
 func defaultPassphraseHandler() ([]byte, error) {
@@ -79,7 +83,7 @@ func (s *Storage) attester() (attest.Attester, error) {
 	var id []byte
 	err := s.store.Query(func(q store.Query) error {
 		var err error
-		id, err = q.GetPlain(key)
+		id, err = q.GetPlain(defaultBucket, key)
 		return err
 	})
 	switch {
@@ -103,7 +107,7 @@ func (s *Storage) attester() (attest.Attester, error) {
 		return nil, fmt.Errorf("saving key: %w", err)
 	}
 	err = s.store.Command(func(c store.Command) error {
-		return c.AddPlain(key, data)
+		return c.AddPlain(defaultBucket, key, data)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("persisting: %w", err)
@@ -127,6 +131,20 @@ func StorageWithDBPath(path string) StorageOption {
 func StorageWithPassphraseHandler(fn PassphraseHandler) StorageOption {
 	return func(p *Storage) error {
 		p.passphraseHandler = fn
+		return nil
+	}
+}
+
+func StorageWithNoPassphrase() StorageOption {
+	return func(p *Storage) error {
+		p.passphraseHandler = func() ([]byte, error) { return []byte(""), nil }
+		return nil
+	}
+}
+
+func StorageWithAlgorithm(algorithm attest.Algorithm) StorageOption {
+	return func(p *Storage) error {
+		p.algorithm = algorithm
 		return nil
 	}
 }

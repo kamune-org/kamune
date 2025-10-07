@@ -107,9 +107,7 @@ func (s *Server) serve(cn Conn) error {
 		return fmt.Errorf("sending introduction: %w", err)
 	}
 
-	pt := newPlainTransport(
-		cn, peer.PublicKey, s.attester, s.storage.algorithm.Identitfier(),
-	)
+	pt := newPlainTransport(cn, peer.PublicKey, s.attester, s.storage)
 	t, err := acceptHandshake(pt)
 	if err != nil {
 		return fmt.Errorf("accepting handshake: %w", err)
@@ -120,6 +118,10 @@ func (s *Server) serve(cn Conn) error {
 	}
 
 	return nil
+}
+
+func (s *Server) PublicKey() PublicKey {
+	return s.attester.PublicKey()
 }
 
 func NewServer(

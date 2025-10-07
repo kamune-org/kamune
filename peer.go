@@ -20,6 +20,10 @@ type Peer struct {
 	FirstSeen time.Time
 }
 
+var (
+	peersBucket = []byte(store.PeersBucket)
+)
+
 func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	var (
 		key  = sha3.Sum512(claim)
@@ -27,7 +31,7 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	)
 	err := s.store.Query(func(q store.Query) error {
 		var err error
-		data, err = q.GetEncrypted(key[:])
+		data, err = q.GetEncrypted(peersBucket, key[:])
 		return err
 	})
 	if err != nil {
@@ -69,7 +73,7 @@ func (s *Storage) StorePeer(peer *Peer) error {
 	}
 	key := sha3.Sum512(pubKey)
 	err = s.store.Command(func(c store.Command) error {
-		return c.AddEncrypted(key[:], data)
+		return c.AddEncrypted(peersBucket, key[:], data)
 	})
 	if err != nil {
 		return fmt.Errorf("adding peer to storage: %w", err)
