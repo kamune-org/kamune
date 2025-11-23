@@ -25,3 +25,17 @@ func (c *Command) AddPlain(bucket, key, value []byte) error {
 func (c *Command) AddEncrypted(bucket, key, value []byte) error {
 	return c.AddPlain(bucket, key, c.store.cipher.Encrypt(value))
 }
+
+func (c *Command) Delete(bucket, key []byte) error {
+	if len(bucket) == 0 {
+		bucket = []byte(DefaultBucket)
+	}
+	b := c.tx.Bucket(bucket)
+	if b == nil {
+		return ErrMissingBucket
+	}
+	if err := b.Delete(key); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	return nil
+}

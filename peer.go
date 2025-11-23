@@ -1,7 +1,9 @@
 package kamune
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"golang.org/x/crypto/sha3"
@@ -20,7 +22,13 @@ type Peer struct {
 	FirstSeen time.Time
 }
 
+const (
+	peerExpirationDuration = 7 * 24 * time.Hour
+)
+
 var (
+	ErrPeerExpired = errors.New("peer has been expired")
+
 	peersBucket = []byte(store.PeersBucket)
 )
 
@@ -42,6 +50,21 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unmarshaling peer: %w", err)
 	}
+
+	if p.FirstSeen.AsTime().Add(peerExpirationDuration).Before(time.Now()) {
+		err = s.store.Command(func(c store.Command) error {
+			return c.Delete(peersBucket, key[:])
+		})
+		if err != nil {
+			slog.Warn(
+				"failed to remove expired peer",
+				slog.String("peer_name", p.GetName()),
+				slog.Any("error", err),
+			)
+		}
+		return nil, ErrPeerExpired
+	}
+
 	var a attest.Algorithm
 	if err = a.UnmarshalText([]byte(p.Algorithm.String())); err != nil {
 		return nil, fmt.Errorf("parsing identity: %w", err)

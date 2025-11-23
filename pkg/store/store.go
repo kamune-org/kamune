@@ -26,7 +26,8 @@ const (
 )
 
 var (
-	ErrMissing = errors.New("item not found")
+	ErrMissingItem   = errors.New("item not found")
+	ErrMissingBucket = errors.New("bucket not found")
 
 	defaultBucket = []byte(DefaultBucket)
 )
@@ -51,7 +52,7 @@ func New(passphrase []byte, path string) (*Store, error) {
 	}
 
 	cipher, err := extractCipher(db, passphrase)
-	if errors.Is(err, ErrMissing) {
+	if errors.Is(err, ErrMissingItem) {
 		cipher, err = createCipher(db, passphrase)
 	}
 	if err != nil {
@@ -79,7 +80,7 @@ func extractCipher(db *bolt.DB, pass []byte) (*enigma.Enigma, error) {
 		return nil, fmt.Errorf("get values: %w", err)
 	}
 	if secretSalt == nil || deriveSalt == nil || wrappedSalt == nil || wrapped == nil {
-		return nil, ErrMissing
+		return nil, ErrMissingItem
 	}
 	derivedPass, err := enigma.Derive(pass, deriveSalt, []byte(dpk), 32)
 	if err != nil {

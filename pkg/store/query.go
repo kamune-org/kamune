@@ -10,11 +10,11 @@ func (q *Query) GetPlain(bucket, key []byte) ([]byte, error) {
 	}
 	b := q.tx.Bucket(bucket)
 	if b == nil {
-		return nil, ErrMissing
+		return nil, ErrMissingBucket
 	}
 	value := b.Get(key)
 	if value == nil {
-		return nil, ErrMissing
+		return nil, ErrMissingItem
 	}
 	return value, nil
 }

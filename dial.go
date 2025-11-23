@@ -11,7 +11,6 @@ import (
 
 	"github.com/xtaci/kcp-go/v5"
 
-	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 )
@@ -122,7 +121,6 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 		address:      addr,
 		connType:     tcp,
 		algorithm:    attest.Ed25519Algorithm,
-		clientName:   enigma.Text(10),
 		readTimeout:  5 * time.Minute,
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,

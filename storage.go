@@ -89,7 +89,7 @@ func (s *Storage) attester() (attest.Attester, error) {
 	switch {
 	case err == nil:
 		return attest.LoadAttester(s.algorithm, id)
-	case errors.Is(err, store.ErrMissing):
+	case errors.Is(err, store.ErrMissingItem):
 		// continue
 	default:
 		return nil, fmt.Errorf("getting identity: %w", err)
