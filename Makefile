@@ -9,3 +9,7 @@ bench:
 .PHONY: gen-proto
 gen-proto:
 	@protoc -I=internal/box --go_out=internal/box internal/box/*.proto
+
+.PHONY: align
+align-structs:
+	@golangci-lint run --enable=govet --fix

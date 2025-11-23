@@ -30,17 +30,18 @@ func defaultPassphraseHandler() ([]byte, error) {
 }
 
 type Storage struct {
-	dbPath            string
 	passphraseHandler PassphraseHandler
+	store             *store.Store
+	dbPath            string
 	algorithm         attest.Algorithm
 	expiryDuration    time.Duration
-	store             *store.Store
 }
 
 func openStorage(opts ...StorageOption) (*Storage, error) {
 	s := &Storage{
 		algorithm:         attest.Ed25519Algorithm,
 		passphraseHandler: defaultPassphraseHandler,
+		expiryDuration:    7 * 24 * time.Hour,
 	}
 	for _, opt := range opts {
 		if err := opt(s); err != nil {
@@ -142,6 +143,13 @@ func StorageWithNoPassphrase() StorageOption {
 func StorageWithAlgorithm(algorithm attest.Algorithm) StorageOption {
 	return func(p *Storage) error {
 		p.algorithm = algorithm
+		return nil
+	}
+}
+
+func StorageWithExpiryDuration(duration time.Duration) StorageOption {
+	return func(p *Storage) error {
+		p.expiryDuration = duration
 		return nil
 	}
 }

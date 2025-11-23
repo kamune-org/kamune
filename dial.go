@@ -16,19 +16,19 @@ import (
 )
 
 type Dialer struct {
-	address      string
 	conn         Conn
-	storage      *Storage
 	attester     attest.Attester
-	algorithm    attest.Algorithm
-	clientName   string
-	connType     connType
+	storage      *Storage
 	verifyRemote RemoteVerifier
-	readTimeout  time.Duration
-	writeTimeout time.Duration
-	dialTimeout  time.Duration
+	clientName   string
+	address      string
 	connOpts     []ConnOption
 	storageOpts  []StorageOption
+	connType     connType
+	writeTimeout time.Duration
+	dialTimeout  time.Duration
+	readTimeout  time.Duration
+	algorithm    attest.Algorithm
 }
 
 func (d *Dialer) Dial() (*Transport, error) {

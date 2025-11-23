@@ -15,16 +15,16 @@ import (
 )
 
 type Server struct {
-	addr           string
-	serverName     string
 	attester       attest.Attester
-	algorithm      attest.Algorithm
 	storage        *Storage
-	connType       connType
 	handlerFunc    HandlerFunc
 	remoteVerifier RemoteVerifier
+	addr           string
+	serverName     string
 	connOpts       []ConnOption
 	storageOpts    []StorageOption
+	algorithm      attest.Algorithm
+	connType       connType
 }
 
 func (s *Server) ListenAndServe() error {

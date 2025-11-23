@@ -16,15 +16,11 @@ import (
 )
 
 type Peer struct {
-	Name      string
-	PublicKey PublicKey
-	Algorithm attest.Algorithm
 	FirstSeen time.Time
+	PublicKey PublicKey
+	Name      string
+	Algorithm attest.Algorithm
 }
-
-const (
-	peerExpirationDuration = 7 * 24 * time.Hour
-)
 
 var (
 	ErrPeerExpired = errors.New("peer has been expired")
@@ -51,7 +47,7 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 		return nil, fmt.Errorf("unmarshaling peer: %w", err)
 	}
 
-	if p.FirstSeen.AsTime().Add(peerExpirationDuration).Before(time.Now()) {
+	if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(time.Now()) {
 		err = s.store.Command(func(c store.Command) error {
 			return c.Delete(peersBucket, key[:])
 		})

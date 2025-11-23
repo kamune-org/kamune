@@ -41,7 +41,7 @@ func defaultRemoteVerifier(store *Storage, peer *Peer) error {
 	b := bufio.NewScanner(os.Stdin)
 	b.Scan()
 	answer := strings.TrimSpace(strings.ToLower(b.Text()))
-	if !(answer == "y" || answer == "yes") {
+	if answer != "y" && answer != "yes" {
 		return ErrVerificationFailed
 	}
 

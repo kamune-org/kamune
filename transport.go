@@ -24,12 +24,13 @@ var (
 )
 
 type plainTransport struct {
-	conn           Conn
-	attest         attest.Attester
-	remote         attest.PublicKey
-	id             attest.Identifier
-	sent, received atomic.Uint64
-	storage        *Storage
+	conn     Conn
+	attest   attest.Attester
+	remote   attest.PublicKey
+	id       attest.Identifier
+	storage  *Storage
+	sent     atomic.Uint64
+	received atomic.Uint64
 }
 
 func newPlainTransport(
@@ -97,9 +98,9 @@ func (pt *plainTransport) deserialize(
 
 type Transport struct {
 	*plainTransport
-	sessionID string
 	encoder   *enigma.Enigma
 	decoder   *enigma.Enigma
+	sessionID string
 }
 
 func newTransport(
