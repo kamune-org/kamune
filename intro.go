@@ -16,9 +16,11 @@ import (
 
 func defaultRemoteVerifier(store *Storage, peer *Peer) error {
 	key := peer.PublicKey.Marshal()
+	fmt.Printf("Recevied a connection request from %q.\n", peer.Name)
 	fmt.Printf(
-		"Recevied a connection request from %q. Their emoji fingerprint: %s\n",
-		peer.Name, strings.Join(fingerprint.Emoji(key), " • "),
+		"Their emoji fingerprint: %s\nHex fingerprint: %s\n",
+		strings.Join(fingerprint.Emoji(key), " • "),
+		fingerprint.Hex(key),
 	)
 
 	var isPeerNew bool

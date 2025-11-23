@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"crypto/sha1"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,8 +10,8 @@ import (
 
 	"github.com/xtaci/kcp-go/v5"
 
-	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 )
 
 type Server struct {
@@ -130,7 +131,6 @@ func NewServer(
 	s := &Server{
 		addr:        addr,
 		connType:    tcp,
-		serverName:  enigma.Text(10),
 		algorithm:   attest.Ed25519Algorithm,
 		handlerFunc: handler,
 	}
@@ -153,6 +153,8 @@ func NewServer(
 	}
 	s.storage = storage
 	s.attester = at
+	sum := sha1.Sum((at.PublicKey().Marshal()))
+	s.serverName = fingerprint.Base64(sum[:])
 
 	return s, nil
 }

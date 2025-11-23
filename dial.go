@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"crypto/sha1"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 )
 
 type Dialer struct {
@@ -142,6 +144,8 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 	}
 	d.storage = storage
 	d.attester = at
+	sum := sha1.Sum((at.PublicKey().Marshal()))
+	d.clientName = fingerprint.Base64(sum[:])
 
 	return d, nil
 }

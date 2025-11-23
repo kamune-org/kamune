@@ -94,9 +94,6 @@ func (s *Storage) attester() (attest.Attester, error) {
 	default:
 		return nil, fmt.Errorf("getting identity: %w", err)
 	}
-	if err != nil && !errors.Is(err, store.ErrMissing) {
-		return nil, err
-	}
 
 	at, err := attest.NewAttester(s.algorithm)
 	if err != nil {

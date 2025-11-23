@@ -5,5 +5,5 @@ import (
 )
 
 func Base64(b []byte) string {
-	return base64.RawStdEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
