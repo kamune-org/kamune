@@ -132,7 +132,7 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 		opt(d)
 	}
 
-	storage, err := openStorage(d.storageOpts...)
+	storage, err := OpenStorage(d.storageOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("opening storage: %w", err)
 	}

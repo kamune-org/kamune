@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -29,23 +30,41 @@ func NewProgram(p *tea.Program) *Program {
 }
 
 func main() {
-	args := os.Args[1:]
+	var dbFlag string
+	flag.StringVar(&dbFlag, "db", "", "path to DB file")
+	flag.Parse()
+
+	args := flag.Args()
 	if len(args) != 2 {
-		fmt.Println("expected 2 args: [mode] [addr]")
+		fmt.Println("expected 2 args: [mode] [addr|sessionID]")
+		fmt.Println("modes: dial, serve, history")
+		fmt.Println("example: ./chat -db ./client.db dial 127.0.0.1:9000")
 		os.Exit(1)
 	}
 
-	switch addr := args[1]; args[0] {
+	mode := args[0]
+	arg := args[1]
+
+	switch mode {
 	case "dial":
 		go func() {
-			client(addr)
+			client(arg)
 		}()
 	case "serve":
 		go func() {
-			server(addr)
+			server(arg)
+		}()
+	case "history":
+		go func() {
+			// Treat arg as the session ID to inspect.
+			sid := arg
+			if err := printHistory(sid, dbFlag); err != nil {
+				errCh <- fmt.Errorf("history: %w", err)
+			}
+			stop <- struct{}{}
 		}()
 	default:
-		panic(fmt.Errorf("invalid command: %s", args[0]))
+		panic(fmt.Errorf("invalid command: %s", mode))
 	}
 
 	select {
@@ -75,18 +94,30 @@ func serveHandler(t *kamune.Transport) error {
 			errCh <- fmt.Errorf("receiving: %w", err)
 			return nil
 		}
-		p.Send(NewMessage(metadata.Timestamp(), b.Value))
+		p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
+		go func() {
+			t.Store().AddChatEntry(
+				t.SessionID(),
+				b.GetValue(),
+				metadata.Timestamp(),
+				true,
+			)
+		}()
 	}
 }
 
 func server(addr string) {
+	var opts []kamune.StorageOption
+	opts = append(
+		opts,
+		kamune.StorageWithDBPath("./server.db"),
+		kamune.StorageWithNoPassphrase(),
+	)
+
 	srv, err := kamune.NewServer(
 		addr,
 		serveHandler,
-		kamune.ServeWithStorageOpts(
-			kamune.StorageWithDBPath("./server.db"),
-			kamune.StorageWithNoPassphrase(),
-		),
+		kamune.ServeWithStorageOpts(opts...),
 	)
 	if err != nil {
 		errCh <- fmt.Errorf("starting server: %w", err)
@@ -99,15 +130,20 @@ func server(addr string) {
 }
 
 func client(addr string) {
+	var dialOpts []kamune.StorageOption
+	dialOpts = append(
+		dialOpts,
+		kamune.StorageWithDBPath("./client.db"),
+		kamune.StorageWithNoPassphrase(),
+	)
+
 	dialer, err := kamune.NewDialer(
 		addr,
-		kamune.DialWithStorageOpts(
-			kamune.StorageWithDBPath("./client.db"),
-			kamune.StorageWithNoPassphrase(),
-		),
+		kamune.DialWithStorageOpts(dialOpts...),
 	)
 	if err != nil {
-		log.Fatalf("create new dialer: %v\n", err)
+		errCh <- fmt.Errorf("create new dialer: %w", err)
+		return
 	}
 	fp := strings.Join(fingerprint.Emoji(dialer.PublicKey().Marshal()), " • ")
 	fmt.Printf("Your emoji fingerprint: %s\n", fp)
@@ -148,7 +184,12 @@ func client(addr string) {
 			errCh <- fmt.Errorf("receiving: %w", err)
 			return
 		}
-		p.Send(NewMessage(metadata.Timestamp(), b.Value))
+		p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
+		go func() {
+			t.Store().AddChatEntry(
+				t.SessionID(), b.GetValue(), metadata.Timestamp(), true,
+			)
+		}()
 	}
 }
 
@@ -162,4 +203,49 @@ func NewMessage(timestamp time.Time, text []byte) Message {
 		prefix: fmt.Sprintf("[%s] Peer: ", timestamp.Format(time.DateTime)),
 		text:   string(text),
 	}
+}
+
+// printHistory opens a local Bolt DB (preferring ./client.db then ./server.db),
+// reads chat entries for the provided session ID, and prints timestamps + message
+// payloads to stdout.
+func printHistory(sessionID, dbPath string) error {
+	if dbPath == "" {
+		return fmt.Errorf("db path must be provided with -db flag")
+	}
+
+	var entries []kamune.ChatEntry
+	// Open kamune.Storage and get chat history.
+	s, err := kamune.OpenStorage(
+		kamune.StorageWithDBPath(dbPath),
+		kamune.StorageWithNoPassphrase(),
+	)
+	if err != nil {
+		return fmt.Errorf("opening storage: %w", err)
+	}
+	defer s.Close()
+
+	entries, err = s.GetChatHistory(sessionID)
+	if err != nil {
+		return fmt.Errorf("getting chat history: %w", err)
+	}
+
+	if len(entries) == 0 {
+		fmt.Println("no chat entries found for session:", sessionID)
+		return nil
+	}
+
+	for _, ent := range entries {
+		sender := "You"
+		if !ent.SentByLocal {
+			sender = "Peer"
+		}
+		fmt.Printf(
+			"%s: %s  %s\n",
+			sender,
+			ent.Timestamp.Format(time.DateTime),
+			string(ent.Data),
+		)
+	}
+
+	return nil
 }

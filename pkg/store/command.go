@@ -26,6 +26,11 @@ func (c *Command) AddEncrypted(bucket, key, value []byte) error {
 	return c.AddPlain(bucket, key, c.store.cipher.Encrypt(value))
 }
 
+func (c *Command) CreateBucket(name []byte) error {
+	_, err := c.tx.CreateBucket(name)
+	return err
+}
+
 func (c *Command) Delete(bucket, key []byte) error {
 	if len(bucket) == 0 {
 		bucket = []byte(DefaultBucket)
