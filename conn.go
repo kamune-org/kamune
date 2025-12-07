@@ -159,9 +159,9 @@ func (c *conn) checkWriteDeadline(deadline time.Duration) error {
 	if c.isClosed {
 		return ErrConnClosed
 	}
-	err := c.SetReadDeadline(time.Now().Add(deadline))
+	err := c.SetWriteDeadline(time.Now().Add(deadline))
 	if err != nil {
-		return fmt.Errorf("setting read deadline: %w", err)
+		return fmt.Errorf("setting write deadline: %w", err)
 	}
 	return nil
 }

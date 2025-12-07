@@ -1,0 +1,20 @@
+[
+  {
+    "label": "Chat Serve",
+    "cwd": "./chat",
+    "adapter": "Delve",
+    "request": "launch",
+    "mode": "debug",
+    "program": ".",
+    "args": ["serve", "127.0.0.1:9999"]
+  },
+  {
+    "label": "Chat Dial",
+    "cwd": "./chat",
+    "adapter": "Delve",
+    "request": "launch",
+    "mode": "debug",
+    "program": ".",
+    "args": ["dial", "127.0.0.1:9999"]
+  }
+]

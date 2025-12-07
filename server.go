@@ -1,7 +1,7 @@
 package kamune
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -153,63 +153,34 @@ func NewServer(
 	}
 	s.storage = storage
 	s.attester = at
-	sum := sha1.Sum((at.PublicKey().Marshal()))
+	sum := sha256.Sum256(at.PublicKey().Marshal())
 	s.serverName = fingerprint.Base64(sum[:])
 
 	return s, nil
 }
 
-type ServerOptions func(*Server) error
+type ServerOptions func(*Server)
 
 func ServeWithRemoteVerifier(remote RemoteVerifier) ServerOptions {
-	return func(s *Server) error {
-		if s.remoteVerifier != nil {
-			return errors.New("server already has a remote verifier")
-		}
-		s.remoteVerifier = remote
-		return nil
-	}
+	return func(s *Server) { s.hanshdakeOpts.remoteVerifier = remote }
 }
 
 func ServeWithTCP(opts ...ConnOption) ServerOptions {
-	return func(s *Server) error {
-		if s.connOpts != nil {
-			return errors.New("server already has a conn opts")
-		}
-		s.connType = tcp
-		s.connOpts = opts
-		return nil
-	}
+	return func(s *Server) { s.connType = tcp; s.connOpts = opts }
 }
 
 func ServeWithName(name string) ServerOptions {
-	return func(s *Server) error {
-		s.serverName = name
-		return nil
-	}
+	return func(s *Server) { s.serverName = name }
 }
 
 func ServeWithAlgorithm(a attest.Algorithm) ServerOptions {
-	return func(s *Server) error {
-		s.algorithm = a
-		return nil
-	}
+	return func(s *Server) { s.algorithm = a }
 }
 
 func ServeWithUDP(opts ...ConnOption) ServerOptions {
-	return func(s *Server) error {
-		if s.connOpts != nil {
-			return errors.New("server already has a conn opts")
-		}
-		s.connType = udp
-		s.connOpts = opts
-		return nil
-	}
+	return func(s *Server) { s.connType = udp; s.connOpts = opts }
 }
 
 func ServeWithStorageOpts(opts ...StorageOption) ServerOptions {
-	return func(s *Server) error {
-		s.storageOpts = opts
-		return nil
-	}
+	return func(s *Server) { s.storageOpts = opts }
 }

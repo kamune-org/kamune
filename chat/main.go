@@ -31,7 +31,8 @@ func NewProgram(p *tea.Program) *Program {
 func main() {
 	args := os.Args[1:]
 	if len(args) != 2 {
-		return
+		fmt.Println("expected 2 args: [mode] [addr]")
+		os.Exit(1)
 	}
 
 	switch addr := args[1]; args[0] {
