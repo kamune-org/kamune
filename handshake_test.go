@@ -42,13 +42,18 @@ func TestHandshake(t *testing.T) {
 	pt1 := newPlainTransport(conn1, attester2.PublicKey(), attester1, store)
 	pt2 := newPlainTransport(conn2, attester1.PublicKey(), attester2, store)
 
+	hndshkeOpts := handshakeOpts{
+		ratchetThreshold: defaultRatchetThreshold,
+		remoteVerifier:   defaultRemoteVerifier,
+	}
+
 	var t1 *Transport
 	go func() {
-		t1, err = requestHandshake(pt1)
+		t1, err = requestHandshake(pt1, hndshkeOpts)
 		a.NoError(err)
 		sig <- struct{}{}
 	}()
-	t2, err := acceptHandshake(pt2)
+	t2, err := acceptHandshake(pt2, hndshkeOpts)
 	a.NoError(err)
 	<-sig
 	a.NotNil(t1)

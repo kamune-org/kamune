@@ -15,19 +15,19 @@ import (
 )
 
 type Dialer struct {
-	conn         Conn
-	attester     attest.Attester
-	storage      *Storage
-	verifyRemote RemoteVerifier
-	clientName   string
-	address      string
-	connOpts     []ConnOption
-	storageOpts  []StorageOption
-	connType     connType
-	writeTimeout time.Duration
-	dialTimeout  time.Duration
-	readTimeout  time.Duration
-	algorithm    attest.Algorithm
+	conn          Conn
+	attester      attest.Attester
+	storage       *Storage
+	clientName    string
+	address       string
+	hanshdakeOpts handshakeOpts
+	storageOpts   []StorageOption
+	connOpts      []ConnOption
+	connType      connType
+	writeTimeout  time.Duration
+	dialTimeout   time.Duration
+	readTimeout   time.Duration
+	algorithm     attest.Algorithm
 }
 
 func (d *Dialer) Dial() (*Transport, error) {
@@ -97,13 +97,13 @@ func (d *Dialer) handshake() (*Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("receive introduction: %w", err)
 	}
-	err = d.verifyRemote(d.storage, peer)
+	err = d.hanshdakeOpts.remoteVerifier(d.storage, peer)
 	if err != nil {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
 	pt := newPlainTransport(d.conn, peer.PublicKey, d.attester, d.storage)
-	t, err := requestHandshake(pt)
+	t, err := requestHandshake(pt, d.hanshdakeOpts)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
 	}
@@ -123,7 +123,10 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 		readTimeout:  5 * time.Minute,
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
-		verifyRemote: defaultRemoteVerifier,
+		hanshdakeOpts: handshakeOpts{
+			ratchetThreshold: defaultRatchetThreshold,
+			remoteVerifier:   defaultRemoteVerifier,
+		},
 	}
 	for _, opt := range opts {
 		opt(d)

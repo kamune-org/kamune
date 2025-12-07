@@ -9,9 +9,17 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/exchange"
+	"github.com/kamune-org/kamune/pkg/ratchet"
 )
 
-func requestHandshake(pt *plainTransport) (*Transport, error) {
+type handshakeOpts struct {
+	remoteVerifier   RemoteVerifier
+	ratchetThreshold uint64
+}
+
+func requestHandshake(
+	pt *plainTransport, opts handshakeOpts,
+) (*Transport, error) {
 	ml, err := exchange.NewMLKEM()
 	if err != nil {
 		return nil, fmt.Errorf("creating MLKEM keys: %w", err)
@@ -37,7 +45,7 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("reading handshake response: %w", err)
 	}
 	var resp pb.Handshake
-	if _, _, err = pt.deserialize(respBytes, &resp); err != nil {
+	if _, err = pt.deserialize(respBytes, &resp); err != nil {
 		return nil, fmt.Errorf("deserializing handshake response: %w", err)
 	}
 	secret, err := ml.Decapsulate(resp.GetKey())
@@ -57,24 +65,31 @@ func requestHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, sessionID, encoder, decoder)
+	t := newTransport(pt, sessionID, encoder, decoder, opts.ratchetThreshold)
 	if err := sendChallenge(t, secret, []byte(sessionID+c2s)); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
 	if err := acceptChallenge(t); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
+	r, err := bootstrapDoubleRatchet(t, secret, t.sessionID, true)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrap double ratchet: %w", err)
+	}
+	t.ratchet = r
 
 	return t, nil
 }
 
-func acceptHandshake(pt *plainTransport) (*Transport, error) {
+func acceptHandshake(
+	pt *plainTransport, opts handshakeOpts,
+) (*Transport, error) {
 	reqBytes, err := pt.conn.ReadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake request: %w", err)
 	}
 	var req pb.Handshake
-	if _, _, err = pt.deserialize(reqBytes, &req); err != nil {
+	if _, err = pt.deserialize(reqBytes, &req); err != nil {
 		return nil, fmt.Errorf("deserializing handshake request: %w", err)
 	}
 	secret, ct, err := exchange.EncapsulateMLKEM(req.GetKey())
@@ -109,13 +124,18 @@ func acceptHandshake(pt *plainTransport) (*Transport, error) {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, sessionID, encoder, decoder)
+	t := newTransport(pt, sessionID, encoder, decoder, opts.ratchetThreshold)
 	if err := acceptChallenge(t); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
 	if err := sendChallenge(t, secret, []byte(sessionID+s2c)); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
+	r, err := bootstrapDoubleRatchet(t, secret, t.sessionID, false)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrap double ratchet: %w", err)
+	}
+	t.ratchet = r
 
 	return t, nil
 }
@@ -150,6 +170,39 @@ func acceptChallenge(t *Transport) error {
 	}
 
 	return nil
+}
+
+// bootstrapDoubleRatchet exchanges X25519 public keys over the current
+// enigma-authenticated channel and returns an initialized ratchet.
+func bootstrapDoubleRatchet(
+	t *Transport, secret []byte, sessionID string, initiator bool,
+) (*ratchet.Ratchet, error) {
+	r, err := ratchet.NewFromSecret(secret)
+	if err != nil {
+		return nil, fmt.Errorf("creating new ratchet: %w", err)
+	}
+
+	theirBlob := Bytes(nil)
+	if initiator {
+		if _, err := t.Send(Bytes(r.OurPublic())); err != nil {
+			return nil, fmt.Errorf("sending our public key: %w", err)
+		}
+		if _, err := t.Receive(theirBlob); err != nil {
+			return nil, fmt.Errorf("receiving their public key: %w", err)
+		}
+	} else {
+		if _, err := t.Receive(theirBlob); err != nil {
+			return nil, fmt.Errorf("receiving their public key: %w", err)
+		}
+		if _, err := t.Send(Bytes(r.OurPublic())); err != nil {
+			return nil, fmt.Errorf("sending our public key: %w", err)
+		}
+	}
+
+	if err := r.SetTheirPublic(theirBlob.GetValue(), sessionID); err != nil {
+		return nil, fmt.Errorf("setting their public key: %w", err)
+	}
+	return r, nil
 }
 
 func randomBytes(l int) []byte {
