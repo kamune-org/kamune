@@ -22,11 +22,18 @@ var (
 	defaultBucket = []byte(store.DefaultBucket)
 )
 
+type Sender uint16
+
+const (
+	SenderLocal Sender = 0 + iota
+	SenderPeer
+)
+
 // ChatEntry represents a decrypted chat message stored in the DB.
 type ChatEntry struct {
-	Timestamp   time.Time
-	Data        []byte
-	SentByLocal bool
+	Timestamp time.Time
+	Data      []byte
+	Sender    Sender
 }
 
 type PassphraseHandler func() ([]byte, error)
@@ -125,23 +132,24 @@ func (s *Storage) attester() (attest.Attester, error) {
 
 // GetChatHistory returns decrypted chat entries stored under a bucket specific
 // to the session ID. The bucket name used is "chat_<sessionID>" and keys are
-// expected to be an 14-byte big-endian, with 8 bytes representing UnixNano
-// timestamp, 4 random bytes to avoid collision, and 2 bytes for identity of the
-// message owner (4 bytes). Currenty, 0 means local user, 1 means remote user.
+// expected to be 14 bytes total, composed of:
+//   - 8 bytes: UnixNano timestamp (big-endian)
+//   - 2 bytes: sender ID (big-endian; 0 means local user, 1 means remote user)
+//   - 4 bytes: random suffix to avoid collision
 func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	var entries []ChatEntry
 	_ = s.store.Query(func(q store.Query) error {
 		for key, value := range q.IterateEncrypted([]byte("chat_" + sessionID)) {
-			if len(key) < 12 {
+			if len(key) < 14 {
 				continue
 			}
 			nanos := int64(binary.BigEndian.Uint64(key[:8]))
-			sentByLocal := binary.BigEndian.Uint16(key[8:]) == 0
+			sender := Sender(binary.BigEndian.Uint16(key[8:]))
 			ts := time.Unix(0, nanos)
 			entries = append(entries, ChatEntry{
-				Timestamp:   ts,
-				Data:        value,
-				SentByLocal: sentByLocal,
+				Timestamp: ts,
+				Data:      value,
+				Sender:    sender,
 			})
 		}
 
@@ -154,28 +162,23 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 // AddChatEntry stores a chat message for the given session ID. The message
 // is stored in a bucket named "chat_<sessionID>" and the key begins with an
 // 8-byte big-endian uint64 representation of the timestamp's UnixNano value.
-// To avoid collisions when two messages have the same timestamp, a 4-byte
-// random suffix is appended to the key to avoid collision, plus 2 bytes for the
-// sender identity. Currenty, 0 means local user, 1 means remote user.
+// 2 bytes are used for the sender identity. Currently, 0 means local user, 1
+// means remote user. To avoid collisions when two messages have the same
+// timestamp, a 4-byte random suffix is appended to the key to avoid collision.
 // The session ID is used as the bucket name, which scopes entries per session.
 // If the provided timestamp is zero, the current time is used.
 func (s *Storage) AddChatEntry(
-	sessionID string, payload []byte, ts time.Time, sentByLocal bool,
+	sessionID string, payload []byte, ts time.Time, sender Sender,
 ) error {
 	if ts.IsZero() {
 		ts = time.Now().UTC()
 	}
 	bucket := []byte("chat_" + sessionID)
-	senderID := uint16(1)
-	if sentByLocal {
-		senderID = 0
-	}
 
-	// 8 bytes timestamp + 4 bytes random suffix to avoid collisions on
-	// identical timestamps + 2 bytes for sender identity = 14 bytes
+	// 8 bytes timestamp + 2 bytes sender identity + 4 bytes random suffix = 14
 	key := make([]byte, 14)
 	binary.BigEndian.PutUint64(key[:8], uint64(ts.UnixNano()))
-	binary.BigEndian.PutUint16(key[8:], senderID)
+	binary.BigEndian.PutUint16(key[8:], uint16(sender))
 
 	if _, err := rand.Read(key[10:]); err != nil {
 		return fmt.Errorf("generate key suffix: %w", err)

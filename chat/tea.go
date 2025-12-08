@@ -114,7 +114,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			go func() {
 				m.transport.Store().AddChatEntry(
-					m.transport.SessionID(), []byte(text), metadata.Timestamp(), false,
+					m.transport.SessionID(),
+					[]byte(text),
+					metadata.Timestamp(),
+					kamune.SenderLocal,
 				)
 			}()
 			prefix := fmt.Sprintf(

@@ -100,7 +100,7 @@ func serveHandler(t *kamune.Transport) error {
 				t.SessionID(),
 				b.GetValue(),
 				metadata.Timestamp(),
-				true,
+				kamune.SenderPeer,
 			)
 		}()
 	}
@@ -187,7 +187,10 @@ func client(addr string) {
 		p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
 		go func() {
 			t.Store().AddChatEntry(
-				t.SessionID(), b.GetValue(), metadata.Timestamp(), true,
+				t.SessionID(),
+				b.GetValue(),
+				metadata.Timestamp(),
+				kamune.SenderPeer,
 			)
 		}()
 	}
@@ -236,7 +239,7 @@ func printHistory(sessionID, dbPath string) error {
 
 	for _, ent := range entries {
 		sender := "You"
-		if !ent.SentByLocal {
+		if ent.Sender != kamune.SenderLocal {
 			sender = "Peer"
 		}
 		fmt.Printf(
