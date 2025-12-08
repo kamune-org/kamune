@@ -1,8 +1,7 @@
 package kamune
 
 import (
-	"crypto/sha1"
-	"errors"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"net"
@@ -16,19 +15,19 @@ import (
 )
 
 type Dialer struct {
-	conn         Conn
-	attester     attest.Attester
-	storage      *Storage
-	verifyRemote RemoteVerifier
-	clientName   string
-	address      string
-	connOpts     []ConnOption
-	storageOpts  []StorageOption
-	connType     connType
-	writeTimeout time.Duration
-	dialTimeout  time.Duration
-	readTimeout  time.Duration
-	algorithm    attest.Algorithm
+	conn          Conn
+	attester      attest.Attester
+	storage       *Storage
+	clientName    string
+	address       string
+	handshakeOpts handshakeOpts
+	storageOpts   []StorageOption
+	connOpts      []ConnOption
+	connType      connType
+	writeTimeout  time.Duration
+	dialTimeout   time.Duration
+	readTimeout   time.Duration
+	algorithm     attest.Algorithm
 }
 
 func (d *Dialer) Dial() (*Transport, error) {
@@ -98,13 +97,13 @@ func (d *Dialer) handshake() (*Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("receive introduction: %w", err)
 	}
-	err = d.verifyRemote(d.storage, peer)
+	err = d.handshakeOpts.remoteVerifier(d.storage, peer)
 	if err != nil {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
 	pt := newPlainTransport(d.conn, peer.PublicKey, d.attester, d.storage)
-	t, err := requestHandshake(pt)
+	t, err := requestHandshake(pt, d.handshakeOpts)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
 	}
@@ -124,12 +123,13 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 		readTimeout:  5 * time.Minute,
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
-		verifyRemote: defaultRemoteVerifier,
+		handshakeOpts: handshakeOpts{
+			ratchetThreshold: defaultRatchetThreshold,
+			remoteVerifier:   defaultRemoteVerifier,
+		},
 	}
 	for _, opt := range opts {
-		if err := opt(d); err != nil {
-			return nil, fmt.Errorf("applying options: %w", err)
-		}
+		opt(d)
 	}
 
 	storage, err := openStorage(d.storageOpts...)
@@ -142,88 +142,50 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 	}
 	d.storage = storage
 	d.attester = at
-	sum := sha1.Sum((at.PublicKey().Marshal()))
+	sum := sha256.Sum256(at.PublicKey().Marshal())
 	d.clientName = fingerprint.Base64(sum[:])
 
 	return d, nil
 }
 
-type DialOption func(*Dialer) error
+type DialOption func(*Dialer)
 
 func DialWithRemoteVerifier(verifier RemoteVerifier) DialOption {
-	return func(d *Dialer) error {
-		if d.verifyRemote != nil {
-			return errors.New("already have a remote verifier")
-		}
-		d.verifyRemote = verifier
-		return nil
-	}
+	return func(d *Dialer) { d.handshakeOpts.remoteVerifier = verifier }
 }
 
 func DialWithExistingConn(conn Conn) DialOption {
-	return func(d *Dialer) error {
-		if d.conn != nil {
-			return errors.New("already have a conn override")
-		}
-		d.conn = conn
-		return nil
-	}
+	return func(d *Dialer) { d.conn = conn }
 }
 
 func DialWithReadTimeout(timeout time.Duration) DialOption {
-	return func(d *Dialer) error {
-		d.readTimeout = timeout
-		return nil
-	}
+	return func(d *Dialer) { d.readTimeout = timeout }
 }
 
 func DialWithWriteTimeout(timeout time.Duration) DialOption {
-	return func(d *Dialer) error {
-		d.writeTimeout = timeout
-		return nil
-	}
+	return func(d *Dialer) { d.writeTimeout = timeout }
 }
 
 func DialWithDialTimeout(timeout time.Duration) DialOption {
-	return func(d *Dialer) error {
-		d.dialTimeout = timeout
-		return nil
-	}
-}
-
-func DialWithTCPConn(opts ...ConnOption) DialOption {
-	return func(d *Dialer) error {
-		d.connType = tcp
-		d.connOpts = opts
-		return nil
-	}
-}
-
-func DialWithUDPConn(opts ...ConnOption) DialOption {
-	return func(d *Dialer) error {
-		d.connType = udp
-		d.connOpts = opts
-		return nil
-	}
+	return func(d *Dialer) { d.dialTimeout = timeout }
 }
 
 func DialWithAlgorithm(a attest.Algorithm) DialOption {
-	return func(d *Dialer) error {
-		d.algorithm = a
-		return nil
-	}
+	return func(d *Dialer) { d.algorithm = a }
+}
+
+func DialWithTCPConn(opts ...ConnOption) DialOption {
+	return func(d *Dialer) { d.connType = tcp; d.connOpts = opts }
+}
+
+func DialWithUDPConn(opts ...ConnOption) DialOption {
+	return func(d *Dialer) { d.connType = udp; d.connOpts = opts }
 }
 
 func DialWithClientName(name string) DialOption {
-	return func(d *Dialer) error {
-		d.clientName = name
-		return nil
-	}
+	return func(d *Dialer) { d.clientName = name }
 }
 
 func DialWithStorageOpts(opts ...StorageOption) DialOption {
-	return func(d *Dialer) error {
-		d.storageOpts = opts
-		return nil
-	}
+	return func(d *Dialer) { d.storageOpts = opts }
 }

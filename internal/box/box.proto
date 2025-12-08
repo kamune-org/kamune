@@ -10,11 +10,17 @@ message SignedTransport {
   Metadata Metadata = 3;
   bytes Padding = 4;
   uint32 Path = 5;
-  optional bytes NextKey = 6;
 }
 
 message Metadata {
   string ID = 1;
   google.protobuf.Timestamp Timestamp = 2;
   uint64 Sequence = 3;
+}
+
+message Ratchet {
+  optional bytes dh = 1; // New DH public key (32 bytes)
+  uint64 pn = 2;         // Previous chain message count
+  uint64 ns = 3;         // Current message number in send chain
+  bytes ciphertext = 4;  // Ciphertext: Encrypted(SignedTransport)
 }

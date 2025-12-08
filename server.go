@@ -1,7 +1,7 @@
 package kamune
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,16 +15,16 @@ import (
 )
 
 type Server struct {
-	attester       attest.Attester
-	storage        *Storage
-	handlerFunc    HandlerFunc
-	remoteVerifier RemoteVerifier
-	addr           string
-	serverName     string
-	connOpts       []ConnOption
-	storageOpts    []StorageOption
-	algorithm      attest.Algorithm
-	connType       connType
+	attester      attest.Attester
+	storage       *Storage
+	handlerFunc   HandlerFunc
+	addr          string
+	serverName    string
+	handshakeOpts handshakeOpts
+	connOpts      []ConnOption
+	storageOpts   []StorageOption
+	algorithm     attest.Algorithm
+	connType      connType
 }
 
 func (s *Server) ListenAndServe() error {
@@ -100,7 +100,7 @@ func (s *Server) serve(cn Conn) error {
 	if err != nil {
 		return fmt.Errorf("receiving introduction: %w", err)
 	}
-	if err := s.remoteVerifier(s.storage, peer); err != nil {
+	if err := s.handshakeOpts.remoteVerifier(s.storage, peer); err != nil {
 		return fmt.Errorf("verify remote: %w", err)
 	}
 	err = sendIntroduction(cn, s.serverName, s.attester, s.algorithm)
@@ -109,7 +109,7 @@ func (s *Server) serve(cn Conn) error {
 	}
 
 	pt := newPlainTransport(cn, peer.PublicKey, s.attester, s.storage)
-	t, err := acceptHandshake(pt)
+	t, err := acceptHandshake(pt, s.handshakeOpts)
 	if err != nil {
 		return fmt.Errorf("accepting handshake: %w", err)
 	}
@@ -133,14 +133,13 @@ func NewServer(
 		connType:    tcp,
 		algorithm:   attest.Ed25519Algorithm,
 		handlerFunc: handler,
+		handshakeOpts: handshakeOpts{
+			ratchetThreshold: defaultRatchetThreshold,
+			remoteVerifier:   defaultRemoteVerifier,
+		},
 	}
 	for _, o := range opts {
-		if err := o(s); err != nil {
-			return nil, fmt.Errorf("applying options: %w", err)
-		}
-	}
-	if s.remoteVerifier == nil {
-		s.remoteVerifier = defaultRemoteVerifier
+		o(s)
 	}
 
 	storage, err := openStorage(s.storageOpts...)
@@ -153,63 +152,34 @@ func NewServer(
 	}
 	s.storage = storage
 	s.attester = at
-	sum := sha1.Sum((at.PublicKey().Marshal()))
+	sum := sha256.Sum256(at.PublicKey().Marshal())
 	s.serverName = fingerprint.Base64(sum[:])
 
 	return s, nil
 }
 
-type ServerOptions func(*Server) error
+type ServerOptions func(*Server)
 
 func ServeWithRemoteVerifier(remote RemoteVerifier) ServerOptions {
-	return func(s *Server) error {
-		if s.remoteVerifier != nil {
-			return errors.New("server already has a remote verifier")
-		}
-		s.remoteVerifier = remote
-		return nil
-	}
+	return func(s *Server) { s.handshakeOpts.remoteVerifier = remote }
 }
 
 func ServeWithTCP(opts ...ConnOption) ServerOptions {
-	return func(s *Server) error {
-		if s.connOpts != nil {
-			return errors.New("server already has a conn opts")
-		}
-		s.connType = tcp
-		s.connOpts = opts
-		return nil
-	}
+	return func(s *Server) { s.connType = tcp; s.connOpts = opts }
 }
 
 func ServeWithName(name string) ServerOptions {
-	return func(s *Server) error {
-		s.serverName = name
-		return nil
-	}
+	return func(s *Server) { s.serverName = name }
 }
 
 func ServeWithAlgorithm(a attest.Algorithm) ServerOptions {
-	return func(s *Server) error {
-		s.algorithm = a
-		return nil
-	}
+	return func(s *Server) { s.algorithm = a }
 }
 
 func ServeWithUDP(opts ...ConnOption) ServerOptions {
-	return func(s *Server) error {
-		if s.connOpts != nil {
-			return errors.New("server already has a conn opts")
-		}
-		s.connType = udp
-		s.connOpts = opts
-		return nil
-	}
+	return func(s *Server) { s.connType = udp; s.connOpts = opts }
 }
 
 func ServeWithStorageOpts(opts ...StorageOption) ServerOptions {
-	return func(s *Server) error {
-		s.storageOpts = opts
-		return nil
-	}
+	return func(s *Server) { s.storageOpts = opts }
 }
