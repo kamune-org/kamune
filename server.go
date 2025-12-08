@@ -142,7 +142,7 @@ func NewServer(
 		o(s)
 	}
 
-	storage, err := openStorage(s.storageOpts...)
+	storage, err := OpenStorage(s.storageOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("opening storage: %w", err)
 	}

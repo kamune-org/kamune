@@ -15,7 +15,7 @@ const (
 	// must be less than or equal to 65535 ([math.MaxUint16])
 	maxTransportSize        = 50 * 1024
 	saltSize                = 16
-	sessionIDLength         = 30
+	sessionIDLength         = 20
 	challengeSize           = 32
 	maxPadding              = 256
 	defaultRatchetThreshold = 10

@@ -18,6 +18,7 @@ suite. Optionally, `ML-DSA` can be used for full quantum safety.
 - Ephemeral, quantum-resistant key encapsulation with **ML-KEM-768**
 - Key derivation via **HKDF-SHA512** (HMAC-based extract-and-expand)
 - End-to-End, bidirectional symmetric encryption using **ChaCha20-Poly1305X**
+- Forward secrecy with **Double Ratchet** and **ECDH** exchange
 - Lightweight, custom protocol implemented in both **TCP and UDP** for minimal
   overhead and latency
 - **Real-time, instant messaging** over socket-based connection
@@ -43,20 +44,20 @@ removal.
   - [x] UDP
   - [ ] QUIC, WebRTC, or others? *
 - [x] Better timeout and deadline management
-- [ ] Double Ratchet
+- [x] Double Ratchet
 - [ ] Routes and session reconnection
 - [x] Relay server
   - [x] IP discovery
   - [ ] Message conveying *
   - [ ] Queue persistence *
 - [ ] Handling remotes, connection retries, and session management
-  - [ ] Remote's public key expiration
   - [x] QR code generation
+  - [x] Peer name
+  - [ ] Remote's public key expiration
   - [ ] Key rotation *
-  - [ ] Peer name *
 - [ ] Messaging Layer Security (MLS) and group chats *
 - [ ] Provide NAT traversal and/or hole punching strategies *
-- [ ] Saving and restoring chat history *
+- [x] Saving and restoring chat history *
 - [ ] Considering FFI or an intermediary server for non-Go clients *
 - [ ] Native and/or web clients *
 - [ ] Replace Protobuf with a custom encoding\decoding protocol *

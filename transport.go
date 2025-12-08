@@ -164,8 +164,8 @@ func (t *Transport) Send(message Transferable) (*Metadata, error) {
 }
 
 func (t *Transport) SessionID() string { return t.sessionID }
-
-func (t *Transport) Close() error { return t.conn.Close() }
+func (t *Transport) Close() error      { return t.conn.Close() }
+func (t *Transport) Store() *Storage   { return t.storage }
 
 func readSignedTransport(c Conn) (*pb.SignedTransport, error) {
 	payload, err := c.ReadBytes()

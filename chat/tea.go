@@ -112,6 +112,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = err
 				return m, tiCmd
 			}
+			go func() {
+				m.transport.Store().AddChatEntry(
+					m.transport.SessionID(),
+					[]byte(text),
+					metadata.Timestamp(),
+					kamune.SenderLocal,
+				)
+			}()
 			prefix := fmt.Sprintf(
 				"[%s] You: ",
 				metadata.Timestamp().Format(time.DateTime),

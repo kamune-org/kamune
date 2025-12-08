@@ -19,7 +19,7 @@ func TestHandshake(t *testing.T) {
 	a.NoError(err)
 	a.NoError(f.Close())
 	defer a.NoError(os.Remove(f.Name()))
-	store, err := openStorage(
+	store, err := OpenStorage(
 		StorageWithDBPath(f.Name()),
 		StorageWithAlgorithm(attest.Ed25519Algorithm),
 		StorageWithNoPassphrase(),

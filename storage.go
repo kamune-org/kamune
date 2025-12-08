@@ -2,6 +2,8 @@ package kamune
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -15,8 +17,24 @@ import (
 )
 
 var (
+	ErrMissingChatBucket = errors.New("chat bucket not found")
+
 	defaultBucket = []byte(store.DefaultBucket)
 )
+
+type Sender uint16
+
+const (
+	SenderLocal Sender = 0 + iota
+	SenderPeer
+)
+
+// ChatEntry represents a decrypted chat message stored in the DB.
+type ChatEntry struct {
+	Timestamp time.Time
+	Data      []byte
+	Sender    Sender
+}
 
 type PassphraseHandler func() ([]byte, error)
 
@@ -37,16 +55,14 @@ type Storage struct {
 	expiryDuration    time.Duration
 }
 
-func openStorage(opts ...StorageOption) (*Storage, error) {
+func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	s := &Storage{
 		algorithm:         attest.Ed25519Algorithm,
 		passphraseHandler: defaultPassphraseHandler,
 		expiryDuration:    7 * 24 * time.Hour,
 	}
 	for _, opt := range opts {
-		if err := opt(s); err != nil {
-			return nil, fmt.Errorf("applying option: %w", err)
-		}
+		opt(s)
 	}
 
 	if s.dbPath == "" {
@@ -114,42 +130,89 @@ func (s *Storage) attester() (attest.Attester, error) {
 	return at, nil
 }
 
-type StorageOption func(*Storage) error
+// GetChatHistory returns decrypted chat entries stored under a bucket specific
+// to the session ID. The bucket name used is "chat_<sessionID>" and keys are
+// expected to be 14 bytes total, composed of:
+//   - 8 bytes: UnixNano timestamp (big-endian)
+//   - 2 bytes: sender ID (big-endian; 0 means local user, 1 means remote user)
+//   - 4 bytes: random suffix to avoid collision
+func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
+	var entries []ChatEntry
+	_ = s.store.Query(func(q store.Query) error {
+		for key, value := range q.IterateEncrypted([]byte("chat_" + sessionID)) {
+			if len(key) < 14 {
+				continue
+			}
+			nanos := int64(binary.BigEndian.Uint64(key[:8]))
+			sender := Sender(binary.BigEndian.Uint16(key[8:]))
+			ts := time.Unix(0, nanos)
+			entries = append(entries, ChatEntry{
+				Timestamp: ts,
+				Data:      value,
+				Sender:    sender,
+			})
+		}
+
+		return nil
+	})
+
+	return entries, nil
+}
+
+// AddChatEntry stores a chat message for the given session ID. The message
+// is stored in a bucket named "chat_<sessionID>" and the key begins with an
+// 8-byte big-endian uint64 representation of the timestamp's UnixNano value.
+// 2 bytes are used for the sender identity. Currently, 0 means local user, 1
+// means remote user. To avoid collisions when two messages have the same
+// timestamp, a 4-byte random suffix is appended to the key to avoid collision.
+// The session ID is used as the bucket name, which scopes entries per session.
+// If the provided timestamp is zero, the current time is used.
+func (s *Storage) AddChatEntry(
+	sessionID string, payload []byte, ts time.Time, sender Sender,
+) error {
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	}
+	bucket := []byte("chat_" + sessionID)
+
+	// 8 bytes timestamp + 2 bytes sender identity + 4 bytes random suffix = 14
+	key := make([]byte, 14)
+	binary.BigEndian.PutUint64(key[:8], uint64(ts.UnixNano()))
+	binary.BigEndian.PutUint16(key[8:], uint16(sender))
+
+	if _, err := rand.Read(key[10:]); err != nil {
+		return fmt.Errorf("generate key suffix: %w", err)
+	}
+
+	err := s.store.Command(func(c store.Command) error {
+		return c.AddEncrypted(bucket, key, payload)
+	})
+	if err != nil {
+		return fmt.Errorf("store chat entry: %w", err)
+	}
+	return nil
+}
+
+type StorageOption func(*Storage)
 
 func StorageWithDBPath(path string) StorageOption {
-	return func(p *Storage) error {
-		if p.dbPath != "" {
-			return errors.New("already have db path")
-		}
-		p.dbPath = path
-		return nil
-	}
+	return func(p *Storage) { p.dbPath = path }
 }
 
 func StorageWithPassphraseHandler(fn PassphraseHandler) StorageOption {
-	return func(p *Storage) error {
-		p.passphraseHandler = fn
-		return nil
-	}
-}
-
-func StorageWithNoPassphrase() StorageOption {
-	return func(p *Storage) error {
-		p.passphraseHandler = func() ([]byte, error) { return []byte(""), nil }
-		return nil
-	}
+	return func(p *Storage) { p.passphraseHandler = fn }
 }
 
 func StorageWithAlgorithm(algorithm attest.Algorithm) StorageOption {
-	return func(p *Storage) error {
-		p.algorithm = algorithm
-		return nil
-	}
+	return func(p *Storage) { p.algorithm = algorithm }
 }
 
 func StorageWithExpiryDuration(duration time.Duration) StorageOption {
-	return func(p *Storage) error {
-		p.expiryDuration = duration
-		return nil
+	return func(p *Storage) { p.expiryDuration = duration }
+}
+
+func StorageWithNoPassphrase() StorageOption {
+	return func(p *Storage) {
+		p.passphraseHandler = func() ([]byte, error) { return []byte(""), nil }
 	}
 }
