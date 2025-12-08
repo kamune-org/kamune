@@ -20,7 +20,7 @@ type Server struct {
 	handlerFunc   HandlerFunc
 	addr          string
 	serverName    string
-	hanshdakeOpts handshakeOpts
+	handshakeOpts handshakeOpts
 	connOpts      []ConnOption
 	storageOpts   []StorageOption
 	algorithm     attest.Algorithm
@@ -100,7 +100,7 @@ func (s *Server) serve(cn Conn) error {
 	if err != nil {
 		return fmt.Errorf("receiving introduction: %w", err)
 	}
-	if err := s.hanshdakeOpts.remoteVerifier(s.storage, peer); err != nil {
+	if err := s.handshakeOpts.remoteVerifier(s.storage, peer); err != nil {
 		return fmt.Errorf("verify remote: %w", err)
 	}
 	err = sendIntroduction(cn, s.serverName, s.attester, s.algorithm)
@@ -109,7 +109,7 @@ func (s *Server) serve(cn Conn) error {
 	}
 
 	pt := newPlainTransport(cn, peer.PublicKey, s.attester, s.storage)
-	t, err := acceptHandshake(pt, s.hanshdakeOpts)
+	t, err := acceptHandshake(pt, s.handshakeOpts)
 	if err != nil {
 		return fmt.Errorf("accepting handshake: %w", err)
 	}
@@ -133,7 +133,7 @@ func NewServer(
 		connType:    tcp,
 		algorithm:   attest.Ed25519Algorithm,
 		handlerFunc: handler,
-		hanshdakeOpts: handshakeOpts{
+		handshakeOpts: handshakeOpts{
 			ratchetThreshold: defaultRatchetThreshold,
 			remoteVerifier:   defaultRemoteVerifier,
 		},
@@ -161,7 +161,7 @@ func NewServer(
 type ServerOptions func(*Server)
 
 func ServeWithRemoteVerifier(remote RemoteVerifier) ServerOptions {
-	return func(s *Server) { s.hanshdakeOpts.remoteVerifier = remote }
+	return func(s *Server) { s.handshakeOpts.remoteVerifier = remote }
 }
 
 func ServeWithTCP(opts ...ConnOption) ServerOptions {

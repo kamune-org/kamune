@@ -3,6 +3,7 @@ package ratchet
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 
@@ -24,7 +25,14 @@ const (
 	infoMsg   = "DR:msg"
 )
 
-// Ratchet represents the local state.
+var (
+	ErrUnsetPeerPublic   = errors.New("peer public key is not set")
+	ErrUninitializedRecv = errors.New("recv chain is not initialized")
+	ErrUninitializedSend = errors.New("send chain is not initialized")
+)
+
+// Ratchet represents the local state. It is not safe for concurrent use, and
+// must be protected by the caller if needed.
 type Ratchet struct {
 	rootKey []byte // RK
 	sendCK  []byte // send chain key
@@ -62,7 +70,7 @@ func NewFromSecret(rootSecret []byte) (*Ratchet, error) {
 // state to the new keypair, and returns the new public key.
 func (r *Ratchet) InitiateRatchet(sessionID string) ([]byte, error) {
 	if len(r.theirPub) == 0 {
-		panic(fmt.Errorf("peer public key is not set"))
+		return nil, ErrUnsetPeerPublic
 	}
 
 	// create a fresh DH keypair
@@ -147,21 +155,20 @@ func (r *Ratchet) SetTheirPublic(their []byte, sessionID string) error {
 // the ciphertext along with our ephemeral public (if needed).
 func (r *Ratchet) Encrypt(plaintext []byte) ([]byte, error) {
 	if r.sendCK == nil {
-		return nil, fmt.Errorf("send chain not initialized")
+		return nil, ErrUninitializedSend
 	}
 	// Derive next chain key and message key
 	nextCK, msgKey, err := kdfChain(r.sendCK)
 	if err != nil {
 		return nil, err
 	}
-	r.sendCK = nextCK
-	r.sendCount++
-
 	enc, err := enigma.NewEnigma(msgKey, nil, []byte(infoMsg))
 	if err != nil {
 		return nil, fmt.Errorf("create enigma: %w", err)
 	}
 	ct := enc.Encrypt(plaintext)
+	r.sendCK = nextCK
+	r.sendCount++
 	return ct, nil
 }
 
@@ -169,15 +176,12 @@ func (r *Ratchet) Encrypt(plaintext []byte) ([]byte, error) {
 // ciphertext. This is a simplified version that assumes messages arrive in order.
 func (r *Ratchet) Decrypt(ciphertext []byte) ([]byte, error) {
 	if r.recvCK == nil {
-		return nil, fmt.Errorf("recv chain not initialized")
+		return nil, ErrUninitializedRecv
 	}
 	nextCK, msgKey, err := kdfChain(r.recvCK)
 	if err != nil {
 		return nil, err
 	}
-	r.recvCK = nextCK
-	r.recvCount++
-
 	enc, err := enigma.NewEnigma(msgKey, nil, []byte(infoMsg))
 	if err != nil {
 		return nil, fmt.Errorf("create enigma: %w", err)
@@ -186,10 +190,12 @@ func (r *Ratchet) Decrypt(ciphertext []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decrypt msg: %w", err)
 	}
+	r.recvCK = nextCK
+	r.recvCount++
 	return pt, nil
 }
 
-func (r *Ratchet) Send() uint64     { return r.sendCount }
+func (r *Ratchet) Sent() uint64     { return r.sendCount }
 func (r *Ratchet) Received() uint64 { return r.recvCount }
 
 // kdfRoot mixes the previous root and a DH shared secret to produce a new root

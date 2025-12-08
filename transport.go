@@ -96,8 +96,10 @@ func (pt *plainTransport) deserialize(
 
 type Transport struct {
 	*plainTransport
-	encoder   *enigma.Enigma
-	decoder   *enigma.Enigma
+	encoder *enigma.Enigma
+	decoder *enigma.Enigma
+	// ratchet is nil initially (before bootstrap/handshake) and only set after
+	// the handshake completes.
 	ratchet   *ratchet.Ratchet
 	mu        *sync.Mutex
 	sessionID string
@@ -131,36 +133,9 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 		return nil, fmt.Errorf("reading payload: %w", err)
 	}
 
-	decrypted, err := func(t *Transport, payload []byte) ([]byte, error) {
-		if t.ratchet == nil {
-			decrypted, err := t.decoder.Decrypt(payload)
-			if err != nil {
-				err = fmt.Errorf("decrypting: %w", err)
-			}
-			return decrypted, nil
-		}
-		t.mu.Lock()
-		defer t.mu.Unlock()
-
-		var ratchet pb.Ratchet
-		if err := proto.Unmarshal(payload, &ratchet); err != nil {
-			return nil, fmt.Errorf("unmarshalling ratchet: %w", err)
-		}
-
-		if dh := ratchet.GetDh(); dh != nil {
-			if err := t.ratchet.SetTheirPublic(dh, t.sessionID); err != nil {
-				return nil, fmt.Errorf("setting their public key: %w", err)
-			}
-		}
-
-		decrypted, err := t.ratchet.Decrypt(ratchet.GetCiphertext())
-		if err != nil {
-			return nil, fmt.Errorf("ratchet decrypt: %w", err)
-		}
-		return decrypted, nil
-	}(t, payload)
+	decrypted, err := decryptPayload(t, payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decrypting payload: %w", err)
 	}
 
 	metadata, err := t.deserialize(decrypted, dst)
@@ -176,44 +151,9 @@ func (t *Transport) Send(message Transferable) (*Metadata, error) {
 	if err != nil {
 		return nil, fmt.Errorf("serializing: %w", err)
 	}
-	encrypted, err := func(t *Transport, payload []byte) ([]byte, error) {
-		if t.ratchet == nil {
-			return t.encoder.Encrypt(payload), nil
-		}
-		t.mu.Lock()
-		defer t.mu.Unlock()
-
-		// Snapshot previous send counter
-		pn := t.ratchet.Send()
-
-		// If we have reached the threshold, initiate a new DH ratchet before
-		// encrypting so the receiver will update its DH state prior to
-		// attempting decryption (the receiver processes Dh before decrypt).
-		var pub []byte
-		if pn >= t.ratchetThreshold {
-			pub, err = t.ratchet.InitiateRatchet(t.sessionID)
-			if err != nil {
-				return nil, fmt.Errorf("initiating ratchet: %w", err)
-			}
-		}
-
-		// Encrypt with the (possibly updated) send chain
-		ct, err := t.ratchet.Encrypt(payload)
-		if err != nil {
-			return nil, fmt.Errorf("ratchet encrypt: %w", err)
-		}
-		ns := t.ratchet.Send()
-
-		ratchet := &pb.Ratchet{Dh: pub, Pn: pn, Ns: ns, Ciphertext: ct}
-		data, err := proto.Marshal(ratchet)
-		if err != nil {
-			return nil, fmt.Errorf("marshalling ratchet: %w", err)
-		}
-
-		return data, nil
-	}(t, payload)
+	encrypted, err := encryptPayload(t, payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encrypting payload: %w", err)
 	}
 
 	if err := t.conn.WriteBytes(encrypted); err != nil {
@@ -237,4 +177,74 @@ func readSignedTransport(c Conn) (*pb.SignedTransport, error) {
 		return nil, fmt.Errorf("unmarshalling transport: %w", err)
 	}
 	return &st, nil
+}
+
+func decryptPayload(t *Transport, payload []byte) ([]byte, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.ratchet == nil {
+		decrypted, err := t.decoder.Decrypt(payload)
+		if err != nil {
+			return nil, fmt.Errorf("decrypting: %w", err)
+		}
+		return decrypted, nil
+	}
+
+	var ratchet pb.Ratchet
+	if err := proto.Unmarshal(payload, &ratchet); err != nil {
+		return nil, fmt.Errorf("unmarshalling ratchet: %w", err)
+	}
+
+	if dh := ratchet.GetDh(); dh != nil {
+		if err := t.ratchet.SetTheirPublic(dh, t.sessionID); err != nil {
+			return nil, fmt.Errorf("setting their public key: %w", err)
+		}
+	}
+
+	decrypted, err := t.ratchet.Decrypt(ratchet.GetCiphertext())
+	if err != nil {
+		return nil, fmt.Errorf("ratchet decrypt: %w", err)
+	}
+	return decrypted, nil
+}
+
+func encryptPayload(t *Transport, payload []byte) ([]byte, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.ratchet == nil {
+		return t.encoder.Encrypt(payload), nil
+	}
+
+	// Snapshot send counter before possible ratchet step (number of messages in
+	// previous chain)
+	pn := t.ratchet.Sent()
+
+	// If we have reached the threshold, initiate a new DH ratchet before
+	// encrypting so the receiver will update its DH state prior to
+	// attempting decryption (the receiver processes Dh before decrypt).
+	var pub []byte
+	var err error
+	if pn >= t.ratchetThreshold {
+		pub, err = t.ratchet.InitiateRatchet(t.sessionID)
+		if err != nil {
+			return nil, fmt.Errorf("initiating ratchet: %w", err)
+		}
+	}
+
+	// Encrypt with the (possibly updated) send chain
+	ct, err := t.ratchet.Encrypt(payload)
+	if err != nil {
+		return nil, fmt.Errorf("ratchet encrypt: %w", err)
+	}
+	ns := t.ratchet.Sent()
+
+	ratchet := &pb.Ratchet{Dh: pub, Pn: pn, Ns: ns, Ciphertext: ct}
+	data, err := proto.Marshal(ratchet)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling ratchet: %w", err)
+	}
+
+	return data, nil
 }

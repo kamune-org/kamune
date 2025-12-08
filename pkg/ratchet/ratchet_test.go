@@ -54,7 +54,7 @@ func TestRoundTripEncryption(t *testing.T) {
 	a.Equal(plaintext, decrypted, "decrypted text mismatch")
 
 	// Counters should reflect one message sent/received
-	a.Equal(uint64(1), alice.Send(), "Alice send counter")
+	a.Equal(uint64(1), alice.Sent(), "Alice send counter")
 	a.Equal(uint64(1), bob.Received(), "Bob recv counter")
 }
 
@@ -98,7 +98,7 @@ func TestInitiateRatchet(t *testing.T) {
 
 	a.Equal(msg, pt, "message mismatch after ratchet")
 
-	a.Equal(uint64(1), alice.Send(), "Alice send counter after ratchet")
+	a.Equal(uint64(1), alice.Sent(), "Alice send counter after ratchet")
 	a.Equal(uint64(1), bob.Received(), "Bob recv counter after ratchet")
 }
 

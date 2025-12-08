@@ -20,7 +20,7 @@ type Dialer struct {
 	storage       *Storage
 	clientName    string
 	address       string
-	hanshdakeOpts handshakeOpts
+	handshakeOpts handshakeOpts
 	storageOpts   []StorageOption
 	connOpts      []ConnOption
 	connType      connType
@@ -97,13 +97,13 @@ func (d *Dialer) handshake() (*Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("receive introduction: %w", err)
 	}
-	err = d.hanshdakeOpts.remoteVerifier(d.storage, peer)
+	err = d.handshakeOpts.remoteVerifier(d.storage, peer)
 	if err != nil {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
 	pt := newPlainTransport(d.conn, peer.PublicKey, d.attester, d.storage)
-	t, err := requestHandshake(pt, d.hanshdakeOpts)
+	t, err := requestHandshake(pt, d.handshakeOpts)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
 	}
@@ -123,7 +123,7 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 		readTimeout:  5 * time.Minute,
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
-		hanshdakeOpts: handshakeOpts{
+		handshakeOpts: handshakeOpts{
 			ratchetThreshold: defaultRatchetThreshold,
 			remoteVerifier:   defaultRemoteVerifier,
 		},
@@ -151,7 +151,7 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 type DialOption func(*Dialer)
 
 func DialWithRemoteVerifier(verifier RemoteVerifier) DialOption {
-	return func(d *Dialer) { d.hanshdakeOpts.remoteVerifier = verifier }
+	return func(d *Dialer) { d.handshakeOpts.remoteVerifier = verifier }
 }
 
 func DialWithExistingConn(conn Conn) DialOption {
