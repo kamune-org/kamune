@@ -17,7 +17,7 @@ func rateLimitMiddleware(
 			ctx := r.Context()
 			switch ok, err := srvc.RateLimit(clientIP(r)); {
 			case err != nil:
-				grape.RespondFromErr(ctx, w, fmt.Errorf("rate limit: %w", err))
+				grape.ExtractFromErr(ctx, w, fmt.Errorf("rate limit: %w", err))
 				return
 			case !ok:
 				grape.Respond(

@@ -1,7 +1,7 @@
 package model
 
 import (
-	"fmt"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,16 +11,20 @@ import (
 )
 
 type Peer struct {
-	ID           PeerID          `json:"id,omitzero"`
-	Address      []string        `json:"address"`
-	Identity     attest.Identity `json:"identity"`
-	RegisteredAt time.Time       `json:"registered_at"`
-	ExpiresIn    span.Duration   `json:"expires_in,omitzero"`
+	ID           PeerID           `json:"id,omitzero"`
+	Address      []string         `json:"address"`
+	Identity     attest.Algorithm `json:"identity"`
+	RegisteredAt time.Time        `json:"registered_at"`
+	ExpiresIn    span.Duration    `json:"expires_in,omitzero"`
 }
 
 type PeerID uuid.UUID
 
 func NewPeerID() PeerID {
+	return PeerID(uuid.New())
+}
+
+func EmptyPeerID() PeerID {
 	return PeerID(uuid.Nil)
 }
 
@@ -29,11 +33,15 @@ func (p PeerID) String() string {
 }
 
 func (p PeerID) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf("\"%s\"", p)), nil
+	return json.Marshal(p.String())
 }
 
 func (p *PeerID) UnmarshalJSON(data []byte) error {
-	id, err := uuid.ParseBytes(data)
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	id, err := uuid.Parse(s)
 	if err != nil {
 		return err
 	}

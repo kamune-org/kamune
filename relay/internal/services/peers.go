@@ -24,7 +24,7 @@ var (
 )
 
 func (s *Service) RegisterPeer(
-	pubKey []byte, identity attest.Identity, addr []string,
+	pubKey []byte, identity attest.Algorithm, addr []string,
 ) (*model.Peer, error) {
 	ttl := s.cfg.Storage.RegisterTTL
 	peerID := model.PeerID(uuid.New())
@@ -48,7 +48,7 @@ func (s *Service) RegisterPeer(
 				return fmt.Errorf("unmarshalling peer: %w", err)
 			}
 			ttl = 0
-			return errs.Conflict(ErrExistingPeer)
+			return errs.Conflict(errs.WithErr(ErrExistingPeer))
 		case errors.Is(err, storage.ErrMissing):
 			// continue
 		default:
@@ -63,7 +63,7 @@ func (s *Service) RegisterPeer(
 	return &model.Peer{
 		ID:           model.PeerID(p.ID),
 		Address:      p.Address,
-		Identity:     attest.Identity(p.Identity),
+		Identity:     attest.Algorithm(p.Identity),
 		RegisteredAt: p.RegisteredAt.AsTime(),
 		ExpiresIn:    span.New(ttl),
 	}, err
@@ -76,7 +76,7 @@ func (s *Service) InquiryPeer(pubKey []byte) (*model.Peer, error) {
 		peerData, err := c.Get(peersNS, pubKey)
 		if err != nil {
 			if errors.Is(err, storage.ErrMissing) {
-				return errs.NotFound(err)
+				return errs.NotFound(errs.WithErr(err))
 			}
 			return fmt.Errorf("getting peer: %w", err)
 		}
@@ -100,7 +100,7 @@ func (s *Service) InquiryPeer(pubKey []byte) (*model.Peer, error) {
 	}
 	return &model.Peer{
 		ID:           id,
-		Identity:     attest.Identity(p.Identity),
+		Identity:     attest.Algorithm(p.Identity),
 		Address:      p.Address,
 		RegisteredAt: p.RegisteredAt.AsTime(),
 		ExpiresIn:    span.New(ttl),

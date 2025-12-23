@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/hossein1376/grape"
 
@@ -32,15 +34,34 @@ func newRouter(h *Handler, cfg config.Config) *grape.Router {
 }
 
 func clientIP(r *http.Request) string {
+	// Prefer explicit real IP header
 	ip := r.Header.Get("X-Real-Ip")
-	if ip == "" {
-		ip = r.Header.Get("X-Forwarded-For")
+	if ip != "" {
+		if host, _, err := net.SplitHostPort(strings.TrimSpace(ip)); err == nil {
+			return host
+		}
+		return strings.TrimSpace(ip)
 	}
-	if ip == "" {
-		ip = r.Header.Get("CF-Connecting-IP")
+
+	// X-Forwarded-For may contain a comma-separated list; take the left-most
+	ip = ParseForwardedIP(r.Header.Get("X-Forwarded-For"))
+	if ip != "" {
+		return ip
 	}
-	if ip == "" {
-		ip = r.RemoteAddr
+
+	// Cloudflare connecting IP
+	ip = r.Header.Get("CF-Connecting-IP")
+	if ip != "" {
+		if host, _, err := net.SplitHostPort(strings.TrimSpace(ip)); err == nil {
+			return host
+		}
+		return strings.TrimSpace(ip)
 	}
-	return ip
+
+	// Fallback to RemoteAddr (may include port)
+	ip = r.RemoteAddr
+	if host, _, err := net.SplitHostPort(strings.TrimSpace(ip)); err == nil {
+		return host
+	}
+	return strings.TrimSpace(ip)
 }

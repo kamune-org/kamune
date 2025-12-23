@@ -21,4 +21,6 @@ type Command interface {
 	Delete(ns Namespace, name []byte) error
 	Set(ns Namespace, name, value []byte) error
 	SetTTL(ns Namespace, name, value []byte, ttl time.Duration) error
+	QPush(name, value []byte) error
+	QPop(name []byte) ([]byte, error)
 }

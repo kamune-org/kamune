@@ -19,13 +19,14 @@ type Store struct {
 }
 
 func Open(cfg config.Storage) (*Store, error) {
+	logger := newLogger(cfg.LogLevel)
 	opts := badger.DefaultOptions(cfg.Path).
-		WithLogger(newLogger(cfg.LogLevel)).
+		WithLogger(logger).
 		WithNamespaceOffset(0)
 	if cfg.InMemory {
-		slog.Warn("Serving from an in-memory storage")
-		slog.Warn("This is NOT RECOMMENDED!")
-		slog.Warn("It may cause high RAM usage, and data will be lost on shutdown.")
+		logger.Warningf("Serving from an in-memory storage")
+		logger.Warningf("This is NOT RECOMMENDED!")
+		logger.Warningf("It may cause high RAM usage, and data will be lost on shutdown.")
 		opts.Dir = ""
 		opts.ValueDir = ""
 		opts = opts.WithInMemory(true)

@@ -34,7 +34,7 @@ func (h *Handler) RegisterPeerHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	req, err := registerPeerBinder(w, r)
 	if err != nil {
-		grape.RespondFromErr(ctx, w, errs.BadRequest(err))
+		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(err)))
 		return
 	}
 	l := len(req.Addr)
@@ -50,7 +50,7 @@ func (h *Handler) RegisterPeerHandler(w http.ResponseWriter, r *http.Request) {
 			grape.Respond(ctx, w, http.StatusConflict, grape.Map{"peer": peer})
 			return
 		}
-		grape.RespondFromErr(ctx, w, err)
+		grape.ExtractFromErr(ctx, w, err)
 		return
 	}
 
@@ -61,15 +61,15 @@ func (h *Handler) InquiryPeerHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	key, err := readKeyFromQuery(r.URL.Query())
 	if err != nil {
-		grape.RespondFromErr(ctx, w, errs.BadRequest(err))
+		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(err)))
 		return
 	}
 	peer, err := h.service.InquiryPeer(key)
 	if err != nil {
-		grape.RespondFromErr(ctx, w, err)
+		grape.ExtractFromErr(ctx, w, err)
 		return
 	}
-	peer.ID = model.NewPeerID() // remove peer id from response
+	peer.ID = model.EmptyPeerID() // remove peer id from response
 
 	grape.Respond(ctx, w, http.StatusOK, grape.Map{"peer": peer})
 }
@@ -78,12 +78,12 @@ func (h *Handler) DiscardPeerHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	key, err := readKeyFromQuery(r.URL.Query())
 	if err != nil {
-		grape.RespondFromErr(ctx, w, errs.BadRequest(err))
+		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(err)))
 		return
 	}
 	err = h.service.DeletePeer(key)
 	if err != nil {
-		grape.RespondFromErr(ctx, w, err)
+		grape.ExtractFromErr(ctx, w, err)
 		return
 	}
 

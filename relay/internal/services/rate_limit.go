@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/hossein1376/grape/errs"
 	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/storage"
 )
 
 var (
+	ErrRateLimitExceeded = errors.New("too many requests, please try again later")
+
 	rateLimitNS = model.NewNameSpace("rate_lmt")
 )
 
@@ -36,7 +39,7 @@ func (s *Service) RateLimit(remoteIP string) (bool, error) {
 		if found {
 			attempts = binary.BigEndian.Uint64(attemptsBytes)
 			if attempts >= s.cfg.RateLimit.Quota {
-				return nil
+				return errs.TooMany(errs.WithErr(ErrRateLimitExceeded))
 			}
 			ttl, err = c.TTL(rateLimitNS, ip)
 			if err != nil {

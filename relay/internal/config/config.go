@@ -18,8 +18,8 @@ type Config struct {
 }
 
 type Server struct {
-	Address  string          `toml:"address"`
-	Identity attest.Identity `toml:"identity"`
+	Address  string           `toml:"address"`
+	Identity attest.Algorithm `toml:"identity"`
 }
 
 type Storage struct {

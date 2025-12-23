@@ -60,5 +60,10 @@ func (q *Query) TTL(ns model.Namespace, name []byte) (time.Duration, error) {
 	if expire == 0 {
 		return 0, nil
 	}
-	return time.Duration(expire-uint64(time.Now().Unix())) * time.Second, nil
+	now := uint64(time.Now().Unix())
+	// If the expiration time is in the past or equal to now, treat as expired.
+	if expire <= now {
+		return 0, nil
+	}
+	return time.Duration(expire-now) * time.Second, nil
 }

@@ -4,7 +4,7 @@ address = "127.0.0.1:8888"
 
 [storage]
 path = "./db"
-log_level = "error"
+log_level = "warn"
 register_ttl = "30m"
 max_message_size = 10240 # 10 kb
 max_queue_size = 10_000 # maximum of 100 mb per session

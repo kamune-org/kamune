@@ -35,7 +35,7 @@ func New(store *storage.Store, cfg config.Config) (*Service, error) {
 }
 
 func loadAttest(
-	store *storage.Store, id attest.Identity,
+	store *storage.Store, algorithm attest.Algorithm,
 ) (attest.Attester, error) {
 	var at attest.Attester
 	err := store.Command(func(c model.Command) error {
@@ -43,7 +43,7 @@ func loadAttest(
 		if err != nil {
 			return fmt.Errorf("getting data from storage: %w", err)
 		}
-		at, err = id.Load(attestBytes)
+		at, err = attest.LoadAttester(algorithm, attestBytes)
 		if err != nil {
 			return fmt.Errorf("parsing data: %w", err)
 		}
@@ -59,7 +59,7 @@ func loadAttest(
 		return nil, fmt.Errorf("command: %w", err)
 	}
 
-	at, err = id.NewAttest()
+	at, err = attest.NewAttester(algorithm)
 	if err != nil {
 		return nil, fmt.Errorf("creating new attester: %w", err)
 	}
