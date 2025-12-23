@@ -32,7 +32,7 @@ func requestHandshake(
 		Salt:       salt,
 		SessionKey: sessionKeyPrefix,
 	}
-	reqBytes, _, err := pt.serialize(req)
+	reqBytes, _, err := pt.serialize(req, RouteRequestHandshake)
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake request: %w", err)
 	}
@@ -105,7 +105,7 @@ func acceptHandshake(
 		Salt:       salt,
 		SessionKey: sessionKeySuffix,
 	}
-	respBytes, _, err := pt.serialize(resp)
+	respBytes, _, err := pt.serialize(resp, RouteAcceptHandshake)
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake response: %w", err)
 	}
@@ -145,7 +145,7 @@ func sendChallenge(t *Transport, secret, info []byte) error {
 	if err != nil {
 		return fmt.Errorf("deriving a challenge: %w", err)
 	}
-	if _, err := t.Send(Bytes(challenge)); err != nil {
+	if _, err := t.Send(Bytes(challenge), RouteSendChallange); err != nil {
 		return fmt.Errorf("sending: %w", err)
 	}
 	r := Bytes(nil)
@@ -165,7 +165,7 @@ func acceptChallenge(t *Transport) error {
 	if _, err := t.Receive(r); err != nil {
 		return fmt.Errorf("receiving: %w", err)
 	}
-	if _, err := t.Send(Bytes(r.Value)); err != nil {
+	if _, err := t.Send(Bytes(r.Value), RouteVerifyChallange); err != nil {
 		return fmt.Errorf("sending: %w", err)
 	}
 
@@ -184,7 +184,9 @@ func bootstrapDoubleRatchet(
 
 	theirBlob := Bytes(nil)
 	if initiator {
-		if _, err := t.Send(Bytes(r.OurPublic())); err != nil {
+		if _, err := t.Send(
+			Bytes(r.OurPublic()), RouteInitializeDoubleRatchet,
+		); err != nil {
 			return nil, fmt.Errorf("sending our public key: %w", err)
 		}
 		if _, err := t.Receive(theirBlob); err != nil {
@@ -194,7 +196,9 @@ func bootstrapDoubleRatchet(
 		if _, err := t.Receive(theirBlob); err != nil {
 			return nil, fmt.Errorf("receiving their public key: %w", err)
 		}
-		if _, err := t.Send(Bytes(r.OurPublic())); err != nil {
+		if _, err := t.Send(
+			Bytes(r.OurPublic()), RouteConfirmDoubleRatchet,
+		); err != nil {
 			return nil, fmt.Errorf("sending our public key: %w", err)
 		}
 	}

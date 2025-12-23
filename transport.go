@@ -47,7 +47,9 @@ func newPlainTransport(
 	}
 }
 
-func (pt *plainTransport) serialize(msg Transferable) ([]byte, *Metadata, error) {
+func (pt *plainTransport) serialize(
+	msg Transferable, route Route,
+) ([]byte, *Metadata, error) {
 	message, err := proto.Marshal(msg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshalling message: %w", err)
@@ -66,6 +68,7 @@ func (pt *plainTransport) serialize(msg Transferable) ([]byte, *Metadata, error)
 		Signature: sig,
 		Metadata:  md,
 		Padding:   padding(maxPadding),
+		Route:     int64(route),
 	}
 	payload, err := proto.Marshal(st)
 	if err != nil {
@@ -146,8 +149,10 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 	return metadata, nil
 }
 
-func (t *Transport) Send(message Transferable) (*Metadata, error) {
-	payload, metadata, err := t.serialize(message)
+func (t *Transport) Send(
+	message Transferable, route Route,
+) (*Metadata, error) {
+	payload, metadata, err := t.serialize(message, route)
 	if err != nil {
 		return nil, fmt.Errorf("serializing: %w", err)
 	}

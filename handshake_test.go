@@ -62,7 +62,7 @@ func TestHandshake(t *testing.T) {
 	msg1 := Bytes([]byte(rand.Text()))
 	var metadata1 *Metadata
 	go func() {
-		metadata1, err = t1.Send(msg1)
+		metadata1, err = t1.Send(msg1, RouteExchangeMessages)
 		a.NoError(err)
 		sig <- struct{}{}
 	}()
@@ -80,7 +80,7 @@ func TestHandshake(t *testing.T) {
 	msg2 := Bytes([]byte(rand.Text()))
 	var metadata2 *Metadata
 	go func() {
-		metadata2, err = t2.Send(msg2)
+		metadata2, err = t2.Send(msg2, RouteExchangeMessages)
 		a.NoError(err)
 		sig <- struct{}{}
 	}()
