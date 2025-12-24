@@ -33,7 +33,7 @@ endif
 # Build daemon for current platform
 daemon: $(BINARIES_DIR)
 	@echo "Building daemon for current platform ($(CURRENT_DAEMON))..."
-	cd .. && go build -ldflags="-s -w" -o tauri-app/$(BINARIES_DIR)/$(CURRENT_DAEMON) ./cmd/daemon
+	cd .. && go build -ldflags="-s -w" -o bus/$(BINARIES_DIR)/$(CURRENT_DAEMON) ./cmd/daemon
 	@echo "Daemon built: $(BINARIES_DIR)/$(CURRENT_DAEMON)"
 
 # Build daemon for all platforms
