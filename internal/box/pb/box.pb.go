@@ -22,13 +22,156 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type Route int32
+
+const (
+	Route_ROUTE_INVALID                   Route = 0
+	Route_ROUTE_IDENTITY                  Route = 1
+	Route_ROUTE_REQUEST_HANDSHAKE         Route = 2
+	Route_ROUTE_ACCEPT_HANDSHAKE          Route = 3
+	Route_ROUTE_FINALIZE_HANDSHAKE        Route = 4
+	Route_ROUTE_SEND_CHALLENGE            Route = 5
+	Route_ROUTE_VERIFY_CHALLENGE          Route = 6
+	Route_ROUTE_INITIALIZE_DOUBLE_RATCHET Route = 7
+	Route_ROUTE_CONFIRM_DOUBLE_RATCHET    Route = 8
+	Route_ROUTE_EXCHANGE_MESSAGES         Route = 9
+	Route_ROUTE_CLOSE_TRANSPORT           Route = 10
+	Route_ROUTE_RECONNECT                 Route = 11
+)
+
+// Enum value maps for Route.
+var (
+	Route_name = map[int32]string{
+		0:  "ROUTE_INVALID",
+		1:  "ROUTE_IDENTITY",
+		2:  "ROUTE_REQUEST_HANDSHAKE",
+		3:  "ROUTE_ACCEPT_HANDSHAKE",
+		4:  "ROUTE_FINALIZE_HANDSHAKE",
+		5:  "ROUTE_SEND_CHALLENGE",
+		6:  "ROUTE_VERIFY_CHALLENGE",
+		7:  "ROUTE_INITIALIZE_DOUBLE_RATCHET",
+		8:  "ROUTE_CONFIRM_DOUBLE_RATCHET",
+		9:  "ROUTE_EXCHANGE_MESSAGES",
+		10: "ROUTE_CLOSE_TRANSPORT",
+		11: "ROUTE_RECONNECT",
+	}
+	Route_value = map[string]int32{
+		"ROUTE_INVALID":                   0,
+		"ROUTE_IDENTITY":                  1,
+		"ROUTE_REQUEST_HANDSHAKE":         2,
+		"ROUTE_ACCEPT_HANDSHAKE":          3,
+		"ROUTE_FINALIZE_HANDSHAKE":        4,
+		"ROUTE_SEND_CHALLENGE":            5,
+		"ROUTE_VERIFY_CHALLENGE":          6,
+		"ROUTE_INITIALIZE_DOUBLE_RATCHET": 7,
+		"ROUTE_CONFIRM_DOUBLE_RATCHET":    8,
+		"ROUTE_EXCHANGE_MESSAGES":         9,
+		"ROUTE_CLOSE_TRANSPORT":           10,
+		"ROUTE_RECONNECT":                 11,
+	}
+)
+
+func (x Route) Enum() *Route {
+	p := new(Route)
+	*p = x
+	return p
+}
+
+func (x Route) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Route) Descriptor() protoreflect.EnumDescriptor {
+	return file_box_proto_enumTypes[0].Descriptor()
+}
+
+func (Route) Type() protoreflect.EnumType {
+	return &file_box_proto_enumTypes[0]
+}
+
+func (x Route) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Route.Descriptor instead.
+func (Route) EnumDescriptor() ([]byte, []int) {
+	return file_box_proto_rawDescGZIP(), []int{0}
+}
+
+type SessionPhase int32
+
+const (
+	SessionPhase_PHASE_INVALID             SessionPhase = 0
+	SessionPhase_PHASE_INTRODUCTION        SessionPhase = 1
+	SessionPhase_PHASE_HANDSHAKE_REQUESTED SessionPhase = 2
+	SessionPhase_PHASE_HANDSHAKE_ACCEPTED  SessionPhase = 3
+	SessionPhase_PHASE_CHALLENGE_SENT      SessionPhase = 4
+	SessionPhase_PHASE_CHALLENGE_VERIFIED  SessionPhase = 5
+	SessionPhase_PHASE_RATCHET_INITIALIZED SessionPhase = 6
+	SessionPhase_PHASE_ESTABLISHED         SessionPhase = 7
+	SessionPhase_PHASE_CLOSED              SessionPhase = 8
+)
+
+// Enum value maps for SessionPhase.
+var (
+	SessionPhase_name = map[int32]string{
+		0: "PHASE_INVALID",
+		1: "PHASE_INTRODUCTION",
+		2: "PHASE_HANDSHAKE_REQUESTED",
+		3: "PHASE_HANDSHAKE_ACCEPTED",
+		4: "PHASE_CHALLENGE_SENT",
+		5: "PHASE_CHALLENGE_VERIFIED",
+		6: "PHASE_RATCHET_INITIALIZED",
+		7: "PHASE_ESTABLISHED",
+		8: "PHASE_CLOSED",
+	}
+	SessionPhase_value = map[string]int32{
+		"PHASE_INVALID":             0,
+		"PHASE_INTRODUCTION":        1,
+		"PHASE_HANDSHAKE_REQUESTED": 2,
+		"PHASE_HANDSHAKE_ACCEPTED":  3,
+		"PHASE_CHALLENGE_SENT":      4,
+		"PHASE_CHALLENGE_VERIFIED":  5,
+		"PHASE_RATCHET_INITIALIZED": 6,
+		"PHASE_ESTABLISHED":         7,
+		"PHASE_CLOSED":              8,
+	}
+)
+
+func (x SessionPhase) Enum() *SessionPhase {
+	p := new(SessionPhase)
+	*p = x
+	return p
+}
+
+func (x SessionPhase) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SessionPhase) Descriptor() protoreflect.EnumDescriptor {
+	return file_box_proto_enumTypes[1].Descriptor()
+}
+
+func (SessionPhase) Type() protoreflect.EnumType {
+	return &file_box_proto_enumTypes[1]
+}
+
+func (x SessionPhase) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SessionPhase.Descriptor instead.
+func (SessionPhase) EnumDescriptor() ([]byte, []int) {
+	return file_box_proto_rawDescGZIP(), []int{1}
+}
+
 type SignedTransport struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          []byte                 `protobuf:"bytes,1,opt,name=Data,proto3" json:"Data,omitempty"`
 	Signature     []byte                 `protobuf:"bytes,2,opt,name=Signature,proto3" json:"Signature,omitempty"`
 	Metadata      *Metadata              `protobuf:"bytes,3,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
 	Padding       []byte                 `protobuf:"bytes,4,opt,name=Padding,proto3" json:"Padding,omitempty"`
-	Route         int64                  `protobuf:"varint,5,opt,name=Route,proto3" json:"Route,omitempty"`
+	Route         Route                  `protobuf:"varint,5,opt,name=Route,proto3,enum=box.Route" json:"Route,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -91,11 +234,11 @@ func (x *SignedTransport) GetPadding() []byte {
 	return nil
 }
 
-func (x *SignedTransport) GetRoute() int64 {
+func (x *SignedTransport) GetRoute() Route {
 	if x != nil {
 		return x.Route
 	}
-	return 0
+	return Route_ROUTE_INVALID
 }
 
 type Metadata struct {
@@ -226,17 +369,637 @@ func (x *Ratchet) GetCiphertext() []byte {
 	return nil
 }
 
+type SessionState struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	SessionId         string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Phase             SessionPhase           `protobuf:"varint,2,opt,name=phase,proto3,enum=box.SessionPhase" json:"phase,omitempty"`
+	SharedSecret      []byte                 `protobuf:"bytes,3,opt,name=shared_secret,json=sharedSecret,proto3" json:"shared_secret,omitempty"`
+	LocalSalt         []byte                 `protobuf:"bytes,4,opt,name=local_salt,json=localSalt,proto3" json:"local_salt,omitempty"`
+	RemoteSalt        []byte                 `protobuf:"bytes,5,opt,name=remote_salt,json=remoteSalt,proto3" json:"remote_salt,omitempty"`
+	RemotePublicKey   []byte                 `protobuf:"bytes,6,opt,name=remote_public_key,json=remotePublicKey,proto3" json:"remote_public_key,omitempty"`
+	RatchetState      []byte                 `protobuf:"bytes,7,opt,name=ratchet_state,json=ratchetState,proto3" json:"ratchet_state,omitempty"`
+	CreatedAt         *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt         *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	IsInitiator       bool                   `protobuf:"varint,10,opt,name=is_initiator,json=isInitiator,proto3" json:"is_initiator,omitempty"`
+	SendSequence      uint64                 `protobuf:"varint,11,opt,name=send_sequence,json=sendSequence,proto3" json:"send_sequence,omitempty"`
+	RecvSequence      uint64                 `protobuf:"varint,12,opt,name=recv_sequence,json=recvSequence,proto3" json:"recv_sequence,omitempty"`
+	LocalPublicKey    []byte                 `protobuf:"bytes,13,opt,name=local_public_key,json=localPublicKey,proto3" json:"local_public_key,omitempty"`
+	RatchetPublicKey  []byte                 `protobuf:"bytes,14,opt,name=ratchet_public_key,json=ratchetPublicKey,proto3" json:"ratchet_public_key,omitempty"`
+	RatchetPrivateKey []byte                 `protobuf:"bytes,15,opt,name=ratchet_private_key,json=ratchetPrivateKey,proto3" json:"ratchet_private_key,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SessionState) Reset() {
+	*x = SessionState{}
+	mi := &file_box_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionState) ProtoMessage() {}
+
+func (x *SessionState) ProtoReflect() protoreflect.Message {
+	mi := &file_box_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionState.ProtoReflect.Descriptor instead.
+func (*SessionState) Descriptor() ([]byte, []int) {
+	return file_box_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SessionState) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *SessionState) GetPhase() SessionPhase {
+	if x != nil {
+		return x.Phase
+	}
+	return SessionPhase_PHASE_INVALID
+}
+
+func (x *SessionState) GetSharedSecret() []byte {
+	if x != nil {
+		return x.SharedSecret
+	}
+	return nil
+}
+
+func (x *SessionState) GetLocalSalt() []byte {
+	if x != nil {
+		return x.LocalSalt
+	}
+	return nil
+}
+
+func (x *SessionState) GetRemoteSalt() []byte {
+	if x != nil {
+		return x.RemoteSalt
+	}
+	return nil
+}
+
+func (x *SessionState) GetRemotePublicKey() []byte {
+	if x != nil {
+		return x.RemotePublicKey
+	}
+	return nil
+}
+
+func (x *SessionState) GetRatchetState() []byte {
+	if x != nil {
+		return x.RatchetState
+	}
+	return nil
+}
+
+func (x *SessionState) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *SessionState) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+func (x *SessionState) GetIsInitiator() bool {
+	if x != nil {
+		return x.IsInitiator
+	}
+	return false
+}
+
+func (x *SessionState) GetSendSequence() uint64 {
+	if x != nil {
+		return x.SendSequence
+	}
+	return 0
+}
+
+func (x *SessionState) GetRecvSequence() uint64 {
+	if x != nil {
+		return x.RecvSequence
+	}
+	return 0
+}
+
+func (x *SessionState) GetLocalPublicKey() []byte {
+	if x != nil {
+		return x.LocalPublicKey
+	}
+	return nil
+}
+
+func (x *SessionState) GetRatchetPublicKey() []byte {
+	if x != nil {
+		return x.RatchetPublicKey
+	}
+	return nil
+}
+
+func (x *SessionState) GetRatchetPrivateKey() []byte {
+	if x != nil {
+		return x.RatchetPrivateKey
+	}
+	return nil
+}
+
+// ReconnectRequest is sent by a client to request session resumption.
+// The server uses the remote_public_key to look up the existing session.
+type ReconnectRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	SessionId        string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	LastPhase        SessionPhase           `protobuf:"varint,2,opt,name=last_phase,json=lastPhase,proto3,enum=box.SessionPhase" json:"last_phase,omitempty"`
+	LastSendSequence uint64                 `protobuf:"varint,3,opt,name=last_send_sequence,json=lastSendSequence,proto3" json:"last_send_sequence,omitempty"`
+	LastRecvSequence uint64                 `protobuf:"varint,4,opt,name=last_recv_sequence,json=lastRecvSequence,proto3" json:"last_recv_sequence,omitempty"`
+	RemotePublicKey  []byte                 `protobuf:"bytes,5,opt,name=remote_public_key,json=remotePublicKey,proto3" json:"remote_public_key,omitempty"` // Client's public key for identification
+	ResumeChallenge  []byte                 `protobuf:"bytes,6,opt,name=resume_challenge,json=resumeChallenge,proto3" json:"resume_challenge,omitempty"`   // Random challenge for verification
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ReconnectRequest) Reset() {
+	*x = ReconnectRequest{}
+	mi := &file_box_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconnectRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconnectRequest) ProtoMessage() {}
+
+func (x *ReconnectRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_box_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconnectRequest.ProtoReflect.Descriptor instead.
+func (*ReconnectRequest) Descriptor() ([]byte, []int) {
+	return file_box_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ReconnectRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *ReconnectRequest) GetLastPhase() SessionPhase {
+	if x != nil {
+		return x.LastPhase
+	}
+	return SessionPhase_PHASE_INVALID
+}
+
+func (x *ReconnectRequest) GetLastSendSequence() uint64 {
+	if x != nil {
+		return x.LastSendSequence
+	}
+	return 0
+}
+
+func (x *ReconnectRequest) GetLastRecvSequence() uint64 {
+	if x != nil {
+		return x.LastRecvSequence
+	}
+	return 0
+}
+
+func (x *ReconnectRequest) GetRemotePublicKey() []byte {
+	if x != nil {
+		return x.RemotePublicKey
+	}
+	return nil
+}
+
+func (x *ReconnectRequest) GetResumeChallenge() []byte {
+	if x != nil {
+		return x.ResumeChallenge
+	}
+	return nil
+}
+
+// ReconnectResponse is sent by the server in response to a reconnection request.
+type ReconnectResponse struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Accepted           bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	ResumeFromPhase    SessionPhase           `protobuf:"varint,2,opt,name=resume_from_phase,json=resumeFromPhase,proto3,enum=box.SessionPhase" json:"resume_from_phase,omitempty"`
+	ErrorMessage       string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	ChallengeResponse  []byte                 `protobuf:"bytes,4,opt,name=challenge_response,json=challengeResponse,proto3" json:"challenge_response,omitempty"`       // Server's response to the challenge
+	ServerChallenge    []byte                 `protobuf:"bytes,5,opt,name=server_challenge,json=serverChallenge,proto3" json:"server_challenge,omitempty"`             // Server's challenge for client verification
+	ServerSendSequence uint64                 `protobuf:"varint,6,opt,name=server_send_sequence,json=serverSendSequence,proto3" json:"server_send_sequence,omitempty"` // Server's last send sequence
+	ServerRecvSequence uint64                 `protobuf:"varint,7,opt,name=server_recv_sequence,json=serverRecvSequence,proto3" json:"server_recv_sequence,omitempty"` // Server's last recv sequence
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ReconnectResponse) Reset() {
+	*x = ReconnectResponse{}
+	mi := &file_box_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconnectResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconnectResponse) ProtoMessage() {}
+
+func (x *ReconnectResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_box_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconnectResponse.ProtoReflect.Descriptor instead.
+func (*ReconnectResponse) Descriptor() ([]byte, []int) {
+	return file_box_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ReconnectResponse) GetAccepted() bool {
+	if x != nil {
+		return x.Accepted
+	}
+	return false
+}
+
+func (x *ReconnectResponse) GetResumeFromPhase() SessionPhase {
+	if x != nil {
+		return x.ResumeFromPhase
+	}
+	return SessionPhase_PHASE_INVALID
+}
+
+func (x *ReconnectResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ReconnectResponse) GetChallengeResponse() []byte {
+	if x != nil {
+		return x.ChallengeResponse
+	}
+	return nil
+}
+
+func (x *ReconnectResponse) GetServerChallenge() []byte {
+	if x != nil {
+		return x.ServerChallenge
+	}
+	return nil
+}
+
+func (x *ReconnectResponse) GetServerSendSequence() uint64 {
+	if x != nil {
+		return x.ServerSendSequence
+	}
+	return 0
+}
+
+func (x *ReconnectResponse) GetServerRecvSequence() uint64 {
+	if x != nil {
+		return x.ServerRecvSequence
+	}
+	return 0
+}
+
+// ReconnectVerify is sent by the client to verify the reconnection.
+type ReconnectVerify struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ChallengeResponse []byte                 `protobuf:"bytes,1,opt,name=challenge_response,json=challengeResponse,proto3" json:"challenge_response,omitempty"` // Client's response to server's challenge
+	Verified          bool                   `protobuf:"varint,2,opt,name=verified,proto3" json:"verified,omitempty"`                                           // Whether client verified the server
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ReconnectVerify) Reset() {
+	*x = ReconnectVerify{}
+	mi := &file_box_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconnectVerify) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconnectVerify) ProtoMessage() {}
+
+func (x *ReconnectVerify) ProtoReflect() protoreflect.Message {
+	mi := &file_box_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconnectVerify.ProtoReflect.Descriptor instead.
+func (*ReconnectVerify) Descriptor() ([]byte, []int) {
+	return file_box_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ReconnectVerify) GetChallengeResponse() []byte {
+	if x != nil {
+		return x.ChallengeResponse
+	}
+	return nil
+}
+
+func (x *ReconnectVerify) GetVerified() bool {
+	if x != nil {
+		return x.Verified
+	}
+	return false
+}
+
+// ReconnectComplete is sent by the server to finalize the reconnection.
+type ReconnectComplete struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Success            bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	ErrorMessage       string                 `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	ResumeSendSequence uint64                 `protobuf:"varint,3,opt,name=resume_send_sequence,json=resumeSendSequence,proto3" json:"resume_send_sequence,omitempty"` // Agreed upon send sequence to resume from
+	ResumeRecvSequence uint64                 `protobuf:"varint,4,opt,name=resume_recv_sequence,json=resumeRecvSequence,proto3" json:"resume_recv_sequence,omitempty"` // Agreed upon recv sequence to resume from
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ReconnectComplete) Reset() {
+	*x = ReconnectComplete{}
+	mi := &file_box_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconnectComplete) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconnectComplete) ProtoMessage() {}
+
+func (x *ReconnectComplete) ProtoReflect() protoreflect.Message {
+	mi := &file_box_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconnectComplete.ProtoReflect.Descriptor instead.
+func (*ReconnectComplete) Descriptor() ([]byte, []int) {
+	return file_box_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ReconnectComplete) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ReconnectComplete) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ReconnectComplete) GetResumeSendSequence() uint64 {
+	if x != nil {
+		return x.ResumeSendSequence
+	}
+	return 0
+}
+
+func (x *ReconnectComplete) GetResumeRecvSequence() uint64 {
+	if x != nil {
+		return x.ResumeRecvSequence
+	}
+	return 0
+}
+
+// ResumeHandshake is used to resume an interrupted handshake.
+type ResumeHandshake struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	RemotePublicKey []byte                 `protobuf:"bytes,1,opt,name=remote_public_key,json=remotePublicKey,proto3" json:"remote_public_key,omitempty"`    // Peer's public key for identification
+	LastPhase       SessionPhase           `protobuf:"varint,2,opt,name=last_phase,json=lastPhase,proto3,enum=box.SessionPhase" json:"last_phase,omitempty"` // Last completed phase
+	SessionId       string                 `protobuf:"bytes,3,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`                        // Session ID if already established
+	Salt            []byte                 `protobuf:"bytes,4,opt,name=salt,proto3" json:"salt,omitempty"`                                                   // Salt from the interrupted handshake
+	Challenge       []byte                 `protobuf:"bytes,5,opt,name=challenge,proto3" json:"challenge,omitempty"`                                         // Challenge for verification
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ResumeHandshake) Reset() {
+	*x = ResumeHandshake{}
+	mi := &file_box_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResumeHandshake) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResumeHandshake) ProtoMessage() {}
+
+func (x *ResumeHandshake) ProtoReflect() protoreflect.Message {
+	mi := &file_box_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResumeHandshake.ProtoReflect.Descriptor instead.
+func (*ResumeHandshake) Descriptor() ([]byte, []int) {
+	return file_box_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ResumeHandshake) GetRemotePublicKey() []byte {
+	if x != nil {
+		return x.RemotePublicKey
+	}
+	return nil
+}
+
+func (x *ResumeHandshake) GetLastPhase() SessionPhase {
+	if x != nil {
+		return x.LastPhase
+	}
+	return SessionPhase_PHASE_INVALID
+}
+
+func (x *ResumeHandshake) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *ResumeHandshake) GetSalt() []byte {
+	if x != nil {
+		return x.Salt
+	}
+	return nil
+}
+
+func (x *ResumeHandshake) GetChallenge() []byte {
+	if x != nil {
+		return x.Challenge
+	}
+	return nil
+}
+
+// ResumeHandshakeResponse is the response to a handshake resumption request.
+type ResumeHandshakeResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	CanResume         bool                   `protobuf:"varint,1,opt,name=can_resume,json=canResume,proto3" json:"can_resume,omitempty"`                          // Whether resumption is possible
+	ResumeFrom        SessionPhase           `protobuf:"varint,2,opt,name=resume_from,json=resumeFrom,proto3,enum=box.SessionPhase" json:"resume_from,omitempty"` // Phase to resume from
+	ErrorMessage      string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`                  // Error if resumption is not possible
+	Salt              []byte                 `protobuf:"bytes,4,opt,name=salt,proto3" json:"salt,omitempty"`                                                      // Server's salt
+	ChallengeResponse []byte                 `protobuf:"bytes,5,opt,name=challenge_response,json=challengeResponse,proto3" json:"challenge_response,omitempty"`   // Response to client's challenge
+	ServerChallenge   []byte                 `protobuf:"bytes,6,opt,name=server_challenge,json=serverChallenge,proto3" json:"server_challenge,omitempty"`         // Server's challenge
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ResumeHandshakeResponse) Reset() {
+	*x = ResumeHandshakeResponse{}
+	mi := &file_box_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResumeHandshakeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResumeHandshakeResponse) ProtoMessage() {}
+
+func (x *ResumeHandshakeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_box_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResumeHandshakeResponse.ProtoReflect.Descriptor instead.
+func (*ResumeHandshakeResponse) Descriptor() ([]byte, []int) {
+	return file_box_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ResumeHandshakeResponse) GetCanResume() bool {
+	if x != nil {
+		return x.CanResume
+	}
+	return false
+}
+
+func (x *ResumeHandshakeResponse) GetResumeFrom() SessionPhase {
+	if x != nil {
+		return x.ResumeFrom
+	}
+	return SessionPhase_PHASE_INVALID
+}
+
+func (x *ResumeHandshakeResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ResumeHandshakeResponse) GetSalt() []byte {
+	if x != nil {
+		return x.Salt
+	}
+	return nil
+}
+
+func (x *ResumeHandshakeResponse) GetChallengeResponse() []byte {
+	if x != nil {
+		return x.ChallengeResponse
+	}
+	return nil
+}
+
+func (x *ResumeHandshakeResponse) GetServerChallenge() []byte {
+	if x != nil {
+		return x.ServerChallenge
+	}
+	return nil
+}
+
 var File_box_proto protoreflect.FileDescriptor
 
 const file_box_proto_rawDesc = "" +
 	"\n" +
-	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9e\x01\n" +
+	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaa\x01\n" +
 	"\x0fSignedTransport\x12\x12\n" +
 	"\x04Data\x18\x01 \x01(\fR\x04Data\x12\x1c\n" +
 	"\tSignature\x18\x02 \x01(\fR\tSignature\x12)\n" +
 	"\bMetadata\x18\x03 \x01(\v2\r.box.MetadataR\bMetadata\x12\x18\n" +
-	"\aPadding\x18\x04 \x01(\fR\aPadding\x12\x14\n" +
-	"\x05Route\x18\x05 \x01(\x03R\x05Route\"p\n" +
+	"\aPadding\x18\x04 \x01(\fR\aPadding\x12 \n" +
+	"\x05Route\x18\x05 \x01(\x0e2\n" +
+	".box.RouteR\x05Route\"p\n" +
 	"\bMetadata\x12\x0e\n" +
 	"\x02ID\x18\x01 \x01(\tR\x02ID\x128\n" +
 	"\tTimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\x12\x1a\n" +
@@ -248,7 +1011,95 @@ const file_box_proto_rawDesc = "" +
 	"\n" +
 	"ciphertext\x18\x04 \x01(\fR\n" +
 	"ciphertextB\x05\n" +
-	"\x03_dhB\x06Z\x04./pbb\x06proto3"
+	"\x03_dh\"\xf7\x04\n" +
+	"\fSessionState\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12'\n" +
+	"\x05phase\x18\x02 \x01(\x0e2\x11.box.SessionPhaseR\x05phase\x12#\n" +
+	"\rshared_secret\x18\x03 \x01(\fR\fsharedSecret\x12\x1d\n" +
+	"\n" +
+	"local_salt\x18\x04 \x01(\fR\tlocalSalt\x12\x1f\n" +
+	"\vremote_salt\x18\x05 \x01(\fR\n" +
+	"remoteSalt\x12*\n" +
+	"\x11remote_public_key\x18\x06 \x01(\fR\x0fremotePublicKey\x12#\n" +
+	"\rratchet_state\x18\a \x01(\fR\fratchetState\x129\n" +
+	"\n" +
+	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12!\n" +
+	"\fis_initiator\x18\n" +
+	" \x01(\bR\visInitiator\x12#\n" +
+	"\rsend_sequence\x18\v \x01(\x04R\fsendSequence\x12#\n" +
+	"\rrecv_sequence\x18\f \x01(\x04R\frecvSequence\x12(\n" +
+	"\x10local_public_key\x18\r \x01(\fR\x0elocalPublicKey\x12,\n" +
+	"\x12ratchet_public_key\x18\x0e \x01(\fR\x10ratchetPublicKey\x12.\n" +
+	"\x13ratchet_private_key\x18\x0f \x01(\fR\x11ratchetPrivateKey\"\x96\x02\n" +
+	"\x10ReconnectRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x120\n" +
+	"\n" +
+	"last_phase\x18\x02 \x01(\x0e2\x11.box.SessionPhaseR\tlastPhase\x12,\n" +
+	"\x12last_send_sequence\x18\x03 \x01(\x04R\x10lastSendSequence\x12,\n" +
+	"\x12last_recv_sequence\x18\x04 \x01(\x04R\x10lastRecvSequence\x12*\n" +
+	"\x11remote_public_key\x18\x05 \x01(\fR\x0fremotePublicKey\x12)\n" +
+	"\x10resume_challenge\x18\x06 \x01(\fR\x0fresumeChallenge\"\xd1\x02\n" +
+	"\x11ReconnectResponse\x12\x1a\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\x12=\n" +
+	"\x11resume_from_phase\x18\x02 \x01(\x0e2\x11.box.SessionPhaseR\x0fresumeFromPhase\x12#\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12-\n" +
+	"\x12challenge_response\x18\x04 \x01(\fR\x11challengeResponse\x12)\n" +
+	"\x10server_challenge\x18\x05 \x01(\fR\x0fserverChallenge\x120\n" +
+	"\x14server_send_sequence\x18\x06 \x01(\x04R\x12serverSendSequence\x120\n" +
+	"\x14server_recv_sequence\x18\a \x01(\x04R\x12serverRecvSequence\"\\\n" +
+	"\x0fReconnectVerify\x12-\n" +
+	"\x12challenge_response\x18\x01 \x01(\fR\x11challengeResponse\x12\x1a\n" +
+	"\bverified\x18\x02 \x01(\bR\bverified\"\xb6\x01\n" +
+	"\x11ReconnectComplete\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x120\n" +
+	"\x14resume_send_sequence\x18\x03 \x01(\x04R\x12resumeSendSequence\x120\n" +
+	"\x14resume_recv_sequence\x18\x04 \x01(\x04R\x12resumeRecvSequence\"\xc0\x01\n" +
+	"\x0fResumeHandshake\x12*\n" +
+	"\x11remote_public_key\x18\x01 \x01(\fR\x0fremotePublicKey\x120\n" +
+	"\n" +
+	"last_phase\x18\x02 \x01(\x0e2\x11.box.SessionPhaseR\tlastPhase\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x03 \x01(\tR\tsessionId\x12\x12\n" +
+	"\x04salt\x18\x04 \x01(\fR\x04salt\x12\x1c\n" +
+	"\tchallenge\x18\x05 \x01(\fR\tchallenge\"\xff\x01\n" +
+	"\x17ResumeHandshakeResponse\x12\x1d\n" +
+	"\n" +
+	"can_resume\x18\x01 \x01(\bR\tcanResume\x122\n" +
+	"\vresume_from\x18\x02 \x01(\x0e2\x11.box.SessionPhaseR\n" +
+	"resumeFrom\x12#\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12\x12\n" +
+	"\x04salt\x18\x04 \x01(\fR\x04salt\x12-\n" +
+	"\x12challenge_response\x18\x05 \x01(\fR\x11challengeResponse\x12)\n" +
+	"\x10server_challenge\x18\x06 \x01(\fR\x0fserverChallenge*\xcf\x02\n" +
+	"\x05Route\x12\x11\n" +
+	"\rROUTE_INVALID\x10\x00\x12\x12\n" +
+	"\x0eROUTE_IDENTITY\x10\x01\x12\x1b\n" +
+	"\x17ROUTE_REQUEST_HANDSHAKE\x10\x02\x12\x1a\n" +
+	"\x16ROUTE_ACCEPT_HANDSHAKE\x10\x03\x12\x1c\n" +
+	"\x18ROUTE_FINALIZE_HANDSHAKE\x10\x04\x12\x18\n" +
+	"\x14ROUTE_SEND_CHALLENGE\x10\x05\x12\x1a\n" +
+	"\x16ROUTE_VERIFY_CHALLENGE\x10\x06\x12#\n" +
+	"\x1fROUTE_INITIALIZE_DOUBLE_RATCHET\x10\a\x12 \n" +
+	"\x1cROUTE_CONFIRM_DOUBLE_RATCHET\x10\b\x12\x1b\n" +
+	"\x17ROUTE_EXCHANGE_MESSAGES\x10\t\x12\x19\n" +
+	"\x15ROUTE_CLOSE_TRANSPORT\x10\n" +
+	"\x12\x13\n" +
+	"\x0fROUTE_RECONNECT\x10\v*\xf6\x01\n" +
+	"\fSessionPhase\x12\x11\n" +
+	"\rPHASE_INVALID\x10\x00\x12\x16\n" +
+	"\x12PHASE_INTRODUCTION\x10\x01\x12\x1d\n" +
+	"\x19PHASE_HANDSHAKE_REQUESTED\x10\x02\x12\x1c\n" +
+	"\x18PHASE_HANDSHAKE_ACCEPTED\x10\x03\x12\x18\n" +
+	"\x14PHASE_CHALLENGE_SENT\x10\x04\x12\x1c\n" +
+	"\x18PHASE_CHALLENGE_VERIFIED\x10\x05\x12\x1d\n" +
+	"\x19PHASE_RATCHET_INITIALIZED\x10\x06\x12\x15\n" +
+	"\x11PHASE_ESTABLISHED\x10\a\x12\x10\n" +
+	"\fPHASE_CLOSED\x10\bB\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_box_proto_rawDescOnce sync.Once
@@ -262,21 +1113,39 @@ func file_box_proto_rawDescGZIP() []byte {
 	return file_box_proto_rawDescData
 }
 
-var file_box_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_box_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_box_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_box_proto_goTypes = []any{
-	(*SignedTransport)(nil),       // 0: box.SignedTransport
-	(*Metadata)(nil),              // 1: box.Metadata
-	(*Ratchet)(nil),               // 2: box.Ratchet
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(Route)(0),                      // 0: box.Route
+	(SessionPhase)(0),               // 1: box.SessionPhase
+	(*SignedTransport)(nil),         // 2: box.SignedTransport
+	(*Metadata)(nil),                // 3: box.Metadata
+	(*Ratchet)(nil),                 // 4: box.Ratchet
+	(*SessionState)(nil),            // 5: box.SessionState
+	(*ReconnectRequest)(nil),        // 6: box.ReconnectRequest
+	(*ReconnectResponse)(nil),       // 7: box.ReconnectResponse
+	(*ReconnectVerify)(nil),         // 8: box.ReconnectVerify
+	(*ReconnectComplete)(nil),       // 9: box.ReconnectComplete
+	(*ResumeHandshake)(nil),         // 10: box.ResumeHandshake
+	(*ResumeHandshakeResponse)(nil), // 11: box.ResumeHandshakeResponse
+	(*timestamppb.Timestamp)(nil),   // 12: google.protobuf.Timestamp
 }
 var file_box_proto_depIdxs = []int32{
-	1, // 0: box.SignedTransport.Metadata:type_name -> box.Metadata
-	3, // 1: box.Metadata.Timestamp:type_name -> google.protobuf.Timestamp
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3,  // 0: box.SignedTransport.Metadata:type_name -> box.Metadata
+	0,  // 1: box.SignedTransport.Route:type_name -> box.Route
+	12, // 2: box.Metadata.Timestamp:type_name -> google.protobuf.Timestamp
+	1,  // 3: box.SessionState.phase:type_name -> box.SessionPhase
+	12, // 4: box.SessionState.created_at:type_name -> google.protobuf.Timestamp
+	12, // 5: box.SessionState.updated_at:type_name -> google.protobuf.Timestamp
+	1,  // 6: box.ReconnectRequest.last_phase:type_name -> box.SessionPhase
+	1,  // 7: box.ReconnectResponse.resume_from_phase:type_name -> box.SessionPhase
+	1,  // 8: box.ResumeHandshake.last_phase:type_name -> box.SessionPhase
+	1,  // 9: box.ResumeHandshakeResponse.resume_from:type_name -> box.SessionPhase
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_box_proto_init() }
@@ -290,13 +1159,14 @@ func file_box_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_box_proto_rawDesc), len(file_box_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   3,
+			NumEnums:      2,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_box_proto_goTypes,
 		DependencyIndexes: file_box_proto_depIdxs,
+		EnumInfos:         file_box_proto_enumTypes,
 		MessageInfos:      file_box_proto_msgTypes,
 	}.Build()
 	File_box_proto = out.File

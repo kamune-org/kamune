@@ -22,8 +22,100 @@ var (
 	ErrVerificationFailed = errors.New("verification failed")
 	ErrMessageTooLarge    = errors.New("message is too large")
 	ErrOutOfSync          = errors.New("peers are out of sync")
+	ErrUnexpectedRoute    = errors.New("unexpected route received")
+	ErrInvalidRoute       = errors.New("invalid route")
+	ErrSessionNotFound    = errors.New("session not found")
+	ErrSessionExpired     = errors.New("session has expired")
 )
 
+// SessionPhase represents the current phase of a session.
+type SessionPhase int
+
+const (
+	PhaseInvalid SessionPhase = iota
+	PhaseIntroduction
+	PhaseHandshakeRequested
+	PhaseHandshakeAccepted
+	PhaseChallengeSent
+	PhaseChallengeVerified
+	PhaseRatchetInitialized
+	PhaseEstablished
+	PhaseClosed
+)
+
+// String returns the string representation of the session phase.
+func (p SessionPhase) String() string {
+	switch p {
+	case PhaseIntroduction:
+		return "Introduction"
+	case PhaseHandshakeRequested:
+		return "HandshakeRequested"
+	case PhaseHandshakeAccepted:
+		return "HandshakeAccepted"
+	case PhaseChallengeSent:
+		return "ChallengeSent"
+	case PhaseChallengeVerified:
+		return "ChallengeVerified"
+	case PhaseRatchetInitialized:
+		return "RatchetInitialized"
+	case PhaseEstablished:
+		return "Established"
+	case PhaseClosed:
+		return "Closed"
+	default:
+		return "Invalid"
+	}
+}
+
+// ToProto converts the SessionPhase to its protobuf enum representation.
+func (p SessionPhase) ToProto() pb.SessionPhase {
+	switch p {
+	case PhaseIntroduction:
+		return pb.SessionPhase_PHASE_INTRODUCTION
+	case PhaseHandshakeRequested:
+		return pb.SessionPhase_PHASE_HANDSHAKE_REQUESTED
+	case PhaseHandshakeAccepted:
+		return pb.SessionPhase_PHASE_HANDSHAKE_ACCEPTED
+	case PhaseChallengeSent:
+		return pb.SessionPhase_PHASE_CHALLENGE_SENT
+	case PhaseChallengeVerified:
+		return pb.SessionPhase_PHASE_CHALLENGE_VERIFIED
+	case PhaseRatchetInitialized:
+		return pb.SessionPhase_PHASE_RATCHET_INITIALIZED
+	case PhaseEstablished:
+		return pb.SessionPhase_PHASE_ESTABLISHED
+	case PhaseClosed:
+		return pb.SessionPhase_PHASE_CLOSED
+	default:
+		return pb.SessionPhase_PHASE_INVALID
+	}
+}
+
+// PhaseFromProto converts a protobuf SessionPhase enum to the local type.
+func PhaseFromProto(p pb.SessionPhase) SessionPhase {
+	switch p {
+	case pb.SessionPhase_PHASE_INTRODUCTION:
+		return PhaseIntroduction
+	case pb.SessionPhase_PHASE_HANDSHAKE_REQUESTED:
+		return PhaseHandshakeRequested
+	case pb.SessionPhase_PHASE_HANDSHAKE_ACCEPTED:
+		return PhaseHandshakeAccepted
+	case pb.SessionPhase_PHASE_CHALLENGE_SENT:
+		return PhaseChallengeSent
+	case pb.SessionPhase_PHASE_CHALLENGE_VERIFIED:
+		return PhaseChallengeVerified
+	case pb.SessionPhase_PHASE_RATCHET_INITIALIZED:
+		return PhaseRatchetInitialized
+	case pb.SessionPhase_PHASE_ESTABLISHED:
+		return PhaseEstablished
+	case pb.SessionPhase_PHASE_CLOSED:
+		return PhaseClosed
+	default:
+		return PhaseInvalid
+	}
+}
+
+// plainTransport handles unencrypted message serialization and deserialization.
 type plainTransport struct {
 	conn    Conn
 	attest  attest.Attester
@@ -68,7 +160,7 @@ func (pt *plainTransport) serialize(
 		Signature: sig,
 		Metadata:  md,
 		Padding:   padding(maxPadding),
-		Route:     int64(route),
+		Route:     route.ToProto(),
 	}
 	payload, err := proto.Marshal(st)
 	if err != nil {
@@ -80,34 +172,62 @@ func (pt *plainTransport) serialize(
 
 func (pt *plainTransport) deserialize(
 	payload []byte, dst Transferable,
-) (*Metadata, error) {
+) (*Metadata, Route, error) {
 	var st pb.SignedTransport
 	if err := proto.Unmarshal(payload, &st); err != nil {
-		return nil, fmt.Errorf("unmarshalling transport: %w", err)
+		return nil, RouteInvalid, fmt.Errorf("unmarshalling transport: %w", err)
 	}
 
 	msg := st.GetData()
 	if ok := pt.id.Verify(pt.remote, msg, st.Signature); !ok {
-		return nil, ErrInvalidSignature
+		return nil, RouteInvalid, ErrInvalidSignature
 	}
 	if err := proto.Unmarshal(msg, dst); err != nil {
-		return nil, fmt.Errorf("unmarshalling message: %w", err)
+		return nil, RouteInvalid, fmt.Errorf("unmarshalling message: %w", err)
 	}
 
-	return &Metadata{st.GetMetadata()}, nil
+	route := RouteFromProto(st.GetRoute())
+	return &Metadata{st.GetMetadata()}, route, nil
 }
 
+// SessionState holds the current state of a session for potential resumption.
+type SessionState struct {
+	SessionID       string
+	Phase           SessionPhase
+	IsInitiator     bool
+	SendSequence    uint64
+	RecvSequence    uint64
+	SharedSecret    []byte
+	LocalSalt       []byte
+	RemoteSalt      []byte
+	RatchetState    []byte
+	RemotePublicKey []byte
+}
+
+// Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
 	*plainTransport
 	encoder *enigma.Enigma
 	decoder *enigma.Enigma
-	// ratchet is nil initially (before bootstrap/handshake) and only set after
-	// the handshake completes.
-	ratchet   *ratchet.Ratchet
-	mu        *sync.Mutex
-	sessionID string
 
+	// ratchet is nil initially and set after handshake completes.
+	ratchet *ratchet.Ratchet
+	mu      *sync.Mutex
+
+	sessionID        string
+	phase            SessionPhase
+	isInitiator      bool
 	ratchetThreshold uint64
+
+	// Sequence numbers for tracking message order
+	sendSequence uint64
+	recvSequence uint64
+
+	// State tracking for resumption
+	sharedSecret    []byte
+	localSalt       []byte
+	remoteSalt      []byte
+	remotePublicKey []byte
 }
 
 func newTransport(
@@ -123,40 +243,74 @@ func newTransport(
 		decoder:          decoder,
 		mu:               &sync.Mutex{},
 		ratchetThreshold: ratchetThreshold,
+		phase:            PhaseHandshakeAccepted,
 	}
 }
 
+// Receive reads and decrypts the next message from the connection.
+// It returns the metadata, the route of the received message, and any error.
 func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
+	md, _, err := t.ReceiveWithRoute(dst)
+	return md, err
+}
+
+// ReceiveWithRoute reads and decrypts the next message, returning both
+// the metadata and the route of the received message.
+func (t *Transport) ReceiveWithRoute(dst Transferable) (*Metadata, Route, error) {
 	payload, err := t.conn.ReadBytes()
 	switch {
 	case err == nil: // continue
 	case errors.Is(err, io.EOF):
-		return nil, ErrConnClosed
+		return nil, RouteInvalid, ErrConnClosed
 	default:
-		return nil, fmt.Errorf("reading payload: %w", err)
+		return nil, RouteInvalid, fmt.Errorf("reading payload: %w", err)
 	}
 
-	decrypted, err := decryptPayload(t, payload)
+	decrypted, err := t.decryptPayload(payload)
 	if err != nil {
-		return nil, fmt.Errorf("decrypting payload: %w", err)
+		return nil, RouteInvalid, fmt.Errorf("decrypting payload: %w", err)
 	}
 
-	metadata, err := t.deserialize(decrypted, dst)
+	metadata, route, err := t.deserialize(decrypted, dst)
 	if err != nil {
-		return nil, fmt.Errorf("deserializing: %w", err)
+		return nil, RouteInvalid, fmt.Errorf("deserializing: %w", err)
 	}
 
-	return metadata, nil
+	t.mu.Lock()
+	t.recvSequence++
+	t.mu.Unlock()
+
+	return metadata, route, nil
 }
 
-func (t *Transport) Send(
-	message Transferable, route Route,
+// ReceiveExpecting reads a message and validates that it matches the expected route.
+func (t *Transport) ReceiveExpecting(
+	dst Transferable, expected Route,
 ) (*Metadata, error) {
+	md, route, err := t.ReceiveWithRoute(dst)
+	if err != nil {
+		return nil, err
+	}
+	if route != expected {
+		return nil, fmt.Errorf(
+			"%w: expected %s, got %s",
+			ErrUnexpectedRoute, expected, route,
+		)
+	}
+	return md, nil
+}
+
+// Send encrypts and sends a message with the specified route.
+func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
+	if !route.IsValid() {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
+	}
+
 	payload, metadata, err := t.serialize(message, route)
 	if err != nil {
 		return nil, fmt.Errorf("serializing: %w", err)
 	}
-	encrypted, err := encryptPayload(t, payload)
+	encrypted, err := t.encryptPayload(payload)
 	if err != nil {
 		return nil, fmt.Errorf("encrypting payload: %w", err)
 	}
@@ -165,26 +319,105 @@ func (t *Transport) Send(
 		return nil, fmt.Errorf("writing: %w", err)
 	}
 
+	t.mu.Lock()
+	t.sendSequence++
+	t.mu.Unlock()
+
 	return metadata, nil
 }
 
+// SessionID returns the unique identifier for this session.
 func (t *Transport) SessionID() string { return t.sessionID }
-func (t *Transport) Close() error      { return t.conn.Close() }
-func (t *Transport) Store() *Storage   { return t.storage }
 
-func readSignedTransport(c Conn) (*pb.SignedTransport, error) {
+// Phase returns the current session phase.
+func (t *Transport) Phase() SessionPhase {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.phase
+}
+
+// SetPhase updates the session phase.
+func (t *Transport) SetPhase(phase SessionPhase) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.phase = phase
+}
+
+// IsEstablished returns true if the session is fully established.
+func (t *Transport) IsEstablished() bool {
+	return t.Phase() == PhaseEstablished
+}
+
+// Close closes the transport connection.
+func (t *Transport) Close() error {
+	t.SetPhase(PhaseClosed)
+	return t.conn.Close()
+}
+
+// Store returns the storage associated with this transport.
+func (t *Transport) Store() *Storage { return t.storage }
+
+// State returns the current session state for potential resumption.
+func (t *Transport) State() *SessionState {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return &SessionState{
+		SessionID:       t.sessionID,
+		Phase:           t.phase,
+		IsInitiator:     t.isInitiator,
+		SendSequence:    t.sendSequence,
+		RecvSequence:    t.recvSequence,
+		SharedSecret:    t.sharedSecret,
+		LocalSalt:       t.localSalt,
+		RemoteSalt:      t.remoteSalt,
+		RemotePublicKey: t.remotePublicKey,
+	}
+}
+
+// RemotePublicKey returns the remote peer's public key.
+func (t *Transport) RemotePublicKey() []byte {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.remotePublicKey
+}
+
+// SetRemotePublicKey sets the remote peer's public key for session tracking.
+func (t *Transport) SetRemotePublicKey(key []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.remotePublicKey = key
+}
+
+// SetInitiator marks whether this transport is the initiator.
+func (t *Transport) SetInitiator(isInitiator bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.isInitiator = isInitiator
+}
+
+// SetSecrets stores the cryptographic secrets for potential session resumption.
+func (t *Transport) SetSecrets(sharedSecret, localSalt, remoteSalt []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.sharedSecret = sharedSecret
+	t.localSalt = localSalt
+	t.remoteSalt = remoteSalt
+}
+
+func readSignedTransport(c Conn) (*pb.SignedTransport, Route, error) {
 	payload, err := c.ReadBytes()
 	if err != nil {
-		return nil, fmt.Errorf("reading payload: %w", err)
+		return nil, RouteInvalid, fmt.Errorf("reading payload: %w", err)
 	}
 	var st pb.SignedTransport
 	if err := proto.Unmarshal(payload, &st); err != nil {
-		return nil, fmt.Errorf("unmarshalling transport: %w", err)
+		return nil, RouteInvalid, fmt.Errorf("unmarshalling transport: %w", err)
 	}
-	return &st, nil
+	return &st, RouteFromProto(st.GetRoute()), nil
 }
 
-func decryptPayload(t *Transport, payload []byte) ([]byte, error) {
+func (t *Transport) decryptPayload(payload []byte) ([]byte, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -214,7 +447,7 @@ func decryptPayload(t *Transport, payload []byte) ([]byte, error) {
 	return decrypted, nil
 }
 
-func encryptPayload(t *Transport, payload []byte) ([]byte, error) {
+func (t *Transport) encryptPayload(payload []byte) ([]byte, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -222,13 +455,10 @@ func encryptPayload(t *Transport, payload []byte) ([]byte, error) {
 		return t.encoder.Encrypt(payload), nil
 	}
 
-	// Snapshot send counter before possible ratchet step (number of messages in
-	// previous chain)
+	// Snapshot send counter before possible ratchet step
 	pn := t.ratchet.Sent()
 
-	// If we have reached the threshold, initiate a new DH ratchet before
-	// encrypting so the receiver will update its DH state prior to
-	// attempting decryption (the receiver processes Dh before decrypt).
+	// If threshold reached, initiate a new DH ratchet
 	var pub []byte
 	var err error
 	if pn >= t.ratchetThreshold {

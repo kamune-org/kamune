@@ -32,20 +32,57 @@ type (
 	HandlerFunc    func(t *Transport) error
 )
 
+// Transferable is the interface for messages that can be sent over a transport.
 type Transferable interface {
 	proto.Message
 }
 
+// Bytes creates a BytesValue wrapper for sending raw bytes.
 func Bytes(b []byte) *wrapperspb.BytesValue {
 	return &wrapperspb.BytesValue{Value: b}
 }
 
+// Metadata contains metadata about a received message.
 type Metadata struct {
 	pb *pb.Metadata
 }
 
+// ID returns the unique message ID.
 func (m Metadata) ID() string { return m.pb.GetID() }
 
+// Timestamp returns the time the message was sent.
 func (m Metadata) Timestamp() time.Time { return m.pb.Timestamp.AsTime() }
 
+// SequenceNum returns the message sequence number.
 func (m Metadata) SequenceNum() uint64 { return m.pb.GetSequence() }
+
+// protoMarshal marshals a protobuf message to bytes.
+func protoMarshal(msg Transferable) ([]byte, error) {
+	return proto.Marshal(msg)
+}
+
+// protoUnmarshal unmarshals bytes into a protobuf message.
+func protoUnmarshal(data []byte, msg Transferable) error {
+	return proto.Unmarshal(data, msg)
+}
+
+// ResumptionConfig contains configuration for session resumption.
+type ResumptionConfig struct {
+	// Enabled controls whether session resumption is enabled.
+	Enabled bool
+
+	// MaxSessionAge is the maximum age of a session that can be resumed.
+	MaxSessionAge time.Duration
+
+	// PersistSessions controls whether sessions are persisted to storage.
+	PersistSessions bool
+}
+
+// DefaultResumptionConfig returns the default resumption configuration.
+func DefaultResumptionConfig() ResumptionConfig {
+	return ResumptionConfig{
+		Enabled:         true,
+		MaxSessionAge:   24 * time.Hour,
+		PersistSessions: true,
+	}
+}

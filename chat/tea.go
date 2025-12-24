@@ -107,7 +107,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case tea.KeyEnter:
 			text := m.textarea.Value()
-			metadata, err := m.transport.Send(kamune.Bytes([]byte(text)))
+			metadata, err := m.transport.Send(
+				kamune.Bytes([]byte(text)), kamune.RouteExchangeMessages,
+			)
 			if err != nil {
 				m.err = err
 				return m, tiCmd

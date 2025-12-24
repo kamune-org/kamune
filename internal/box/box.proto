@@ -1,15 +1,43 @@
 syntax = "proto3";
 package box;
-option go_package = "./pb";
 
 import "google/protobuf/timestamp.proto";
+
+option go_package = "./pb";
+
+enum Route {
+  ROUTE_INVALID = 0;
+  ROUTE_IDENTITY = 1;
+  ROUTE_REQUEST_HANDSHAKE = 2;
+  ROUTE_ACCEPT_HANDSHAKE = 3;
+  ROUTE_FINALIZE_HANDSHAKE = 4;
+  ROUTE_SEND_CHALLENGE = 5;
+  ROUTE_VERIFY_CHALLENGE = 6;
+  ROUTE_INITIALIZE_DOUBLE_RATCHET = 7;
+  ROUTE_CONFIRM_DOUBLE_RATCHET = 8;
+  ROUTE_EXCHANGE_MESSAGES = 9;
+  ROUTE_CLOSE_TRANSPORT = 10;
+  ROUTE_RECONNECT = 11;
+}
+
+enum SessionPhase {
+  PHASE_INVALID = 0;
+  PHASE_INTRODUCTION = 1;
+  PHASE_HANDSHAKE_REQUESTED = 2;
+  PHASE_HANDSHAKE_ACCEPTED = 3;
+  PHASE_CHALLENGE_SENT = 4;
+  PHASE_CHALLENGE_VERIFIED = 5;
+  PHASE_RATCHET_INITIALIZED = 6;
+  PHASE_ESTABLISHED = 7;
+  PHASE_CLOSED = 8;
+}
 
 message SignedTransport {
   bytes Data = 1;
   bytes Signature = 2;
   Metadata Metadata = 3;
   bytes Padding = 4;
-  int64 Route = 5;
+  Route Route = 5;
 }
 
 message Metadata {
@@ -20,7 +48,81 @@ message Metadata {
 
 message Ratchet {
   optional bytes dh = 1; // New DH public key (32 bytes)
-  uint64 pn = 2;         // Previous chain message count
-  uint64 ns = 3;         // Current message number in send chain
-  bytes ciphertext = 4;  // Ciphertext: Encrypted(SignedTransport)
+  uint64 pn = 2; // Previous chain message count
+  uint64 ns = 3; // Current message number in send chain
+  bytes ciphertext = 4; // Ciphertext: Encrypted(SignedTransport)
+}
+
+message SessionState {
+  string session_id = 1;
+  SessionPhase phase = 2;
+  bytes shared_secret = 3;
+  bytes local_salt = 4;
+  bytes remote_salt = 5;
+  bytes remote_public_key = 6;
+  bytes ratchet_state = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  bool is_initiator = 10;
+  uint64 send_sequence = 11;
+  uint64 recv_sequence = 12;
+  bytes local_public_key = 13;
+  bytes ratchet_public_key = 14;
+  bytes ratchet_private_key = 15;
+}
+
+// ReconnectRequest is sent by a client to request session resumption.
+// The server uses the remote_public_key to look up the existing session.
+message ReconnectRequest {
+  string session_id = 1;
+  SessionPhase last_phase = 2;
+  uint64 last_send_sequence = 3;
+  uint64 last_recv_sequence = 4;
+  bytes remote_public_key = 5; // Client's public key for identification
+  bytes resume_challenge = 6; // Random challenge for verification
+}
+
+// ReconnectResponse is sent by the server in response to a reconnection request.
+message ReconnectResponse {
+  bool accepted = 1;
+  SessionPhase resume_from_phase = 2;
+  string error_message = 3;
+  bytes challenge_response = 4; // Server's response to the challenge
+  bytes server_challenge = 5; // Server's challenge for client verification
+  uint64 server_send_sequence = 6; // Server's last send sequence
+  uint64 server_recv_sequence = 7; // Server's last recv sequence
+}
+
+// ReconnectVerify is sent by the client to verify the reconnection.
+message ReconnectVerify {
+  bytes challenge_response = 1; // Client's response to server's challenge
+  bool verified = 2; // Whether client verified the server
+}
+
+// ReconnectComplete is sent by the server to finalize the reconnection.
+message ReconnectComplete {
+  bool success = 1;
+
+  string error_message = 2;
+  uint64 resume_send_sequence = 3; // Agreed upon send sequence to resume from
+  uint64 resume_recv_sequence = 4; // Agreed upon recv sequence to resume from
+}
+
+// ResumeHandshake is used to resume an interrupted handshake.
+message ResumeHandshake {
+  bytes remote_public_key = 1; // Peer's public key for identification
+  SessionPhase last_phase = 2; // Last completed phase
+  string session_id = 3; // Session ID if already established
+  bytes salt = 4; // Salt from the interrupted handshake
+  bytes challenge = 5; // Challenge for verification
+}
+
+// ResumeHandshakeResponse is the response to a handshake resumption request.
+message ResumeHandshakeResponse {
+  bool can_resume = 1; // Whether resumption is possible
+  SessionPhase resume_from = 2; // Phase to resume from
+  string error_message = 3; // Error if resumption is not possible
+  bytes salt = 4; // Server's salt
+  bytes challenge_response = 5; // Response to client's challenge
+  bytes server_challenge = 6; // Server's challenge
 }

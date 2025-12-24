@@ -16,7 +16,7 @@ import (
 
 func defaultRemoteVerifier(store *Storage, peer *Peer) error {
 	key := peer.PublicKey.Marshal()
-	fmt.Printf("Recevied a connection request from %q.\n", peer.Name)
+	fmt.Printf("Received a connection request from %q.\n", peer.Name)
 	fmt.Printf(
 		"Their emoji fingerprint: %s\nHex fingerprint: %s\n",
 		strings.Join(fingerprint.Emoji(key), " • "),
@@ -57,6 +57,8 @@ func defaultRemoteVerifier(store *Storage, peer *Peer) error {
 	return nil
 }
 
+// sendIntroduction sends an identity introduction message to the peer.
+// This is the first message exchanged in a new connection.
 func sendIntroduction(
 	conn Conn, name string, at attest.Attester, a attest.Algorithm,
 ) error {
@@ -79,6 +81,7 @@ func sendIntroduction(
 		Signature: sig,
 		Metadata:  nil,
 		Padding:   padding(maxPadding),
+		Route:     RouteIdentity.ToProto(),
 	}
 	payload, err := proto.Marshal(st)
 	if err != nil {
@@ -92,7 +95,18 @@ func sendIntroduction(
 	return nil
 }
 
+// receiveIntroduction parses an introduction message from a signed transport.
+// It validates the signature and extracts the peer's identity information.
 func receiveIntroduction(st *pb.SignedTransport) (*Peer, error) {
+	// Validate route
+	route := RouteFromProto(st.GetRoute())
+	if route != RouteIdentity {
+		return nil, fmt.Errorf(
+			"%w: expected %s, got %s",
+			ErrUnexpectedRoute, RouteIdentity, route,
+		)
+	}
+
 	var introduce pb.Introduce
 	err := proto.Unmarshal(st.GetData(), &introduce)
 	if err != nil {
@@ -116,4 +130,20 @@ func receiveIntroduction(st *pb.SignedTransport) (*Peer, error) {
 	}
 
 	return &Peer{Name: introduce.Name, Algorithm: a, PublicKey: remote}, nil
+}
+
+// receiveIntroductionWithRoute reads and parses an introduction from the
+// connection, also returning the route for validation.
+func receiveIntroductionWithRoute(conn Conn) (*Peer, Route, error) {
+	st, route, err := readSignedTransport(conn)
+	if err != nil {
+		return nil, RouteInvalid, fmt.Errorf("reading transport: %w", err)
+	}
+
+	peer, err := receiveIntroduction(st)
+	if err != nil {
+		return nil, route, err
+	}
+
+	return peer, route, nil
 }
