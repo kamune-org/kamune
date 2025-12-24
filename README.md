@@ -45,21 +45,21 @@ removal.
   - [ ] QUIC, WebRTC, or others? *
 - [x] Better timeout and deadline management
 - [x] Double Ratchet
-- [ ] Routes and session reconnection
+- [x] Routes and session reconnection
 - [x] Relay server
   - [x] IP discovery
-  - [ ] Message conveying *
-  - [ ] Queue persistence *
-- [ ] Handling remotes, connection retries, and session management
+  - [ ] Message conveying
+  - [ ] Queue persistence
+- [x] Handling remotes, connection retries, and session management
   - [x] QR code generation
   - [x] Peer name
-  - [ ] Remote's public key expiration
+  - [x] Remote's public key expiration
   - [ ] Key rotation *
+- [x] Saving and restoring chat history
+- [x] Daemon server
+- [x] Native clients via Tauri and Svelte
 - [ ] Messaging Layer Security (MLS) and group chats *
 - [ ] Provide NAT traversal and/or hole punching strategies *
-- [x] Saving and restoring chat history *
-- [ ] Considering FFI or an intermediary server for non-Go clients *
-- [ ] Native and/or web clients *
 - [ ] Replace Protobuf with a custom encoding\decoding protocol *
 
 ## How does it work?

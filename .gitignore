@@ -2,3 +2,4 @@
 *.db
 .DS_STORE
 __debug*
+binaries
