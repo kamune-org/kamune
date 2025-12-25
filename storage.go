@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -39,6 +40,14 @@ type ChatEntry struct {
 type PassphraseHandler func() ([]byte, error)
 
 func defaultPassphraseHandler() ([]byte, error) {
+	// Prefer environment variable to avoid stdin prompts in GUI/daemon contexts.
+	// NOTE: Passing secrets via env vars has security tradeoffs; prefer OS keychain
+	// integration long-term.
+	if envPass := os.Getenv("KAMUNE_DB_PASSPHRASE"); envPass != "" {
+		return []byte(envPass), nil
+	}
+
+	// Backward-compatible fallback for CLI usage.
 	fmt.Println("Enter passphrase:")
 	pass, err := term.ReadPassword(0)
 	if err != nil {
@@ -66,17 +75,25 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	}
 
 	if s.dbPath == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("getting user's home directory: %w", err)
+		// Check for KAMUNE_DB_PATH environment variable first
+		if envPath := os.Getenv("KAMUNE_DB_PATH"); envPath != "" {
+			s.dbPath = envPath
+		} else {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, fmt.Errorf("getting user's home directory: %w", err)
+			}
+			s.dbPath = filepath.Join(home, ".config", "kamune", "db")
 		}
-		path := filepath.Join(home, ".config", "kamune")
-		err = os.MkdirAll(path, 0740)
-		if err != nil {
-			return nil, fmt.Errorf("creating config directory: %w", err)
-		}
-		s.dbPath = filepath.Join(path, "db")
 	}
+
+	// Ensure the parent directory exists
+	dir := filepath.Dir(s.dbPath)
+	if err := os.MkdirAll(dir, 0740); err != nil {
+		return nil, fmt.Errorf("creating database directory %s: %w", dir, err)
+	}
+
+	slog.Info("opening kamune storage", slog.String("db_path", s.dbPath))
 
 	pass, err := s.passphraseHandler()
 	if err != nil {
