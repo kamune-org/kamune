@@ -97,10 +97,10 @@ func TestTruncateSessionID(t *testing.T) {
 	}{
 		{"short", "short"},
 		{"exactly12ch", "exactly12ch"},
-		{"thisisalongersessionid", "thisisalonge..."},
+		{"thisisalongersessionid", "thisisalonge…"},
 		{"", ""},
 		{"123456789012", "123456789012"},
-		{"1234567890123", "123456789012..."},
+		{"1234567890123", "123456789012…"},
 	}
 
 	for _, tc := range tests {

@@ -21,16 +21,26 @@ func main() {
 		defer func() { _ = logger.Close() }()
 	}
 
+	logger.Info("Kamune Chat starting...")
+
 	a := app.NewWithID("org.kamune.chat-gui")
 	a.Settings().SetTheme(&chatTheme{})
 
 	w := a.NewWindow("Kamune Chat")
-	w.Resize(fyne.NewSize(900, 600))
+	w.Resize(fyne.NewSize(950, 650))
 	w.SetMaster()
 
 	chatApp := NewChatApp(a, w)
 	w.SetContent(chatApp.BuildUI())
 
+	// Handle window close to cleanup properly
+	w.SetCloseIntercept(func() {
+		logger.Info("Window close requested, cleaning up...")
+		chatApp.cleanup()
+		w.Close()
+	})
+
+	logger.Info("Kamune Chat started successfully")
 	w.ShowAndRun()
 }
 
@@ -40,25 +50,65 @@ type chatTheme struct{}
 func (t *chatTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	switch name {
 	case theme.ColorNameBackground:
-		return color.RGBA{R: 0x1a, G: 0x1a, B: 0x2e, A: 0xff}
+		// Deep dark blue-gray background
+		return color.RGBA{R: 0x0f, G: 0x11, B: 0x1a, A: 0xff}
 	case theme.ColorNameButton:
-		return color.RGBA{R: 0x16, G: 0x21, B: 0x3e, A: 0xff}
+		// Slightly lighter surface for buttons
+		return color.RGBA{R: 0x1e, G: 0x22, B: 0x30, A: 0xff}
 	case theme.ColorNamePrimary:
-		return color.RGBA{R: 0x0f, G: 0x6f, B: 0xff, A: 0xff}
+		// Vibrant blue accent
+		return color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0xff}
 	case theme.ColorNameForeground:
-		return color.RGBA{R: 0xea, G: 0xea, B: 0xea, A: 0xff}
+		// Off-white text for better readability
+		return color.RGBA{R: 0xf1, G: 0xf5, B: 0xf9, A: 0xff}
 	case theme.ColorNameInputBackground:
-		return color.RGBA{R: 0x16, G: 0x21, B: 0x3e, A: 0xff}
+		// Dark input fields
+		return color.RGBA{R: 0x1e, G: 0x22, B: 0x30, A: 0xff}
 	case theme.ColorNamePlaceHolder:
-		return color.RGBA{R: 0x6b, G: 0x6b, B: 0x8d, A: 0xff}
+		// Muted placeholder text
+		return color.RGBA{R: 0x64, G: 0x74, B: 0x8b, A: 0xff}
 	case theme.ColorNameSeparator:
-		return color.RGBA{R: 0x2d, G: 0x2d, B: 0x4a, A: 0xff}
+		// Subtle separators
+		return color.RGBA{R: 0x33, G: 0x3a, B: 0x4d, A: 0xff}
 	case theme.ColorNameDisabled:
-		return color.RGBA{R: 0x4a, G: 0x4a, B: 0x6a, A: 0xff}
+		// Disabled elements
+		return color.RGBA{R: 0x47, G: 0x53, B: 0x69, A: 0xff}
 	case theme.ColorNameScrollBar:
-		return color.RGBA{R: 0x3d, G: 0x3d, B: 0x5c, A: 0xff}
+		// Visible but unobtrusive scrollbar
+		return color.RGBA{R: 0x47, G: 0x53, B: 0x69, A: 0xff}
 	case theme.ColorNameShadow:
-		return color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x66}
+		// Soft shadows
+		return color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x55}
+	case theme.ColorNameHover:
+		// Hover state
+		return color.RGBA{R: 0x2d, G: 0x33, B: 0x48, A: 0xff}
+	case theme.ColorNameFocus:
+		// Focus ring - same as primary but slightly transparent
+		return color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0xcc}
+	case theme.ColorNameSelection:
+		// Text selection
+		return color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0x66}
+	case theme.ColorNameSuccess:
+		// Green for success states
+		return color.RGBA{R: 0x22, G: 0xc5, B: 0x5e, A: 0xff}
+	case theme.ColorNameWarning:
+		// Amber for warnings
+		return color.RGBA{R: 0xf5, G: 0xa6, B: 0x23, A: 0xff}
+	case theme.ColorNameError:
+		// Red for errors
+		return color.RGBA{R: 0xef, G: 0x44, B: 0x44, A: 0xff}
+	case theme.ColorNameInputBorder:
+		// Input border color
+		return color.RGBA{R: 0x3d, G: 0x45, B: 0x5c, A: 0xff}
+	case theme.ColorNameMenuBackground:
+		// Menu background
+		return color.RGBA{R: 0x1a, G: 0x1e, B: 0x2c, A: 0xf0}
+	case theme.ColorNameOverlayBackground:
+		// Dialog/overlay background
+		return color.RGBA{R: 0x1a, G: 0x1e, B: 0x2c, A: 0xf5}
+	case theme.ColorNameHeaderBackground:
+		// Header areas
+		return color.RGBA{R: 0x16, G: 0x1a, B: 0x26, A: 0xff}
 	}
 	return theme.DefaultTheme().Color(name, variant)
 }
@@ -76,11 +126,25 @@ func (t *chatTheme) Size(name fyne.ThemeSizeName) float32 {
 	case theme.SizeNamePadding:
 		return 6
 	case theme.SizeNameInnerPadding:
-		return 8
+		return 10
 	case theme.SizeNameText:
 		return 14
+	case theme.SizeNameHeadingText:
+		return 18
+	case theme.SizeNameSubHeadingText:
+		return 16
+	case theme.SizeNameCaptionText:
+		return 11
 	case theme.SizeNameInputBorder:
 		return 1
+	case theme.SizeNameScrollBar:
+		return 10
+	case theme.SizeNameScrollBarSmall:
+		return 4
+	case theme.SizeNameSeparatorThickness:
+		return 1
+	case theme.SizeNameLineSpacing:
+		return 4
 	}
 	return theme.DefaultTheme().Size(name)
 }

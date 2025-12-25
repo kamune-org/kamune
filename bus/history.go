@@ -21,6 +21,14 @@ type HistoryEntry struct {
 	IsLocal   bool
 }
 
+// SessionInfo holds metadata about a session for display
+type SessionInfo struct {
+	ID           string
+	MessageCount int
+	FirstMessage time.Time
+	LastMessage  time.Time
+}
+
 // HistoryViewer provides functionality to browse and display chat history
 type HistoryViewer struct {
 	window  fyne.Window
@@ -47,21 +55,163 @@ func (h *HistoryViewer) ShowHistoryDialog() {
 	dbEntry.SetPlaceHolder("Path to database file")
 	dbEntry.SetText("./client.db")
 
-	sessionEntry := widget.NewEntry()
-	sessionEntry.SetPlaceHolder("Session ID")
+	// Session selection - will be populated when database is loaded
+	sessionSelect := widget.NewSelect([]string{}, nil)
+	sessionSelect.PlaceHolder = "Load database first..."
+	sessionSelect.Disable()
 
-	form := widget.NewForm(
-		widget.NewFormItem("Database Path", dbEntry),
-		widget.NewFormItem("Session ID", sessionEntry),
+	var sessions []SessionInfo
+	var selectedSessionID string
+
+	// Load sessions button
+	loadSessionsBtn := widget.NewButtonWithIcon("Load Sessions", theme.FolderOpenIcon(), func() {
+		loadedSessions, err := h.ListSessionsWithInfo(dbEntry.Text)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("failed to load sessions: %w", err), h.parent)
+			return
+		}
+
+		if len(loadedSessions) == 0 {
+			dialog.ShowInformation("No Sessions", "No chat sessions found in this database.", h.parent)
+			sessionSelect.SetOptions([]string{})
+			sessionSelect.Disable()
+			return
+		}
+
+		sessions = loadedSessions
+		options := make([]string, len(sessions))
+		for i, s := range sessions {
+			// Format: truncated ID + message count + last activity
+			displayID := s.ID
+			if len(displayID) > 20 {
+				displayID = displayID[:20] + "..."
+			}
+			options[i] = fmt.Sprintf("%s (%d msgs)", displayID, s.MessageCount)
+		}
+		sessionSelect.SetOptions(options)
+		sessionSelect.Enable()
+		if len(options) > 0 {
+			sessionSelect.SetSelectedIndex(0)
+		}
+	})
+
+	// Session info label
+	infoLabel := widget.NewLabel("")
+	infoLabel.Wrapping = fyne.TextWrapWord
+	infoLabel.Importance = widget.LowImportance
+
+	// Update info when selection changes
+	sessionSelect.OnChanged = func(s string) {
+		for i, opt := range sessionSelect.Options {
+			if opt == s && i < len(sessions) {
+				selectedSessionID = sessions[i].ID
+				session := sessions[i]
+				if !session.FirstMessage.IsZero() {
+					infoLabel.SetText(fmt.Sprintf(
+						"Full ID: %s\nFirst message: %s\nLast message: %s",
+						session.ID,
+						session.FirstMessage.Format("2006-01-02 15:04:05"),
+						session.LastMessage.Format("2006-01-02 15:04:05"),
+					))
+				} else {
+					infoLabel.SetText(fmt.Sprintf("Full ID: %s", session.ID))
+				}
+				break
+			}
+		}
+	}
+
+	// Copy session ID button
+	copyIDBtn := widget.NewButtonWithIcon("Copy Session ID", theme.ContentCopyIcon(), func() {
+		if selectedSessionID != "" {
+			h.app.Clipboard().SetContent(selectedSessionID)
+			dialog.ShowInformation("Copied", "Session ID copied to clipboard", h.parent)
+		}
+	})
+
+	// Manual entry option
+	manualEntry := widget.NewEntry()
+	manualEntry.SetPlaceHolder("Or enter session ID manually...")
+
+	// Form layout
+	dbRow := container.NewBorder(nil, nil, nil, loadSessionsBtn, dbEntry)
+
+	content := container.NewVBox(
+		widget.NewLabel("Database Path:"),
+		dbRow,
+		widget.NewSeparator(),
+		widget.NewLabel("Select Session:"),
+		sessionSelect,
+		copyIDBtn,
+		widget.NewSeparator(),
+		infoLabel,
+		widget.NewSeparator(),
+		widget.NewLabel("Manual Entry (optional):"),
+		manualEntry,
 	)
 
-	d := dialog.NewCustomConfirm("View Chat History", "Load", "Cancel", form, func(confirmed bool) {
-		if confirmed && sessionEntry.Text != "" {
-			h.loadAndShowHistory(dbEntry.Text, sessionEntry.Text)
+	d := dialog.NewCustomConfirm("View Chat History", "View History", "Cancel", content, func(confirmed bool) {
+		if !confirmed {
+			return
 		}
+
+		// Prefer manual entry if provided, otherwise use selected
+		sessionID := manualEntry.Text
+		if sessionID == "" {
+			sessionID = selectedSessionID
+		}
+
+		if sessionID == "" {
+			dialog.ShowError(fmt.Errorf("please select or enter a session ID"), h.parent)
+			return
+		}
+
+		h.loadAndShowHistory(dbEntry.Text, sessionID)
 	}, h.parent)
-	d.Resize(fyne.NewSize(450, 200))
+	d.Resize(fyne.NewSize(500, 400))
 	d.Show()
+}
+
+// ListSessionsWithInfo returns a list of sessions with metadata from a database
+func (h *HistoryViewer) ListSessionsWithInfo(dbPath string) ([]SessionInfo, error) {
+	// Open storage to get session list
+	storage, err := kamune.OpenStorage(
+		kamune.StorageWithDBPath(dbPath),
+		kamune.StorageWithNoPassphrase(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("opening database: %w", err)
+	}
+	defer func() {
+		_ = storage.Close()
+	}()
+
+	// Use kamune's ListSessions method
+	sessionIDs, err := storage.ListSessions()
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions: %w", err)
+	}
+
+	if len(sessionIDs) == 0 {
+		return []SessionInfo{}, nil
+	}
+
+	sessions := make([]SessionInfo, 0, len(sessionIDs))
+	for _, id := range sessionIDs {
+		info := SessionInfo{ID: id}
+
+		// Try to get message count and timestamps
+		entries, err := storage.GetChatHistory(id)
+		if err == nil && len(entries) > 0 {
+			info.MessageCount = len(entries)
+			info.FirstMessage = entries[0].Timestamp
+			info.LastMessage = entries[len(entries)-1].Timestamp
+		}
+
+		sessions = append(sessions, info)
+	}
+
+	return sessions, nil
 }
 
 // loadAndShowHistory loads history from the database and displays it in a new window
@@ -123,17 +273,23 @@ func (h *HistoryViewer) showHistoryWindow(sessionID string) {
 	h.window = h.app.NewWindow(fmt.Sprintf("Chat History - %s", truncateID(sessionID, 20)))
 	h.window.Resize(fyne.NewSize(600, 500))
 
-	// Header with session info
+	// Header with session info and copy button
 	headerLabel := widget.NewLabelWithStyle(
-		fmt.Sprintf("Session: %s", sessionID),
+		fmt.Sprintf("Session: %s", truncateID(sessionID, 40)),
 		fyne.TextAlignLeading,
 		fyne.TextStyle{Bold: true},
 	)
 
+	copyIDBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
+		h.app.Clipboard().SetContent(sessionID)
+		dialog.ShowInformation("Copied", "Session ID copied to clipboard", h.window)
+	})
+	copyIDBtn.Importance = widget.LowImportance
+
 	countLabel := widget.NewLabel(fmt.Sprintf("%d messages", len(h.entries)))
 	countLabel.Alignment = fyne.TextAlignTrailing
 
-	header := container.NewBorder(nil, nil, headerLabel, countLabel)
+	header := container.NewBorder(nil, nil, container.NewHBox(headerLabel, copyIDBtn), countLabel)
 
 	// Create message list
 	h.list = widget.NewList(
@@ -327,22 +483,16 @@ func truncateID(id string, maxLen int) string {
 	return id[:maxLen] + "..."
 }
 
-// ListSessions shows available sessions in a database
+// ListSessions shows available sessions in a database (deprecated - use ListSessionsWithInfo)
 func (h *HistoryViewer) ListSessions(dbPath string) ([]string, error) {
-	storage, err := kamune.OpenStorage(
-		kamune.StorageWithDBPath(dbPath),
-		kamune.StorageWithNoPassphrase(),
-	)
+	sessions, err := h.ListSessionsWithInfo(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("opening database: %w", err)
+		return nil, err
 	}
-	defer func() {
-		// Best-effort cleanup: explicitly ignore close errors here (no UI/logging available in this helper).
-		_ = storage.Close()
-	}()
 
-	// Note: This would require additional method in kamune storage
-	// For now, we'll return an empty list as a placeholder
-	// The user would need to know the session ID
-	return []string{}, nil
+	ids := make([]string, len(sessions))
+	for i, s := range sessions {
+		ids[i] = s.ID
+	}
+	return ids, nil
 }

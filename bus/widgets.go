@@ -6,16 +6,37 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	"github.com/kamune-org/kamune/bus/logger"
 )
 
-// Color constants for message bubbles
+// Enhanced color palette for modern chat look
 var (
-	localBubbleColor = color.RGBA{R: 0x0f, G: 0x6f, B: 0xff, A: 0x33}
-	peerBubbleColor  = color.RGBA{R: 0xff, G: 0xa5, B: 0x00, A: 0x22}
-	localTextColor   = color.RGBA{R: 0x7a, G: 0xb8, B: 0xff, A: 0xff}
-	peerTextColor    = color.RGBA{R: 0xff, G: 0xc1, B: 0x66, A: 0xff}
+	// Message bubble colors
+	localBubbleColor = color.RGBA{R: 0x1e, G: 0x40, B: 0x8f, A: 0xcc} // Deeper blue
+	peerBubbleColor  = color.RGBA{R: 0x8f, G: 0x45, B: 0x25, A: 0xcc} // Warm amber
+	localTextColor   = color.White
+	peerTextColor    = color.White
+
+	// Status colors
+	statusConnectedColor    = color.RGBA{R: 0x22, G: 0xc5, B: 0x5e, A: 0xff} // Green
+	statusConnectingColor   = color.RGBA{R: 0xf5, G: 0xa6, B: 0x23, A: 0xff} // Amber
+	statusDisconnectedColor = color.RGBA{R: 0x6b, G: 0x72, B: 0x80, A: 0xff} // Gray
+	statusErrorColor        = color.RGBA{R: 0xef, G: 0x44, B: 0x44, A: 0xff} // Red
+
+	// UI accent colors
+	accentPrimary   = color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0xff} // Blue
+	accentSecondary = color.RGBA{R: 0x8b, G: 0x5c, B: 0xf6, A: 0xff} // Purple
+	surfaceColor    = color.RGBA{R: 0x1f, G: 0x25, B: 0x37, A: 0xff} // Dark surface
+
+	// Log level colors
+	logInfoColor  = color.RGBA{R: 0x60, G: 0xa5, B: 0xfa, A: 0xff} // Light blue
+	logWarnColor  = color.RGBA{R: 0xfb, G: 0xbf, B: 0x24, A: 0xff} // Yellow
+	logErrorColor = color.RGBA{R: 0xf8, G: 0x71, B: 0x71, A: 0xff} // Light red
+	logDebugColor = color.RGBA{R: 0x9c, G: 0xa3, B: 0xaf, A: 0xff} // Gray
 )
 
 // StyledMessageBubble is an enhanced message widget with background styling
@@ -24,6 +45,7 @@ type StyledMessageBubble struct {
 	text      string
 	timestamp time.Time
 	isLocal   bool
+	onCopy    func(string) // Callback for copy action
 }
 
 // NewStyledMessageBubble creates a new styled message bubble
@@ -43,20 +65,25 @@ func (m *StyledMessageBubble) Update(text string, timestamp time.Time, isLocal b
 	m.timestamp = timestamp
 	m.isLocal = isLocal
 
-	// Ensure UI refresh happens on the Fyne UI thread.
 	fyne.Do(func() {
 		m.Refresh()
 	})
 }
 
+// SetOnCopy sets the copy callback
+func (m *StyledMessageBubble) SetOnCopy(fn func(string)) {
+	m.onCopy = fn
+}
+
 // CreateRenderer implements fyne.Widget
 func (m *StyledMessageBubble) CreateRenderer() fyne.WidgetRenderer {
 	background := canvas.NewRectangle(localBubbleColor)
-	background.CornerRadius = 8
+	background.CornerRadius = 12
+	background.StrokeWidth = 0
 
 	senderLabel := canvas.NewText("You", localTextColor)
 	senderLabel.TextStyle = fyne.TextStyle{Bold: true}
-	senderLabel.TextSize = 12
+	senderLabel.TextSize = 11
 
 	timeLabel := canvas.NewText("", theme.Color(theme.ColorNamePlaceHolder))
 	timeLabel.TextSize = 10
@@ -83,24 +110,20 @@ type styledBubbleRenderer struct {
 }
 
 func (r *styledBubbleRenderer) Layout(size fyne.Size) {
-	padding := float32(12)
-	headerHeight := float32(18)
+	padding := float32(14)
+	headerHeight := float32(16)
 
-	// Background fills the entire bubble
 	r.background.Resize(size)
 	r.background.Move(fyne.NewPos(0, 0))
 
-	// Sender label at top left
 	r.senderLabel.Move(fyne.NewPos(padding, padding))
 	r.senderLabel.Resize(fyne.NewSize(100, headerHeight))
 
-	// Time label at top right
-	timeWidth := float32(50)
+	timeWidth := float32(60)
 	r.timeLabel.Move(fyne.NewPos(size.Width-timeWidth-padding, padding))
 	r.timeLabel.Resize(fyne.NewSize(timeWidth, headerHeight))
 
-	// Message text below header
-	msgTop := padding + headerHeight + 4
+	msgTop := padding + headerHeight + 6
 	r.msgLabel.Move(fyne.NewPos(padding, msgTop))
 	r.msgLabel.Resize(fyne.NewSize(size.Width-padding*2, size.Height-msgTop-padding))
 }
@@ -108,14 +131,12 @@ func (r *styledBubbleRenderer) Layout(size fyne.Size) {
 func (r *styledBubbleRenderer) MinSize() fyne.Size {
 	textMin := r.msgLabel.MinSize()
 	return fyne.NewSize(
-		fyne.Max(textMin.Width+24, 200),
-		fyne.Max(textMin.Height+50, 70),
+		fyne.Max(textMin.Width+28, 220),
+		fyne.Max(textMin.Height+56, 72),
 	)
 }
 
 func (r *styledBubbleRenderer) Refresh() {
-	// Renderer refresh must not mutate widget objects from a non-UI thread.
-	// Marshal to the UI thread to avoid "Error in Fyne call thread" issues.
 	fyne.Do(func() {
 		if r.bubble.isLocal {
 			r.senderLabel.Text = "You"
@@ -133,7 +154,6 @@ func (r *styledBubbleRenderer) Refresh() {
 			r.timeLabel.Text = ""
 		}
 
-		// Avoid calling widget methods inside renderer refresh; set canvas/widget fields directly.
 		r.msgLabel.Text = r.bubble.text
 
 		r.background.Refresh()
@@ -177,7 +197,6 @@ func (s *SessionItem) Update(sessionID string, isActive bool, msgCount int, last
 	s.msgCount = msgCount
 	s.lastActive = lastActive
 
-	// Ensure UI refresh happens on the Fyne UI thread.
 	fyne.Do(func() {
 		s.Refresh()
 	})
@@ -186,17 +205,17 @@ func (s *SessionItem) Update(sessionID string, isActive bool, msgCount int, last
 // CreateRenderer implements fyne.Widget
 func (s *SessionItem) CreateRenderer() fyne.WidgetRenderer {
 	background := canvas.NewRectangle(color.Transparent)
-	background.CornerRadius = 6
+	background.CornerRadius = 8
 
 	icon := canvas.NewText("💬", theme.Color(theme.ColorNameForeground))
-	icon.TextSize = 20
+	icon.TextSize = 18
 
 	idLabel := canvas.NewText(s.sessionID, theme.Color(theme.ColorNameForeground))
 	idLabel.TextStyle = fyne.TextStyle{Bold: true}
-	idLabel.TextSize = 13
+	idLabel.TextSize = 12
 
 	statusLabel := canvas.NewText("", theme.Color(theme.ColorNamePlaceHolder))
-	statusLabel.TextSize = 11
+	statusLabel.TextSize = 10
 
 	return &sessionItemRenderer{
 		item:        s,
@@ -219,37 +238,36 @@ func (r *sessionItemRenderer) Layout(size fyne.Size) {
 	r.background.Resize(size)
 	r.background.Move(fyne.NewPos(0, 0))
 
-	padding := float32(8)
-	iconSize := float32(30)
+	padding := float32(10)
+	iconSize := float32(28)
 
 	r.icon.Move(fyne.NewPos(padding, (size.Height-iconSize)/2))
 	r.icon.Resize(fyne.NewSize(iconSize, iconSize))
 
-	textX := padding + iconSize + 8
+	textX := padding + iconSize + 10
 	r.idLabel.Move(fyne.NewPos(textX, padding))
-	r.idLabel.Resize(fyne.NewSize(size.Width-textX-padding, 18))
+	r.idLabel.Resize(fyne.NewSize(size.Width-textX-padding, 16))
 
-	r.statusLabel.Move(fyne.NewPos(textX, padding+20))
-	r.statusLabel.Resize(fyne.NewSize(size.Width-textX-padding, 16))
+	r.statusLabel.Move(fyne.NewPos(textX, padding+18))
+	r.statusLabel.Resize(fyne.NewSize(size.Width-textX-padding, 14))
 }
 
 func (r *sessionItemRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(180, 50)
+	return fyne.NewSize(180, 52)
 }
 
 func (r *sessionItemRenderer) Refresh() {
-	// Renderer refresh must not mutate widget objects from a non-UI thread.
 	fyne.Do(func() {
 		displayID := r.item.sessionID
-		if len(displayID) > 16 {
-			displayID = displayID[:16] + "..."
+		if len(displayID) > 14 {
+			displayID = displayID[:14] + "…"
 		}
 		r.idLabel.Text = displayID
 
 		if r.item.isActive {
-			r.background.FillColor = color.RGBA{R: 0x0f, G: 0x6f, B: 0xff, A: 0x33}
+			r.background.FillColor = color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0x40}
 			r.statusLabel.Text = "● Active"
-			r.statusLabel.Color = color.RGBA{R: 0x4a, G: 0xde, B: 0x80, A: 0xff}
+			r.statusLabel.Color = statusConnectedColor
 		} else {
 			r.background.FillColor = color.Transparent
 			if !r.item.lastActive.IsZero() {
@@ -304,15 +322,19 @@ func (s *StatusIndicator) SetStatus(status ConnectionStatus, message string) {
 	s.status = status
 	s.message = message
 
-	// Ensure UI refresh happens on the Fyne UI thread.
 	fyne.Do(func() {
 		s.Refresh()
 	})
 }
 
+// GetStatus returns the current status
+func (s *StatusIndicator) GetStatus() ConnectionStatus {
+	return s.status
+}
+
 // CreateRenderer implements fyne.Widget
 func (s *StatusIndicator) CreateRenderer() fyne.WidgetRenderer {
-	dot := canvas.NewCircle(theme.Color(theme.ColorNamePlaceHolder))
+	dot := canvas.NewCircle(statusDisconnectedColor)
 	label := canvas.NewText(s.message, theme.Color(theme.ColorNameForeground))
 	label.TextSize = 12
 
@@ -345,19 +367,18 @@ func (r *statusRenderer) MinSize() fyne.Size {
 }
 
 func (r *statusRenderer) Refresh() {
-	// Renderer refresh must not mutate widget objects from a non-UI thread.
 	fyne.Do(func() {
 		r.label.Text = r.indicator.message
 
 		switch r.indicator.status {
 		case StatusDisconnected:
-			r.dot.FillColor = color.RGBA{R: 0x6b, G: 0x6b, B: 0x8d, A: 0xff}
+			r.dot.FillColor = statusDisconnectedColor
 		case StatusConnecting:
-			r.dot.FillColor = color.RGBA{R: 0xff, G: 0xc1, B: 0x07, A: 0xff}
+			r.dot.FillColor = statusConnectingColor
 		case StatusConnected:
-			r.dot.FillColor = color.RGBA{R: 0x4a, G: 0xde, B: 0x80, A: 0xff}
+			r.dot.FillColor = statusConnectedColor
 		case StatusError:
-			r.dot.FillColor = color.RGBA{R: 0xef, G: 0x44, B: 0x44, A: 0xff}
+			r.dot.FillColor = statusErrorColor
 		}
 
 		r.dot.Refresh()
@@ -370,3 +391,397 @@ func (r *statusRenderer) Objects() []fyne.CanvasObject {
 }
 
 func (r *statusRenderer) Destroy() {}
+
+// LogViewer is a component for displaying application logs
+type LogViewer struct {
+	entries     []logger.LogEntry
+	list        *widget.List
+	visible     bool
+	autoScroll  bool
+	unsubscribe func()
+}
+
+// NewLogViewer creates a new log viewer
+func NewLogViewer() *LogViewer {
+	lv := &LogViewer{
+		entries:    make([]logger.LogEntry, 0),
+		autoScroll: true,
+	}
+	return lv
+}
+
+// Start starts listening for log updates
+func (lv *LogViewer) Start() {
+	// Load existing entries
+	lv.entries = logger.GetEntries()
+
+	// Subscribe to new entries
+	lv.unsubscribe = logger.Subscribe(func(entry logger.LogEntry) {
+		fyne.Do(func() {
+			lv.entries = append(lv.entries, entry)
+			// Keep last 200 entries in UI
+			if len(lv.entries) > 200 {
+				lv.entries = lv.entries[len(lv.entries)-200:]
+			}
+			if lv.list != nil {
+				lv.list.Refresh()
+				if lv.autoScroll {
+					lv.list.ScrollToBottom()
+				}
+			}
+		})
+	})
+}
+
+// Stop stops listening for log updates
+func (lv *LogViewer) Stop() {
+	if lv.unsubscribe != nil {
+		lv.unsubscribe()
+		lv.unsubscribe = nil
+	}
+}
+
+// Clear clears the log entries
+func (lv *LogViewer) Clear() {
+	lv.entries = make([]logger.LogEntry, 0)
+	logger.ClearEntries()
+	if lv.list != nil {
+		lv.list.Refresh()
+	}
+}
+
+// GetEntryCount returns the number of log entries
+func (lv *LogViewer) GetEntryCount() int {
+	return len(lv.entries)
+}
+
+// BuildUI creates the log viewer UI
+func (lv *LogViewer) BuildUI() fyne.CanvasObject {
+	lv.list = widget.NewList(
+		func() int {
+			return len(lv.entries)
+		},
+		func() fyne.CanvasObject {
+			return NewLogEntryItem()
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			if id < len(lv.entries) {
+				item := obj.(*LogEntryItem)
+				item.Update(lv.entries[id])
+			}
+		},
+	)
+
+	// Control buttons
+	clearBtn := widget.NewButtonWithIcon("Clear", theme.DeleteIcon(), func() {
+		lv.Clear()
+	})
+
+	autoScrollCheck := widget.NewCheck("Auto-scroll", func(checked bool) {
+		lv.autoScroll = checked
+	})
+	autoScrollCheck.SetChecked(true)
+
+	controls := container.NewHBox(
+		clearBtn,
+		autoScrollCheck,
+	)
+
+	header := widget.NewLabelWithStyle("Application Logs", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+
+	return container.NewBorder(
+		container.NewVBox(header, controls, widget.NewSeparator()),
+		nil, nil, nil,
+		lv.list,
+	)
+}
+
+// LogEntryItem is a widget for displaying a single log entry
+type LogEntryItem struct {
+	widget.BaseWidget
+	entry logger.LogEntry
+}
+
+// NewLogEntryItem creates a new log entry item
+func NewLogEntryItem() *LogEntryItem {
+	l := &LogEntryItem{}
+	l.ExtendBaseWidget(l)
+	return l
+}
+
+// Update updates the log entry
+func (l *LogEntryItem) Update(entry logger.LogEntry) {
+	l.entry = entry
+	fyne.Do(func() {
+		l.Refresh()
+	})
+}
+
+// CreateRenderer implements fyne.Widget
+func (l *LogEntryItem) CreateRenderer() fyne.WidgetRenderer {
+	background := canvas.NewRectangle(color.Transparent)
+
+	timeLabel := canvas.NewText("", theme.Color(theme.ColorNamePlaceHolder))
+	timeLabel.TextSize = 10
+
+	levelLabel := canvas.NewText("", logInfoColor)
+	levelLabel.TextSize = 10
+	levelLabel.TextStyle = fyne.TextStyle{Bold: true}
+
+	msgLabel := widget.NewLabel("")
+	msgLabel.Wrapping = fyne.TextWrapWord
+	msgLabel.TextStyle = fyne.TextStyle{Monospace: true}
+
+	return &logEntryRenderer{
+		item:       l,
+		background: background,
+		timeLabel:  timeLabel,
+		levelLabel: levelLabel,
+		msgLabel:   msgLabel,
+	}
+}
+
+type logEntryRenderer struct {
+	item       *LogEntryItem
+	background *canvas.Rectangle
+	timeLabel  *canvas.Text
+	levelLabel *canvas.Text
+	msgLabel   *widget.Label
+}
+
+func (r *logEntryRenderer) Layout(size fyne.Size) {
+	padding := float32(6)
+
+	r.background.Resize(size)
+	r.background.Move(fyne.NewPos(0, 0))
+
+	r.timeLabel.Move(fyne.NewPos(padding, padding))
+	r.timeLabel.Resize(fyne.NewSize(60, 14))
+
+	r.levelLabel.Move(fyne.NewPos(padding+65, padding))
+	r.levelLabel.Resize(fyne.NewSize(50, 14))
+
+	r.msgLabel.Move(fyne.NewPos(padding+120, padding))
+	r.msgLabel.Resize(fyne.NewSize(size.Width-padding*2-120, size.Height-padding*2))
+}
+
+func (r *logEntryRenderer) MinSize() fyne.Size {
+	msgMin := r.msgLabel.MinSize()
+	return fyne.NewSize(300, fyne.Max(msgMin.Height+12, 28))
+}
+
+func (r *logEntryRenderer) Refresh() {
+	fyne.Do(func() {
+		r.timeLabel.Text = r.item.entry.Timestamp.Format("15:04:05")
+
+		r.levelLabel.Text = r.item.entry.Level
+		switch r.item.entry.Level {
+		case "INFO":
+			r.levelLabel.Color = logInfoColor
+		case "WARN":
+			r.levelLabel.Color = logWarnColor
+		case "ERROR":
+			r.levelLabel.Color = logErrorColor
+		case "DEBUG":
+			r.levelLabel.Color = logDebugColor
+		default:
+			r.levelLabel.Color = theme.Color(theme.ColorNameForeground)
+		}
+
+		r.msgLabel.Text = r.item.entry.Message
+
+		r.timeLabel.Refresh()
+		r.levelLabel.Refresh()
+		r.msgLabel.Refresh()
+	})
+}
+
+func (r *logEntryRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.background, r.timeLabel, r.levelLabel, r.msgLabel}
+}
+
+func (r *logEntryRenderer) Destroy() {}
+
+// FingerprintDisplay is a component for displaying and copying fingerprints
+type FingerprintDisplay struct {
+	emojiFingerprint string
+	hexFingerprint   string
+	app              fyne.App
+}
+
+// NewFingerprintDisplay creates a new fingerprint display
+func NewFingerprintDisplay(app fyne.App) *FingerprintDisplay {
+	f := &FingerprintDisplay{
+		app: app,
+	}
+	return f
+}
+
+// SetFingerprints sets the emoji and hex fingerprints
+func (f *FingerprintDisplay) SetFingerprints(emoji, hex string) {
+	f.emojiFingerprint = emoji
+	f.hexFingerprint = hex
+}
+
+// SetEmojiFingerprint sets just the emoji fingerprint
+func (f *FingerprintDisplay) SetEmojiFingerprint(emoji string) {
+	f.emojiFingerprint = emoji
+}
+
+// BuildUI creates the fingerprint display UI with copy buttons
+func (f *FingerprintDisplay) BuildUI() fyne.CanvasObject {
+	emojiLabel := widget.NewLabelWithStyle("", fyne.TextAlignCenter, fyne.TextStyle{})
+	emojiLabel.Wrapping = fyne.TextWrapWord
+
+	copyEmojiBtn := widget.NewButtonWithIcon("Copy", theme.ContentCopyIcon(), func() {
+		if f.emojiFingerprint != "" {
+			f.app.Clipboard().SetContent(f.emojiFingerprint)
+		}
+	})
+	copyEmojiBtn.Importance = widget.LowImportance
+
+	emojiRow := container.NewBorder(nil, nil, nil, copyEmojiBtn, emojiLabel)
+
+	card := widget.NewCard("Your Fingerprint", "", container.NewVBox(emojiRow))
+
+	// Subscribe to fingerprint updates
+	go func() {
+		for {
+			time.Sleep(100 * time.Millisecond)
+			if f.emojiFingerprint != "" && emojiLabel.Text != f.emojiFingerprint {
+				fyne.Do(func() {
+					emojiLabel.SetText(f.emojiFingerprint)
+				})
+			}
+		}
+	}()
+
+	return card
+}
+
+// ContextMenuItem represents a menu item in a context menu
+type ContextMenuItem struct {
+	Label  string
+	Icon   fyne.Resource
+	Action func()
+}
+
+// ShowContextMenu displays a context menu at the given position
+func ShowContextMenu(window fyne.Window, items []ContextMenuItem, pos fyne.Position) {
+	menu := fyne.NewMenu("")
+	for _, item := range items {
+		if item.Label == "---" {
+			menu.Items = append(menu.Items, fyne.NewMenuItemSeparator())
+		} else {
+			menuItem := fyne.NewMenuItem(item.Label, item.Action)
+			if item.Icon != nil {
+				menuItem.Icon = item.Icon
+			}
+			menu.Items = append(menu.Items, menuItem)
+		}
+	}
+
+	canvas := window.Canvas()
+	widget.ShowPopUpMenuAtPosition(menu, canvas, pos)
+}
+
+// CreateSessionContextMenu creates context menu items for a session
+func CreateSessionContextMenu(app fyne.App, window fyne.Window, sessionID string, onDisconnect, onInfo func()) []ContextMenuItem {
+	return []ContextMenuItem{
+		{
+			Label: "Copy Session ID",
+			Icon:  theme.ContentCopyIcon(),
+			Action: func() {
+				app.Clipboard().SetContent(sessionID)
+			},
+		},
+		{Label: "---"},
+		{
+			Label:  "Session Info",
+			Icon:   theme.InfoIcon(),
+			Action: onInfo,
+		},
+		{Label: "---"},
+		{
+			Label:  "Disconnect",
+			Icon:   theme.CancelIcon(),
+			Action: onDisconnect,
+		},
+	}
+}
+
+// CreateMessageContextMenu creates context menu items for a message
+func CreateMessageContextMenu(app fyne.App, messageText string) []ContextMenuItem {
+	return []ContextMenuItem{
+		{
+			Label: "Copy Message",
+			Icon:  theme.ContentCopyIcon(),
+			Action: func() {
+				app.Clipboard().SetContent(messageText)
+			},
+		},
+	}
+}
+
+// AnimatedDot is a pulsing dot indicator for connecting state
+type AnimatedDot struct {
+	widget.BaseWidget
+	color   color.Color
+	visible bool
+}
+
+// NewAnimatedDot creates a new animated dot
+func NewAnimatedDot(c color.Color) *AnimatedDot {
+	d := &AnimatedDot{
+		color:   c,
+		visible: true,
+	}
+	d.ExtendBaseWidget(d)
+	return d
+}
+
+// SetColor sets the dot color
+func (d *AnimatedDot) SetColor(c color.Color) {
+	d.color = c
+	fyne.Do(func() {
+		d.Refresh()
+	})
+}
+
+// CreateRenderer implements fyne.Widget
+func (d *AnimatedDot) CreateRenderer() fyne.WidgetRenderer {
+	circle := canvas.NewCircle(d.color)
+
+	return &animatedDotRenderer{
+		dot:    d,
+		circle: circle,
+	}
+}
+
+type animatedDotRenderer struct {
+	dot    *AnimatedDot
+	circle *canvas.Circle
+}
+
+func (r *animatedDotRenderer) Layout(size fyne.Size) {
+	minDim := fyne.Min(size.Width, size.Height)
+	r.circle.Resize(fyne.NewSize(minDim, minDim))
+	r.circle.Move(fyne.NewPos((size.Width-minDim)/2, (size.Height-minDim)/2))
+}
+
+func (r *animatedDotRenderer) MinSize() fyne.Size {
+	return fyne.NewSize(12, 12)
+}
+
+func (r *animatedDotRenderer) Refresh() {
+	fyne.Do(func() {
+		r.circle.FillColor = r.dot.color
+		r.circle.Refresh()
+	})
+}
+
+func (r *animatedDotRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.circle}
+}
+
+func (r *animatedDotRenderer) Destroy() {}

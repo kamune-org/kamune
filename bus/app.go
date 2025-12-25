@@ -28,7 +28,7 @@ type notificationConfig struct {
 }
 
 const (
-	appVersion = "1.0.0"
+	appVersion = "1.1.0"
 )
 
 // ChatMessage represents a single message in the conversation
@@ -65,6 +65,12 @@ type ChatApp struct {
 	welcomeOverlay fyne.CanvasObject
 	emptyOverlay   fyne.CanvasObject
 
+	// Log viewer panel
+	logViewer    *LogViewer
+	logPanel     fyne.CanvasObject
+	logPanelOpen bool
+	mainSplit    *container.Split
+
 	// State
 	sessions         []*Session
 	activeSession    *Session
@@ -73,6 +79,7 @@ type ChatApp struct {
 	isServer         bool
 	serverRunning    bool
 	emojiFingerprint string
+	hexFingerprint   string
 	serverListener   interface{ Close() error } // stores net.Listener for stopping
 
 	// History viewer
@@ -102,6 +109,7 @@ func NewChatApp(app fyne.App, window fyne.Window) *ChatApp {
 	c.statusIndicator = NewStatusIndicator()
 	c.notifications = notificationConfig{enabled: true, soundOnRecv: false}
 	c.verifier = NewGUIVerifier(app, window)
+	c.logViewer = NewLogViewer()
 	return c
 }
 
@@ -122,14 +130,51 @@ func (c *ChatApp) BuildUI() fyne.CanvasObject {
 	// Create the status bar (bottom)
 	statusBar := c.buildStatusBar()
 
+	// Build log panel (hidden by default)
+	c.logPanel = c.buildLogPanel()
+	c.logPanel.Hide()
+
 	// Main layout with split view
 	split := container.NewHSplit(sessionPanel, chatPanel)
 	split.SetOffset(0.25)
 
+	// Create vertical split for log panel
+	c.mainSplit = container.NewVSplit(split, c.logPanel)
+	c.mainSplit.SetOffset(1.0) // Log panel hidden
+
 	// Combine with status bar
-	mainContent := container.NewBorder(nil, statusBar, nil, nil, split)
+	mainContent := container.NewBorder(nil, statusBar, nil, nil, c.mainSplit)
+
+	// Start log viewer
+	c.logViewer.Start()
 
 	return mainContent
+}
+
+// buildLogPanel creates the log viewer panel
+func (c *ChatApp) buildLogPanel() fyne.CanvasObject {
+	logUI := c.logViewer.BuildUI()
+
+	closeBtn := widget.NewButtonWithIcon("Close Logs", theme.CancelIcon(), func() {
+		c.toggleLogPanel()
+	})
+	closeBtn.Importance = widget.LowImportance
+
+	header := container.NewBorder(nil, nil, nil, closeBtn, widget.NewLabel(""))
+
+	return container.NewBorder(header, nil, nil, nil, logUI)
+}
+
+// toggleLogPanel shows or hides the log panel
+func (c *ChatApp) toggleLogPanel() {
+	c.logPanelOpen = !c.logPanelOpen
+	if c.logPanelOpen {
+		c.logPanel.Show()
+		c.mainSplit.SetOffset(0.7)
+	} else {
+		c.logPanel.Hide()
+		c.mainSplit.SetOffset(1.0)
+	}
 }
 
 // setupMenus configures the application menu bar
@@ -157,15 +202,36 @@ func (c *ChatApp) setupMenus() {
 			c.mu.Unlock()
 			c.refreshMessages()
 		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Copy Session ID", func() {
+			c.copyActiveSessionID()
+		}),
+		fyne.NewMenuItem("Copy Fingerprint", func() {
+			c.copyFingerprint()
+		}),
 	)
 
 	// Session menu
 	sessionMenu := fyne.NewMenu("Session",
-		fyne.NewMenuItem("Disconnect", func() {
-			c.disconnectActiveSession()
-		}),
 		fyne.NewMenuItem("Session Info", func() {
 			c.showSessionInfo()
+		}),
+		fyne.NewMenuItem("Copy Session ID", func() {
+			c.copyActiveSessionID()
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("End Session", func() {
+			c.disconnectActiveSession()
+		}),
+	)
+
+	// View menu
+	viewMenu := fyne.NewMenu("View",
+		fyne.NewMenuItem("Toggle Logs", func() {
+			c.toggleLogPanel()
+		}),
+		fyne.NewMenuItem("Clear Logs", func() {
+			c.logViewer.Clear()
 		}),
 	)
 
@@ -187,15 +253,67 @@ func (c *ChatApp) setupMenus() {
 
 	// Help menu
 	helpMenu := fyne.NewMenu("Help",
+		fyne.NewMenuItem("Keyboard Shortcuts", func() {
+			c.showShortcutsHelp()
+		}),
+		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("About Kamune Chat", func() {
 			dialog.ShowInformation("About Kamune Chat",
-				"Kamune Chat GUI\n\nA secure messaging application built with Fyne.\n\nPowered by the Kamune protocol for end-to-end encrypted communication.",
+				fmt.Sprintf("Kamune Chat GUI v%s\n\nA secure messaging application built with Fyne.\n\nPowered by the Kamune protocol for end-to-end encrypted communication.\n\nShortcuts:\n• Ctrl+W - Close window\n• Ctrl+N - New connection\n• Ctrl+S - Start server\n• Ctrl+H - View history\n• Ctrl+L - Toggle logs", appVersion),
 				c.window)
 		}),
 	)
 
-	mainMenu := fyne.NewMainMenu(fileMenu, editMenu, sessionMenu, settingsMenu, helpMenu)
+	mainMenu := fyne.NewMainMenu(fileMenu, editMenu, sessionMenu, viewMenu, settingsMenu, helpMenu)
 	c.window.SetMainMenu(mainMenu)
+}
+
+// showShortcutsHelp displays keyboard shortcuts
+func (c *ChatApp) showShortcutsHelp() {
+	shortcuts := `Keyboard Shortcuts:
+
+• Ctrl+W / Cmd+W - Close application
+• Ctrl+N / Cmd+N - Connect to server
+• Ctrl+S / Cmd+S - Start server
+• Ctrl+H / Cmd+H - View history
+• Ctrl+L / Cmd+L - Toggle log panel
+• Enter - Send message (in message field)
+
+Right-click on sessions or messages for context menus.`
+
+	dialog.ShowInformation("Keyboard Shortcuts", shortcuts, c.window)
+}
+
+// copyActiveSessionID copies the active session ID to clipboard
+func (c *ChatApp) copyActiveSessionID() {
+	c.mu.RLock()
+	session := c.activeSession
+	c.mu.RUnlock()
+
+	if session == nil {
+		dialog.ShowInformation("No Session", "No active session selected", c.window)
+		return
+	}
+
+	c.app.Clipboard().SetContent(session.ID)
+	c.sendNotification("Copied", "Session ID copied to clipboard")
+}
+
+// copyFingerprint copies the fingerprint to clipboard
+func (c *ChatApp) copyFingerprint() {
+	if c.emojiFingerprint == "" {
+		dialog.ShowInformation("No Fingerprint", "No fingerprint available. Start a server or connect first.", c.window)
+		return
+	}
+
+	// Copy both emoji and hex if available
+	content := c.emojiFingerprint
+	if c.hexFingerprint != "" {
+		content = fmt.Sprintf("Emoji: %s\nHex: %s", c.emojiFingerprint, c.hexFingerprint)
+	}
+
+	c.app.Clipboard().SetContent(content)
+	c.sendNotification("Copied", "Fingerprint copied to clipboard")
 }
 
 // showVerificationModeNotification displays the current verification mode
@@ -210,10 +328,29 @@ func (c *ChatApp) showVerificationModeNotification() {
 		modeText = "Auto-Accept - All peers accepted (testing only)"
 	}
 	dialog.ShowInformation("Verification Mode", modeText, c.window)
+	logger.Infof("Verification mode changed to: %s", modeText)
 }
 
 // setupShortcuts configures keyboard shortcuts
 func (c *ChatApp) setupShortcuts() {
+	// Ctrl+W - Close window
+	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
+		KeyName:  fyne.KeyW,
+		Modifier: fyne.KeyModifierControl,
+	}, func(shortcut fyne.Shortcut) {
+		c.cleanup()
+		c.window.Close()
+	})
+
+	// Cmd+W for macOS
+	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
+		KeyName:  fyne.KeyW,
+		Modifier: fyne.KeyModifierSuper,
+	}, func(shortcut fyne.Shortcut) {
+		c.cleanup()
+		c.window.Close()
+	})
+
 	// Ctrl+N - New connection
 	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
 		KeyName:  fyne.KeyN,
@@ -237,6 +374,23 @@ func (c *ChatApp) setupShortcuts() {
 	}, func(shortcut fyne.Shortcut) {
 		c.historyViewer.ShowHistoryDialog()
 	})
+
+	// Ctrl+L - Toggle logs
+	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
+		KeyName:  fyne.KeyL,
+		Modifier: fyne.KeyModifierControl,
+	}, func(shortcut fyne.Shortcut) {
+		c.toggleLogPanel()
+	})
+
+	// Escape - Close log panel if open
+	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
+		KeyName: fyne.KeyEscape,
+	}, func(shortcut fyne.Shortcut) {
+		if c.logPanelOpen {
+			c.toggleLogPanel()
+		}
+	})
 }
 
 // cleanup performs cleanup when closing the application
@@ -244,14 +398,20 @@ func (c *ChatApp) cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Stop log viewer
+	if c.logViewer != nil {
+		c.logViewer.Stop()
+	}
+
 	for _, session := range c.sessions {
 		if session.Transport != nil {
 			if err := session.Transport.Close(); err != nil {
-				// Best-effort cleanup: we can't surface UI here reliably, so just log.
-				fmt.Printf("warning: failed to close transport for session %s: %v\n", session.ID, err)
+				logger.Errorf("failed to close transport for session %s: %v", session.ID, err)
 			}
 		}
 	}
+
+	logger.Info("Application cleanup complete")
 }
 
 // disconnectActiveSession closes the current session
@@ -265,11 +425,13 @@ func (c *ChatApp) disconnectActiveSession() {
 		return
 	}
 
-	dialog.ShowConfirm("Disconnect", "Are you sure you want to disconnect this session?", func(confirmed bool) {
+	dialog.ShowConfirm("End Session", fmt.Sprintf("End session %s?\n\nThis will disconnect from the peer.", truncateSessionID(session.ID)), func(confirmed bool) {
 		if confirmed {
+			logger.Infof("Ending session: %s", session.ID)
+
 			if session.Transport != nil {
 				if err := session.Transport.Close(); err != nil {
-					fmt.Printf("warning: failed to close transport for session %s: %v\n", session.ID, err)
+					logger.Errorf("failed to close transport for session %s: %v", session.ID, err)
 				}
 			}
 
@@ -286,7 +448,8 @@ func (c *ChatApp) disconnectActiveSession() {
 
 			c.sessionList.Refresh()
 			c.refreshMessages()
-			c.statusIndicator.SetStatus(StatusDisconnected, "Disconnected")
+			c.statusIndicator.SetStatus(StatusDisconnected, "Session ended")
+			c.sendNotification("Session Ended", fmt.Sprintf("Disconnected from %s", truncateSessionID(session.ID)))
 		}
 	}, c.window)
 }
@@ -302,13 +465,27 @@ func (c *ChatApp) showSessionInfo() {
 		return
 	}
 
-	info := fmt.Sprintf("Session ID: %s\n\nMessages: %d\n\nLast Activity: %s",
-		session.ID,
-		len(session.Messages),
-		session.LastActivity.Format("2006-01-02 15:04:05"),
+	// Build session info content
+	idLabel := widget.NewLabel(session.ID)
+	idLabel.Wrapping = fyne.TextWrapWord
+
+	copyBtn := widget.NewButtonWithIcon("Copy ID", theme.ContentCopyIcon(), func() {
+		c.app.Clipboard().SetContent(session.ID)
+		c.sendNotification("Copied", "Session ID copied to clipboard")
+	})
+
+	content := container.NewVBox(
+		widget.NewLabelWithStyle("Session ID:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		idLabel,
+		copyBtn,
+		widget.NewSeparator(),
+		widget.NewLabel(fmt.Sprintf("Messages: %d", len(session.Messages))),
+		widget.NewLabel(fmt.Sprintf("Last Activity: %s", session.LastActivity.Format("2006-01-02 15:04:05"))),
 	)
 
-	dialog.ShowInformation("Session Info", info, c.window)
+	d := dialog.NewCustom("Session Info", "Close", content, c.window)
+	d.Resize(fyne.NewSize(450, 250))
+	d.Show()
 }
 
 // buildSessionPanel creates the left sidebar with session list and controls
@@ -354,6 +531,8 @@ func (c *ChatApp) buildSessionPanel() fyne.CanvasObject {
 
 	// Connection buttons
 	serverBtn := widget.NewButtonWithIcon("Start Server", theme.ComputerIcon(), c.showServerDialog)
+	serverBtn.Importance = widget.HighImportance
+
 	clientBtn := widget.NewButtonWithIcon("Connect", theme.LoginIcon(), c.showConnectDialog)
 
 	// Stop server button (initially hidden)
@@ -367,11 +546,21 @@ func (c *ChatApp) buildSessionPanel() fyne.CanvasObject {
 		c.stopServerBtn,
 	)
 
-	// Fingerprint display
+	// Fingerprint display with copy button
 	c.fingerprintLbl = widget.NewLabelWithStyle("", fyne.TextAlignCenter, fyne.TextStyle{})
 	c.fingerprintLbl.Wrapping = fyne.TextWrapWord
 
-	fingerprintCard := widget.NewCard("Your Fingerprint", "", c.fingerprintLbl)
+	copyFingerprintBtn := widget.NewButtonWithIcon("Copy", theme.ContentCopyIcon(), func() {
+		c.copyFingerprint()
+	})
+	copyFingerprintBtn.Importance = widget.LowImportance
+
+	fingerprintContent := container.NewVBox(
+		c.fingerprintLbl,
+		container.NewCenter(copyFingerprintBtn),
+	)
+
+	fingerprintCard := widget.NewCard("Your Fingerprint", "", fingerprintContent)
 
 	// Combine into sidebar
 	sidebar := container.NewBorder(
@@ -407,6 +596,10 @@ func (c *ChatApp) buildChatPanel() fyne.CanvasObject {
 				msg := c.activeSession.Messages[id]
 				bubble := obj.(*StyledMessageBubble)
 				bubble.Update(msg.Text, msg.Timestamp, msg.IsLocal)
+				// Set copy callback for context menu support
+				bubble.SetOnCopy(func(text string) {
+					c.app.Clipboard().SetContent(text)
+				})
 			}
 		},
 	)
@@ -420,7 +613,7 @@ func (c *ChatApp) buildChatPanel() fyne.CanvasObject {
 	)
 	welcomeSubtitle := widget.NewLabelWithStyle(
 		"Start a server or connect to a peer to begin messaging.\n\n"+
-			"Use Ctrl+S to start a server\nUse Ctrl+N to connect to a server",
+			"Shortcuts:\n• Ctrl+S - Start server\n• Ctrl+N - Connect to server\n• Ctrl+L - Toggle logs",
 		fyne.TextAlignCenter,
 		fyne.TextStyle{},
 	)
@@ -450,7 +643,7 @@ func (c *ChatApp) buildChatPanel() fyne.CanvasObject {
 	c.messageEntry.SetMinRowsVisible(2)
 	c.messageEntry.Wrapping = fyne.TextWrapWord
 
-	// Enter-to-send (platform dependent for MultiLineEntry, but supported broadly via OnSubmitted)
+	// Enter-to-send
 	c.messageEntry.OnSubmitted = func(s string) {
 		c.sendMessage()
 	}
@@ -461,66 +654,93 @@ func (c *ChatApp) buildChatPanel() fyne.CanvasObject {
 	inputRow := container.NewBorder(nil, nil, nil, c.sendButton, c.messageEntry)
 	inputArea := container.NewPadded(inputRow)
 
-	// Show/hide welcome/empty overlays based on active session + message count.
-	// Use a stack but explicitly toggle visibility to avoid overlays rendering through.
-	updateOverlays := func() {
-		c.mu.RLock()
-		hasSession := c.activeSession != nil
-		msgCount := 0
-		if c.activeSession != nil {
-			msgCount = len(c.activeSession.Messages)
-		}
-		c.mu.RUnlock()
-
-		if !hasSession {
-			if c.welcomeOverlay != nil {
-				c.welcomeOverlay.Show()
-			}
-			if c.emptyOverlay != nil {
-				c.emptyOverlay.Hide()
-			}
-			return
-		}
-
-		if msgCount == 0 {
-			if c.welcomeOverlay != nil {
-				c.welcomeOverlay.Hide()
-			}
-			if c.emptyOverlay != nil {
-				c.emptyOverlay.Show()
-			}
-			return
-		}
-
-		if c.welcomeOverlay != nil {
-			c.welcomeOverlay.Hide()
-		}
-		if c.emptyOverlay != nil {
-			c.emptyOverlay.Hide()
-		}
-	}
-
-	// Initial state (no session selected)
-	updateOverlays()
-
+	// Initial state (no session selected) - hide empty overlay initially
+	c.emptyOverlay.Hide()
 	messageArea := container.NewStack(c.welcomeOverlay, c.emptyOverlay, c.messageList)
 
-	chatContent := container.NewBorder(nil, inputArea, nil, nil, messageArea)
+	// Session info header (shows when session is active)
+	sessionInfoBar := c.buildSessionInfoBar()
 
-	// Overlay state is updated via refreshMessages() and initial updateOverlays() above.
+	chatContent := container.NewBorder(sessionInfoBar, inputArea, nil, nil, messageArea)
 
 	return chatContent
+}
+
+// buildSessionInfoBar creates the info bar shown above the chat
+func (c *ChatApp) buildSessionInfoBar() fyne.CanvasObject {
+	sessionLabel := widget.NewLabel("")
+	sessionLabel.Importance = widget.LowImportance
+
+	copyIDBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
+		c.copyActiveSessionID()
+	})
+	copyIDBtn.Importance = widget.LowImportance
+	copyIDBtn.Hide()
+
+	endSessionBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
+		c.disconnectActiveSession()
+	})
+	endSessionBtn.Importance = widget.LowImportance
+	endSessionBtn.Hide()
+
+	infoBtn := widget.NewButtonWithIcon("", theme.InfoIcon(), func() {
+		c.showSessionInfo()
+	})
+	infoBtn.Importance = widget.LowImportance
+	infoBtn.Hide()
+
+	buttons := container.NewHBox(copyIDBtn, infoBtn, endSessionBtn)
+	bar := container.NewBorder(nil, nil, sessionLabel, buttons)
+
+	// Update bar when session changes
+	go func() {
+		var lastSessionID string
+		for {
+			time.Sleep(200 * time.Millisecond)
+			c.mu.RLock()
+			session := c.activeSession
+			c.mu.RUnlock()
+
+			if session != nil {
+				if session.ID != lastSessionID {
+					lastSessionID = session.ID
+					fyne.Do(func() {
+						sessionLabel.SetText(fmt.Sprintf("Session: %s", truncateSessionID(session.ID)))
+						copyIDBtn.Show()
+						infoBtn.Show()
+						endSessionBtn.Show()
+					})
+				}
+			} else if lastSessionID != "" {
+				lastSessionID = ""
+				fyne.Do(func() {
+					sessionLabel.SetText("")
+					copyIDBtn.Hide()
+					infoBtn.Hide()
+					endSessionBtn.Hide()
+				})
+			}
+		}
+	}()
+
+	return container.NewVBox(bar, widget.NewSeparator())
 }
 
 // buildStatusBar creates the bottom status bar
 func (c *ChatApp) buildStatusBar() fyne.CanvasObject {
 	c.statusLabel = widget.NewLabel("Not connected")
 
+	// Log toggle button
+	logToggleBtn := widget.NewButtonWithIcon("Logs", theme.ListIcon(), func() {
+		c.toggleLogPanel()
+	})
+	logToggleBtn.Importance = widget.LowImportance
+
 	// Version label
 	versionLabel := widget.NewLabelWithStyle("v"+appVersion, fyne.TextAlignTrailing, fyne.TextStyle{})
 	versionLabel.Importance = widget.LowImportance
 
-	statusBox := container.NewHBox(c.statusIndicator, widget.NewSeparator(), c.statusLabel, layout.NewSpacer(), versionLabel)
+	statusBox := container.NewHBox(c.statusIndicator, widget.NewSeparator(), c.statusLabel, layout.NewSpacer(), logToggleBtn, widget.NewSeparator(), versionLabel)
 
 	separator := widget.NewSeparator()
 
@@ -530,7 +750,7 @@ func (c *ChatApp) buildStatusBar() fyne.CanvasObject {
 // showServerDialog displays the server configuration dialog
 func (c *ChatApp) showServerDialog() {
 	if c.serverRunning {
-		dialog.ShowInformation("Server Running", "A server is already running.", c.window)
+		dialog.ShowInformation("Server Running", "A server is already running.\n\nStop the current server before starting a new one.", c.window)
 		return
 	}
 
@@ -584,6 +804,8 @@ func (c *ChatApp) showConnectDialog() {
 func (c *ChatApp) startServer(addr, dbPath string) {
 	c.isServer = true
 
+	logger.Infof("Starting server on %s", addr)
+
 	go func() {
 		var opts []kamune.StorageOption
 		opts = append(opts,
@@ -602,12 +824,17 @@ func (c *ChatApp) startServer(addr, dbPath string) {
 		)
 		if err != nil {
 			c.showError(fmt.Errorf("starting server: %w", err))
+			logger.Errorf("Failed to start server: %v", err)
 			return
 		}
 
 		// Update fingerprint & UI on main thread
-		fp := strings.Join(fingerprint.Emoji(srv.PublicKey().Marshal()), " • ")
+		pubKey := srv.PublicKey().Marshal()
+		fp := strings.Join(fingerprint.Emoji(pubKey), " • ")
+		hexFp := fingerprint.Hex(pubKey)
 		c.emojiFingerprint = fp
+		c.hexFingerprint = hexFp
+
 		c.runOnMain(func() {
 			c.fingerprintLbl.SetText(fp)
 			c.serverRunning = true
@@ -618,7 +845,8 @@ func (c *ChatApp) startServer(addr, dbPath string) {
 			}
 		})
 
-		logger.Info(fmt.Sprintf("Server started on %s", addr))
+		logger.Infof("Server started successfully on %s", addr)
+		c.sendNotification("Server Started", fmt.Sprintf("Listening on %s", addr))
 
 		if err := srv.ListenAndServe(); err != nil {
 			// Ensure UI updates happen on main thread
@@ -630,7 +858,7 @@ func (c *ChatApp) startServer(addr, dbPath string) {
 					c.stopServerBtn.Hide()
 				}
 			})
-			logger.Info(fmt.Sprintf("Server stopped: %v", err))
+			logger.Infof("Server stopped: %v", err)
 		}
 	}()
 }
@@ -642,10 +870,12 @@ func (c *ChatApp) stopServer() {
 		return
 	}
 
-	dialog.ShowConfirm("Stop Server", "Are you sure you want to stop the server? All active sessions will be disconnected.", func(confirmed bool) {
+	dialog.ShowConfirm("Stop Server", "Stop the server?\n\nAll active sessions will be disconnected.", func(confirmed bool) {
 		if !confirmed {
 			return
 		}
+
+		logger.Info("Stopping server by user request")
 
 		// Close all server sessions
 		c.mu.Lock()
@@ -671,7 +901,8 @@ func (c *ChatApp) stopServer() {
 			}
 		})
 
-		logger.Info("Server stopped by user")
+		logger.Info("Server stopped successfully")
+		c.sendNotification("Server Stopped", "All sessions disconnected")
 	}, c.window)
 }
 
@@ -697,15 +928,16 @@ func (c *ChatApp) serverHandler(t *kamune.Transport) error {
 	// Update UI on main thread
 	c.runOnMain(func() {
 		c.sessionList.Refresh()
-		c.updateStatusText(fmt.Sprintf("New session: %s", session.ID))
-		// Send notification for new connection (ensure UI/main thread for Fyne)
+		c.refreshMessages()
+		c.updateStatusText(fmt.Sprintf("New session: %s", truncateSessionID(session.ID)))
+		// Send notification for new connection
 		c.sendNotification("New Connection", fmt.Sprintf("Peer connected: %s", truncateSessionID(session.ID)))
 	})
 
+	logger.Infof("New session established: %s", session.ID)
+
 	// CRITICAL FIX: Block here receiving messages instead of spawning goroutine.
 	// The handler must stay alive to keep the connection open.
-	// When this loop exits (due to connection close), the handler returns and
-	// the server properly cleans up the connection.
 	c.receiveMessagesBlocking(session)
 
 	// Clean up session from list when connection closes
@@ -726,7 +958,7 @@ func (c *ChatApp) serverHandler(t *kamune.Transport) error {
 		c.refreshMessages()
 	})
 
-	logger.Info(fmt.Sprintf("Session %s closed", session.ID))
+	logger.Infof("Session closed: %s", session.ID)
 	return nil
 }
 
@@ -741,7 +973,7 @@ func (c *ChatApp) sendNotification(title, content string) {
 // truncateSessionID shortens a session ID for display
 func truncateSessionID(id string) string {
 	if len(id) > 12 {
-		return id[:12] + "..."
+		return id[:12] + "…"
 	}
 	return id
 }
@@ -749,6 +981,8 @@ func truncateSessionID(id string) string {
 // connectToServer connects to a kamune server as a client
 func (c *ChatApp) connectToServer(addr, dbPath string) {
 	c.isServer = false
+
+	logger.Infof("Connecting to server at %s", addr)
 
 	go func() {
 		var dialOpts []kamune.StorageOption
@@ -767,12 +1001,17 @@ func (c *ChatApp) connectToServer(addr, dbPath string) {
 		)
 		if err != nil {
 			c.showError(fmt.Errorf("creating dialer: %w", err))
+			logger.Errorf("Failed to create dialer: %v", err)
 			return
 		}
 
 		// Update fingerprint display on main thread
-		fp := strings.Join(fingerprint.Emoji(dialer.PublicKey().Marshal()), " • ")
+		pubKey := dialer.PublicKey().Marshal()
+		fp := strings.Join(fingerprint.Emoji(pubKey), " • ")
+		hexFp := fingerprint.Hex(pubKey)
 		c.emojiFingerprint = fp
+		c.hexFingerprint = hexFp
+
 		c.runOnMain(func() {
 			c.fingerprintLbl.SetText(fp)
 			c.statusIndicator.SetStatus(StatusConnecting, "Connecting...")
@@ -786,6 +1025,7 @@ func (c *ChatApp) connectToServer(addr, dbPath string) {
 				c.showError(fmt.Errorf("connecting: %w", err))
 				c.statusIndicator.SetStatus(StatusError, "Connection failed")
 			})
+			logger.Errorf("Connection failed: %v", err)
 			return
 		}
 
@@ -806,15 +1046,17 @@ func (c *ChatApp) connectToServer(addr, dbPath string) {
 			c.sessionList.Refresh()
 			c.refreshMessages()
 			c.statusIndicator.SetStatus(StatusConnected, "Connected")
-			c.updateStatusText(fmt.Sprintf("Connected - Session: %s", session.ID))
+			c.updateStatusText(fmt.Sprintf("Connected - Session: %s", truncateSessionID(session.ID)))
 		})
+
+		logger.Infof("Connected successfully, session: %s", session.ID)
+		c.sendNotification("Connected", fmt.Sprintf("Session: %s", truncateSessionID(session.ID)))
 
 		// Start receiving messages in its own goroutine
 		go c.receiveMessages(session)
 	}()
 }
 
-// receiveMessages handles incoming messages for a session
 // receiveMessagesBlocking receives messages in a blocking loop.
 // This is used by the server handler to keep the connection alive.
 func (c *ChatApp) receiveMessagesBlocking(session *Session) {
@@ -827,6 +1069,7 @@ func (c *ChatApp) receiveMessagesBlocking(session *Session) {
 					c.statusIndicator.SetStatus(StatusDisconnected, "Disconnected")
 					c.updateStatusText("Connection closed")
 				})
+				logger.Infof("Connection closed for session %s", session.ID)
 				return
 			}
 			logger.Errorf("receiving message for session %s: %v", session.ID, err)
@@ -870,6 +1113,7 @@ func (c *ChatApp) receiveMessagesBlocking(session *Session) {
 			c.sendNotification("New Message", previewText)
 		}
 
+		logger.Debugf("Received message in session %s: %d bytes", session.ID, len(msgText))
 		c.refreshMessages()
 	}
 }
@@ -902,6 +1146,7 @@ func (c *ChatApp) sendMessage() {
 	)
 	if err != nil {
 		c.showError(fmt.Errorf("sending message: %w", err))
+		logger.Errorf("Failed to send message: %v", err)
 		return
 	}
 
@@ -924,7 +1169,7 @@ func (c *ChatApp) sendMessage() {
 			metadata.Timestamp(),
 			kamune.SenderLocal,
 		); err != nil {
-			fmt.Printf("warning: failed to persist local chat entry for session %s: %v\n", session.ID, err)
+			logger.Errorf("failed to persist local chat entry for session %s: %v", session.ID, err)
 		}
 	}()
 
@@ -933,6 +1178,8 @@ func (c *ChatApp) sendMessage() {
 			c.messageEntry.SetText("")
 		}
 	})
+
+	logger.Debugf("Sent message in session %s: %d bytes", session.ID, len(text))
 	c.refreshMessages()
 }
 
@@ -1007,7 +1254,7 @@ func (c *ChatApp) updateStatus() {
 
 	var text string
 	if active != nil {
-		text = fmt.Sprintf("Session: %s | Messages: %d", activeID, msgCount)
+		text = fmt.Sprintf("Session: %s | Messages: %d", truncateSessionID(activeID), msgCount)
 	} else if sessionCount > 0 {
 		text = fmt.Sprintf("%d session(s) active", sessionCount)
 	} else {
@@ -1030,18 +1277,13 @@ func (c *ChatApp) updateStatusText(text string) {
 	})
 }
 
-// showError displays an error dialog
+// runOnMain ensures the function runs on the Fyne UI thread
 func (c *ChatApp) runOnMain(fn func()) {
-	// Always marshal UI work onto the Fyne UI thread.
-	// This avoids runtime warnings like:
-	// "*** Error in Fyne call thread, this should have been called in fyne.Do[AndWait] ***"
-	//
-	// Note: older Fyne versions do not expose Driver.RunOnMain(), so using fyne.Do()
-	// is the most compatible approach here.
 	fyne.Do(fn)
 }
 
 func (c *ChatApp) showError(err error) {
+	logger.Errorf("Error: %v", err)
 	c.runOnMain(func() {
 		dialog.ShowError(err, c.window)
 	})
