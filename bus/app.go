@@ -17,6 +17,8 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+
+	"github.com/kamune-org/kamune/bus/logger"
 )
 
 // notificationConfig controls notification behavior
@@ -57,6 +59,7 @@ type ChatApp struct {
 	sendButton     *widget.Button
 	statusLabel    *widget.Label
 	fingerprintLbl *widget.Label
+	stopServerBtn  *widget.Button
 
 	// Chat overlays (stored so we can reliably toggle them on session/message changes)
 	welcomeOverlay fyne.CanvasObject
@@ -70,6 +73,7 @@ type ChatApp struct {
 	isServer         bool
 	serverRunning    bool
 	emojiFingerprint string
+	serverListener   interface{ Close() error } // stores net.Listener for stopping
 
 	// History viewer
 	historyViewer *HistoryViewer
@@ -338,11 +342,11 @@ func (c *ChatApp) buildSessionPanel() fyne.CanvasObject {
 	)
 
 	c.sessionList.OnSelected = func(id widget.ListItemID) {
-		c.mu.RLock()
+		c.mu.Lock()
 		if id < len(c.sessions) {
 			c.activeSession = c.sessions[id]
 		}
-		c.mu.RUnlock()
+		c.mu.Unlock()
 		c.sessionList.Refresh() // ensures active highlight updates across items
 		c.refreshMessages()     // also updates welcome/empty overlays via refreshMessages
 		c.updateStatus()
@@ -352,9 +356,15 @@ func (c *ChatApp) buildSessionPanel() fyne.CanvasObject {
 	serverBtn := widget.NewButtonWithIcon("Start Server", theme.ComputerIcon(), c.showServerDialog)
 	clientBtn := widget.NewButtonWithIcon("Connect", theme.LoginIcon(), c.showConnectDialog)
 
+	// Stop server button (initially hidden)
+	c.stopServerBtn = widget.NewButtonWithIcon("Stop Server", theme.CancelIcon(), c.stopServer)
+	c.stopServerBtn.Importance = widget.DangerImportance
+	c.stopServerBtn.Hide()
+
 	buttonBox := container.NewVBox(
 		serverBtn,
 		clientBtn,
+		c.stopServerBtn,
 	)
 
 	// Fingerprint display
@@ -603,20 +613,71 @@ func (c *ChatApp) startServer(addr, dbPath string) {
 			c.serverRunning = true
 			c.statusIndicator.SetStatus(StatusConnected, "Server running")
 			c.updateStatusText(fmt.Sprintf("Server listening on %s", addr))
+			if c.stopServerBtn != nil {
+				c.stopServerBtn.Show()
+			}
 		})
+
+		logger.Info(fmt.Sprintf("Server started on %s", addr))
 
 		if err := srv.ListenAndServe(); err != nil {
 			// Ensure UI updates happen on main thread
 			c.runOnMain(func() {
-				c.showError(fmt.Errorf("server error: %w", err))
 				c.serverRunning = false
-				c.statusIndicator.SetStatus(StatusError, "Server stopped")
+				c.statusIndicator.SetStatus(StatusDisconnected, "Server stopped")
+				c.updateStatusText("Server stopped")
+				if c.stopServerBtn != nil {
+					c.stopServerBtn.Hide()
+				}
 			})
+			logger.Info(fmt.Sprintf("Server stopped: %v", err))
 		}
 	}()
 }
 
-// serverHandler handles incoming connections on the server
+// stopServer stops the running server
+func (c *ChatApp) stopServer() {
+	if !c.serverRunning {
+		dialog.ShowInformation("No Server", "No server is currently running.", c.window)
+		return
+	}
+
+	dialog.ShowConfirm("Stop Server", "Are you sure you want to stop the server? All active sessions will be disconnected.", func(confirmed bool) {
+		if !confirmed {
+			return
+		}
+
+		// Close all server sessions
+		c.mu.Lock()
+		for _, session := range c.sessions {
+			if session.Transport != nil {
+				if err := session.Transport.Close(); err != nil {
+					logger.Errorf("failed to close session %s: %v", session.ID, err)
+				}
+			}
+		}
+		c.sessions = make([]*Session, 0)
+		c.activeSession = nil
+		c.serverRunning = false
+		c.mu.Unlock()
+
+		c.runOnMain(func() {
+			c.sessionList.Refresh()
+			c.refreshMessages()
+			c.statusIndicator.SetStatus(StatusDisconnected, "Server stopped")
+			c.updateStatusText("Server stopped")
+			if c.stopServerBtn != nil {
+				c.stopServerBtn.Hide()
+			}
+		})
+
+		logger.Info("Server stopped by user")
+	}, c.window)
+}
+
+// serverHandler handles incoming connections on the server.
+// IMPORTANT: This function must block until the session is complete.
+// If it returns early, the server's serve() defer will close the connection.
 func (c *ChatApp) serverHandler(t *kamune.Transport) error {
 	session := &Session{
 		ID:           t.SessionID(),
@@ -641,9 +702,31 @@ func (c *ChatApp) serverHandler(t *kamune.Transport) error {
 		c.sendNotification("New Connection", fmt.Sprintf("Peer connected: %s", truncateSessionID(session.ID)))
 	})
 
-	// Start receiving messages in its own goroutine
-	go c.receiveMessages(session)
+	// CRITICAL FIX: Block here receiving messages instead of spawning goroutine.
+	// The handler must stay alive to keep the connection open.
+	// When this loop exits (due to connection close), the handler returns and
+	// the server properly cleans up the connection.
+	c.receiveMessagesBlocking(session)
 
+	// Clean up session from list when connection closes
+	c.mu.Lock()
+	for i, s := range c.sessions {
+		if s == session {
+			c.sessions = append(c.sessions[:i], c.sessions[i+1:]...)
+			break
+		}
+	}
+	if c.activeSession == session {
+		c.activeSession = nil
+	}
+	c.mu.Unlock()
+
+	c.runOnMain(func() {
+		c.sessionList.Refresh()
+		c.refreshMessages()
+	})
+
+	logger.Info(fmt.Sprintf("Session %s closed", session.ID))
 	return nil
 }
 
@@ -732,18 +815,24 @@ func (c *ChatApp) connectToServer(addr, dbPath string) {
 }
 
 // receiveMessages handles incoming messages for a session
-func (c *ChatApp) receiveMessages(session *Session) {
+// receiveMessagesBlocking receives messages in a blocking loop.
+// This is used by the server handler to keep the connection alive.
+func (c *ChatApp) receiveMessagesBlocking(session *Session) {
 	for {
 		b := kamune.Bytes(nil)
 		metadata, err := session.Transport.Receive(b)
 		if err != nil {
 			if errors.Is(err, kamune.ErrConnClosed) {
-				c.statusIndicator.SetStatus(StatusDisconnected, "Disconnected")
-				c.updateStatusText("Connection closed")
+				c.runOnMain(func() {
+					c.statusIndicator.SetStatus(StatusDisconnected, "Disconnected")
+					c.updateStatusText("Connection closed")
+				})
 				return
 			}
-			c.showError(fmt.Errorf("receiving message: %w", err))
-			c.statusIndicator.SetStatus(StatusError, "Receive error")
+			logger.Errorf("receiving message for session %s: %v", session.ID, err)
+			c.runOnMain(func() {
+				c.statusIndicator.SetStatus(StatusError, "Receive error")
+			})
 			return
 		}
 
@@ -761,16 +850,16 @@ func (c *ChatApp) receiveMessages(session *Session) {
 		c.mu.Unlock()
 
 		// Store in database
-		go func() {
+		go func(data []byte, ts time.Time) {
 			if err := session.Transport.Store().AddChatEntry(
 				session.ID,
-				b.GetValue(),
-				metadata.Timestamp(),
+				data,
+				ts,
 				kamune.SenderPeer,
 			); err != nil {
-				fmt.Printf("warning: failed to persist peer chat entry for session %s: %v\n", session.ID, err)
+				logger.Errorf("failed to persist peer chat entry for session %s: %v", session.ID, err)
 			}
-		}()
+		}(b.GetValue(), metadata.Timestamp())
 
 		// Send notification if different session is active
 		if !isActiveSession {
@@ -783,6 +872,12 @@ func (c *ChatApp) receiveMessages(session *Session) {
 
 		c.refreshMessages()
 	}
+}
+
+// receiveMessages starts a goroutine to receive messages for client connections.
+// For server connections, use receiveMessagesBlocking instead.
+func (c *ChatApp) receiveMessages(session *Session) {
+	go c.receiveMessagesBlocking(session)
 }
 
 // sendMessage sends the current message to the active session

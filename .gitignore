@@ -1,5 +1,6 @@
 .idea
 *.db
+*.log
 .DS_STORE
 __debug*
 binaries
