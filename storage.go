@@ -184,6 +184,26 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 // timestamp, a 4-byte random suffix is appended to the key to avoid collision.
 // The session ID is used as the bucket name, which scopes entries per session.
 // If the provided timestamp is zero, the current time is used.
+// ListSessions returns a list of session IDs that have chat history stored.
+// Session IDs are extracted from bucket names with the "chat_" prefix.
+func (s *Storage) ListSessions() ([]string, error) {
+	var sessions []string
+	err := s.store.Query(func(q store.Query) error {
+		buckets := q.ListBucketsWithPrefix("chat_")
+		for _, bucket := range buckets {
+			// Remove "chat_" prefix to get session ID
+			if len(bucket) > 5 {
+				sessions = append(sessions, bucket[5:])
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions: %w", err)
+	}
+	return sessions, nil
+}
+
 func (s *Storage) AddChatEntry(
 	sessionID string, payload []byte, ts time.Time, sender Sender,
 ) error {

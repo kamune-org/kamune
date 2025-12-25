@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"strings"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 func (q *Query) GetPlain(bucket, key []byte) ([]byte, error) {
@@ -76,4 +79,27 @@ func (q *Query) IterateEncrypted(bucket []byte) iter.Seq2[[]byte, []byte] {
 			return yield(k, data)
 		})
 	}
+}
+
+// ListBuckets returns a list of all bucket names in the database
+func (q *Query) ListBuckets() []string {
+	var buckets []string
+	_ = q.tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
+		buckets = append(buckets, string(name))
+		return nil
+	})
+	return buckets
+}
+
+// ListBucketsWithPrefix returns bucket names that start with the given prefix
+func (q *Query) ListBucketsWithPrefix(prefix string) []string {
+	var buckets []string
+	_ = q.tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
+		nameStr := string(name)
+		if strings.HasPrefix(nameStr, prefix) {
+			buckets = append(buckets, nameStr)
+		}
+		return nil
+	})
+	return buckets
 }
