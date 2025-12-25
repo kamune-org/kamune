@@ -230,14 +230,24 @@ func (g *RouteGroup) Use(mw ...Middleware) *RouteGroup {
 // Common middleware implementations
 
 // LoggingMiddleware logs route dispatch events.
+//
+// Note: Middleware does not receive the route as an argument, so the best
+// available signal is the route embedded in the received message metadata.
 func LoggingMiddleware(logger func(route Route, err error)) Middleware {
 	return func(next RouteHandler) RouteHandler {
 		return func(t *Transport, msg Transferable, md *Metadata) error {
 			err := next(t, msg, md)
+
 			if logger != nil {
-				// Extract route from context if available, otherwise unknown
-				logger(RouteInvalid, err)
+				route := RouteInvalid
+				if md != nil && md.pb != nil {
+					// In this protocol, md.pb.Sequence is set to the logical route ID
+					// for logging purposes. If it's not set, RouteInvalid is logged.
+					route = Route(md.pb.Sequence)
+				}
+				logger(route, err)
 			}
+
 			return err
 		}
 	}

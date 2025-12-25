@@ -56,6 +56,11 @@ func (s *Server) ListenAndServe() error {
 	for {
 		c, err := l.Accept()
 		if err != nil {
+			// Exit cleanly when the listener is closed (shutdown).
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+
 			slog.Error("accept conn", slog.Any("error", err))
 			continue
 		}

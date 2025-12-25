@@ -149,8 +149,16 @@ func RouteFromProto(r pb.Route) Route {
 	}
 }
 
-// handshakeRouteOrder defines the expected order of routes during handshake
-// for the initiator (client) side.
+// handshakeRouteOrder defines the expected order of routes during handshake.
+//
+// Note: The initiator/responder orders differ after RouteAcceptHandshake.
+// See `requestHandshake` and `acceptHandshake` in `handshake.go`.
+//
+// Initiator (client):
+//   - sends challenge
+//   - accepts peer's challenge
+//   - sends ratchet init
+//   - receives ratchet confirm
 var handshakeRouteOrderInitiator = []Route{
 	RouteIdentity,
 	RouteRequestHandshake,
@@ -161,14 +169,20 @@ var handshakeRouteOrderInitiator = []Route{
 	RouteConfirmDoubleRatchet,
 }
 
-// handshakeRouteOrderResponder defines the expected order of routes during
-// handshake for the responder (server) side.
+// Responder (server):
+//   - receives challenge
+//   - verifies (echoes) it
+//   - sends its own challenge
+//   - receives verification
+//   - receives ratchet init
+//   - sends ratchet confirm
 var handshakeRouteOrderResponder = []Route{
 	RouteIdentity,
 	RouteRequestHandshake,
 	RouteAcceptHandshake,
 	RouteSendChallenge,
 	RouteVerifyChallenge,
+	// Responder receives the initiator's ratchet init first, then confirms.
 	RouteInitializeDoubleRatchet,
 	RouteConfirmDoubleRatchet,
 }

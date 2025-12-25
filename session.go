@@ -386,10 +386,34 @@ func (sm *SessionManager) UnregisterSession(remotePublicKey []byte) {
 }
 
 // SaveSession persists the session state for potential resumption.
+//
+// NOTE: CreatedAt must be stable across updates. We preserve any existing
+// CreatedAt value in storage and only set it on first save.
 func (sm *SessionManager) SaveSession(state *SessionState) error {
 	if state == nil || state.SessionID == "" {
 		return errors.New("invalid session state")
 	}
+
+	createdAt := timestamppb.Now()
+
+	// Preserve CreatedAt if this session already exists.
+	key := sessionKey(state.SessionID)
+	_ = sm.storage.store.Query(func(q store.Query) error {
+		data, err := q.GetEncrypted(sessionsBucket, key)
+		if err != nil {
+			return err
+		}
+
+		var existing pb.SessionState
+		if err := proto.Unmarshal(data, &existing); err != nil {
+			return err
+		}
+
+		if existing.CreatedAt != nil {
+			createdAt = existing.CreatedAt
+		}
+		return nil
+	})
 
 	pbState := &pb.SessionState{
 		SessionId:       state.SessionID,
@@ -401,7 +425,7 @@ func (sm *SessionManager) SaveSession(state *SessionState) error {
 		LocalSalt:       state.LocalSalt,
 		RemoteSalt:      state.RemoteSalt,
 		RatchetState:    state.RatchetState,
-		CreatedAt:       timestamppb.Now(),
+		CreatedAt:       createdAt,
 		UpdatedAt:       timestamppb.Now(),
 		RemotePublicKey: state.RemotePublicKey,
 	}
@@ -411,7 +435,6 @@ func (sm *SessionManager) SaveSession(state *SessionState) error {
 		return fmt.Errorf("marshaling session state: %w", err)
 	}
 
-	key := sessionKey(state.SessionID)
 	err = sm.storage.store.Command(func(c store.Command) error {
 		return c.AddEncrypted(sessionsBucket, key, data)
 	})

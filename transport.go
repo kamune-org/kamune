@@ -154,6 +154,7 @@ func (pt *plainTransport) serialize(
 	md := &pb.Metadata{
 		ID:        rand.Text(),
 		Timestamp: timestamppb.Now(),
+		Sequence:  uint64(route),
 	}
 	st := &pb.SignedTransport{
 		Data:      message,
@@ -276,6 +277,14 @@ func (t *Transport) ReceiveWithRoute(dst Transferable) (*Metadata, Route, error)
 		return nil, RouteInvalid, fmt.Errorf("deserializing: %w", err)
 	}
 
+	// Validate that metadata and transport route agree (defense-in-depth).
+	// We use Metadata.Sequence to carry the Route for logging/debugging.
+	if metadata != nil && metadata.pb != nil {
+		if mdRoute := Route(metadata.pb.Sequence); mdRoute != RouteInvalid && mdRoute != route {
+			return nil, RouteInvalid, fmt.Errorf("%w: metadata route %s does not match transport route %s", ErrUnexpectedRoute, mdRoute, route)
+		}
+	}
+
 	t.mu.Lock()
 	t.recvSequence++
 	t.mu.Unlock()
@@ -358,9 +367,25 @@ func (t *Transport) Close() error {
 func (t *Transport) Store() *Storage { return t.storage }
 
 // State returns the current session state for potential resumption.
+//
+// It includes the serialized Double Ratchet state when available so that an
+// established session can be resumed without re-handshaking.
 func (t *Transport) State() *SessionState {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	var ratchetState []byte
+	if t.ratchet != nil {
+		st, err := t.ratchet.Save()
+		if err == nil && st != nil {
+			// Store JSON encoded ratchet state (ratchet.State uses JSON encoding).
+			// If serialization fails, we fall back to empty, which will prevent
+			// ratchet-based resumption (better to fail closed).
+			if b, err := st.Serialize(); err == nil {
+				ratchetState = b
+			}
+		}
+	}
 
 	return &SessionState{
 		SessionID:       t.sessionID,
@@ -371,6 +396,7 @@ func (t *Transport) State() *SessionState {
 		SharedSecret:    t.sharedSecret,
 		LocalSalt:       t.localSalt,
 		RemoteSalt:      t.remoteSalt,
+		RatchetState:    ratchetState,
 		RemotePublicKey: t.remotePublicKey,
 	}
 }

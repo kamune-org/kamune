@@ -363,24 +363,29 @@ func (sr *SessionResumer) restoreTransport(
 	t.recvSequence = recvSeq
 	t.mu.Unlock()
 
-	// Restore ratchet if we have serialized state
-	if len(state.RatchetState) > 0 {
-		r, err := ratchet.NewFromSecret(state.SharedSecret)
-		if err != nil {
-			return nil, fmt.Errorf("creating ratchet: %w", err)
-		}
-		// Note: Full ratchet state restoration would require additional
-		// serialization support in the ratchet package
-		t.ratchet = r
-	} else {
-		// Create a new ratchet - this may cause issues if messages
-		// were in flight, but it's better than failing completely
-		r, err := ratchet.NewFromSecret(state.SharedSecret)
-		if err != nil {
-			return nil, fmt.Errorf("creating ratchet: %w", err)
-		}
-		t.ratchet = r
+	// Ratchet restoration:
+	//
+	// We now support serialization/deserialization for the ratchet package.
+	// An established session may only be resumed if the persisted ratchet state
+	// is present and can be restored successfully.
+	if len(state.RatchetState) == 0 {
+		return nil, fmt.Errorf("%w: missing ratchet state", ErrResumptionFailed)
 	}
+
+	st, err := ratchet.Deserialize(state.RatchetState)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid ratchet state: %v", ErrResumptionFailed, err)
+	}
+
+	dr, err := ratchet.Restore(st)
+	if err != nil {
+		return nil, fmt.Errorf("%w: restore ratchet failed: %v", ErrResumptionFailed, err)
+	}
+
+	// Install ratchet into transport (thread-safe)
+	t.mu.Lock()
+	t.ratchet = dr
+	t.mu.Unlock()
 
 	return t, nil
 }
