@@ -6,10 +6,13 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestSessionCreation verifies that sessions are properly created and stored
 func TestSessionCreation(t *testing.T) {
+	a := assert.New(t)
+
 	session := &Session{
 		ID:           "test-session-123",
 		PeerName:     "TestPeer",
@@ -18,17 +21,14 @@ func TestSessionCreation(t *testing.T) {
 		LastActivity: time.Now(),
 	}
 
-	if session.ID != "test-session-123" {
-		t.Errorf("expected session ID 'test-session-123', got '%s'", session.ID)
-	}
-
-	if len(session.Messages) != 0 {
-		t.Errorf("expected empty messages slice, got %d messages", len(session.Messages))
-	}
+	a.Equal("test-session-123", session.ID)
+	a.Equal(0, len(session.Messages))
 }
 
 // TestSessionMessageAppend verifies message appending to sessions
 func TestSessionMessageAppend(t *testing.T) {
+	a := assert.New(t)
+
 	session := &Session{
 		ID:           "test-session",
 		Messages:     make([]ChatMessage, 0),
@@ -50,25 +50,16 @@ func TestSessionMessageAppend(t *testing.T) {
 	session.Messages = append(session.Messages, msg1)
 	session.Messages = append(session.Messages, msg2)
 
-	if len(session.Messages) != 2 {
-		t.Errorf("expected 2 messages, got %d", len(session.Messages))
-	}
-
-	if session.Messages[0].Text != "Hello, World!" {
-		t.Errorf("expected first message 'Hello, World!', got '%s'", session.Messages[0].Text)
-	}
-
-	if session.Messages[0].IsLocal != true {
-		t.Error("expected first message to be local")
-	}
-
-	if session.Messages[1].IsLocal != false {
-		t.Error("expected second message to be from peer")
-	}
+	a.Equal(2, len(session.Messages))
+	a.Equal("Hello, World!", session.Messages[0].Text)
+	a.True(session.Messages[0].IsLocal, "expected first message to be local")
+	a.False(session.Messages[1].IsLocal, "expected second message to be from peer")
 }
 
 // TestChatMessageStruct verifies ChatMessage structure
 func TestChatMessageStruct(t *testing.T) {
+	a := assert.New(t)
+
 	now := time.Now()
 	msg := ChatMessage{
 		Text:      "Test message",
@@ -76,21 +67,15 @@ func TestChatMessageStruct(t *testing.T) {
 		IsLocal:   true,
 	}
 
-	if msg.Text != "Test message" {
-		t.Errorf("expected text 'Test message', got '%s'", msg.Text)
-	}
-
-	if !msg.Timestamp.Equal(now) {
-		t.Errorf("timestamp mismatch")
-	}
-
-	if msg.IsLocal != true {
-		t.Error("expected IsLocal to be true")
-	}
+	a.Equal("Test message", msg.Text)
+	a.True(msg.Timestamp.Equal(now), "timestamp mismatch")
+	a.True(msg.IsLocal, "expected IsLocal to be true")
 }
 
 // TestTruncateSessionID verifies session ID truncation for display
 func TestTruncateSessionID(t *testing.T) {
+	a := assert.New(t)
+
 	tests := []struct {
 		input    string
 		expected string
@@ -105,14 +90,14 @@ func TestTruncateSessionID(t *testing.T) {
 
 	for _, tc := range tests {
 		result := truncateSessionID(tc.input)
-		if result != tc.expected {
-			t.Errorf("truncateSessionID(%q) = %q, expected %q", tc.input, result, tc.expected)
-		}
+		a.Equal(tc.expected, result, "truncateSessionID(%q)", tc.input)
 	}
 }
 
 // TestConcurrentSessionAccess verifies thread-safe session list access
 func TestConcurrentSessionAccess(t *testing.T) {
+	a := assert.New(t)
+
 	sessions := make([]*Session, 0)
 	var mu sync.RWMutex
 
@@ -147,13 +132,13 @@ func TestConcurrentSessionAccess(t *testing.T) {
 
 	wg.Wait()
 
-	if len(sessions) != 10 {
-		t.Errorf("expected 10 sessions, got %d", len(sessions))
-	}
+	a.Equal(10, len(sessions))
 }
 
 // TestSessionRemoval verifies session removal from slice
 func TestSessionRemoval(t *testing.T) {
+	a := assert.New(t)
+
 	sessions := make([]*Session, 3)
 	for i := 0; i < 3; i++ {
 		sessions[i] = &Session{
@@ -170,35 +155,30 @@ func TestSessionRemoval(t *testing.T) {
 		}
 	}
 
-	if len(sessions) != 2 {
-		t.Errorf("expected 2 sessions after removal, got %d", len(sessions))
-	}
+	a.Equal(2, len(sessions))
 
 	for _, s := range sessions {
-		if s.ID == targetID {
-			t.Errorf("session %s should have been removed", targetID)
-		}
+		a.NotEqual(targetID, s.ID, "session %s should have been removed", targetID)
 	}
 }
 
 // TestNotificationConfig verifies notification configuration defaults
 func TestNotificationConfig(t *testing.T) {
+	a := assert.New(t)
+
 	cfg := notificationConfig{
 		enabled:     true,
 		soundOnRecv: false,
 	}
 
-	if !cfg.enabled {
-		t.Error("expected notifications to be enabled by default")
-	}
-
-	if cfg.soundOnRecv {
-		t.Error("expected sound to be disabled by default")
-	}
+	a.True(cfg.enabled, "expected notifications to be enabled by default")
+	a.False(cfg.soundOnRecv, "expected sound to be disabled by default")
 }
 
 // TestStatusIndicatorStates verifies all connection states
 func TestStatusIndicatorStates(t *testing.T) {
+	a := assert.New(t)
+
 	states := []ConnectionStatus{
 		StatusDisconnected,
 		StatusConnecting,
@@ -209,19 +189,17 @@ func TestStatusIndicatorStates(t *testing.T) {
 	// Verify enum values are distinct
 	seen := make(map[ConnectionStatus]bool)
 	for _, s := range states {
-		if seen[s] {
-			t.Errorf("duplicate ConnectionStatus value: %d", s)
-		}
+		a.False(seen[s], "duplicate ConnectionStatus value: %d", s)
 		seen[s] = true
 	}
 
-	if len(seen) != 4 {
-		t.Errorf("expected 4 distinct status values, got %d", len(seen))
-	}
+	a.Equal(4, len(seen))
 }
 
 // TestVerificationModes verifies all verification mode values
 func TestVerificationModes(t *testing.T) {
+	a := assert.New(t)
+
 	modes := []VerificationMode{
 		VerificationModeStrict,
 		VerificationModeQuick,
@@ -231,19 +209,17 @@ func TestVerificationModes(t *testing.T) {
 	// Verify enum values are distinct
 	seen := make(map[VerificationMode]bool)
 	for _, m := range modes {
-		if seen[m] {
-			t.Errorf("duplicate VerificationMode value: %d", m)
-		}
+		a.False(seen[m], "duplicate VerificationMode value: %d", m)
 		seen[m] = true
 	}
 
-	if len(seen) != 3 {
-		t.Errorf("expected 3 distinct verification modes, got %d", len(seen))
-	}
+	a.Equal(3, len(seen))
 }
 
 // TestMessageTimestampOrdering verifies message ordering by timestamp
 func TestMessageTimestampOrdering(t *testing.T) {
+	a := assert.New(t)
+
 	now := time.Now()
 	messages := []ChatMessage{
 		{Text: "First", Timestamp: now.Add(-2 * time.Minute), IsLocal: true},
@@ -252,14 +228,14 @@ func TestMessageTimestampOrdering(t *testing.T) {
 	}
 
 	for i := 1; i < len(messages); i++ {
-		if !messages[i].Timestamp.After(messages[i-1].Timestamp) {
-			t.Errorf("message %d should be after message %d", i, i-1)
-		}
+		a.True(messages[i].Timestamp.After(messages[i-1].Timestamp), "message %d should be after message %d", i, i-1)
 	}
 }
 
 // TestHistoryEntry verifies HistoryEntry structure
 func TestHistoryEntry(t *testing.T) {
+	a := assert.New(t)
+
 	now := time.Now()
 	entry := HistoryEntry{
 		Timestamp: now,
@@ -268,13 +244,8 @@ func TestHistoryEntry(t *testing.T) {
 		IsLocal:   true,
 	}
 
-	if entry.Sender != "You" {
-		t.Errorf("expected sender 'You', got '%s'", entry.Sender)
-	}
-
-	if entry.IsLocal != true {
-		t.Error("expected IsLocal to be true for local sender")
-	}
+	a.Equal("You", entry.Sender)
+	a.True(entry.IsLocal, "expected IsLocal to be true for local sender")
 
 	peerEntry := HistoryEntry{
 		Timestamp: now,
@@ -283,17 +254,14 @@ func TestHistoryEntry(t *testing.T) {
 		IsLocal:   false,
 	}
 
-	if peerEntry.Sender != "Peer" {
-		t.Errorf("expected sender 'Peer', got '%s'", peerEntry.Sender)
-	}
-
-	if peerEntry.IsLocal != false {
-		t.Error("expected IsLocal to be false for peer sender")
-	}
+	a.Equal("Peer", peerEntry.Sender)
+	a.False(peerEntry.IsLocal, "expected IsLocal to be false for peer sender")
 }
 
 // TestTruncateID verifies ID truncation in history module
 func TestTruncateID(t *testing.T) {
+	a := assert.New(t)
+
 	tests := []struct {
 		input    string
 		maxLen   int
@@ -309,39 +277,39 @@ func TestTruncateID(t *testing.T) {
 
 	for _, tc := range tests {
 		result := truncateID(tc.input, tc.maxLen)
-		if result != tc.expected {
-			t.Errorf("truncateID(%q, %d) = %q, expected %q", tc.input, tc.maxLen, result, tc.expected)
-		}
+		a.Equal(tc.expected, result, "truncateID(%q, %d)", tc.input, tc.maxLen)
 	}
 }
 
 // TestSenderTypeConstants verifies kamune sender type usage
 func TestSenderTypeConstants(t *testing.T) {
+	a := assert.New(t)
+
 	// Verify the expected sender types exist and are usable
 	localSender := kamune.SenderLocal
 	peerSender := kamune.SenderPeer
 
-	if localSender == peerSender {
-		t.Error("SenderLocal and SenderPeer should be different values")
-	}
+	a.NotEqual(localSender, peerSender, "SenderLocal and SenderPeer should be different values")
 }
 
 // TestEmptySessionList verifies behavior with no sessions
 func TestEmptySessionList(t *testing.T) {
+	a := assert.New(t)
+
 	sessions := make([]*Session, 0)
 
-	if len(sessions) != 0 {
-		t.Error("expected empty session list")
-	}
+	a.Equal(0, len(sessions))
 
 	// Verify safe iteration over empty list
 	for _, s := range sessions {
-		t.Errorf("should not iterate, got session %s", s.ID)
+		a.Fail("should not iterate, got session %s", s.ID)
 	}
 }
 
 // TestSessionLastActivityUpdate verifies activity timestamp updates
 func TestSessionLastActivityUpdate(t *testing.T) {
+	a := assert.New(t)
+
 	session := &Session{
 		ID:           "test-session",
 		Messages:     make([]ChatMessage, 0),
@@ -354,21 +322,17 @@ func TestSessionLastActivityUpdate(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	session.LastActivity = time.Now()
 
-	if !session.LastActivity.After(oldActivity) {
-		t.Error("LastActivity should be updated to a more recent time")
-	}
+	a.True(session.LastActivity.After(oldActivity), "LastActivity should be updated to a more recent time")
 }
 
 // TestChatAppVersionConstant verifies version constant is set
 func TestChatAppVersionConstant(t *testing.T) {
-	if appVersion == "" {
-		t.Error("appVersion should not be empty")
-	}
+	a := assert.New(t)
+
+	a.NotEmpty(appVersion, "appVersion should not be empty")
 
 	// Version should be in semver format (basic check)
-	if len(appVersion) < 5 { // minimum "0.0.0"
-		t.Errorf("appVersion '%s' seems too short for semver", appVersion)
-	}
+	a.GreaterOrEqual(len(appVersion), 5, "appVersion '%s' seems too short for semver", appVersion)
 }
 
 // BenchmarkTruncateSessionID benchmarks the truncation function

@@ -5,6 +5,7 @@ go 1.25
 require (
 	fyne.io/fyne/v2 v2.6.1
 	github.com/kamune-org/kamune v0.0.0
+	github.com/stretchr/testify v1.11.1
 )
 
 require (
@@ -38,7 +39,6 @@ require (
 	github.com/rymdport/portal v0.4.1 // indirect
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
 	github.com/xtaci/kcp-go/v5 v5.6.40 // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect

@@ -73,7 +73,9 @@ func NewSessionResumer(
 }
 
 // CanResume checks if a session can be resumed with the given peer.
-func (sr *SessionResumer) CanResume(remotePublicKey []byte) (bool, *SessionState, error) {
+func (sr *SessionResumer) CanResume(
+	remotePublicKey []byte,
+) (bool, *SessionState, error) {
 	state, err := sr.sessionManager.LoadSessionByPublicKey(remotePublicKey)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
@@ -97,8 +99,7 @@ func (sr *SessionResumer) CanResume(remotePublicKey []byte) (bool, *SessionState
 
 // InitiateResumption starts the resumption process as a client.
 func (sr *SessionResumer) InitiateResumption(
-	conn Conn,
-	state *SessionState,
+	conn Conn, state *SessionState,
 ) (*Transport, error) {
 	// Generate a challenge
 	challenge := make([]byte, resumeChallengeSize)
@@ -128,7 +129,9 @@ func (sr *SessionResumer) InitiateResumption(
 		return nil, fmt.Errorf("receiving reconnect response: %w", err)
 	}
 	if route != RouteReconnect {
-		return nil, fmt.Errorf("%w: expected %s, got %s", ErrUnexpectedRoute, RouteReconnect, route)
+		return nil, fmt.Errorf(
+			"%w: expected %s, got %s", ErrUnexpectedRoute, RouteReconnect, route,
+		)
 	}
 
 	if !resp.Accepted {
@@ -142,12 +145,16 @@ func (sr *SessionResumer) InitiateResumption(
 	}
 
 	// Compute our response to the server's challenge
-	clientChallengeResponse := sr.computeChallengeResponse(resp.ServerChallenge, state.SharedSecret)
+	clientChallengeResponse := sr.computeChallengeResponse(
+		resp.ServerChallenge, state.SharedSecret,
+	)
 
 	// Determine the sequence numbers to use
 	resumeSendSeq, resumeRecvSeq := sr.reconcileSequences(
-		state.SendSequence, state.RecvSequence,
-		resp.ServerRecvSequence, resp.ServerSendSequence,
+		state.SendSequence,
+		state.RecvSequence,
+		resp.ServerRecvSequence,
+		resp.ServerSendSequence,
 	)
 
 	// Send verification
@@ -166,15 +173,21 @@ func (sr *SessionResumer) InitiateResumption(
 		return nil, fmt.Errorf("receiving completion: %w", err)
 	}
 	if route != RouteReconnect {
-		return nil, fmt.Errorf("%w: expected %s, got %s", ErrUnexpectedRoute, RouteReconnect, route)
+		return nil, fmt.Errorf(
+			"%w: expected %s, got %s", ErrUnexpectedRoute, RouteReconnect, route,
+		)
 	}
 
 	if !complete.Success {
-		return nil, fmt.Errorf("%w: %s", ErrResumptionFailed, complete.ErrorMessage)
+		return nil, fmt.Errorf(
+			"%w: %s", ErrResumptionFailed, complete.ErrorMessage,
+		)
 	}
 
 	// Create the transport with restored state
-	transport, err := sr.restoreTransport(conn, state, resumeSendSeq, resumeRecvSeq)
+	transport, err := sr.restoreTransport(
+		conn, state, resumeSendSeq, resumeRecvSeq,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("restoring transport: %w", err)
 	}
@@ -184,8 +197,7 @@ func (sr *SessionResumer) InitiateResumption(
 
 // HandleResumption handles an incoming resumption request as a server.
 func (sr *SessionResumer) HandleResumption(
-	conn Conn,
-	req *pb.ReconnectRequest,
+	conn Conn, req *pb.ReconnectRequest,
 ) (*Transport, error) {
 	// Look up the session by the client's public key
 	state, err := sr.sessionManager.LoadSessionByPublicKey(req.RemotePublicKey)
@@ -219,7 +231,9 @@ func (sr *SessionResumer) HandleResumption(
 	}
 
 	// Compute response to client's challenge
-	challengeResponse := sr.computeChallengeResponse(req.ResumeChallenge, state.SharedSecret)
+	challengeResponse := sr.computeChallengeResponse(
+		req.ResumeChallenge, state.SharedSecret,
+	)
 
 	// Send accept response
 	resp := &pb.ReconnectResponse{
@@ -241,11 +255,15 @@ func (sr *SessionResumer) HandleResumption(
 		return nil, fmt.Errorf("receiving verification: %w", err)
 	}
 	if route != RouteReconnect {
-		return nil, fmt.Errorf("%w: expected %s, got %s", ErrUnexpectedRoute, RouteReconnect, route)
+		return nil, fmt.Errorf(
+			"%w: expected %s, got %s", ErrUnexpectedRoute, RouteReconnect, route,
+		)
 	}
 
 	// Verify client's response to our challenge
-	expectedClientResponse := sr.computeChallengeResponse(serverChallenge, state.SharedSecret)
+	expectedClientResponse := sr.computeChallengeResponse(
+		serverChallenge, state.SharedSecret,
+	)
 	if subtle.ConstantTimeCompare(verify.ChallengeResponse, expectedClientResponse) != 1 {
 		complete := &pb.ReconnectComplete{
 			Success:      false,

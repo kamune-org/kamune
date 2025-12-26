@@ -233,7 +233,7 @@ func Info(msg string) {
 }
 
 // Infof logs a formatted informational message.
-func Infof(format string, a ...interface{}) {
+func Infof(format string, a ...any) {
 	msg := fmt.Sprintf(format, a...)
 	mu.Lock()
 	defer mu.Unlock()
@@ -254,7 +254,7 @@ func Debug(msg string) {
 }
 
 // Debugf logs a formatted debug message.
-func Debugf(format string, a ...interface{}) {
+func Debugf(format string, a ...any) {
 	msg := fmt.Sprintf(format, a...)
 	mu.Lock()
 	defer mu.Unlock()
@@ -275,7 +275,7 @@ func Warn(msg string) {
 }
 
 // Warnf logs a formatted warning message.
-func Warnf(format string, a ...interface{}) {
+func Warnf(format string, a ...any) {
 	msg := fmt.Sprintf(format, a...)
 	mu.Lock()
 	defer mu.Unlock()
@@ -319,7 +319,7 @@ func Error(err error, context string) {
 }
 
 // Errorf logs a formatted error message and a stack trace.
-func Errorf(format string, a ...interface{}) {
+func Errorf(format string, a ...any) {
 	msg := fmt.Sprintf(format, a...)
 
 	mu.Lock()

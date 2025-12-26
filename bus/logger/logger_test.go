@@ -5,10 +5,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestLoggerInitWithValidPath tests logger initialization with a valid path
 func TestLoggerInitWithValidPath(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
 	// Create a temporary directory for test logs
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
@@ -17,142 +23,120 @@ func TestLoggerInitWithValidPath(t *testing.T) {
 	resetLogger()
 
 	err := Init(logPath)
-	if err != nil {
-		t.Fatalf("Init failed with valid path: %v", err)
-	}
+	r.NoError(err, "Init failed with valid path")
 	defer Close()
 
 	// Verify file was created
-	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		t.Error("log file was not created")
-	}
+	_, err = os.Stat(logPath)
+	a.False(os.IsNotExist(err), "log file was not created")
 }
 
 // TestLoggerInitDuplicate tests that duplicate Init calls are no-ops
 func TestLoggerInitDuplicate(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
 
 	resetLogger()
 
 	err := Init(logPath)
-	if err != nil {
-		t.Fatalf("first Init failed: %v", err)
-	}
+	r.NoError(err, "first Init failed")
 
 	// Second init should be a no-op
 	err = Init(logPath + ".second")
-	if err != nil {
-		t.Fatalf("second Init should not fail: %v", err)
-	}
+	r.NoError(err, "second Init should not fail")
 
 	// Second file should not exist
-	if _, err := os.Stat(logPath + ".second"); !os.IsNotExist(err) {
-		t.Error("second log file should not be created")
-	}
+	_, err = os.Stat(logPath + ".second")
+	a.True(os.IsNotExist(err), "second log file should not be created")
 
 	Close()
 }
 
 // TestLoggerInfo tests Info logging
 func TestLoggerInfo(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
 
 	resetLogger()
 
 	err := Init(logPath)
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
+	r.NoError(err, "Init failed")
 
 	Info("test info message")
 	Close()
 
 	content, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("failed to read log file: %v", err)
-	}
+	r.NoError(err, "failed to read log file")
 
-	if !strings.Contains(string(content), "[INFO]") {
-		t.Error("log should contain [INFO] tag")
-	}
-
-	if !strings.Contains(string(content), "test info message") {
-		t.Error("log should contain the info message")
-	}
+	a.True(strings.Contains(string(content), "[INFO]"), "log should contain [INFO] tag")
+	a.True(strings.Contains(string(content), "test info message"), "log should contain the info message")
 }
 
 // TestLoggerWarn tests Warn logging
 func TestLoggerWarn(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
 
 	resetLogger()
 
 	err := Init(logPath)
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
+	r.NoError(err, "Init failed")
 
 	Warn("test warning message")
 	Close()
 
 	content, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("failed to read log file: %v", err)
-	}
+	r.NoError(err, "failed to read log file")
 
-	if !strings.Contains(string(content), "[WARN]") {
-		t.Error("log should contain [WARN] tag")
-	}
-
-	if !strings.Contains(string(content), "test warning message") {
-		t.Error("log should contain the warning message")
-	}
+	a.True(strings.Contains(string(content), "[WARN]"), "log should contain [WARN] tag")
+	a.True(strings.Contains(string(content), "test warning message"), "log should contain the warning message")
 }
 
 // TestLoggerError tests Error logging with error and context
 func TestLoggerError(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
 
 	resetLogger()
 
 	err := Init(logPath)
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
+	r.NoError(err, "Init failed")
 
 	testErr := os.ErrNotExist
 	Error(testErr, "context message")
 	Close()
 
 	content, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("failed to read log file: %v", err)
-	}
+	r.NoError(err, "failed to read log file")
 
-	if !strings.Contains(string(content), "[ERROR]") {
-		t.Error("log should contain [ERROR] tag")
-	}
-
-	if !strings.Contains(string(content), "context message") {
-		t.Error("log should contain the context message")
-	}
+	a.True(strings.Contains(string(content), "[ERROR]"), "log should contain [ERROR] tag")
+	a.True(strings.Contains(string(content), "context message"), "log should contain the context message")
 }
 
 // TestLoggerErrorNilError tests Error logging with nil error
 func TestLoggerErrorNilError(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
 
 	resetLogger()
 
 	err := Init(logPath)
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
+	r.NoError(err, "Init failed")
 
 	// This should not panic or cause issues
 	Error(nil, "")
@@ -160,43 +144,33 @@ func TestLoggerErrorNilError(t *testing.T) {
 	Close()
 
 	content, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("failed to read log file: %v", err)
-	}
+	r.NoError(err, "failed to read log file")
 
 	// "only context" should be logged
-	if !strings.Contains(string(content), "only context") {
-		t.Error("log should contain 'only context' when only context is provided")
-	}
+	a.True(strings.Contains(string(content), "only context"), "log should contain 'only context' when only context is provided")
 }
 
 // TestLoggerErrorf tests Errorf logging
 func TestLoggerErrorf(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
 
 	resetLogger()
 
 	err := Init(logPath)
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
+	r.NoError(err, "Init failed")
 
 	Errorf("formatted error: %d %s", 42, "test")
 	Close()
 
 	content, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("failed to read log file: %v", err)
-	}
+	r.NoError(err, "failed to read log file")
 
-	if !strings.Contains(string(content), "[ERROR]") {
-		t.Error("log should contain [ERROR] tag")
-	}
-
-	if !strings.Contains(string(content), "formatted error: 42 test") {
-		t.Error("log should contain the formatted message")
-	}
+	a.True(strings.Contains(string(content), "[ERROR]"), "log should contain [ERROR] tag")
+	a.True(strings.Contains(string(content), "formatted error: 42 test"), "log should contain the formatted message")
 }
 
 // TestLoggerWithoutInit tests that logging works without Init (falls back to stderr)
@@ -212,83 +186,78 @@ func TestLoggerWithoutInit(t *testing.T) {
 
 // TestLoggerClose tests closing the logger
 func TestLoggerClose(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
 
 	resetLogger()
 
 	err := Init(logPath)
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
+	r.NoError(err, "Init failed")
 
 	err = Close()
-	if err != nil {
-		t.Errorf("Close failed: %v", err)
-	}
+	a.NoError(err, "Close failed")
 
 	// Double close should be safe
 	err = Close()
-	if err != nil {
-		t.Errorf("second Close should not fail: %v", err)
-	}
+	a.NoError(err, "second Close should not fail")
 }
 
 // TestLoggerInitAfterClose tests that Init after Close fails
 func TestLoggerInitAfterClose(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
 
 	resetLogger()
 
 	err := Init(logPath)
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
+	r.NoError(err, "Init failed")
 
 	Close()
 
 	// Init after close should fail
 	err = Init(logPath + ".new")
-	if err == nil {
-		t.Error("Init after Close should fail")
-	}
+	a.Error(err, "Init after Close should fail")
 }
 
 // TestLoggerTimestampFormat tests that logs contain RFC3339 timestamps
 func TestLoggerTimestampFormat(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "test.log")
 
 	resetLogger()
 
 	err := Init(logPath)
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
+	r.NoError(err, "Init failed")
 
 	Info("timestamp test")
 	Close()
 
 	content, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("failed to read log file: %v", err)
-	}
+	r.NoError(err, "failed to read log file")
 
 	// RFC3339 format contains 'T' between date and time
-	if !strings.Contains(string(content), "T") {
-		t.Error("log should contain RFC3339 formatted timestamp")
-	}
+	a.True(strings.Contains(string(content), "T"), "log should contain RFC3339 formatted timestamp")
 }
 
 // TestLoggerInvalidPath tests Init with an invalid path
 func TestLoggerInvalidPath(t *testing.T) {
+	a := assert.New(t)
+
 	resetLogger()
 
 	// Try to write to a non-existent directory
 	err := Init("/nonexistent/directory/test.log")
+	a.Error(err, "Init should fail with invalid path")
 	if err == nil {
-		t.Error("Init should fail with invalid path")
 		Close()
 	}
 }
@@ -308,13 +277,14 @@ func resetLogger() {
 
 // BenchmarkInfo benchmarks Info logging
 func BenchmarkInfo(b *testing.B) {
+	r := require.New(b)
+
 	tmpDir := b.TempDir()
 	logPath := filepath.Join(tmpDir, "bench.log")
 
 	resetLogger()
-	if err := Init(logPath); err != nil {
-		b.Fatalf("Init failed: %v", err)
-	}
+	err := Init(logPath)
+	r.NoError(err, "Init failed")
 	defer Close()
 
 	b.ResetTimer()
@@ -325,13 +295,14 @@ func BenchmarkInfo(b *testing.B) {
 
 // BenchmarkErrorf benchmarks Errorf logging
 func BenchmarkErrorf(b *testing.B) {
+	r := require.New(b)
+
 	tmpDir := b.TempDir()
 	logPath := filepath.Join(tmpDir, "bench.log")
 
 	resetLogger()
-	if err := Init(logPath); err != nil {
-		b.Fatalf("Init failed: %v", err)
-	}
+	err := Init(logPath)
+	r.NoError(err, "Init failed")
 	defer Close()
 
 	b.ResetTimer()
