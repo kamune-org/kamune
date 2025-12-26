@@ -54,12 +54,12 @@ removal.
   - [x] QR code generation
   - [x] Peer name
   - [x] Remote's public key expiration
-  - [ ] Key rotation *
+  - [ ] Key rotation
 - [x] Saving and restoring chat history
 - [x] Daemon server
-- [x] Native clients via Tauri and Svelte
+- [x] Native clients via Fyne
+- [ ] Provide NAT traversal and/or hole punching strategies
 - [ ] Messaging Layer Security (MLS) and group chats *
-- [ ] Provide NAT traversal and/or hole punching strategies *
 - [ ] Replace Protobuf with a custom encoding\decoding protocol *
 
 ## How does it work?
