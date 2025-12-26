@@ -5,7 +5,7 @@ Communication over untrusted networks.
 Kamune provides `Ed25519_ML-KEM-768_HKDF_SHA512_ChaCha20-Poly1305X` security
 suite. Optionally, `ML-DSA` can be used for full quantum safety.
 
-![demo](.assets/demo.gif)
+![demo](assets/demo.gif)
 
 > [!NOTE]
 > This is an experimental project. All suggestions and feedbacks are welcome and
