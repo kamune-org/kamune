@@ -3,6 +3,8 @@ package main
 import (
 	"image/color"
 	"log"
+	"os"
+	"path/filepath"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -14,7 +16,15 @@ import (
 func main() {
 	// Initialize file logger (best-effort). If initialization fails we continue
 	// but emit a console warning. Logger writes to ./errors.log by default.
-	if err := logger.Init("./errors.log"); err != nil {
+
+	path, err := os.MkdirTemp("", "kamune-chat-logs")
+	if err != nil {
+		log.Printf("warning: failed to create temp log directory: %v\n", err)
+	} else {
+		path = "."
+	}
+	path = filepath.Join(path, "bus.log")
+	if err := logger.Init(path); err != nil {
 		log.Printf("warning: failed to initialize logger: %v\n", err)
 	} else {
 		// Close logger on exit; ignore close error here.
