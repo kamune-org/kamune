@@ -1,12 +1,12 @@
 package kamune
 
 import (
+	"crypto/sha3"
 	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
-	"golang.org/x/crypto/sha3"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
