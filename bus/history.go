@@ -53,7 +53,7 @@ func NewHistoryViewer(app fyne.App, parent fyne.Window) *HistoryViewer {
 func (h *HistoryViewer) ShowHistoryDialog() {
 	dbEntry := widget.NewEntry()
 	dbEntry.SetPlaceHolder("Path to database file")
-	dbEntry.SetText("./client.db")
+	dbEntry.SetText(getDefaultDBDir())
 
 	// Session selection - will be populated when database is loaded
 	sessionSelect := widget.NewSelect([]string{}, nil)

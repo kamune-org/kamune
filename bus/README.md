@@ -63,7 +63,7 @@ go build -o kamune-chat .
 
 1. Click "Start Server" in the sidebar or use `Ctrl+S`
 2. Enter the listen address (e.g., `127.0.0.1:9000`)
-3. Enter the database path (e.g., `./server.db`)
+3. Enter the database path (e.g., `./db`)
 4. Click "Start"
 
 The server will listen for incoming connections. Your emoji fingerprint will be displayed for verification.
@@ -72,7 +72,7 @@ The server will listen for incoming connections. Your emoji fingerprint will be 
 
 1. Click "Connect" in the sidebar or use `Ctrl+N`
 2. Enter the server address (e.g., `127.0.0.1:9000`)
-3. Enter the database path (e.g., `./client.db`)
+3. Enter the database path (e.g., `./db`)
 4. Click "Connect"
 
 ### Sending Messages
@@ -180,8 +180,7 @@ The `GUIVerifier` provides different verification strategies:
 ## Configuration
 
 The application uses the following default paths:
-- Client database: `./client.db`
-- Server database: `./server.db`
+- Database: `./db`
 
 You can specify custom paths when starting a server or connecting.
 
@@ -224,7 +223,7 @@ Use `fyne package` to create distributable packages:
 
 ```bash
 # Install fyne CLI
-go install fyne.io/fyne/v2/cmd/fyne@latest
+go install fyne.io/tools/cmd/fyne@latest
 
 # Package for current platform
 fyne package -name "Kamune Chat" -icon icon.png

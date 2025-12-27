@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,10 +18,21 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/kamune-org/kamune"
-	"github.com/kamune-org/kamune/pkg/fingerprint"
-
 	"github.com/kamune-org/kamune/bus/logger"
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 )
+
+// getDefaultDBDir returns the default database path, checking KAMUNE_DB_PATH env var first
+func getDefaultDBDir() string {
+	if envPath := os.Getenv("KAMUNE_DB_PATH"); envPath != "" {
+		return filepath.Join(envPath, "db")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "db"
+	}
+	return filepath.Join(home, ".config", "kamune", "db")
+}
 
 // notificationConfig controls notification behavior
 type notificationConfig struct {
@@ -759,7 +772,7 @@ func (c *ChatApp) showServerDialog() {
 	addrEntry.SetPlaceHolder("Address:Port")
 
 	dbEntry := widget.NewEntry()
-	dbEntry.SetText("./server.db")
+	dbEntry.SetText(getDefaultDBDir())
 	dbEntry.SetPlaceHolder("Database path")
 
 	form := widget.NewForm(
@@ -783,7 +796,7 @@ func (c *ChatApp) showConnectDialog() {
 	addrEntry.SetPlaceHolder("Address:Port")
 
 	dbEntry := widget.NewEntry()
-	dbEntry.SetText("./client.db")
+	dbEntry.SetText(getDefaultDBDir())
 	dbEntry.SetPlaceHolder("Database path")
 
 	form := widget.NewForm(
