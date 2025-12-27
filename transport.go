@@ -194,41 +194,34 @@ func (pt *plainTransport) deserialize(
 // SessionState holds the current state of a session for potential resumption.
 type SessionState struct {
 	SessionID       string
-	Phase           SessionPhase
-	IsInitiator     bool
-	SendSequence    uint64
-	RecvSequence    uint64
 	SharedSecret    []byte
 	LocalSalt       []byte
 	RemoteSalt      []byte
 	RatchetState    []byte
 	RemotePublicKey []byte
+	Phase           SessionPhase
+	SendSequence    uint64
+	RecvSequence    uint64
+	IsInitiator     bool
 }
 
 // Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
-	*plainTransport
 	encoder *enigma.Enigma
 	decoder *enigma.Enigma
-
-	// ratchet is nil initially and set after handshake completes.
 	ratchet *ratchet.Ratchet
 	mu      *sync.Mutex
-
+	*plainTransport
 	sessionID        string
+	sharedSecret     []byte
+	remotePublicKey  []byte
+	remoteSalt       []byte
+	localSalt        []byte
 	phase            SessionPhase
-	isInitiator      bool
+	recvSequence     uint64
+	sendSequence     uint64
 	ratchetThreshold uint64
-
-	// Sequence numbers for tracking message order
-	sendSequence uint64
-	recvSequence uint64
-
-	// State tracking for resumption
-	sharedSecret    []byte
-	localSalt       []byte
-	remoteSalt      []byte
-	remotePublicKey []byte
+	isInitiator      bool
 }
 
 func newTransport(

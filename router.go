@@ -20,16 +20,12 @@ type RouteHandler func(t *Transport, msg Transferable, md *Metadata) error
 
 // Router dispatches incoming messages to registered handlers based on their route.
 type Router struct {
-	handlers   map[Route]RouteHandler
-	middleware []Middleware
-	mu         sync.RWMutex
-	closed     bool
-
-	// Default handler for unregistered routes
+	handlers       map[Route]RouteHandler
 	defaultHandler RouteHandler
-
-	// Error handler for route processing errors
-	errorHandler func(route Route, err error)
+	errorHandler   func(route Route, err error)
+	middleware     []Middleware
+	mu             sync.RWMutex
+	closed         bool
 }
 
 // Middleware is a function that wraps a RouteHandler to provide

@@ -22,15 +22,15 @@ type Server struct {
 	attester         attest.Attester
 	storage          *Storage
 	handlerFunc      HandlerFunc
+	sessionManager   *SessionManager
 	addr             string
 	serverName       string
 	handshakeOpts    handshakeOpts
 	connOpts         []ConnOption
 	storageOpts      []StorageOption
+	resumptionConfig ResumptionConfig
 	algorithm        attest.Algorithm
 	connType         connType
-	sessionManager   *SessionManager
-	resumptionConfig ResumptionConfig
 }
 
 // ListenAndServe starts the server and listens for incoming connections.

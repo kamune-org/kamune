@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 )
 
 func TestRouteString(t *testing.T) {
+	a := assert.New(t)
 	tests := []struct {
 		route    Route
 		expected string
@@ -37,12 +37,13 @@ func TestRouteString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
-			assert.Equal(t, tt.expected, tt.route.String())
+			a.Equal(tt.expected, tt.route.String())
 		})
 	}
 }
 
 func TestRouteIsValid(t *testing.T) {
+	a := assert.New(t)
 	validRoutes := []Route{
 		RouteIdentity,
 		RouteRequestHandshake,
@@ -59,7 +60,7 @@ func TestRouteIsValid(t *testing.T) {
 
 	for _, route := range validRoutes {
 		t.Run(route.String(), func(t *testing.T) {
-			assert.True(t, route.IsValid())
+			a.True(route.IsValid())
 		})
 	}
 
@@ -71,12 +72,13 @@ func TestRouteIsValid(t *testing.T) {
 
 	for _, route := range invalidRoutes {
 		t.Run("invalid", func(t *testing.T) {
-			assert.False(t, route.IsValid())
+			a.False(route.IsValid())
 		})
 	}
 }
 
 func TestRouteIsHandshakeRoute(t *testing.T) {
+	a := assert.New(t)
 	handshakeRoutes := []Route{
 		RouteIdentity,
 		RouteRequestHandshake,
@@ -90,7 +92,7 @@ func TestRouteIsHandshakeRoute(t *testing.T) {
 
 	for _, route := range handshakeRoutes {
 		t.Run(route.String(), func(t *testing.T) {
-			assert.True(t, route.IsHandshakeRoute())
+			a.True(route.IsHandshakeRoute())
 		})
 	}
 
@@ -102,12 +104,13 @@ func TestRouteIsHandshakeRoute(t *testing.T) {
 
 	for _, route := range nonHandshakeRoutes {
 		t.Run(route.String(), func(t *testing.T) {
-			assert.False(t, route.IsHandshakeRoute())
+			a.False(route.IsHandshakeRoute())
 		})
 	}
 }
 
 func TestRouteIsSessionRoute(t *testing.T) {
+	a := assert.New(t)
 	sessionRoutes := []Route{
 		RouteExchangeMessages,
 		RouteCloseTransport,
@@ -116,7 +119,7 @@ func TestRouteIsSessionRoute(t *testing.T) {
 
 	for _, route := range sessionRoutes {
 		t.Run(route.String(), func(t *testing.T) {
-			assert.True(t, route.IsSessionRoute())
+			a.True(route.IsSessionRoute())
 		})
 	}
 
@@ -128,12 +131,13 @@ func TestRouteIsSessionRoute(t *testing.T) {
 
 	for _, route := range nonSessionRoutes {
 		t.Run(route.String(), func(t *testing.T) {
-			assert.False(t, route.IsSessionRoute())
+			a.False(route.IsSessionRoute())
 		})
 	}
 }
 
 func TestRouteProtoConversion(t *testing.T) {
+	a := assert.New(t)
 	tests := []struct {
 		route   Route
 		pbRoute pb.Route
@@ -155,28 +159,30 @@ func TestRouteProtoConversion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.route.String(), func(t *testing.T) {
 			// Test ToProto
-			assert.Equal(t, tt.pbRoute, tt.route.ToProto())
+			a.Equal(tt.pbRoute, tt.route.ToProto())
 
 			// Test FromProto
-			assert.Equal(t, tt.route, RouteFromProto(tt.pbRoute))
+			a.Equal(tt.route, RouteFromProto(tt.pbRoute))
 		})
 	}
 }
 
 func TestExpectedRoutes(t *testing.T) {
+	a := assert.New(t)
 	initiatorRoutes := ExpectedRoutes(true)
 	responderRoutes := ExpectedRoutes(false)
 
-	assert.NotEmpty(t, initiatorRoutes)
-	assert.NotEmpty(t, responderRoutes)
-	assert.Equal(t, len(initiatorRoutes), len(responderRoutes))
+	a.NotEmpty(initiatorRoutes)
+	a.NotEmpty(responderRoutes)
+	a.Equal(len(initiatorRoutes), len(responderRoutes))
 
 	// First route should be identity
-	assert.Equal(t, RouteIdentity, initiatorRoutes[0])
-	assert.Equal(t, RouteIdentity, responderRoutes[0])
+	a.Equal(RouteIdentity, initiatorRoutes[0])
+	a.Equal(RouteIdentity, responderRoutes[0])
 }
 
 func TestSessionPhaseString(t *testing.T) {
+	a := assert.New(t)
 	tests := []struct {
 		phase    SessionPhase
 		expected string
@@ -194,12 +200,13 @@ func TestSessionPhaseString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
-			assert.Equal(t, tt.expected, tt.phase.String())
+			a.Equal(tt.expected, tt.phase.String())
 		})
 	}
 }
 
 func TestSessionPhaseProtoConversion(t *testing.T) {
+	a := assert.New(t)
 	tests := []struct {
 		phase   SessionPhase
 		pbPhase pb.SessionPhase
@@ -218,15 +225,16 @@ func TestSessionPhaseProtoConversion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.phase.String(), func(t *testing.T) {
 			// Test ToProto
-			assert.Equal(t, tt.pbPhase, tt.phase.ToProto())
+			a.Equal(tt.pbPhase, tt.phase.ToProto())
 
 			// Test FromProto
-			assert.Equal(t, tt.phase, PhaseFromProto(tt.pbPhase))
+			a.Equal(tt.phase, PhaseFromProto(tt.pbPhase))
 		})
 	}
 }
 
 func TestRouterBasic(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
@@ -236,27 +244,28 @@ func TestRouterBasic(t *testing.T) {
 
 	// Register handler
 	err := r.Handle(RouteExchangeMessages, handler)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	// Check handler exists
-	assert.True(t, r.HasHandler(RouteExchangeMessages))
-	assert.False(t, r.HasHandler(RouteCloseTransport))
+	a.True(r.HasHandler(RouteExchangeMessages))
+	a.False(r.HasHandler(RouteCloseTransport))
 
 	// Try to register duplicate
 	err = r.Handle(RouteExchangeMessages, handler)
-	assert.ErrorIs(t, err, ErrHandlerExists)
+	a.ErrorIs(err, ErrHandlerExists)
 
 	// Remove handler
 	removed := r.Remove(RouteExchangeMessages)
-	assert.True(t, removed)
-	assert.False(t, r.HasHandler(RouteExchangeMessages))
+	a.True(removed)
+	a.False(r.HasHandler(RouteExchangeMessages))
 
 	// Remove non-existent handler
 	removed = r.Remove(RouteExchangeMessages)
-	assert.False(t, removed)
+	a.False(removed)
 }
 
 func TestRouterRoutes(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
@@ -272,29 +281,31 @@ func TestRouterRoutes(t *testing.T) {
 
 	for _, route := range routes {
 		err := r.Handle(route, handler)
-		require.NoError(t, err)
+		a.NoError(err)
 	}
 
 	registeredRoutes := r.Routes()
-	assert.Len(t, registeredRoutes, len(routes))
+	a.Len(registeredRoutes, len(routes))
 }
 
 func TestRouterValidation(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
 	// Nil handler
 	err := r.Handle(RouteExchangeMessages, nil)
-	assert.ErrorIs(t, err, ErrInvalidHandler)
+	a.ErrorIs(err, ErrInvalidHandler)
 
 	// Invalid route
 	err = r.Handle(RouteInvalid, func(t *Transport, msg Transferable, md *Metadata) error {
 		return nil
 	})
-	assert.ErrorIs(t, err, ErrInvalidRoute)
+	a.ErrorIs(err, ErrInvalidRoute)
 }
 
 func TestRouterClose(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 
 	handler := func(t *Transport, msg Transferable, md *Metadata) error {
@@ -302,19 +313,20 @@ func TestRouterClose(t *testing.T) {
 	}
 
 	err := r.Handle(RouteExchangeMessages, handler)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	r.Close()
 
 	// Operations after close should fail
 	err = r.Handle(RouteCloseTransport, handler)
-	assert.ErrorIs(t, err, ErrRouterClosed)
+	a.ErrorIs(err, ErrRouterClosed)
 
 	err = r.Dispatch(nil, RouteExchangeMessages, nil, nil)
-	assert.ErrorIs(t, err, ErrRouterClosed)
+	a.ErrorIs(err, ErrRouterClosed)
 }
 
 func TestRouterDefaultHandler(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
@@ -326,19 +338,21 @@ func TestRouterDefaultHandler(t *testing.T) {
 
 	// Dispatch to unregistered route should use default
 	err := r.Dispatch(nil, RouteExchangeMessages, nil, nil)
-	require.NoError(t, err)
-	assert.True(t, defaultCalled)
+	a.NoError(err)
+	a.True(defaultCalled)
 }
 
 func TestRouterNoHandler(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
 	err := r.Dispatch(nil, RouteExchangeMessages, nil, nil)
-	assert.ErrorIs(t, err, ErrNoHandler)
+	a.ErrorIs(err, ErrNoHandler)
 }
 
 func TestRouterErrorHandler(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
@@ -356,12 +370,13 @@ func TestRouterErrorHandler(t *testing.T) {
 	})
 
 	err := r.Dispatch(nil, RouteExchangeMessages, nil, nil)
-	assert.ErrorIs(t, err, testErr)
-	assert.Equal(t, RouteExchangeMessages, capturedRoute)
-	assert.Equal(t, testErr, capturedErr)
+	a.ErrorIs(err, testErr)
+	a.Equal(RouteExchangeMessages, capturedRoute)
+	a.Equal(testErr, capturedErr)
 }
 
 func TestRouterMiddleware(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
@@ -389,10 +404,10 @@ func TestRouterMiddleware(t *testing.T) {
 		order = append(order, "handler")
 		return nil
 	})
-	require.NoError(t, err)
+	a.NoError(err)
 
 	err = r.Dispatch(nil, RouteExchangeMessages, nil, nil)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	expected := []string{
 		"mw1-before",
@@ -401,17 +416,18 @@ func TestRouterMiddleware(t *testing.T) {
 		"mw2-after",
 		"mw1-after",
 	}
-	assert.Equal(t, expected, order)
+	a.Equal(expected, order)
 }
 
 func TestRouterClone(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
 	err := r.Handle(RouteExchangeMessages, func(t *Transport, msg Transferable, md *Metadata) error {
 		return nil
 	})
-	require.NoError(t, err)
+	a.NoError(err)
 
 	// Clone the router
 	cloned := r.Clone()
@@ -421,18 +437,19 @@ func TestRouterClone(t *testing.T) {
 	err = cloned.Handle(RouteCloseTransport, func(t *Transport, msg Transferable, md *Metadata) error {
 		return nil
 	})
-	require.NoError(t, err)
+	a.NoError(err)
 
 	// Original should have first handler
-	assert.True(t, r.HasHandler(RouteExchangeMessages))
-	assert.False(t, r.HasHandler(RouteCloseTransport))
+	a.True(r.HasHandler(RouteExchangeMessages))
+	a.False(r.HasHandler(RouteCloseTransport))
 
 	// Clone should have both
-	assert.True(t, cloned.HasHandler(RouteExchangeMessages))
-	assert.True(t, cloned.HasHandler(RouteCloseTransport))
+	a.True(cloned.HasHandler(RouteExchangeMessages))
+	a.True(cloned.HasHandler(RouteCloseTransport))
 }
 
 func TestRouterGroup(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
@@ -449,16 +466,17 @@ func TestRouterGroup(t *testing.T) {
 		handlerCalled = true
 		return nil
 	})
-	require.NoError(t, err)
+	a.NoError(err)
 
 	err = r.Dispatch(nil, RouteExchangeMessages, nil, nil)
-	require.NoError(t, err)
+	a.NoError(err)
 
-	assert.True(t, middlewareCalled)
-	assert.True(t, handlerCalled)
+	a.True(middlewareCalled)
+	a.True(handlerCalled)
 }
 
 func TestRouterConcurrency(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
@@ -470,7 +488,7 @@ func TestRouterConcurrency(t *testing.T) {
 			atomic.AddInt64(&counter, 1)
 			return nil
 		})
-		require.NoError(t, err)
+		a.NoError(err)
 	}
 
 	var wg sync.WaitGroup
@@ -484,10 +502,11 @@ func TestRouterConcurrency(t *testing.T) {
 	}
 
 	wg.Wait()
-	assert.Equal(t, int64(100), atomic.LoadInt64(&counter))
+	a.Equal(int64(100), atomic.LoadInt64(&counter))
 }
 
 func TestRecoveryMiddleware(t *testing.T) {
+	a := assert.New(t)
 	r := NewRouter()
 	defer r.Close()
 
@@ -499,15 +518,16 @@ func TestRecoveryMiddleware(t *testing.T) {
 	err := r.Handle(RouteExchangeMessages, func(t *Transport, msg Transferable, md *Metadata) error {
 		panic("test panic")
 	})
-	require.NoError(t, err)
+	a.NoError(err)
 
 	err = r.Dispatch(nil, RouteExchangeMessages, nil, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "panic")
-	assert.Equal(t, "test panic", recoveredValue)
+	a.Error(err)
+	a.Contains(err.Error(), "panic")
+	a.Equal("test panic", recoveredValue)
 }
 
 func TestSessionPhaseMiddleware(t *testing.T) {
+	a := assert.New(t)
 	// Test that SessionPhaseMiddleware requires a valid phase
 	// Since we can't easily create a Transport without a full handshake,
 	// we test the middleware logic directly by checking its behavior
@@ -525,37 +545,39 @@ func TestSessionPhaseMiddleware(t *testing.T) {
 
 	// With nil transport, this will panic - test that the middleware exists
 	// and can wrap a handler (we just verify compilation and wrapping works)
-	assert.NotNil(t, wrapped)
-	assert.False(t, handlerCalled)
+	a.NotNil(wrapped)
+	a.False(handlerCalled)
 }
 
 func TestSequenceTracker(t *testing.T) {
+	a := assert.New(t)
 	tracker := NewSequenceTracker(nil)
 
 	// Initial state
 	send, recv := tracker.Sequences()
-	assert.Equal(t, uint64(0), send)
-	assert.Equal(t, uint64(0), recv)
+	a.Equal(uint64(0), send)
+	a.Equal(uint64(0), recv)
 
 	// NextSend
-	assert.Equal(t, uint64(1), tracker.NextSend())
-	assert.Equal(t, uint64(2), tracker.NextSend())
-	assert.Equal(t, uint64(3), tracker.NextSend())
+	a.Equal(uint64(1), tracker.NextSend())
+	a.Equal(uint64(2), tracker.NextSend())
+	a.Equal(uint64(3), tracker.NextSend())
 
 	send, recv = tracker.Sequences()
-	assert.Equal(t, uint64(3), send)
-	assert.Equal(t, uint64(0), recv)
+	a.Equal(uint64(3), send)
+	a.Equal(uint64(0), recv)
 
 	// NextRecv
-	assert.Equal(t, uint64(1), tracker.NextRecv())
-	assert.Equal(t, uint64(2), tracker.NextRecv())
+	a.Equal(uint64(1), tracker.NextRecv())
+	a.Equal(uint64(2), tracker.NextRecv())
 
 	send, recv = tracker.Sequences()
-	assert.Equal(t, uint64(3), send)
-	assert.Equal(t, uint64(2), recv)
+	a.Equal(uint64(3), send)
+	a.Equal(uint64(2), recv)
 }
 
 func TestSequenceTrackerFromState(t *testing.T) {
+	a := assert.New(t)
 	state := &SessionState{
 		SendSequence: 10,
 		RecvSequence: 5,
@@ -564,54 +586,57 @@ func TestSequenceTrackerFromState(t *testing.T) {
 	tracker := NewSequenceTracker(state)
 
 	send, recv := tracker.Sequences()
-	assert.Equal(t, uint64(10), send)
-	assert.Equal(t, uint64(5), recv)
+	a.Equal(uint64(10), send)
+	a.Equal(uint64(5), recv)
 
-	assert.Equal(t, uint64(11), tracker.NextSend())
-	assert.Equal(t, uint64(6), tracker.NextRecv())
+	a.Equal(uint64(11), tracker.NextSend())
+	a.Equal(uint64(6), tracker.NextRecv())
 }
 
 func TestSequenceTrackerValidateRecv(t *testing.T) {
+	a := assert.New(t)
 	tracker := NewSequenceTracker(nil)
 
 	// Valid sequence
 	err := tracker.ValidateRecv(1)
-	assert.NoError(t, err)
+	a.NoError(err)
 
 	err = tracker.ValidateRecv(2)
-	assert.NoError(t, err)
+	a.NoError(err)
 
 	// Duplicate (already received seq 2, receiving again)
 	err = tracker.ValidateRecv(2)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "duplicate")
+	a.Error(err)
+	a.Contains(err.Error(), "duplicate")
 
 	// Missing (expecting 3, but got 5)
 	err = tracker.ValidateRecv(5)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "missing")
+	a.Error(err)
+	a.Contains(err.Error(), "missing")
 }
 
 func TestSequenceEncoding(t *testing.T) {
+	a := assert.New(t)
 	tracker := &SequenceTracker{
 		sendSeq: 12345,
 		recvSeq: 67890,
 	}
 
 	encoded := tracker.EncodeSequences()
-	assert.Len(t, encoded, 16)
+	a.Len(encoded, 16)
 
 	send, recv, err := DecodeSequences(encoded)
-	require.NoError(t, err)
-	assert.Equal(t, uint64(12345), send)
-	assert.Equal(t, uint64(67890), recv)
+	a.NoError(err)
+	a.Equal(uint64(12345), send)
+	a.Equal(uint64(67890), recv)
 
 	// Too short data
 	_, _, err = DecodeSequences([]byte{1, 2, 3})
-	assert.Error(t, err)
+	a.Error(err)
 }
 
 func TestSessionState(t *testing.T) {
+	a := assert.New(t)
 	state := &SessionState{
 		SessionID:    "test-session-123",
 		Phase:        PhaseEstablished,
@@ -623,36 +648,39 @@ func TestSessionState(t *testing.T) {
 		RemoteSalt:   []byte("remote"),
 	}
 
-	assert.Equal(t, "test-session-123", state.SessionID)
-	assert.Equal(t, PhaseEstablished, state.Phase)
-	assert.True(t, state.IsInitiator)
-	assert.Equal(t, uint64(100), state.SendSequence)
-	assert.Equal(t, uint64(50), state.RecvSequence)
+	a.Equal("test-session-123", state.SessionID)
+	a.Equal(PhaseEstablished, state.Phase)
+	a.True(state.IsInitiator)
+	a.Equal(uint64(100), state.SendSequence)
+	a.Equal(uint64(50), state.RecvSequence)
 }
 
 func TestRouteDispatcher(t *testing.T) {
+	a := assert.New(t)
 	// Just test that it can be created with nil (will fail on actual use)
 	// Real tests would require full transport setup
-	assert.NotPanics(t, func() {
+	a.NotPanics(func() {
 		rd := NewRouteDispatcher(nil)
-		assert.NotNil(t, rd.Router())
-		assert.Nil(t, rd.Transport())
+		a.NotNil(rd.Router())
+		a.Nil(rd.Transport())
 	})
 }
 
 func TestBytesHelper(t *testing.T) {
+	a := assert.New(t)
 	data := []byte("hello world")
 	wrapper := Bytes(data)
 
-	assert.IsType(t, &wrapperspb.BytesValue{}, wrapper)
-	assert.Equal(t, data, wrapper.GetValue())
+	a.IsType(&wrapperspb.BytesValue{}, wrapper)
+	a.Equal(data, wrapper.GetValue())
 
 	// Nil case
 	nilWrapper := Bytes(nil)
-	assert.Nil(t, nilWrapper.GetValue())
+	a.Nil(nilWrapper.GetValue())
 }
 
 func TestHandshakeTracker(t *testing.T) {
+	a := assert.New(t)
 	tracker := NewHandshakeTracker(nil, 5*time.Minute)
 
 	remotePubKey := []byte("remote-public-key-12345")
@@ -660,24 +688,24 @@ func TestHandshakeTracker(t *testing.T) {
 
 	// Start a new handshake
 	state, err := tracker.StartHandshake(remotePubKey, localPubKey, true)
-	require.NoError(t, err)
-	assert.NotNil(t, state)
-	assert.Equal(t, PhaseIntroduction, state.Phase)
-	assert.True(t, state.IsInitiator)
-	assert.Equal(t, remotePubKey, state.RemotePublicKey)
-	assert.Equal(t, localPubKey, state.LocalPublicKey)
+	a.NoError(err)
+	a.NotNil(state)
+	a.Equal(PhaseIntroduction, state.Phase)
+	a.True(state.IsInitiator)
+	a.Equal(remotePubKey, state.RemotePublicKey)
+	a.Equal(localPubKey, state.LocalPublicKey)
 
 	// Count should be 1
-	assert.Equal(t, 1, tracker.ActiveHandshakes())
+	a.Equal(1, tracker.ActiveHandshakes())
 
 	// Get the handshake
 	retrieved, err := tracker.GetHandshake(remotePubKey)
-	require.NoError(t, err)
-	assert.Equal(t, state.RemotePublicKey, retrieved.RemotePublicKey)
+	a.NoError(err)
+	a.Equal(state.RemotePublicKey, retrieved.RemotePublicKey)
 
 	// Starting same handshake should return error
 	_, err = tracker.StartHandshake(remotePubKey, localPubKey, true)
-	assert.ErrorIs(t, err, ErrHandshakeInProgress)
+	a.ErrorIs(err, ErrHandshakeInProgress)
 
 	// Update handshake
 	err = tracker.UpdateHandshake(
@@ -688,40 +716,42 @@ func TestHandshakeTracker(t *testing.T) {
 		[]byte("local-salt"),
 		[]byte("remote-salt"),
 	)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	updated, err := tracker.GetHandshake(remotePubKey)
-	require.NoError(t, err)
-	assert.Equal(t, PhaseHandshakeRequested, updated.Phase)
-	assert.Equal(t, "session-123", updated.SessionID)
-	assert.Equal(t, []byte("secret"), updated.SharedSecret)
+	a.NoError(err)
+	a.Equal(PhaseHandshakeRequested, updated.Phase)
+	a.Equal("session-123", updated.SessionID)
+	a.Equal([]byte("secret"), updated.SharedSecret)
 
 	// Complete handshake
 	completed, err := tracker.CompleteHandshake(remotePubKey)
-	require.NoError(t, err)
-	assert.Equal(t, "session-123", completed.SessionID)
+	a.NoError(err)
+	a.Equal("session-123", completed.SessionID)
 
 	// Should be gone now
-	assert.Equal(t, 0, tracker.ActiveHandshakes())
+	a.Equal(0, tracker.ActiveHandshakes())
 	_, err = tracker.GetHandshake(remotePubKey)
-	assert.ErrorIs(t, err, ErrHandshakeNotFound)
+	a.ErrorIs(err, ErrHandshakeNotFound)
 }
 
 func TestHandshakeTrackerCancel(t *testing.T) {
+	a := assert.New(t)
 	tracker := NewHandshakeTracker(nil, 5*time.Minute)
 
 	remotePubKey := []byte("remote-key-cancel-test")
 	localPubKey := []byte("local-key-cancel-test")
 
 	_, err := tracker.StartHandshake(remotePubKey, localPubKey, false)
-	require.NoError(t, err)
-	assert.Equal(t, 1, tracker.ActiveHandshakes())
+	a.NoError(err)
+	a.Equal(1, tracker.ActiveHandshakes())
 
 	tracker.CancelHandshake(remotePubKey)
-	assert.Equal(t, 0, tracker.ActiveHandshakes())
+	a.Equal(0, tracker.ActiveHandshakes())
 }
 
 func TestHandshakeTrackerExpiration(t *testing.T) {
+	a := assert.New(t)
 	// Use very short timeout
 	tracker := NewHandshakeTracker(nil, 1*time.Millisecond)
 
@@ -729,22 +759,23 @@ func TestHandshakeTrackerExpiration(t *testing.T) {
 	localPubKey := []byte("local-key-expiry")
 
 	_, err := tracker.StartHandshake(remotePubKey, localPubKey, true)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	// Wait for expiration
 	time.Sleep(5 * time.Millisecond)
 
 	// Should be expired
 	_, err = tracker.GetHandshake(remotePubKey)
-	assert.ErrorIs(t, err, ErrSessionExpired)
+	a.ErrorIs(err, ErrSessionExpired)
 
 	// Cleanup should remove it
 	cleaned := tracker.CleanupExpired()
-	assert.Equal(t, 1, cleaned)
-	assert.Equal(t, 0, tracker.ActiveHandshakes())
+	a.Equal(1, cleaned)
+	a.Equal(0, tracker.ActiveHandshakes())
 }
 
 func TestHandshakeTrackerMultipleHandshakes(t *testing.T) {
+	a := assert.New(t)
 	tracker := NewHandshakeTracker(nil, 5*time.Minute)
 
 	// Start multiple handshakes with different peers
@@ -752,22 +783,23 @@ func TestHandshakeTrackerMultipleHandshakes(t *testing.T) {
 		remotePubKey := []byte(fmt.Sprintf("remote-key-%d", i))
 		localPubKey := []byte(fmt.Sprintf("local-key-%d", i))
 		_, err := tracker.StartHandshake(remotePubKey, localPubKey, i%2 == 0)
-		require.NoError(t, err)
+		a.NoError(err)
 	}
 
-	assert.Equal(t, 5, tracker.ActiveHandshakes())
+	a.Equal(5, tracker.ActiveHandshakes())
 
 	// Complete some
 	for i := 0; i < 3; i++ {
 		remotePubKey := []byte(fmt.Sprintf("remote-key-%d", i))
 		_, err := tracker.CompleteHandshake(remotePubKey)
-		require.NoError(t, err)
+		a.NoError(err)
 	}
 
-	assert.Equal(t, 2, tracker.ActiveHandshakes())
+	a.Equal(2, tracker.ActiveHandshakes())
 }
 
 func TestHandshakeStateFields(t *testing.T) {
+	a := assert.New(t)
 	now := time.Now()
 	state := &HandshakeState{
 		RemotePublicKey: []byte("remote"),
@@ -782,14 +814,15 @@ func TestHandshakeStateFields(t *testing.T) {
 		UpdatedAt:       now,
 	}
 
-	assert.Equal(t, []byte("remote"), state.RemotePublicKey)
-	assert.Equal(t, []byte("local"), state.LocalPublicKey)
-	assert.Equal(t, "session-xyz", state.SessionID)
-	assert.Equal(t, PhaseEstablished, state.Phase)
-	assert.True(t, state.IsInitiator)
+	a.Equal([]byte("remote"), state.RemotePublicKey)
+	a.Equal([]byte("local"), state.LocalPublicKey)
+	a.Equal("session-xyz", state.SessionID)
+	a.Equal(PhaseEstablished, state.Phase)
+	a.True(state.IsInitiator)
 }
 
 func TestPublicKeyHash(t *testing.T) {
+	a := assert.New(t)
 	key1 := []byte("public-key-1")
 	key2 := []byte("public-key-2")
 	key1Copy := []byte("public-key-1")
@@ -799,16 +832,17 @@ func TestPublicKeyHash(t *testing.T) {
 	hash1Copy := publicKeyHash(key1Copy)
 
 	// Same key should produce same hash
-	assert.Equal(t, hash1, hash1Copy)
+	a.Equal(hash1, hash1Copy)
 
 	// Different keys should produce different hashes
-	assert.NotEqual(t, hash1, hash2)
+	a.NotEqual(hash1, hash2)
 
 	// Hash should be deterministic
-	assert.Equal(t, hash1, publicKeyHash(key1))
+	a.Equal(hash1, publicKeyHash(key1))
 }
 
 func TestSessionManagerPublicKeyTracking(t *testing.T) {
+	a := assert.New(t)
 	sm := NewSessionManager(nil, 24*time.Hour)
 
 	sessionID := "test-session-abc"
@@ -819,35 +853,37 @@ func TestSessionManagerPublicKeyTracking(t *testing.T) {
 
 	// Should be able to find it
 	found, ok := sm.GetSessionByPublicKey(remotePubKey)
-	assert.True(t, ok)
-	assert.Equal(t, sessionID, found)
+	a.True(ok)
+	a.Equal(sessionID, found)
 
 	// Different key should not find it
 	_, ok = sm.GetSessionByPublicKey([]byte("different-key"))
-	assert.False(t, ok)
+	a.False(ok)
 
 	// Unregister
 	sm.UnregisterSession(remotePubKey)
 	_, ok = sm.GetSessionByPublicKey(remotePubKey)
-	assert.False(t, ok)
+	a.False(ok)
 }
 
 func TestSessionManagerHandshakeTracker(t *testing.T) {
+	a := assert.New(t)
 	sm := NewSessionManager(nil, 24*time.Hour)
 
 	tracker := sm.HandshakeTracker()
-	assert.NotNil(t, tracker)
+	a.NotNil(tracker)
 
 	// Use the tracker
 	remotePubKey := []byte("test-remote-key")
 	localPubKey := []byte("test-local-key")
 
 	state, err := tracker.StartHandshake(remotePubKey, localPubKey, true)
-	require.NoError(t, err)
-	assert.NotNil(t, state)
+	a.NoError(err)
+	a.NotNil(state)
 }
 
 func TestSessionStateWithPublicKey(t *testing.T) {
+	a := assert.New(t)
 	state := &SessionState{
 		SessionID:       "session-with-pubkey",
 		Phase:           PhaseEstablished,
@@ -860,7 +896,7 @@ func TestSessionStateWithPublicKey(t *testing.T) {
 		RemotePublicKey: []byte("remote-public-key"),
 	}
 
-	assert.Equal(t, "session-with-pubkey", state.SessionID)
-	assert.Equal(t, []byte("remote-public-key"), state.RemotePublicKey)
-	assert.Equal(t, PhaseEstablished, state.Phase)
+	a.Equal("session-with-pubkey", state.SessionID)
+	a.Equal([]byte("remote-public-key"), state.RemotePublicKey)
+	a.Equal(PhaseEstablished, state.Phase)
 }

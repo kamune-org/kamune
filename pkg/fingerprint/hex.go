@@ -3,6 +3,9 @@ package fingerprint
 const hex = "0123456789ABCDEF"
 
 func Hex(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
 	s := make([]byte, len(b)*3-1)
 	for i, v := range b {
 		pos := i * 3

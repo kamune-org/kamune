@@ -131,19 +131,3 @@ func receiveIntroduction(st *pb.SignedTransport) (*Peer, error) {
 
 	return &Peer{Name: introduce.Name, Algorithm: a, PublicKey: remote}, nil
 }
-
-// receiveIntroductionWithRoute reads and parses an introduction from the
-// connection, also returning the route for validation.
-func receiveIntroductionWithRoute(conn Conn) (*Peer, Route, error) {
-	st, route, err := readSignedTransport(conn)
-	if err != nil {
-		return nil, RouteInvalid, fmt.Errorf("reading transport: %w", err)
-	}
-
-	peer, err := receiveIntroduction(st)
-	if err != nil {
-		return nil, route, err
-	}
-
-	return peer, route, nil
-}

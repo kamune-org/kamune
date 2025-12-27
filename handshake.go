@@ -20,13 +20,13 @@ type handshakeOpts struct {
 // handshakeState tracks the state of an ongoing handshake for potential
 // resumption after connection reset.
 type handshakeState struct {
+	mlkemPrivateKey *exchange.MLKEM
 	sessionID       string
 	sessionPrefix   string
 	sessionSuffix   string
 	localSalt       []byte
 	remoteSalt      []byte
 	sharedSecret    []byte
-	mlkemPrivateKey *exchange.MLKEM
 	phase           SessionPhase
 	isInitiator     bool
 }

@@ -51,10 +51,10 @@ type Command struct {
 
 // Event represents an outgoing event to stdout
 type Event struct {
-	Type string `json:"type"` // Always "evt"
-	Evt  string `json:"evt"`
-	ID   string `json:"id,omitempty"` // Correlation ID for responses
 	Data any    `json:"data"`
+	Type string `json:"type"`
+	Evt  string `json:"evt"`
+	ID   string `json:"id,omitempty"`
 }
 
 // StartServerParams contains parameters for starting a server
@@ -86,29 +86,29 @@ type CloseSessionParams struct {
 type SessionInfo struct {
 	SessionID  string `json:"session_id"`
 	RemoteAddr string `json:"remote_addr,omitempty"`
-	IsServer   bool   `json:"is_server"`
 	CreatedAt  string `json:"created_at"`
+	IsServer   bool   `json:"is_server"`
 }
 
 // Daemon manages the kamune server and client connections
 type Daemon struct {
-	mu            sync.RWMutex
+	ctx           context.Context
 	sessions      map[string]*Session
 	server        *kamune.Server
-	serverRunning bool
 	output        *json.Encoder
-	outputMu      sync.Mutex
-	ctx           context.Context
 	cancel        context.CancelFunc
+	mu            sync.RWMutex
+	outputMu      sync.Mutex
+	serverRunning bool
 }
 
 // Session wraps a kamune.Transport with metadata
 type Session struct {
-	Transport  *kamune.Transport
-	IsServer   bool
-	RemoteAddr string
 	CreatedAt  time.Time
+	Transport  *kamune.Transport
 	cancelFunc context.CancelFunc
+	RemoteAddr string
+	IsServer   bool
 }
 
 // NewDaemon creates a new daemon instance

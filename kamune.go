@@ -68,13 +68,8 @@ func protoUnmarshal(data []byte, msg Transferable) error {
 
 // ResumptionConfig contains configuration for session resumption.
 type ResumptionConfig struct {
-	// Enabled controls whether session resumption is enabled.
-	Enabled bool
-
-	// MaxSessionAge is the maximum age of a session that can be resumed.
-	MaxSessionAge time.Duration
-
-	// PersistSessions controls whether sessions are persisted to storage.
+	MaxSessionAge   time.Duration
+	Enabled         bool
 	PersistSessions bool
 }
 

@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune/pkg/attest"
 )
 
 func TestResumableSession(t *testing.T) {
+	a := assert.New(t)
 	session := &ResumableSession{
 		SessionID:       "test-session-123",
 		RemotePublicKey: []byte("remote-key"),
@@ -28,60 +28,62 @@ func TestResumableSession(t *testing.T) {
 		UpdatedAt:       time.Now(),
 	}
 
-	assert.Equal(t, "test-session-123", session.SessionID)
-	assert.Equal(t, []byte("remote-key"), session.RemotePublicKey)
-	assert.Equal(t, PhaseEstablished, session.Phase)
-	assert.True(t, session.IsInitiator)
-	assert.Equal(t, uint64(100), session.SendSequence)
-	assert.Equal(t, uint64(50), session.RecvSequence)
+	a.Equal("test-session-123", session.SessionID)
+	a.Equal([]byte("remote-key"), session.RemotePublicKey)
+	a.Equal(PhaseEstablished, session.Phase)
+	a.True(session.IsInitiator)
+	a.Equal(uint64(100), session.SendSequence)
+	a.Equal(uint64(50), session.RecvSequence)
 }
 
 func TestSessionResumerCanResume(t *testing.T) {
+	a := assert.New(t)
 	// Create temp storage
 	f, err := os.CreateTemp("", "kamune-resume-test")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	defer os.Remove(f.Name())
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer func() { a.NoError(os.Remove(f.Name())) }()
 
 	storage, err := OpenStorage(
 		StorageWithDBPath(f.Name()),
 		StorageWithAlgorithm(attest.Ed25519Algorithm),
 		StorageWithNoPassphrase(),
 	)
-	require.NoError(t, err)
-	defer storage.Close()
+	a.NoError(err)
+	defer func() { a.NoError(storage.Close()) }()
 
 	sm := NewSessionManager(storage, 24*time.Hour)
 	attester, err := attest.NewAttester(attest.Ed25519Algorithm)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	resumer := NewSessionResumer(storage, sm, attester, 24*time.Hour)
 
 	// With no existing session, CanResume should return false
 	canResume, state, err := resumer.CanResume([]byte("unknown-key"))
-	require.NoError(t, err)
-	assert.False(t, canResume)
-	assert.Nil(t, state)
+	a.NoError(err)
+	a.False(canResume)
+	a.Nil(state)
 }
 
 func TestSessionResumerChallengeResponse(t *testing.T) {
+	a := assert.New(t)
 	// Create temp storage
 	f, err := os.CreateTemp("", "kamune-challenge-test")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	defer os.Remove(f.Name())
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer func() { a.NoError(os.Remove(f.Name())) }()
 
 	storage, err := OpenStorage(
 		StorageWithDBPath(f.Name()),
 		StorageWithAlgorithm(attest.Ed25519Algorithm),
 		StorageWithNoPassphrase(),
 	)
-	require.NoError(t, err)
-	defer storage.Close()
+	a.NoError(err)
+	defer func() { a.NoError(storage.Close()) }()
 
 	sm := NewSessionManager(storage, 24*time.Hour)
 	attester, err := attest.NewAttester(attest.Ed25519Algorithm)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	resumer := NewSessionResumer(storage, sm, attester, 24*time.Hour)
 
@@ -91,36 +93,37 @@ func TestSessionResumerChallengeResponse(t *testing.T) {
 	// Challenge response should be deterministic
 	response1 := resumer.computeChallengeResponse(challenge, sharedSecret)
 	response2 := resumer.computeChallengeResponse(challenge, sharedSecret)
-	assert.Equal(t, response1, response2)
+	a.Equal(response1, response2)
 
 	// Different challenge should produce different response
 	differentChallenge := []byte("different-challenge")
 	response3 := resumer.computeChallengeResponse(differentChallenge, sharedSecret)
-	assert.NotEqual(t, response1, response3)
+	a.NotEqual(response1, response3)
 
 	// Different secret should produce different response
 	differentSecret := []byte("different-secret")
 	response4 := resumer.computeChallengeResponse(challenge, differentSecret)
-	assert.NotEqual(t, response1, response4)
+	a.NotEqual(response1, response4)
 }
 
 func TestSessionResumerReconcileSequences(t *testing.T) {
+	a := assert.New(t)
 	f, err := os.CreateTemp("", "kamune-seq-test")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	defer os.Remove(f.Name())
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer func() { a.NoError(os.Remove(f.Name())) }()
 
 	storage, err := OpenStorage(
 		StorageWithDBPath(f.Name()),
 		StorageWithAlgorithm(attest.Ed25519Algorithm),
 		StorageWithNoPassphrase(),
 	)
-	require.NoError(t, err)
-	defer storage.Close()
+	a.NoError(err)
+	defer func() { a.NoError(storage.Close()) }()
 
 	sm := NewSessionManager(storage, 24*time.Hour)
 	attester, err := attest.NewAttester(attest.Ed25519Algorithm)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	resumer := NewSessionResumer(storage, sm, attester, 24*time.Hour)
 
@@ -183,62 +186,64 @@ func TestSessionResumerReconcileSequences(t *testing.T) {
 				tt.localSend, tt.localRecv,
 				tt.remoteSend, tt.remoteRecv,
 			)
-			assert.Equal(t, tt.expectedSend, send)
-			assert.Equal(t, tt.expectedRecv, recv)
+			a.Equal(tt.expectedSend, send)
+			a.Equal(tt.expectedRecv, recv)
 		})
 	}
 }
 
 func TestResumeOrDialFallback(t *testing.T) {
+	a := assert.New(t)
 	// This test verifies that ResumeOrDial falls back to fresh dial
 	// when no session exists
 
 	// Create temp storage for client
 	f, err := os.CreateTemp("", "kamune-dial-test")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	defer os.Remove(f.Name())
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer func() { a.NoError(os.Remove(f.Name())) }()
 
 	sm := NewSessionManager(nil, 24*time.Hour)
 
 	// With no existing session for this key, checkResumability should return false
 	canResume, state, err := checkResumability([]byte("nonexistent-key"), sm)
-	require.NoError(t, err)
-	assert.False(t, canResume)
-	assert.Nil(t, state)
+	a.NoError(err)
+	a.False(canResume)
+	a.Nil(state)
 }
 
 func TestSaveSessionForResumption(t *testing.T) {
+	a := assert.New(t)
 	// Create temp storage
 	f, err := os.CreateTemp("", "kamune-save-test")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	defer os.Remove(f.Name())
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer func() { a.NoError(os.Remove(f.Name())) }()
 
 	storage, err := OpenStorage(
 		StorageWithDBPath(f.Name()),
 		StorageWithAlgorithm(attest.Ed25519Algorithm),
 		StorageWithNoPassphrase(),
 	)
-	require.NoError(t, err)
-	defer storage.Close()
+	a.NoError(err)
+	defer func() { a.NoError(storage.Close()) }()
 
 	sm := NewSessionManager(storage, 24*time.Hour)
 
 	// Create mock attesters
 	attester1, err := attest.NewAttester(attest.Ed25519Algorithm)
-	require.NoError(t, err)
+	a.NoError(err)
 	attester2, err := attest.NewAttester(attest.Ed25519Algorithm)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	// Create a pipe for testing
 	c1, c2 := net.Pipe()
 	conn1, err := newConn(c1)
-	require.NoError(t, err)
+	a.NoError(err)
 	conn2, err := newConn(c2)
-	require.NoError(t, err)
-	defer conn1.Close()
-	defer conn2.Close()
+	a.NoError(err)
+	defer func() { a.NoError(conn1.Close()) }()
+	defer func() { a.NoError(conn2.Close()) }()
 
 	// Create plain transports
 	pt1 := newPlainTransport(conn1, attester2.PublicKey(), attester1, storage)
@@ -255,29 +260,30 @@ func TestSaveSessionForResumption(t *testing.T) {
 	go func() {
 		var err error
 		t1, err = requestHandshake(pt1, handshakeOpts)
-		require.NoError(t, err)
+		a.NoError(err)
 		close(done)
 	}()
 
 	t2, err := acceptHandshake(pt2, handshakeOpts)
-	require.NoError(t, err)
+	a.NoError(err)
 	<-done
 
-	require.NotNil(t, t1)
-	require.NotNil(t, t2)
+	a.NotNil(t1)
+	a.NotNil(t2)
 
 	// Save session for resumption
 	err = SaveSessionForResumption(t1, sm)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	// Verify session was saved and can be found by public key
 	state, err := sm.LoadSession(t1.SessionID())
-	require.NoError(t, err)
-	assert.Equal(t, t1.SessionID(), state.SessionID)
-	assert.Equal(t, PhaseEstablished, state.Phase)
+	a.NoError(err)
+	a.Equal(t1.SessionID(), state.SessionID)
+	a.Equal(PhaseEstablished, state.Phase)
 }
 
 func TestHmacEqual(t *testing.T) {
+	a := assert.New(t)
 	tests := []struct {
 		name     string
 		a, b     []byte
@@ -324,17 +330,18 @@ func TestHmacEqual(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := hmacEqual(tt.a, tt.b)
-			assert.Equal(t, tt.expected, result)
+			a.Equal(tt.expected, result)
 		})
 	}
 }
 
 func TestResumptionConfig(t *testing.T) {
+	a := assert.New(t)
 	// Test default config
 	defaultConfig := DefaultResumptionConfig()
-	assert.True(t, defaultConfig.Enabled)
-	assert.Equal(t, 24*time.Hour, defaultConfig.MaxSessionAge)
-	assert.True(t, defaultConfig.PersistSessions)
+	a.True(defaultConfig.Enabled)
+	a.Equal(24*time.Hour, defaultConfig.MaxSessionAge)
+	a.True(defaultConfig.PersistSessions)
 
 	// Test custom config
 	customConfig := ResumptionConfig{
@@ -342,53 +349,55 @@ func TestResumptionConfig(t *testing.T) {
 		MaxSessionAge:   1 * time.Hour,
 		PersistSessions: false,
 	}
-	assert.False(t, customConfig.Enabled)
-	assert.Equal(t, 1*time.Hour, customConfig.MaxSessionAge)
-	assert.False(t, customConfig.PersistSessions)
+	a.False(customConfig.Enabled)
+	a.Equal(1*time.Hour, customConfig.MaxSessionAge)
+	a.False(customConfig.PersistSessions)
 }
 
 func TestSessionResumerNew(t *testing.T) {
+	a := assert.New(t)
 	f, err := os.CreateTemp("", "kamune-resumer-new-test")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	defer os.Remove(f.Name())
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer func() { a.NoError(os.Remove(f.Name())) }()
 
 	storage, err := OpenStorage(
 		StorageWithDBPath(f.Name()),
 		StorageWithAlgorithm(attest.Ed25519Algorithm),
 		StorageWithNoPassphrase(),
 	)
-	require.NoError(t, err)
-	defer storage.Close()
+	a.NoError(err)
+	defer func() { a.NoError(storage.Close()) }()
 
 	sm := NewSessionManager(storage, 24*time.Hour)
 	attester, err := attest.NewAttester(attest.Ed25519Algorithm)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	// Test with zero max age (should default to 24h)
 	resumer := NewSessionResumer(storage, sm, attester, 0)
-	assert.NotNil(t, resumer)
-	assert.Equal(t, 24*time.Hour, resumer.maxSessionAge)
+	a.NotNil(resumer)
+	a.Equal(24*time.Hour, resumer.maxSessionAge)
 
 	// Test with custom max age
 	resumer2 := NewSessionResumer(storage, sm, attester, 1*time.Hour)
-	assert.NotNil(t, resumer2)
-	assert.Equal(t, 1*time.Hour, resumer2.maxSessionAge)
+	a.NotNil(resumer2)
+	a.Equal(1*time.Hour, resumer2.maxSessionAge)
 }
 
 func TestCheckResumability(t *testing.T) {
+	a := assert.New(t)
 	f, err := os.CreateTemp("", "kamune-check-resume-test")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	defer os.Remove(f.Name())
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer func() { a.NoError(os.Remove(f.Name())) }()
 
 	storage, err := OpenStorage(
 		StorageWithDBPath(f.Name()),
 		StorageWithAlgorithm(attest.Ed25519Algorithm),
 		StorageWithNoPassphrase(),
 	)
-	require.NoError(t, err)
-	defer storage.Close()
+	a.NoError(err)
+	defer func() { a.NoError(storage.Close()) }()
 
 	sm := NewSessionManager(storage, 24*time.Hour)
 
@@ -397,9 +406,9 @@ func TestCheckResumability(t *testing.T) {
 
 	// Initially should not be resumable
 	canResume, state, err := checkResumability(remotePubKey, sm)
-	require.NoError(t, err)
-	assert.False(t, canResume)
-	assert.Nil(t, state)
+	a.NoError(err)
+	a.False(canResume)
+	a.Nil(state)
 
 	// Save a session state
 	testState := &SessionState{
@@ -413,32 +422,33 @@ func TestCheckResumability(t *testing.T) {
 	}
 
 	err = sm.SaveSession(testState)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	// Register the session by public key
 	sm.RegisterSession(sessionID, remotePubKey)
 
 	// Now should be resumable
 	canResume, state, err = checkResumability(remotePubKey, sm)
-	require.NoError(t, err)
-	assert.True(t, canResume)
-	assert.NotNil(t, state)
-	assert.Equal(t, sessionID, state.SessionID)
+	a.NoError(err)
+	a.True(canResume)
+	a.NotNil(state)
+	a.Equal(sessionID, state.SessionID)
 }
 
 func TestCheckResumabilityNotEstablished(t *testing.T) {
+	a := assert.New(t)
 	f, err := os.CreateTemp("", "kamune-check-not-established-test")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	defer os.Remove(f.Name())
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer func() { a.NoError(os.Remove(f.Name())) }()
 
 	storage, err := OpenStorage(
 		StorageWithDBPath(f.Name()),
 		StorageWithAlgorithm(attest.Ed25519Algorithm),
 		StorageWithNoPassphrase(),
 	)
-	require.NoError(t, err)
-	defer storage.Close()
+	a.NoError(err)
+	defer func() { a.NoError(storage.Close()) }()
 
 	sm := NewSessionManager(storage, 24*time.Hour)
 
@@ -455,28 +465,29 @@ func TestCheckResumabilityNotEstablished(t *testing.T) {
 	}
 
 	err = sm.SaveSession(testState)
-	require.NoError(t, err)
+	a.NoError(err)
 	sm.RegisterSession(sessionID, remotePubKey)
 
 	// Should not be resumable because phase is not established
 	canResume, _, err := checkResumability(remotePubKey, sm)
-	require.NoError(t, err)
-	assert.False(t, canResume)
+	a.NoError(err)
+	a.False(canResume)
 }
 
 func TestCheckResumabilityNoSecret(t *testing.T) {
+	a := assert.New(t)
 	f, err := os.CreateTemp("", "kamune-check-no-secret-test")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	defer os.Remove(f.Name())
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer func() { a.NoError(os.Remove(f.Name())) }()
 
 	storage, err := OpenStorage(
 		StorageWithDBPath(f.Name()),
 		StorageWithAlgorithm(attest.Ed25519Algorithm),
 		StorageWithNoPassphrase(),
 	)
-	require.NoError(t, err)
-	defer storage.Close()
+	a.NoError(err)
+	defer func() { a.NoError(storage.Close()) }()
 
 	sm := NewSessionManager(storage, 24*time.Hour)
 
@@ -493,11 +504,11 @@ func TestCheckResumabilityNoSecret(t *testing.T) {
 	}
 
 	err = sm.SaveSession(testState)
-	require.NoError(t, err)
+	a.NoError(err)
 	sm.RegisterSession(sessionID, remotePubKey)
 
 	// Should not be resumable because no shared secret
 	canResume, _, err := checkResumability(remotePubKey, sm)
-	require.NoError(t, err)
-	assert.False(t, canResume)
+	a.NoError(err)
+	a.False(canResume)
 }

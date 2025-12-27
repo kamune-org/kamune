@@ -4,14 +4,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCommandSerialization(t *testing.T) {
+	a := assert.New(t)
 	tests := []struct {
 		name     string
-		cmd      Command
 		wantType string
 		wantCmd  string
+		cmd      Command
 	}{
 		{
 			name: "start_server command",
@@ -51,29 +54,21 @@ func TestCommandSerialization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			data, err := json.Marshal(tt.cmd)
-			if err != nil {
-				t.Fatalf("failed to marshal command: %v", err)
-			}
+			a.NoError(err, "failed to marshal command")
 
 			var decoded Command
-			if err := json.Unmarshal(data, &decoded); err != nil {
-				t.Fatalf("failed to unmarshal command: %v", err)
-			}
+			err = json.Unmarshal(data, &decoded)
+			a.NoError(err, "failed to unmarshal command")
 
-			if decoded.Type != tt.wantType {
-				t.Errorf("Type = %v, want %v", decoded.Type, tt.wantType)
-			}
-			if decoded.Cmd != tt.wantCmd {
-				t.Errorf("Cmd = %v, want %v", decoded.Cmd, tt.wantCmd)
-			}
-			if decoded.ID != tt.cmd.ID {
-				t.Errorf("ID = %v, want %v", decoded.ID, tt.cmd.ID)
-			}
+			a.Equal(tt.wantType, decoded.Type, "Type mismatch")
+			a.Equal(tt.wantCmd, decoded.Cmd, "Cmd mismatch")
+			a.Equal(tt.cmd.ID, decoded.ID, "ID mismatch")
 		})
 	}
 }
 
 func TestEventSerialization(t *testing.T) {
+	a := assert.New(t)
 	tests := []struct {
 		name     string
 		evt      Event
@@ -134,26 +129,20 @@ func TestEventSerialization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			data, err := json.Marshal(tt.evt)
-			if err != nil {
-				t.Fatalf("failed to marshal event: %v", err)
-			}
+			a.NoError(err, "failed to marshal event")
 
 			var decoded Event
-			if err := json.Unmarshal(data, &decoded); err != nil {
-				t.Fatalf("failed to unmarshal event: %v", err)
-			}
+			err = json.Unmarshal(data, &decoded)
+			a.NoError(err, "failed to unmarshal event")
 
-			if decoded.Type != tt.wantType {
-				t.Errorf("Type = %v, want %v", decoded.Type, tt.wantType)
-			}
-			if decoded.Evt != tt.wantEvt {
-				t.Errorf("Evt = %v, want %v", decoded.Evt, tt.wantEvt)
-			}
+			a.Equal(tt.wantType, decoded.Type, "Type mismatch")
+			a.Equal(tt.wantEvt, decoded.Evt, "Evt mismatch")
 		})
 	}
 }
 
 func TestStartServerParams(t *testing.T) {
+	a := assert.New(t)
 	params := StartServerParams{
 		Addr:           "127.0.0.1:9000",
 		StoragePath:    "/tmp/test.db",
@@ -161,27 +150,19 @@ func TestStartServerParams(t *testing.T) {
 	}
 
 	data, err := json.Marshal(params)
-	if err != nil {
-		t.Fatalf("failed to marshal params: %v", err)
-	}
+	a.NoError(err, "failed to marshal params")
 
 	var decoded StartServerParams
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("failed to unmarshal params: %v", err)
-	}
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal params")
 
-	if decoded.Addr != params.Addr {
-		t.Errorf("Addr = %v, want %v", decoded.Addr, params.Addr)
-	}
-	if decoded.StoragePath != params.StoragePath {
-		t.Errorf("StoragePath = %v, want %v", decoded.StoragePath, params.StoragePath)
-	}
-	if decoded.DBNoPassphrase != params.DBNoPassphrase {
-		t.Errorf("DBNoPassphrase = %v, want %v", decoded.DBNoPassphrase, params.DBNoPassphrase)
-	}
+	a.Equal(params.Addr, decoded.Addr, "Addr mismatch")
+	a.Equal(params.StoragePath, decoded.StoragePath, "StoragePath mismatch")
+	a.Equal(params.DBNoPassphrase, decoded.DBNoPassphrase, "DBNoPassphrase mismatch")
 }
 
 func TestDialParams(t *testing.T) {
+	a := assert.New(t)
 	params := DialParams{
 		Addr:           "192.168.1.10:9000",
 		StoragePath:    "/tmp/client.db",
@@ -189,27 +170,19 @@ func TestDialParams(t *testing.T) {
 	}
 
 	data, err := json.Marshal(params)
-	if err != nil {
-		t.Fatalf("failed to marshal params: %v", err)
-	}
+	a.NoError(err, "failed to marshal params")
 
 	var decoded DialParams
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("failed to unmarshal params: %v", err)
-	}
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal params")
 
-	if decoded.Addr != params.Addr {
-		t.Errorf("Addr = %v, want %v", decoded.Addr, params.Addr)
-	}
-	if decoded.StoragePath != params.StoragePath {
-		t.Errorf("StoragePath = %v, want %v", decoded.StoragePath, params.StoragePath)
-	}
-	if decoded.DBNoPassphrase != params.DBNoPassphrase {
-		t.Errorf("DBNoPassphrase = %v, want %v", decoded.DBNoPassphrase, params.DBNoPassphrase)
-	}
+	a.Equal(params.Addr, decoded.Addr, "Addr mismatch")
+	a.Equal(params.StoragePath, decoded.StoragePath, "StoragePath mismatch")
+	a.Equal(params.DBNoPassphrase, decoded.DBNoPassphrase, "DBNoPassphrase mismatch")
 }
 
 func TestSendMessageParams(t *testing.T) {
+	a := assert.New(t)
 	message := "Hello, World!"
 	params := SendMessageParams{
 		SessionID:  "session-abc-123",
@@ -217,33 +190,23 @@ func TestSendMessageParams(t *testing.T) {
 	}
 
 	data, err := json.Marshal(params)
-	if err != nil {
-		t.Fatalf("failed to marshal params: %v", err)
-	}
+	a.NoError(err, "failed to marshal params")
 
 	var decoded SendMessageParams
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("failed to unmarshal params: %v", err)
-	}
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal params")
 
-	if decoded.SessionID != params.SessionID {
-		t.Errorf("SessionID = %v, want %v", decoded.SessionID, params.SessionID)
-	}
-	if decoded.DataBase64 != params.DataBase64 {
-		t.Errorf("DataBase64 = %v, want %v", decoded.DataBase64, params.DataBase64)
-	}
+	a.Equal(params.SessionID, decoded.SessionID, "SessionID mismatch")
+	a.Equal(params.DataBase64, decoded.DataBase64, "DataBase64 mismatch")
 
 	// Verify we can decode the base64
 	decodedMessage, err := base64.StdEncoding.DecodeString(decoded.DataBase64)
-	if err != nil {
-		t.Fatalf("failed to decode base64: %v", err)
-	}
-	if string(decodedMessage) != message {
-		t.Errorf("decoded message = %v, want %v", string(decodedMessage), message)
-	}
+	a.NoError(err, "failed to decode base64")
+	a.Equal(message, string(decodedMessage), "decoded message mismatch")
 }
 
 func TestSessionInfo(t *testing.T) {
+	a := assert.New(t)
 	info := SessionInfo{
 		SessionID:  "test-session-id",
 		RemoteAddr: "192.168.1.10:9000",
@@ -252,50 +215,31 @@ func TestSessionInfo(t *testing.T) {
 	}
 
 	data, err := json.Marshal(info)
-	if err != nil {
-		t.Fatalf("failed to marshal session info: %v", err)
-	}
+	a.NoError(err, "failed to marshal session info")
 
 	var decoded SessionInfo
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("failed to unmarshal session info: %v", err)
-	}
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal session info")
 
-	if decoded.SessionID != info.SessionID {
-		t.Errorf("SessionID = %v, want %v", decoded.SessionID, info.SessionID)
-	}
-	if decoded.RemoteAddr != info.RemoteAddr {
-		t.Errorf("RemoteAddr = %v, want %v", decoded.RemoteAddr, info.RemoteAddr)
-	}
-	if decoded.IsServer != info.IsServer {
-		t.Errorf("IsServer = %v, want %v", decoded.IsServer, info.IsServer)
-	}
-	if decoded.CreatedAt != info.CreatedAt {
-		t.Errorf("CreatedAt = %v, want %v", decoded.CreatedAt, info.CreatedAt)
-	}
+	a.Equal(info.SessionID, decoded.SessionID, "SessionID mismatch")
+	a.Equal(info.RemoteAddr, decoded.RemoteAddr, "RemoteAddr mismatch")
+	a.Equal(info.IsServer, decoded.IsServer, "IsServer mismatch")
+	a.Equal(info.CreatedAt, decoded.CreatedAt, "CreatedAt mismatch")
 }
 
 func TestDaemonNew(t *testing.T) {
+	a := assert.New(t)
 	daemon := NewDaemon()
-	if daemon == nil {
-		t.Fatal("NewDaemon() returned nil")
-	}
+	a.NotNil(daemon, "NewDaemon() should not return nil")
 
-	if daemon.sessions == nil {
-		t.Error("sessions map is nil")
-	}
-	if daemon.output == nil {
-		t.Error("output encoder is nil")
-	}
-	if daemon.ctx == nil {
-		t.Error("context is nil")
-	}
-	if daemon.cancel == nil {
-		t.Error("cancel function is nil")
-	}
+	a.NotNil(daemon.sessions, "sessions map should not be nil")
+	a.NotNil(daemon.output, "output encoder should not be nil")
+	a.NotNil(daemon.ctx, "context should not be nil")
+	a.NotNil(daemon.cancel, "cancel function should not be nil")
 }
 
 func TestCommandConstants(t *testing.T) {
+	a := assert.New(t)
 	// Verify command constants are defined correctly
 	expectedCommands := map[string]string{
 		"start_server":  CmdStartServer,
@@ -307,13 +251,12 @@ func TestCommandConstants(t *testing.T) {
 	}
 
 	for expected, actual := range expectedCommands {
-		if actual != expected {
-			t.Errorf("Command constant mismatch: got %v, want %v", actual, expected)
-		}
+		a.Equal(expected, actual, "Command constant mismatch")
 	}
 }
 
 func TestEventConstants(t *testing.T) {
+	a := assert.New(t)
 	// Verify event constants are defined correctly
 	expectedEvents := map[string]string{
 		"ready":            EvtReady,
@@ -327,13 +270,12 @@ func TestEventConstants(t *testing.T) {
 	}
 
 	for expected, actual := range expectedEvents {
-		if actual != expected {
-			t.Errorf("Event constant mismatch: got %v, want %v", actual, expected)
-		}
+		a.Equal(expected, actual, "Event constant mismatch")
 	}
 }
 
 func TestParseCommand(t *testing.T) {
+	a := assert.New(t)
 	tests := []struct {
 		name      string
 		input     string
@@ -372,22 +314,13 @@ func TestParseCommand(t *testing.T) {
 			err := json.Unmarshal([]byte(tt.input), &cmd)
 
 			if tt.wantError {
-				if err == nil {
-					t.Error("expected error, got nil")
-				}
+				a.Error(err, "expected error")
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if cmd.Cmd != tt.wantCmd {
-				t.Errorf("Cmd = %v, want %v", cmd.Cmd, tt.wantCmd)
-			}
-			if cmd.ID != tt.wantID {
-				t.Errorf("ID = %v, want %v", cmd.ID, tt.wantID)
-			}
+			a.NoError(err, "unexpected error")
+			a.Equal(tt.wantCmd, cmd.Cmd, "Cmd mismatch")
+			a.Equal(tt.wantID, cmd.ID, "ID mismatch")
 		})
 	}
 }

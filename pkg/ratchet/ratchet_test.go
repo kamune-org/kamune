@@ -2,7 +2,6 @@
 package ratchet
 
 import (
-	"bytes"
 	"crypto/rand"
 	"testing"
 
@@ -100,11 +99,6 @@ func TestInitiateRatchet(t *testing.T) {
 
 	a.Equal(uint64(1), alice.Sent(), "Alice send counter after ratchet")
 	a.Equal(uint64(1), bob.Received(), "Bob recv counter after ratchet")
-}
-
-// Helper to compare two ECDH public keys for equality
-func equalPublicKeys(a, b []byte) bool {
-	return bytes.Equal(a, b)
 }
 
 // Test that the DH key exchange between two parties produces matching shared secrets

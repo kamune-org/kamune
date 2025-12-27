@@ -31,19 +31,19 @@ var (
 
 // ResumableSession contains all the information needed to resume a session.
 type ResumableSession struct {
+	UpdatedAt       time.Time
+	CreatedAt       time.Time
 	SessionID       string
+	RatchetState    []byte
 	RemotePublicKey []byte
 	LocalPublicKey  []byte
 	SharedSecret    []byte
 	LocalSalt       []byte
 	RemoteSalt      []byte
 	SendSequence    uint64
-	RecvSequence    uint64
 	Phase           SessionPhase
+	RecvSequence    uint64
 	IsInitiator     bool
-	RatchetState    []byte // Serialized ratchet state
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
 }
 
 // SessionResumer handles session resumption for both client and server.

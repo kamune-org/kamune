@@ -18,21 +18,21 @@ import (
 
 // Dialer handles outgoing connections and initiates handshakes.
 type Dialer struct {
-	conn             Conn
 	attester         attest.Attester
+	conn             Conn
+	sessionManager   *SessionManager
 	storage          *Storage
 	clientName       string
 	address          string
 	handshakeOpts    handshakeOpts
 	storageOpts      []StorageOption
 	connOpts         []ConnOption
+	resumptionConfig ResumptionConfig
 	connType         connType
 	writeTimeout     time.Duration
 	dialTimeout      time.Duration
 	readTimeout      time.Duration
 	algorithm        attest.Algorithm
-	sessionManager   *SessionManager
-	resumptionConfig ResumptionConfig
 }
 
 // Dial establishes a connection and performs the handshake.

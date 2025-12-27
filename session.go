@@ -28,25 +28,25 @@ var (
 // HandshakeState tracks an in-progress handshake identified by the remote
 // peer's public key.
 type HandshakeState struct {
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	SessionID       string
 	RemotePublicKey []byte
 	LocalPublicKey  []byte
-	SessionID       string
-	Phase           SessionPhase
-	IsInitiator     bool
 	SharedSecret    []byte
 	LocalSalt       []byte
 	RemoteSalt      []byte
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	Phase           SessionPhase
+	IsInitiator     bool
 }
 
 // HandshakeTracker manages in-progress handshakes using public keys as
 // identifiers. This allows handshakes to be resumed after connection resets.
 type HandshakeTracker struct {
-	mu         sync.RWMutex
-	handshakes map[string]*HandshakeState // keyed by remote public key hash
+	handshakes map[string]*HandshakeState
 	storage    *Storage
 	timeout    time.Duration
+	mu         sync.RWMutex
 }
 
 // NewHandshakeTracker creates a new handshake tracker.
@@ -339,9 +339,9 @@ func (ht *HandshakeTracker) ActiveHandshakes() int {
 // Sessions are identified by both session ID and the remote peer's public key.
 type SessionManager struct {
 	storage          *Storage
-	sessionTimeout   time.Duration
 	handshakeTracker *HandshakeTracker
-	sessionsByPubKey map[string]string // remote pubkey hash -> session ID
+	sessionsByPubKey map[string]string
+	sessionTimeout   time.Duration
 	mu               sync.RWMutex
 }
 
@@ -639,10 +639,10 @@ func (sm *SessionManager) CleanupExpiredSessions() (int, error) {
 
 // SessionStats returns statistics about stored sessions.
 type SessionStats struct {
+	ByPhase         map[SessionPhase]int
 	TotalSessions   int
 	ActiveSessions  int
 	ExpiredSessions int
-	ByPhase         map[SessionPhase]int
 }
 
 // Stats returns statistics about the stored sessions.
@@ -693,13 +693,13 @@ func (sm *SessionManager) SaveTransportState(t *Transport) error {
 
 // SessionInfo contains summary information about a session.
 type SessionInfo struct {
-	SessionID    string
-	Phase        SessionPhase
-	IsInitiator  bool
-	SendSequence uint64
-	RecvSequence uint64
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	SessionID    string
+	Phase        SessionPhase
+	SendSequence uint64
+	RecvSequence uint64
+	IsInitiator  bool
 	IsExpired    bool
 }
 
