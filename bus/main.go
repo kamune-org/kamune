@@ -33,10 +33,10 @@ func main() {
 
 	logger.Info("Kamune Chat starting...")
 
-	a := app.NewWithID("org.kamune.chat-gui")
+	a := app.NewWithID("org.kamune.bus")
 	a.Settings().SetTheme(&chatTheme{})
 
-	w := a.NewWindow("Kamune Chat")
+	w := a.NewWindow("Bus - Kamune Chat")
 	w.Resize(fyne.NewSize(950, 650))
 	w.SetMaster()
 
