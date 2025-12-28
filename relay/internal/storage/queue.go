@@ -114,3 +114,20 @@ func qSetMetaUint64(c *Command, name, meta []byte, v uint64) error {
 	binary.BigEndian.PutUint64(buf, v)
 	return c.tx.Set(key, buf)
 }
+
+// QLen returns the current length of the named queue (tail - head).
+// It is safe to call inside the same transaction (Command) to obtain an atomic view.
+func (c *Command) QLen(name []byte) (uint64, error) {
+	head, err := qGetMetaUint64(c, name, qHead)
+	if err != nil {
+		return 0, err
+	}
+	tail, err := qGetMetaUint64(c, name, qTail)
+	if err != nil {
+		return 0, err
+	}
+	if tail < head {
+		return 0, fmt.Errorf("invalid queue meta: tail < head")
+	}
+	return tail - head, nil
+}

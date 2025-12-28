@@ -8,6 +8,7 @@ import (
 	"github.com/hossein1376/grape"
 
 	"github.com/kamune-org/kamune/relay/internal/config"
+	queuehndlr "github.com/kamune-org/kamune/relay/internal/handlers/queuehndlr"
 )
 
 func newRouter(h *Handler, cfg config.Config) *grape.Router {
@@ -29,6 +30,10 @@ func newRouter(h *Handler, cfg config.Config) *grape.Router {
 	peers.Post("", h.RegisterPeerHandler)
 	peers.Get("", h.InquiryPeerHandler)
 	peers.Delete("/{id}", h.DiscardPeerHandler)
+
+	// Queue endpoints (push/pop) - registered under /queues
+	queues := r.Group("/queues")
+	queuehndlr.New(queues, h.service)
 
 	return r
 }

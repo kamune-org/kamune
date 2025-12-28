@@ -34,6 +34,12 @@ func New(store *storage.Store, cfg config.Config) (*Service, error) {
 	return &Service{store: store, attester: at, cfg: cfg}, nil
 }
 
+// MaxMessageSize returns the configured maximum message size in bytes.
+// A value of 0 means unlimited.
+func (s *Service) MaxMessageSize() int {
+	return s.cfg.Storage.MaxMessageSize
+}
+
 func loadAttest(
 	store *storage.Store, algorithm attest.Algorithm,
 ) (attest.Attester, error) {

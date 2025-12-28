@@ -23,4 +23,5 @@ type Command interface {
 	SetTTL(ns Namespace, name, value []byte, ttl time.Duration) error
 	QPush(name, value []byte) error
 	QPop(name []byte) ([]byte, error)
+	QLen(name []byte) (uint64, error)
 }
