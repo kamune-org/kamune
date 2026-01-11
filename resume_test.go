@@ -91,18 +91,22 @@ func TestSessionResumerChallengeResponse(t *testing.T) {
 	sharedSecret := []byte("shared-secret-key")
 
 	// Challenge response should be deterministic
-	response1 := resumer.computeChallengeResponse(challenge, sharedSecret)
-	response2 := resumer.computeChallengeResponse(challenge, sharedSecret)
+	response1, err := resumer.computeChallengeResponse(challenge, sharedSecret)
+	a.NoError(err)
+	response2, err := resumer.computeChallengeResponse(challenge, sharedSecret)
+	a.NoError(err)
 	a.Equal(response1, response2)
 
 	// Different challenge should produce different response
 	differentChallenge := []byte("different-challenge")
-	response3 := resumer.computeChallengeResponse(differentChallenge, sharedSecret)
+	response3, err := resumer.computeChallengeResponse(differentChallenge, sharedSecret)
+	a.NoError(err)
 	a.NotEqual(response1, response3)
 
 	// Different secret should produce different response
 	differentSecret := []byte("different-secret")
-	response4 := resumer.computeChallengeResponse(challenge, differentSecret)
+	response4, err := resumer.computeChallengeResponse(challenge, differentSecret)
+	a.NoError(err)
 	a.NotEqual(response1, response4)
 }
 
@@ -280,59 +284,6 @@ func TestSaveSessionForResumption(t *testing.T) {
 	a.NoError(err)
 	a.Equal(t1.SessionID(), state.SessionID)
 	a.Equal(PhaseEstablished, state.Phase)
-}
-
-func TestHmacEqual(t *testing.T) {
-	a := assert.New(t)
-	tests := []struct {
-		name     string
-		a, b     []byte
-		expected bool
-	}{
-		{
-			name:     "equal slices",
-			a:        []byte("hello"),
-			b:        []byte("hello"),
-			expected: true,
-		},
-		{
-			name:     "different slices same length",
-			a:        []byte("hello"),
-			b:        []byte("world"),
-			expected: false,
-		},
-		{
-			name:     "different lengths",
-			a:        []byte("hello"),
-			b:        []byte("hi"),
-			expected: false,
-		},
-		{
-			name:     "empty slices",
-			a:        []byte{},
-			b:        []byte{},
-			expected: true,
-		},
-		{
-			name:     "one empty",
-			a:        []byte("hello"),
-			b:        []byte{},
-			expected: false,
-		},
-		{
-			name:     "nil slices",
-			a:        nil,
-			b:        nil,
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := hmacEqual(tt.a, tt.b)
-			a.Equal(tt.expected, result)
-		})
-	}
 }
 
 func TestResumptionConfig(t *testing.T) {

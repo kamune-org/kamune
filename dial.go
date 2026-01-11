@@ -1,7 +1,7 @@
 package kamune
 
 import (
-	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
 	"log/slog"
 	"net"
@@ -52,8 +52,10 @@ func (d *Dialer) Dial() (*Transport, error) {
 
 	// Save session for potential resumption
 	if d.resumptionConfig.Enabled && d.resumptionConfig.PersistSessions {
-		if err := SaveSessionForResumption(transport, d.sessionManager); err != nil {
-			slog.Warn("failed to save session for resumption",
+		err := SaveSessionForResumption(transport, d.sessionManager)
+		if err != nil {
+			slog.Warn(
+				"failed to save session for resumption",
 				slog.Any("error", err),
 				slog.String("session_id", transport.SessionID()),
 			)
@@ -65,7 +67,9 @@ func (d *Dialer) Dial() (*Transport, error) {
 
 // DialWithResume attempts to resume an existing session with the given peer,
 // falling back to a fresh handshake if resumption fails.
-func (d *Dialer) DialWithResume(remotePublicKey []byte) (*Transport, bool, error) {
+func (d *Dialer) DialWithResume(
+	remotePublicKey []byte,
+) (*Transport, bool, error) {
 	if !d.resumptionConfig.Enabled || len(remotePublicKey) == 0 {
 		t, err := d.Dial()
 		return t, false, err
@@ -82,7 +86,8 @@ func (d *Dialer) DialWithResume(remotePublicKey []byte) (*Transport, bool, error
 
 	// Check if session is resumable
 	if state.Phase != PhaseEstablished || len(state.SharedSecret) == 0 {
-		slog.Debug("session not resumable, performing fresh handshake",
+		slog.Debug(
+			"session not resumable, performing fresh handshake",
 			slog.String("phase", state.Phase.String()),
 		)
 		t, err := d.Dial()
@@ -92,7 +97,8 @@ func (d *Dialer) DialWithResume(remotePublicKey []byte) (*Transport, bool, error
 	// Attempt resumption
 	t, err := d.attemptResumption(state)
 	if err != nil {
-		slog.Warn("resumption failed, falling back to fresh handshake",
+		slog.Warn(
+			"resumption failed, falling back to fresh handshake",
 			slog.Any("error", err),
 		)
 		// Close any existing connection and retry fresh
@@ -104,17 +110,16 @@ func (d *Dialer) DialWithResume(remotePublicKey []byte) (*Transport, bool, error
 		return t, false, err
 	}
 
-	slog.Info(
-		"session resumed",
-		slog.String("session_id", t.SessionID()),
-	)
+	slog.Info("session resumed", slog.String("session_id", t.SessionID()))
 
 	return t, true, nil
 }
 
-// DialWithReconnect attempts to resume an existing session or establishes
-// a new one if resumption fails.
-func (d *Dialer) DialWithReconnect(sessionState *SessionState) (*Transport, error) {
+// DialWithReconnect attempts to resume an existing session or establishes a new
+// one if resumption fails.
+func (d *Dialer) DialWithReconnect(
+	sessionState *SessionState,
+) (*Transport, error) {
 	if sessionState == nil {
 		return d.Dial()
 	}
@@ -129,7 +134,8 @@ func (d *Dialer) DialWithReconnect(sessionState *SessionState) (*Transport, erro
 	// Attempt session resumption
 	transport, err := d.attemptResumption(sessionState)
 	if err != nil {
-		slog.Warn("reconnection failed, falling back to fresh handshake",
+		slog.Warn(
+			"reconnection failed, falling back to fresh handshake",
 			slog.Any("error", err),
 		)
 		// Close the failed connection and try fresh
@@ -180,7 +186,8 @@ func (d *Dialer) handshake() (*Transport, error) {
 	}()
 
 	// Step 1: Send our introduction
-	if err := sendIntroduction(d.conn, d.clientName, d.attester, d.algorithm); err != nil {
+	err := sendIntroduction(d.conn, d.clientName, d.attester, d.algorithm)
+	if err != nil {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
 
@@ -190,10 +197,11 @@ func (d *Dialer) handshake() (*Transport, error) {
 		return nil, fmt.Errorf("read transport: %w", err)
 	}
 
-	// Validate route (allow RouteInvalid for backward compatibility)
-	if route != RouteIdentity && route != RouteInvalid {
-		return nil, fmt.Errorf("%w: expected %s, got %s",
-			ErrUnexpectedRoute, RouteIdentity, route)
+	// Validate route
+	if route != RouteIdentity {
+		return nil, fmt.Errorf(
+			"%w: expected %s, got %s", ErrUnexpectedRoute, RouteIdentity, route,
+		)
 	}
 
 	peer, err := receiveIntroduction(st)
@@ -205,7 +213,7 @@ func (d *Dialer) handshake() (*Transport, error) {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
-	// Step 3: Proceed with encrypted handshake
+	// Step 3: Proceed with the handshake
 	pt := newPlainTransport(d.conn, peer.PublicKey, d.attester, d.storage)
 	t, err := requestHandshake(pt, d.handshakeOpts)
 	if err != nil {
@@ -243,7 +251,6 @@ func (d *Dialer) attemptResumption(state *SessionState) (*Transport, error) {
 		RemotePublicKey:  d.attester.PublicKey().Marshal(),
 		ResumeChallenge:  challenge,
 	}
-
 	if err := d.sendSignedMessage(req, RouteReconnect); err != nil {
 		return nil, fmt.Errorf("sending reconnect request: %w", err)
 	}
@@ -260,12 +267,16 @@ func (d *Dialer) attemptResumption(state *SessionState) (*Transport, error) {
 	}
 
 	// Verify signature from the server
-	remoteKey, err := d.storage.algorithm.Identitfier().ParsePublicKey(state.RemotePublicKey)
+	remoteKey, err := d.storage.algorithm.Identitfier().ParsePublicKey(
+		state.RemotePublicKey,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("parsing remote public key: %w", err)
 	}
 
-	if !d.storage.algorithm.Identitfier().Verify(remoteKey, respST.Data, respST.Signature) {
+	if !d.storage.algorithm.Identitfier().Verify(
+		remoteKey, respST.Data, respST.Signature,
+	) {
 		return nil, ErrInvalidSignature
 	}
 
@@ -280,17 +291,28 @@ func (d *Dialer) attemptResumption(state *SessionState) (*Transport, error) {
 
 	// Verify the server's challenge response
 	resumer := NewSessionResumer(
-		d.storage, d.sessionManager, d.attester, d.resumptionConfig.MaxSessionAge,
+		d.storage,
+		d.sessionManager,
+		d.attester,
+		d.resumptionConfig.MaxSessionAge,
 	)
-	expectedResponse := resumer.computeChallengeResponse(challenge, state.SharedSecret)
-	if !hmacEqual(resp.ChallengeResponse, expectedResponse) {
+	expectedResponse, err := resumer.computeChallengeResponse(
+		challenge, state.SharedSecret,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("compute expected challenge response: %w", err)
+	}
+	if subtle.ConstantTimeCompare(resp.ChallengeResponse, expectedResponse) != 1 {
 		return nil, ErrChallengeVerifyFailed
 	}
 
 	// Compute our response to the server's challenge
-	clientChallengeResponse := resumer.computeChallengeResponse(
+	clientChallengeResponse, err := resumer.computeChallengeResponse(
 		resp.ServerChallenge, state.SharedSecret,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("compute client challenge response: %w", err)
+	}
 
 	// Determine the sequence numbers to use
 	resumeSendSeq, resumeRecvSeq := resumer.reconcileSequences(
@@ -332,7 +354,9 @@ func (d *Dialer) attemptResumption(state *SessionState) (*Transport, error) {
 	}
 
 	if !complete.Success {
-		return nil, fmt.Errorf("%w: %s", ErrResumptionFailed, complete.ErrorMessage)
+		return nil, fmt.Errorf(
+			"%w: %s", ErrResumptionFailed, complete.ErrorMessage,
+		)
 	}
 
 	// Use the agreed-upon sequence numbers
@@ -353,8 +377,10 @@ func (d *Dialer) attemptResumption(state *SessionState) (*Transport, error) {
 
 	// Update session state
 	if d.resumptionConfig.PersistSessions {
-		if err := SaveSessionForResumption(transport, d.sessionManager); err != nil {
-			slog.Warn("failed to update session after resumption",
+		err := SaveSessionForResumption(transport, d.sessionManager)
+		if err != nil {
+			slog.Warn(
+				"failed to update session after resumption",
 				slog.Any("error", err),
 			)
 		}
@@ -439,12 +465,12 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 
 	d.storage = storage
 	d.attester = at
+	d.clientName = fingerprint.Sum(at.PublicKey().Marshal())
 
 	// Initialize session manager for resumption
-	d.sessionManager = NewSessionManager(storage, d.resumptionConfig.MaxSessionAge)
-
-	sum := sha256.Sum256(at.PublicKey().Marshal())
-	d.clientName = fingerprint.Base64(sum[:])
+	d.sessionManager = NewSessionManager(
+		storage, d.resumptionConfig.MaxSessionAge,
+	)
 
 	return d, nil
 }

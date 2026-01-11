@@ -1,14 +1,11 @@
 package kamune
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/subtle"
 	"errors"
 	"fmt"
 	"time"
-
-	"golang.org/x/crypto/sha3"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
@@ -138,16 +135,22 @@ func (sr *SessionResumer) InitiateResumption(
 		return nil, fmt.Errorf("%w: %s", ErrResumptionFailed, resp.ErrorMessage)
 	}
 
-	// Verify the server's challenge response
-	expectedResponse := sr.computeChallengeResponse(challenge, state.SharedSecret)
+	expectedResponse, err := sr.computeChallengeResponse(
+		challenge, state.SharedSecret,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("compute expected challenge response: %w", err)
+	}
 	if subtle.ConstantTimeCompare(resp.ChallengeResponse, expectedResponse) != 1 {
 		return nil, ErrChallengeVerifyFailed
 	}
 
-	// Compute our response to the server's challenge
-	clientChallengeResponse := sr.computeChallengeResponse(
+	clientChallengeResponse, err := sr.computeChallengeResponse(
 		resp.ServerChallenge, state.SharedSecret,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("compute client challenge response: %w", err)
+	}
 
 	// Determine the sequence numbers to use
 	resumeSendSeq, resumeRecvSeq := sr.reconcileSequences(
@@ -231,9 +234,12 @@ func (sr *SessionResumer) HandleResumption(
 	}
 
 	// Compute response to client's challenge
-	challengeResponse := sr.computeChallengeResponse(
+	challengeResponse, err := sr.computeChallengeResponse(
 		req.ResumeChallenge, state.SharedSecret,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("compute challenge response: %w", err)
+	}
 
 	// Send accept response
 	resp := &pb.ReconnectResponse{
@@ -261,9 +267,12 @@ func (sr *SessionResumer) HandleResumption(
 	}
 
 	// Verify client's response to our challenge
-	expectedClientResponse := sr.computeChallengeResponse(
+	expectedClientResponse, err := sr.computeChallengeResponse(
 		serverChallenge, state.SharedSecret,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("compute expected client response: %w", err)
+	}
 	if subtle.ConstantTimeCompare(verify.ChallengeResponse, expectedClientResponse) != 1 {
 		complete := &pb.ReconnectComplete{
 			Success:      false,
@@ -299,11 +308,12 @@ func (sr *SessionResumer) HandleResumption(
 }
 
 // computeChallengeResponse computes an HMAC-based response to a challenge.
-func (sr *SessionResumer) computeChallengeResponse(challenge, sharedSecret []byte) []byte {
-	h := hmac.New(sha3.New256, sharedSecret)
-	h.Write(challenge)
-	h.Write([]byte("kamune-resume"))
-	return h.Sum(nil)
+func (sr *SessionResumer) computeChallengeResponse(
+	challenge, sharedSecret []byte,
+) ([]byte, error) {
+	return enigma.Derive(
+		sharedSecret, nil, []byte(challenge), resumeChallengeSize,
+	)
 }
 
 // reconcileSequences determines the correct sequence numbers to resume from.

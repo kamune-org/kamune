@@ -1,7 +1,7 @@
 package kamune
 
 import (
-	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -75,7 +75,7 @@ func (s *Server) listen() (net.Listener, error) {
 	case udp:
 		return kcp.Listen(s.addr)
 	default:
-		panic(fmt.Sprintf("unknown conn type: %v", s.connType))
+		return nil, fmt.Errorf("unknown conn type: %v", s.connType)
 	}
 }
 
@@ -87,7 +87,8 @@ func (s *Server) handleConnection(c net.Conn) {
 	}
 
 	if err := s.serve(cn); err != nil {
-		slog.Error("serve conn",
+		slog.Error(
+			"serve conn",
 			slog.Any("error", err),
 			slog.String("remote", c.RemoteAddr().String()),
 		)
@@ -116,14 +117,18 @@ func (s *Server) serve(cn Conn) error {
 
 	// Handle different routes at this stage
 	switch route {
-	case RouteIdentity, RouteInvalid:
-		// RouteInvalid for backward compatibility
+	case RouteIdentity:
 		return s.handleNewConnection(cn, st)
 	case RouteReconnect:
 		return s.handleReconnection(cn, st)
 	default:
-		return fmt.Errorf("%w: expected %s or %s, got %s",
-			ErrUnexpectedRoute, RouteIdentity, RouteReconnect, route)
+		return fmt.Errorf(
+			"%w: expected %s or %s, got %s",
+			ErrUnexpectedRoute,
+			RouteIdentity,
+			RouteReconnect,
+			route,
+		)
 	}
 }
 
@@ -137,7 +142,8 @@ func (s *Server) handleNewConnection(cn Conn, st *pb.SignedTransport) error {
 		return fmt.Errorf("verify remote: %w", err)
 	}
 
-	if err := sendIntroduction(cn, s.serverName, s.attester, s.algorithm); err != nil {
+	err = sendIntroduction(cn, s.serverName, s.attester, s.algorithm)
+	if err != nil {
 		return fmt.Errorf("sending introduction: %w", err)
 	}
 
@@ -147,7 +153,8 @@ func (s *Server) handleNewConnection(cn Conn, st *pb.SignedTransport) error {
 		return fmt.Errorf("accepting handshake: %w", err)
 	}
 
-	slog.Info("session established",
+	slog.Info(
+		"session established",
 		slog.String("session_id", t.SessionID()),
 		slog.String("peer", peer.Name),
 	)
@@ -155,7 +162,8 @@ func (s *Server) handleNewConnection(cn Conn, st *pb.SignedTransport) error {
 	// Save session for potential resumption
 	if s.resumptionConfig.Enabled && s.resumptionConfig.PersistSessions {
 		if err := SaveSessionForResumption(t, s.sessionManager); err != nil {
-			slog.Warn("failed to save session for resumption",
+			slog.Warn(
+				"failed to save session for resumption",
 				slog.Any("error", err),
 				slog.String("session_id", t.SessionID()),
 			)
@@ -182,7 +190,9 @@ func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
 	}
 
 	// Verify the signature using the claimed public key
-	remoteKey, err := s.algorithm.Identitfier().ParsePublicKey(req.RemotePublicKey)
+	remoteKey, err := s.algorithm.Identitfier().ParsePublicKey(
+		req.RemotePublicKey,
+	)
 	if err != nil {
 		return s.sendReconnectReject(cn, "invalid public key")
 	}
@@ -233,7 +243,12 @@ func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
 	serverChallenge := randomBytes(resumeChallengeSize)
 
 	// Compute response to client's challenge using HMAC
-	challengeResponse := resumer.computeChallengeResponse(req.ResumeChallenge, state.SharedSecret)
+	challengeResponse, err := resumer.computeChallengeResponse(
+		req.ResumeChallenge, state.SharedSecret,
+	)
+	if err != nil {
+		return fmt.Errorf("compute challenge response: %w", err)
+	}
 
 	// Send accept response
 	resp := &pb.ReconnectResponse{
@@ -261,7 +276,9 @@ func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
 	}
 
 	// Verify signature
-	if !s.algorithm.Identitfier().Verify(remoteKey, verifyST.Data, verifyST.Signature) {
+	if !s.algorithm.Identitfier().Verify(
+		remoteKey, verifyST.Data, verifyST.Signature,
+	) {
 		return fmt.Errorf("verification signature invalid")
 	}
 
@@ -271,8 +288,14 @@ func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
 	}
 
 	// Verify client's response to our challenge
-	expectedClientResponse := resumer.computeChallengeResponse(serverChallenge, state.SharedSecret)
-	if len(verify.ChallengeResponse) == 0 || !hmacEqual(verify.ChallengeResponse, expectedClientResponse) {
+	expectedClientResponse, err := resumer.computeChallengeResponse(
+		serverChallenge, state.SharedSecret,
+	)
+	if err != nil {
+		return fmt.Errorf("compute client expected response: %w", err)
+	}
+	if len(verify.ChallengeResponse) == 0 ||
+		subtle.ConstantTimeCompare(verify.ChallengeResponse, expectedClientResponse) != 1 {
 		complete := &pb.ReconnectComplete{
 			Success:      false,
 			ErrorMessage: "challenge verification failed",
@@ -336,7 +359,9 @@ func (s *Server) sendReconnectReject(cn Conn, reason string) error {
 	return fmt.Errorf("reconnection rejected: %s", reason)
 }
 
-func (s *Server) sendSignedMessage(cn Conn, msg Transferable, route Route) error {
+func (s *Server) sendSignedMessage(
+	cn Conn, msg Transferable, route Route,
+) error {
 	data, err := proto.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("marshaling message: %w", err)
@@ -360,18 +385,6 @@ func (s *Server) sendSignedMessage(cn Conn, msg Transferable, route Route) error
 	}
 
 	return cn.WriteBytes(payload)
-}
-
-// hmacEqual performs a constant-time comparison of two byte slices.
-func hmacEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	result := byte(0)
-	for i := 0; i < len(a); i++ {
-		result |= a[i] ^ b[i]
-	}
-	return result == 0
 }
 
 // PublicKey returns the server's public key.
@@ -416,12 +429,12 @@ func NewServer(
 
 	s.storage = storage
 	s.attester = at
+	s.serverName = fingerprint.Sum(at.PublicKey().Marshal())
 
 	// Initialize session manager for resumption
-	s.sessionManager = NewSessionManager(storage, s.resumptionConfig.MaxSessionAge)
-
-	sum := sha256.Sum256(at.PublicKey().Marshal())
-	s.serverName = fingerprint.Base64(sum[:])
+	s.sessionManager = NewSessionManager(
+		storage, s.resumptionConfig.MaxSessionAge,
+	)
 
 	return s, nil
 }
