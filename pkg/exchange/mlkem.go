@@ -23,7 +23,10 @@ func NewMLKEM() (*MLKEM, error) {
 		return nil, err
 	}
 
-	return &MLKEM{privateKey: private, PublicKey: private.EncapsulationKey()}, nil
+	return &MLKEM{
+		privateKey: private,
+		PublicKey:  private.EncapsulationKey(),
+	}, nil
 }
 
 func EncapsulateMLKEM(remote []byte) (ss, ct []byte, err error) {

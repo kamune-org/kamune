@@ -40,6 +40,8 @@ type HandshakeState struct {
 	IsInitiator     bool
 }
 
+// TODO(h.yazdani): Replace in-memory maps with persitant storage.
+
 // HandshakeTracker manages in-progress handshakes using public keys as
 // identifiers. This allows handshakes to be resumed after connection resets.
 type HandshakeTracker struct {
@@ -50,7 +52,9 @@ type HandshakeTracker struct {
 }
 
 // NewHandshakeTracker creates a new handshake tracker.
-func NewHandshakeTracker(storage *Storage, timeout time.Duration) *HandshakeTracker {
+func NewHandshakeTracker(
+	storage *Storage, timeout time.Duration,
+) *HandshakeTracker {
 	if timeout <= 0 {
 		timeout = 5 * time.Minute // Default handshake timeout
 	}
@@ -67,7 +71,8 @@ func publicKeyHash(publicKey []byte) string {
 	return string(hash[:])
 }
 
-// StartHandshake begins tracking a new handshake with the given remote public key.
+// StartHandshake begins tracking a new handshake with the given remote public
+// key.
 func (ht *HandshakeTracker) StartHandshake(
 	remotePublicKey, localPublicKey []byte,
 	isInitiator bool,
@@ -242,12 +247,13 @@ func (ht *HandshakeTracker) PersistHandshake(remotePublicKey []byte) error {
 func (ht *HandshakeTracker) LoadHandshake(
 	remotePublicKey []byte,
 ) (*HandshakeState, error) {
-	key := sha3.Sum256(remotePublicKey)
+	shaKey := sha3.Sum256(remotePublicKey)
+	key := shaKey[:]
 
 	var data []byte
 	err := ht.storage.store.Query(func(q store.Query) error {
 		var err error
-		data, err = q.GetEncrypted(handshakeBucket, key[:])
+		data, err = q.GetEncrypted(handshakeBucket, key)
 		return err
 	})
 	if err != nil {
@@ -264,7 +270,7 @@ func (ht *HandshakeTracker) LoadHandshake(
 		if time.Since(pbState.UpdatedAt.AsTime()) > ht.timeout {
 			// Clean up expired
 			_ = ht.storage.store.Command(func(c store.Command) error {
-				return c.Delete(handshakeBucket, key[:])
+				return c.Delete(handshakeBucket, key)
 			})
 			return nil, ErrSessionExpired
 		}
@@ -299,7 +305,9 @@ func (ht *HandshakeTracker) LoadHandshake(
 }
 
 // DeletePersistedHandshake removes a persisted handshake from storage.
-func (ht *HandshakeTracker) DeletePersistedHandshake(remotePublicKey []byte) error {
+func (ht *HandshakeTracker) DeletePersistedHandshake(
+	remotePublicKey []byte,
+) error {
 	key := sha3.Sum256(remotePublicKey)
 	return ht.storage.store.Command(func(c store.Command) error {
 		return c.Delete(handshakeBucket, key[:])
@@ -319,7 +327,9 @@ func (ht *HandshakeTracker) CanResumeHandshake(
 	// Try loading from storage
 	state, err = ht.LoadHandshake(remotePublicKey)
 	if err != nil {
-		if errors.Is(err, store.ErrMissingItem) || errors.Is(err, ErrSessionExpired) {
+		if errors.Is(err, store.ErrMissingItem) || errors.Is(
+			err, ErrSessionExpired,
+		) {
 			return false, PhaseInvalid, nil
 		}
 		return false, PhaseInvalid, err
@@ -358,20 +368,25 @@ func NewSessionManager(storage *Storage, timeout time.Duration) *SessionManager 
 	}
 }
 
-// HandshakeTracker returns the handshake tracker for managing in-progress handshakes.
+// HandshakeTracker returns the handshake tracker for managing in-progress
+// handshakes.
 func (sm *SessionManager) HandshakeTracker() *HandshakeTracker {
 	return sm.handshakeTracker
 }
 
 // RegisterSession associates a session ID with a remote public key.
-func (sm *SessionManager) RegisterSession(sessionID string, remotePublicKey []byte) {
+func (sm *SessionManager) RegisterSession(
+	sessionID string, remotePublicKey []byte,
+) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.sessionsByPubKey[publicKeyHash(remotePublicKey)] = sessionID
 }
 
 // GetSessionByPublicKey retrieves a session ID by the remote peer's public key.
-func (sm *SessionManager) GetSessionByPublicKey(remotePublicKey []byte) (string, bool) {
+func (sm *SessionManager) GetSessionByPublicKey(
+	remotePublicKey []byte,
+) (string, bool) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	sessionID, ok := sm.sessionsByPubKey[publicKeyHash(remotePublicKey)]
@@ -416,8 +431,8 @@ func (sm *SessionManager) SaveSession(state *SessionState) error {
 	})
 
 	pbState := &pb.SessionState{
-		SessionId:       state.SessionID,
 		Phase:           state.Phase.ToProto(),
+		SessionId:       state.SessionID,
 		IsInitiator:     state.IsInitiator,
 		SendSequence:    state.SendSequence,
 		RecvSequence:    state.RecvSequence,
@@ -425,9 +440,9 @@ func (sm *SessionManager) SaveSession(state *SessionState) error {
 		LocalSalt:       state.LocalSalt,
 		RemoteSalt:      state.RemoteSalt,
 		RatchetState:    state.RatchetState,
+		RemotePublicKey: state.RemotePublicKey,
 		CreatedAt:       createdAt,
 		UpdatedAt:       timestamppb.Now(),
-		RemotePublicKey: state.RemotePublicKey,
 	}
 
 	data, err := proto.Marshal(pbState)
@@ -480,8 +495,8 @@ func (sm *SessionManager) LoadSession(sessionID string) (*SessionState, error) {
 	}
 
 	return &SessionState{
-		SessionID:       pbState.SessionId,
 		Phase:           PhaseFromProto(pbState.Phase),
+		SessionID:       pbState.SessionId,
 		IsInitiator:     pbState.IsInitiator,
 		SendSequence:    pbState.SendSequence,
 		RecvSequence:    pbState.RecvSequence,
@@ -493,7 +508,8 @@ func (sm *SessionManager) LoadSession(sessionID string) (*SessionState, error) {
 	}, nil
 }
 
-// LoadSessionByPublicKey retrieves a session state by the remote peer's public key.
+// LoadSessionByPublicKey retrieves a session state by the remote peer's public
+// key.
 func (sm *SessionManager) LoadSessionByPublicKey(
 	remotePublicKey []byte,
 ) (*SessionState, error) {
@@ -513,7 +529,9 @@ func (sm *SessionManager) DeleteSession(sessionID string) error {
 }
 
 // UpdateSessionPhase updates the phase of a persisted session.
-func (sm *SessionManager) UpdateSessionPhase(sessionID string, phase SessionPhase) error {
+func (sm *SessionManager) UpdateSessionPhase(
+	sessionID string, phase SessionPhase,
+) error {
 	state, err := sm.LoadSession(sessionID)
 	if err != nil {
 		return err
@@ -548,10 +566,14 @@ func (sm *SessionManager) UpdateSessionSequences(
 }
 
 // CanResume checks if a session can be resumed based on its state.
-func (sm *SessionManager) CanResume(sessionID string) (bool, SessionPhase, error) {
+func (sm *SessionManager) CanResume(
+	sessionID string,
+) (bool, SessionPhase, error) {
 	state, err := sm.LoadSession(sessionID)
 	if err != nil {
-		if errors.Is(err, ErrSessionExpired) || errors.Is(err, store.ErrMissingItem) {
+		if errors.Is(err, ErrSessionExpired) || errors.Is(
+			err, store.ErrMissingItem,
+		) {
 			return false, PhaseInvalid, nil
 		}
 		return false, PhaseInvalid, err
@@ -704,7 +726,9 @@ type SessionInfo struct {
 }
 
 // GetSessionInfo returns summary information about a session.
-func (sm *SessionManager) GetSessionInfo(sessionID string) (*SessionInfo, error) {
+func (sm *SessionManager) GetSessionInfo(
+	sessionID string,
+) (*SessionInfo, error) {
 	key := sessionKey(sessionID)
 
 	var data []byte
@@ -778,10 +802,14 @@ func (st *SequenceTracker) NextRecv() uint64 {
 func (st *SequenceTracker) ValidateRecv(seq uint64) error {
 	expected := st.recvSeq + 1
 	if seq < expected {
-		return fmt.Errorf("duplicate message: got %d, expected >= %d", seq, expected)
+		return fmt.Errorf(
+			"duplicate message: got %d, expected >= %d", seq, expected,
+		)
 	}
 	if seq > expected {
-		return fmt.Errorf("missing messages: got %d, expected %d", seq, expected)
+		return fmt.Errorf(
+			"missing messages: got %d, expected %d", seq, expected,
+		)
 	}
 	st.recvSeq = seq
 	return nil

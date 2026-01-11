@@ -449,8 +449,8 @@ func TestMultipleRestoresFromSameState(t *testing.T) {
 	a.Equal(restored1.sendCount, restored2.sendCount)
 	a.Equal(restored1.rootKey, restored2.rootKey)
 
-	// Both should be able to encrypt (ciphertexts will differ due to random nonce
-	// in enigma, but the internal chain state should advance identically)
+	// Both should be able to encrypt (ciphertexts will differ due to random
+	// nonce in enigma, but the internal chain state should advance identically)
 	ct1, err := restored1.Encrypt(msg)
 	r.NoError(err)
 	a.NotEmpty(ct1)

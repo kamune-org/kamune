@@ -108,13 +108,16 @@ func requestHandshake(
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, state.sessionID, encoder, decoder, opts.ratchetThreshold)
+	t := newTransport(
+		pt, state.sessionID, encoder, decoder, opts.ratchetThreshold,
+	)
 	t.SetInitiator(true)
 	t.SetSecrets(secret, state.localSalt, state.remoteSalt)
 	t.SetRemotePublicKey(pt.remote.Marshal())
 
 	// Step 5: Challenge exchange
-	if err := sendChallenge(t, secret, []byte(state.sessionID+c2s)); err != nil {
+	err = sendChallenge(t, secret, []byte(state.sessionID+c2s))
+	if err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
 	t.SetPhase(PhaseChallengeSent)
@@ -205,7 +208,9 @@ func acceptHandshake(
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, state.sessionID, encoder, decoder, opts.ratchetThreshold)
+	t := newTransport(
+		pt, state.sessionID, encoder, decoder, opts.ratchetThreshold,
+	)
 	t.SetInitiator(false)
 	t.SetSecrets(secret, state.localSalt, state.remoteSalt)
 	t.SetRemotePublicKey(pt.remote.Marshal())

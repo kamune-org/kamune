@@ -99,13 +99,17 @@ func TestSessionResumerChallengeResponse(t *testing.T) {
 
 	// Different challenge should produce different response
 	differentChallenge := []byte("different-challenge")
-	response3, err := resumer.computeChallengeResponse(differentChallenge, sharedSecret)
+	response3, err := resumer.computeChallengeResponse(
+		differentChallenge, sharedSecret,
+	)
 	a.NoError(err)
 	a.NotEqual(response1, response3)
 
 	// Different secret should produce different response
 	differentSecret := []byte("different-secret")
-	response4, err := resumer.computeChallengeResponse(challenge, differentSecret)
+	response4, err := resumer.computeChallengeResponse(
+		challenge, differentSecret,
+	)
 	a.NoError(err)
 	a.NotEqual(response1, response4)
 }
@@ -209,7 +213,8 @@ func TestResumeOrDialFallback(t *testing.T) {
 
 	sm := NewSessionManager(nil, 24*time.Hour)
 
-	// With no existing session for this key, checkResumability should return false
+	// With no existing session for this key, checkResumability should return
+	// false
 	canResume, state, err := checkResumability([]byte("nonexistent-key"), sm)
 	a.NoError(err)
 	a.False(canResume)

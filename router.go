@@ -18,7 +18,8 @@ var (
 // RouteHandler is a function that processes a message for a specific route.
 type RouteHandler func(t *Transport, msg Transferable, md *Metadata) error
 
-// Router dispatches incoming messages to registered handlers based on their route.
+// Router dispatches incoming messages to registered handlers based on their
+// route.
 type Router struct {
 	handlers       map[Route]RouteHandler
 	defaultHandler RouteHandler
@@ -28,8 +29,8 @@ type Router struct {
 	closed         bool
 }
 
-// Middleware is a function that wraps a RouteHandler to provide
-// cross-cutting concerns like logging, metrics, or authentication.
+// Middleware is a function that wraps a RouteHandler to provide cross-cutting
+// concerns like logging, metrics, or authentication.
 type Middleware func(next RouteHandler) RouteHandler
 
 // NewRouter creates a new message router.
@@ -91,7 +92,8 @@ func (r *Router) Use(mw ...Middleware) {
 	r.middleware = append(r.middleware, mw...)
 }
 
-// Dispatch processes an incoming message by routing it to the appropriate handler.
+// Dispatch processes an incoming message by routing it to the appropriate
+// handler.
 func (r *Router) Dispatch(
 	t *Transport, route Route, msg Transferable, md *Metadata,
 ) error {
@@ -237,8 +239,9 @@ func LoggingMiddleware(logger func(route Route, err error)) Middleware {
 			if logger != nil {
 				route := RouteInvalid
 				if md != nil && md.pb != nil {
-					// In this protocol, md.pb.Sequence is set to the logical route ID
-					// for logging purposes. If it's not set, RouteInvalid is logged.
+					// In this protocol, md.pb.Sequence is set to the logical
+					// route ID for logging purposes. If it's not set,
+					// RouteInvalid is logged.
 					route = Route(md.pb.Sequence)
 				}
 				logger(route, err)
@@ -281,7 +284,8 @@ func SessionPhaseMiddleware(requiredPhase SessionPhase) Middleware {
 	}
 }
 
-// RouteDispatcher provides a simple interface for handling route-based communication.
+// RouteDispatcher provides a simple interface for handling route-based
+// communication.
 type RouteDispatcher struct {
 	transport *Transport
 	router    *Router

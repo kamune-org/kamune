@@ -7,19 +7,14 @@ type Route int32
 
 const (
 	RouteInvalid Route = iota
-
 	RouteIdentity
-
 	RouteRequestHandshake
 	RouteAcceptHandshake
 	RouteFinalizeHandshake
-
 	RouteSendChallenge
 	RouteVerifyChallenge
-
 	RouteInitializeDoubleRatchet
 	RouteConfirmDoubleRatchet
-
 	RouteExchangeMessages
 	RouteCloseTransport
 	RouteReconnect

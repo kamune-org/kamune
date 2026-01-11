@@ -101,7 +101,8 @@ func TestInitiateRatchet(t *testing.T) {
 	a.Equal(uint64(1), bob.Received(), "Bob recv counter after ratchet")
 }
 
-// Test that the DH key exchange between two parties produces matching shared secrets
+// Test that the DH key exchange between two parties produces matching shared
+// secrets
 func TestDHExchange(t *testing.T) {
 	a := assert.New(t)
 	// Generate key pairs for Alice and Bob
@@ -134,7 +135,8 @@ func TestKDFChainDeterministic(t *testing.T) {
 	a.Equal(msg1, msg2, "kdfChain msgKey deterministic")
 }
 
-// Test that kdfRoot produces different root and chain keys for initiator vs responder
+// Test that kdfRoot produces different root and chain keys for initiator vs
+// responder
 func TestKDFRootRoles(t *testing.T) {
 	a := assert.New(t)
 	root := randomBytes(32)

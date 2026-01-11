@@ -173,7 +173,8 @@ func (r *Ratchet) Encrypt(plaintext []byte) ([]byte, error) {
 }
 
 // Decrypt derives message key(s) from recv chain and attempts to decrypt the
-// ciphertext. This is a simplified version that assumes messages arrive in order.
+// ciphertext. This is a simplified version that assumes messages arrive in
+// order.
 func (r *Ratchet) Decrypt(ciphertext []byte) ([]byte, error) {
 	if r.recvCK == nil {
 		return nil, ErrUninitializedRecv

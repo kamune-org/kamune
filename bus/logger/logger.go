@@ -74,7 +74,8 @@ func Init(path string) error {
 
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		// Do not modify global logger; let ensure() fall back to stderr-based logger
+		// Do not modify global logger; let ensure() fall back to stderr-based
+		// logger
 		return err
 	}
 
@@ -214,12 +215,16 @@ func Subscribe(callback func(LogEntry)) func() {
 
 // FormatEntry formats a log entry as a string
 func FormatEntry(e LogEntry) string {
-	return fmt.Sprintf("%s [%s] %s", e.Timestamp.Format("15:04:05"), e.Level, e.Message)
+	return fmt.Sprintf(
+		"%s [%s] %s", e.Timestamp.Format("15:04:05"), e.Level, e.Message,
+	)
 }
 
 // FormatEntryFull formats a log entry with full timestamp
 func FormatEntryFull(e LogEntry) string {
-	return fmt.Sprintf("%s [%s] %s", e.Timestamp.Format(time.RFC3339), e.Level, e.Message)
+	return fmt.Sprintf(
+		"%s [%s] %s", e.Timestamp.Format(time.RFC3339), e.Level, e.Message,
+	)
 }
 
 // Info logs an informational message.
@@ -309,7 +314,8 @@ func Error(err error, context string) {
 	l.Printf("%s [ERROR] %s\n", time.Now().Format(time.RFC3339), msg)
 	addEntry("ERROR", msg)
 
-	// Attach stack trace for additional debugging context (file only, not buffer)
+	// Attach stack trace for additional debugging context (file only, not
+	// buffer)
 	stack := debug.Stack()
 	stackLines := strings.Split(string(stack), "\n")
 	if len(stackLines) > 10 {

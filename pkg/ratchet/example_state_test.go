@@ -9,7 +9,8 @@ import (
 
 // ExampleState_Serialize demonstrates how to save and restore a ratchet state.
 func ExampleState_Serialize() {
-	// Create a shared root secret (in practice, this would come from a key exchange)
+	// Create a shared root secret (in practice, this would come from a key
+	// exchange)
 	rootSecret := make([]byte, 32)
 	sessionID := "example-session"
 

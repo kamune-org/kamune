@@ -50,7 +50,8 @@ func NewECDH() (*ECDH, error) {
 	return &ECDH{privateKey: key, PublicKey: key.PublicKey()}, nil
 }
 
-// RestoreECDH reconstructs an ECDH keypair from serialized private and public key bytes.
+// RestoreECDH reconstructs an ECDH keypair from serialized private and public
+// key bytes.
 func RestoreECDH(privBytes, pubBytes []byte) (*ECDH, error) {
 	// Restore the private key
 	privKey, err := ecdh.X25519().NewPrivateKey(privBytes)

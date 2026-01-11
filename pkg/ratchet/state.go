@@ -25,7 +25,8 @@ type State struct {
 	RecvCount uint64 `json:"recv_count"`
 }
 
-// Save captures the current state of the ratchet into a serializable State object.
+// Save captures the current state of the ratchet into a serializable State
+// object.
 func (r *Ratchet) Save() (*State, error) {
 	if r.ourDH == nil {
 		return nil, errors.New("ratchet DH keypair is nil")

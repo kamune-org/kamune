@@ -298,7 +298,9 @@ func TestRouterValidation(t *testing.T) {
 	a.ErrorIs(err, ErrInvalidHandler)
 
 	// Invalid route
-	err = r.Handle(RouteInvalid, func(t *Transport, msg Transferable, md *Metadata) error {
+	err = r.Handle(RouteInvalid, func(
+		t *Transport, msg Transferable, md *Metadata,
+	) error {
 		return nil
 	})
 	a.ErrorIs(err, ErrInvalidRoute)
@@ -400,7 +402,9 @@ func TestRouterMiddleware(t *testing.T) {
 		}
 	})
 
-	err := r.Handle(RouteExchangeMessages, func(t *Transport, msg Transferable, md *Metadata) error {
+	err := r.Handle(RouteExchangeMessages, func(
+		t *Transport, msg Transferable, md *Metadata,
+	) error {
 		order = append(order, "handler")
 		return nil
 	})
@@ -424,7 +428,9 @@ func TestRouterClone(t *testing.T) {
 	r := NewRouter()
 	defer r.Close()
 
-	err := r.Handle(RouteExchangeMessages, func(t *Transport, msg Transferable, md *Metadata) error {
+	err := r.Handle(RouteExchangeMessages, func(
+		t *Transport, msg Transferable, md *Metadata,
+	) error {
 		return nil
 	})
 	a.NoError(err)
@@ -434,7 +440,9 @@ func TestRouterClone(t *testing.T) {
 	defer cloned.Close()
 
 	// Add handler to clone
-	err = cloned.Handle(RouteCloseTransport, func(t *Transport, msg Transferable, md *Metadata) error {
+	err = cloned.Handle(RouteCloseTransport, func(
+		t *Transport, msg Transferable, md *Metadata,
+	) error {
 		return nil
 	})
 	a.NoError(err)
@@ -462,7 +470,9 @@ func TestRouterGroup(t *testing.T) {
 	})
 
 	var handlerCalled bool
-	err := group.Handle(RouteExchangeMessages, func(t *Transport, msg Transferable, md *Metadata) error {
+	err := group.Handle(RouteExchangeMessages, func(
+		t *Transport, msg Transferable, md *Metadata,
+	) error {
 		handlerCalled = true
 		return nil
 	})
@@ -484,7 +494,9 @@ func TestRouterConcurrency(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		route := Route(i)
-		err := r.Handle(route, func(t *Transport, msg Transferable, md *Metadata) error {
+		err := r.Handle(route, func(
+			t *Transport, msg Transferable, md *Metadata,
+		) error {
 			atomic.AddInt64(&counter, 1)
 			return nil
 		})
@@ -492,7 +504,7 @@ func TestRouterConcurrency(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -510,12 +522,14 @@ func TestRecoveryMiddleware(t *testing.T) {
 	r := NewRouter()
 	defer r.Close()
 
-	var recoveredValue interface{}
-	r.Use(RecoveryMiddleware(func(v interface{}) {
+	var recoveredValue any
+	r.Use(RecoveryMiddleware(func(v any) {
 		recoveredValue = v
 	}))
 
-	err := r.Handle(RouteExchangeMessages, func(t *Transport, msg Transferable, md *Metadata) error {
+	err := r.Handle(RouteExchangeMessages, func(
+		t *Transport, msg Transferable, md *Metadata,
+	) error {
 		panic("test panic")
 	})
 	a.NoError(err)
@@ -779,9 +793,9 @@ func TestHandshakeTrackerMultipleHandshakes(t *testing.T) {
 	tracker := NewHandshakeTracker(nil, 5*time.Minute)
 
 	// Start multiple handshakes with different peers
-	for i := 0; i < 5; i++ {
-		remotePubKey := []byte(fmt.Sprintf("remote-key-%d", i))
-		localPubKey := []byte(fmt.Sprintf("local-key-%d", i))
+	for i := range 5 {
+		remotePubKey := fmt.Appendf(nil, "remote-key-%d", i)
+		localPubKey := fmt.Appendf(nil, "local-key-%d", i)
 		_, err := tracker.StartHandshake(remotePubKey, localPubKey, i%2 == 0)
 		a.NoError(err)
 	}
@@ -789,8 +803,8 @@ func TestHandshakeTrackerMultipleHandshakes(t *testing.T) {
 	a.Equal(5, tracker.ActiveHandshakes())
 
 	// Complete some
-	for i := 0; i < 3; i++ {
-		remotePubKey := []byte(fmt.Sprintf("remote-key-%d", i))
+	for i := range 3 {
+		remotePubKey := fmt.Appendf(nil, "remote-key-%d", i)
 		_, err := tracker.CompleteHandshake(remotePubKey)
 		a.NoError(err)
 	}

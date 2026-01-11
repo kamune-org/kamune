@@ -207,11 +207,11 @@ type SessionState struct {
 
 // Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
-	encoder *enigma.Enigma
-	decoder *enigma.Enigma
-	ratchet *ratchet.Ratchet
-	mu      *sync.Mutex
 	*plainTransport
+	encoder          *enigma.Enigma
+	decoder          *enigma.Enigma
+	ratchet          *ratchet.Ratchet
+	mu               *sync.Mutex
 	sessionID        string
 	sharedSecret     []byte
 	remotePublicKey  []byte
@@ -231,13 +231,13 @@ func newTransport(
 	ratchetThreshold uint64,
 ) *Transport {
 	return &Transport{
-		plainTransport:   pt,
-		sessionID:        sessionID,
+		mu:               &sync.Mutex{},
+		phase:            PhaseHandshakeAccepted,
 		encoder:          encoder,
 		decoder:          decoder,
-		mu:               &sync.Mutex{},
+		sessionID:        sessionID,
+		plainTransport:   pt,
 		ratchetThreshold: ratchetThreshold,
-		phase:            PhaseHandshakeAccepted,
 	}
 }
 
@@ -250,7 +250,9 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 
 // ReceiveWithRoute reads and decrypts the next message, returning both
 // the metadata and the route of the received message.
-func (t *Transport) ReceiveWithRoute(dst Transferable) (*Metadata, Route, error) {
+func (t *Transport) ReceiveWithRoute(
+	dst Transferable,
+) (*Metadata, Route, error) {
 	payload, err := t.conn.ReadBytes()
 	switch {
 	case err == nil: // continue
@@ -273,8 +275,14 @@ func (t *Transport) ReceiveWithRoute(dst Transferable) (*Metadata, Route, error)
 	// Validate that metadata and transport route agree (defense-in-depth).
 	// We use Metadata.Sequence to carry the Route for logging/debugging.
 	if metadata != nil && metadata.pb != nil {
-		if mdRoute := Route(metadata.pb.Sequence); mdRoute != RouteInvalid && mdRoute != route {
-			return nil, RouteInvalid, fmt.Errorf("%w: metadata route %s does not match transport route %s", ErrUnexpectedRoute, mdRoute, route)
+		mdRoute := Route(metadata.pb.Sequence)
+		if mdRoute != RouteInvalid && mdRoute != route {
+			return nil, RouteInvalid, fmt.Errorf(
+				"%w: metadata route %s does not match transport route %s",
+				ErrUnexpectedRoute,
+				mdRoute,
+				route,
+			)
 		}
 	}
 
@@ -285,7 +293,8 @@ func (t *Transport) ReceiveWithRoute(dst Transferable) (*Metadata, Route, error)
 	return metadata, route, nil
 }
 
-// ReceiveExpecting reads a message and validates that it matches the expected route.
+// ReceiveExpecting reads a message and validates that it matches the expected
+// route.
 func (t *Transport) ReceiveExpecting(
 	dst Transferable, expected Route,
 ) (*Metadata, error) {
@@ -295,8 +304,7 @@ func (t *Transport) ReceiveExpecting(
 	}
 	if route != expected {
 		return nil, fmt.Errorf(
-			"%w: expected %s, got %s",
-			ErrUnexpectedRoute, expected, route,
+			"%w: expected %s, got %s", ErrUnexpectedRoute, expected, route,
 		)
 	}
 	return md, nil

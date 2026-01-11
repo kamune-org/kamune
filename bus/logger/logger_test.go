@@ -3,7 +3,6 @@ package logger
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,8 +73,10 @@ func TestLoggerInfo(t *testing.T) {
 	content, err := os.ReadFile(logPath)
 	r.NoError(err, "failed to read log file")
 
-	a.True(strings.Contains(string(content), "[INFO]"), "log should contain [INFO] tag")
-	a.True(strings.Contains(string(content), "test info message"), "log should contain the info message")
+	a.Contains(content, "[INFO]", "log should contain [INFO] tag")
+	a.Contains(
+		content, "test info message", "log should contain the info message",
+	)
 }
 
 // TestLoggerWarn tests Warn logging
@@ -97,8 +98,10 @@ func TestLoggerWarn(t *testing.T) {
 	content, err := os.ReadFile(logPath)
 	r.NoError(err, "failed to read log file")
 
-	a.True(strings.Contains(string(content), "[WARN]"), "log should contain [WARN] tag")
-	a.True(strings.Contains(string(content), "test warning message"), "log should contain the warning message")
+	a.Contains(content, "[WARN]", "log should contain [WARN] tag")
+	a.Contains(
+		content, "test warning message", "log should contain the warning",
+	)
 }
 
 // TestLoggerError tests Error logging with error and context
@@ -121,8 +124,10 @@ func TestLoggerError(t *testing.T) {
 	content, err := os.ReadFile(logPath)
 	r.NoError(err, "failed to read log file")
 
-	a.True(strings.Contains(string(content), "[ERROR]"), "log should contain [ERROR] tag")
-	a.True(strings.Contains(string(content), "context message"), "log should contain the context message")
+	a.Contains(content, "[ERROR]", "log should contain [ERROR] tag")
+	a.Contains(
+		content, "context message", "log should contain the context message",
+	)
 }
 
 // TestLoggerErrorNilError tests Error logging with nil error
@@ -147,7 +152,11 @@ func TestLoggerErrorNilError(t *testing.T) {
 	r.NoError(err, "failed to read log file")
 
 	// "only context" should be logged
-	a.True(strings.Contains(string(content), "only context"), "log should contain 'only context' when only context is provided")
+	a.Contains(
+		content,
+		"only context",
+		"log should contain 'only context' when only context is provided",
+	)
 }
 
 // TestLoggerErrorf tests Errorf logging
@@ -169,11 +178,16 @@ func TestLoggerErrorf(t *testing.T) {
 	content, err := os.ReadFile(logPath)
 	r.NoError(err, "failed to read log file")
 
-	a.True(strings.Contains(string(content), "[ERROR]"), "log should contain [ERROR] tag")
-	a.True(strings.Contains(string(content), "formatted error: 42 test"), "log should contain the formatted message")
+	a.Contains(content, "[ERROR]", "log should contain [ERROR] tag")
+	a.Contains(
+		content,
+		"formatted error: 42 test",
+		"log should contain the formatted message",
+	)
 }
 
-// TestLoggerWithoutInit tests that logging works without Init (falls back to stderr)
+// TestLoggerWithoutInit tests that logging works without Init (falls back to
+// stderr)
 func TestLoggerWithoutInit(t *testing.T) {
 	resetLogger()
 
@@ -245,7 +259,11 @@ func TestLoggerTimestampFormat(t *testing.T) {
 	r.NoError(err, "failed to read log file")
 
 	// RFC3339 format contains 'T' between date and time
-	a.True(strings.Contains(string(content), "T"), "log should contain RFC3339 formatted timestamp")
+	a.Contains(
+		content,
+		"T",
+		"log should contain RFC3339 formatted timestamp",
+	)
 }
 
 // TestLoggerInvalidPath tests Init with an invalid path

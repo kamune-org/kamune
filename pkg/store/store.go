@@ -79,7 +79,8 @@ func extractCipher(db *bolt.DB, pass []byte) (*enigma.Enigma, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get values: %w", err)
 	}
-	if secretSalt == nil || deriveSalt == nil || wrappedSalt == nil || wrapped == nil {
+	if secretSalt == nil || deriveSalt == nil || wrappedSalt == nil ||
+		wrapped == nil {
 		return nil, ErrMissingItem
 	}
 	derivedPass, err := enigma.Derive(pass, deriveSalt, []byte(dpk), 32)

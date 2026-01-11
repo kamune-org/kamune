@@ -41,8 +41,8 @@ type PassphraseHandler func() ([]byte, error)
 
 func defaultPassphraseHandler() ([]byte, error) {
 	// Prefer environment variable to avoid stdin prompts in GUI/daemon contexts.
-	// NOTE: Passing secrets via env vars has security tradeoffs; prefer OS keychain
-	// integration long-term.
+	// NOTE: Passing secrets via env vars has security tradeoffs; prefer OS
+	// keychain integration long-term.
 	if envPass := os.Getenv("KAMUNE_DB_PASSPHRASE"); envPass != "" {
 		return []byte(envPass), nil
 	}
