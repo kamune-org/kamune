@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
@@ -26,23 +26,24 @@ type Conn interface {
 type conn struct {
 	conn     net.Conn
 	connType connType
+	mu       sync.Mutex
 
-	// closed is accessed concurrently by read/write/close paths.
-	closed uint32
+	closed bool
 
 	readDeadline  time.Duration
 	writeDeadline time.Duration
 }
 
 func (c *conn) Close() error {
-	if !atomic.CompareAndSwapUint32(&c.closed, 0, 1) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
 		return ErrConnClosed
 	}
 	if err := c.conn.Close(); err != nil {
-		// Roll back the closed flag if close fails, so callers can retry/inspect.
-		atomic.StoreUint32(&c.closed, 0)
 		return err
 	}
+	c.closed = true
 	return nil
 }
 
@@ -54,7 +55,7 @@ func (c *conn) Read(buf []byte) (int, error) {
 	}
 
 	// TODO(h.yazdani): Since the connection is being reused, even in case of an
-	//  error it must be fully read (and discarded).
+	// error, it must be fully read (and discarded).
 
 	n, err := c.conn.Read(buf)
 	if err != nil {
@@ -161,7 +162,9 @@ func (c *conn) writeLen(data []byte) (int, error) {
 }
 
 func (c *conn) checkReadDeadline(deadline time.Duration) error {
-	if atomic.LoadUint32(&c.closed) != 0 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
 		return ErrConnClosed
 	}
 
@@ -181,7 +184,9 @@ func (c *conn) checkReadDeadline(deadline time.Duration) error {
 }
 
 func (c *conn) checkWriteDeadline(deadline time.Duration) error {
-	if atomic.LoadUint32(&c.closed) != 0 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
 		return ErrConnClosed
 	}
 
@@ -206,35 +211,27 @@ func (c *conn) SetDeadline(t time.Time) error      { return c.conn.SetDeadline(t
 func (c *conn) SetReadDeadline(t time.Time) error  { return c.conn.SetReadDeadline(t) }
 func (c *conn) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
 
-type ConnOption func(*conn) error
+type ConnOption func(*conn)
 
 func ConnWithReadTimeout(timeout time.Duration) ConnOption {
-	return func(conn *conn) error {
-		conn.readDeadline = timeout
-		return nil
-	}
+	return func(conn *conn) { conn.readDeadline = timeout }
 }
 
 func ConnWithWriteTimeout(timeout time.Duration) ConnOption {
-	return func(conn *conn) error {
-		conn.writeDeadline = timeout
-		return nil
-	}
+	return func(conn *conn) { conn.writeDeadline = timeout }
 }
 
 func newConn(c net.Conn, opts ...ConnOption) (*conn, error) {
 	cn := &conn{
 		conn:          c,
 		connType:      tcp,
-		closed:        0,
+		closed:        false,
 		writeDeadline: 1 * time.Minute,
 		readDeadline:  5 * time.Minute,
 	}
 
 	for _, opt := range opts {
-		if err := opt(cn); err != nil {
-			return nil, err
-		}
+		opt(cn)
 	}
 
 	return cn, nil

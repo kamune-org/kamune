@@ -5,6 +5,6 @@ import (
 )
 
 var (
-	_ net.Conn = &conn{}
-	_ Conn     = &conn{}
+	_ net.Conn = new(conn)
+	_ Conn     = new(conn)
 )
