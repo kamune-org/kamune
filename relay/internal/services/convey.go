@@ -81,6 +81,10 @@ func (s *Service) Convey(sender, receiver attest.PublicKey, sessionID string, da
 		return false, fmt.Errorf("enqueue after failed delivery: %w", err)
 	}
 	slog.Info("message enqueued after failed delivery attempts")
+
+	// Fire webhook notification (best-effort, non-blocking).
+	s.NotifyWebhook(sender, receiver, sessionID)
+
 	return false, nil
 }
 

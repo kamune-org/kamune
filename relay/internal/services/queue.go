@@ -55,6 +55,9 @@ func (s *Service) PushQueue(
 		return fmt.Errorf("push to queue: %w", err)
 	}
 
+	// Fire webhook notification (best-effort, non-blocking).
+	s.NotifyWebhook(sender, receiver, sessionID)
+
 	return nil
 }
 
