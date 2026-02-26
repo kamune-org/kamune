@@ -6,6 +6,7 @@ replace github.com/kamune-org/kamune => ../
 
 require (
 	github.com/BurntSushi/toml v1.5.0
+	github.com/coder/websocket v1.8.14
 	github.com/dgraph-io/badger/v4 v4.8.0
 	github.com/google/uuid v1.6.0
 	github.com/hossein1376/grape v0.5.1-0.20260202182435-694f288e8883
