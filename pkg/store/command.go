@@ -44,3 +44,23 @@ func (c *Command) Delete(bucket, key []byte) error {
 	}
 	return nil
 }
+
+// DeleteBatch removes multiple keys from the same bucket in a single
+// transaction. Keys that do not exist are silently skipped.
+func (c *Command) DeleteBatch(bucket []byte, keys [][]byte) (int, error) {
+	if len(bucket) == 0 {
+		bucket = []byte(DefaultBucket)
+	}
+	b := c.tx.Bucket(bucket)
+	if b == nil {
+		return 0, ErrMissingBucket
+	}
+	deleted := 0
+	for _, key := range keys {
+		if err := b.Delete(key); err != nil {
+			return deleted, fmt.Errorf("delete key: %w", err)
+		}
+		deleted++
+	}
+	return deleted, nil
+}
