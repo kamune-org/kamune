@@ -482,17 +482,3 @@ func truncateID(id string, maxLen int) string {
 	}
 	return id[:maxLen] + "..."
 }
-
-// ListSessions shows available sessions in a database (deprecated - use ListSessionsWithInfo)
-func (h *HistoryViewer) ListSessions(dbPath string) ([]string, error) {
-	sessions, err := h.ListSessionsWithInfo(dbPath)
-	if err != nil {
-		return nil, err
-	}
-
-	ids := make([]string, len(sessions))
-	for i, s := range sessions {
-		ids[i] = s.ID
-	}
-	return ids, nil
-}

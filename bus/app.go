@@ -93,7 +93,7 @@ type ChatApp struct {
 	serverRunning    bool
 	emojiFingerprint string
 	hexFingerprint   string
-	serverListener   interface{ Close() error } // stores net.Listener for stopping
+	server           *kamune.Server
 
 	// History viewer
 	historyViewer *HistoryViewer
@@ -408,12 +408,29 @@ func (c *ChatApp) setupShortcuts() {
 
 // cleanup performs cleanup when closing the application
 func (c *ChatApp) cleanup() {
+	// Signal background goroutines (e.g. session-info-bar poller) to stop.
+	// Use a select to avoid panicking if stopChan was already closed.
+	select {
+	case <-c.stopChan:
+		// already closed
+	default:
+		close(c.stopChan)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Stop log viewer
 	if c.logViewer != nil {
 		c.logViewer.Stop()
+	}
+
+	// Shut down the server listener so ListenAndServe returns.
+	if c.server != nil {
+		if err := c.server.Close(); err != nil {
+			logger.Errorf("failed to close server: %v", err)
+		}
+		c.server = nil
 	}
 
 	for _, session := range c.sessions {
@@ -705,11 +722,17 @@ func (c *ChatApp) buildSessionInfoBar() fyne.CanvasObject {
 	buttons := container.NewHBox(copyIDBtn, infoBtn, endSessionBtn)
 	bar := container.NewBorder(nil, nil, sessionLabel, buttons)
 
-	// Update bar when session changes
+	// Update bar when session changes. The goroutine exits when stopChan is
+	// closed during cleanup, preventing a leak.
 	go func() {
 		var lastSessionID string
 		for {
-			time.Sleep(200 * time.Millisecond)
+			select {
+			case <-c.stopChan:
+				return
+			case <-time.After(200 * time.Millisecond):
+			}
+
 			c.mu.RLock()
 			session := c.activeSession
 			c.mu.RUnlock()
@@ -841,6 +864,11 @@ func (c *ChatApp) startServer(addr, dbPath string) {
 			return
 		}
 
+		// Keep a reference so stopServer / cleanup can shut down the listener.
+		c.mu.Lock()
+		c.server = srv
+		c.mu.Unlock()
+
 		// Update fingerprint & UI on main thread
 		pubKey := srv.PublicKey().Marshal()
 		fp := strings.Join(fingerprint.Emoji(pubKey), " • ")
@@ -873,6 +901,10 @@ func (c *ChatApp) startServer(addr, dbPath string) {
 			})
 			logger.Infof("Server stopped: %v", err)
 		}
+
+		c.mu.Lock()
+		c.server = nil
+		c.mu.Unlock()
 	}()
 }
 
@@ -890,8 +922,17 @@ func (c *ChatApp) stopServer() {
 
 		logger.Info("Stopping server by user request")
 
-		// Close all server sessions
+		// Close the server listener so ListenAndServe returns and no new
+		// connections are accepted.
 		c.mu.Lock()
+		if c.server != nil {
+			if err := c.server.Close(); err != nil {
+				logger.Errorf("failed to close server listener: %v", err)
+			}
+			c.server = nil
+		}
+
+		// Close all active sessions.
 		for _, session := range c.sessions {
 			if session.Transport != nil {
 				if err := session.Transport.Close(); err != nil {
@@ -1131,10 +1172,11 @@ func (c *ChatApp) receiveMessagesBlocking(session *Session) {
 	}
 }
 
-// receiveMessages starts a goroutine to receive messages for client connections.
+// receiveMessages receives messages for client connections.
+// The caller is expected to invoke this in its own goroutine (go c.receiveMessages(session)).
 // For server connections, use receiveMessagesBlocking instead.
 func (c *ChatApp) receiveMessages(session *Session) {
-	go c.receiveMessagesBlocking(session)
+	c.receiveMessagesBlocking(session)
 }
 
 // sendMessage sends the current message to the active session

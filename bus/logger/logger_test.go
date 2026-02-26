@@ -73,9 +73,9 @@ func TestLoggerInfo(t *testing.T) {
 	content, err := os.ReadFile(logPath)
 	r.NoError(err, "failed to read log file")
 
-	a.Contains(content, "[INFO]", "log should contain [INFO] tag")
+	a.Contains(string(content), "[INFO]", "log should contain [INFO] tag")
 	a.Contains(
-		content, "test info message", "log should contain the info message",
+		string(content), "test info message", "log should contain the info message",
 	)
 }
 
@@ -98,9 +98,9 @@ func TestLoggerWarn(t *testing.T) {
 	content, err := os.ReadFile(logPath)
 	r.NoError(err, "failed to read log file")
 
-	a.Contains(content, "[WARN]", "log should contain [WARN] tag")
+	a.Contains(string(content), "[WARN]", "log should contain [WARN] tag")
 	a.Contains(
-		content, "test warning message", "log should contain the warning",
+		string(content), "test warning message", "log should contain the warning",
 	)
 }
 
@@ -124,9 +124,9 @@ func TestLoggerError(t *testing.T) {
 	content, err := os.ReadFile(logPath)
 	r.NoError(err, "failed to read log file")
 
-	a.Contains(content, "[ERROR]", "log should contain [ERROR] tag")
+	a.Contains(string(content), "[ERROR]", "log should contain [ERROR] tag")
 	a.Contains(
-		content, "context message", "log should contain the context message",
+		string(content), "context message", "log should contain the context message",
 	)
 }
 
@@ -153,7 +153,7 @@ func TestLoggerErrorNilError(t *testing.T) {
 
 	// "only context" should be logged
 	a.Contains(
-		content,
+		string(content),
 		"only context",
 		"log should contain 'only context' when only context is provided",
 	)
@@ -178,9 +178,9 @@ func TestLoggerErrorf(t *testing.T) {
 	content, err := os.ReadFile(logPath)
 	r.NoError(err, "failed to read log file")
 
-	a.Contains(content, "[ERROR]", "log should contain [ERROR] tag")
+	a.Contains(string(content), "[ERROR]", "log should contain [ERROR] tag")
 	a.Contains(
-		content,
+		string(content),
 		"formatted error: 42 test",
 		"log should contain the formatted message",
 	)
@@ -260,7 +260,7 @@ func TestLoggerTimestampFormat(t *testing.T) {
 
 	// RFC3339 format contains 'T' between date and time
 	a.Contains(
-		content,
+		string(content),
 		"T",
 		"log should contain RFC3339 formatted timestamp",
 	)
@@ -278,19 +278,6 @@ func TestLoggerInvalidPath(t *testing.T) {
 	if err == nil {
 		Close()
 	}
-}
-
-// resetLogger resets global logger state for testing
-func resetLogger() {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if file != nil {
-		_ = file.Close()
-		file = nil
-	}
-	l = nil
-	closed = false
 }
 
 // BenchmarkInfo benchmarks Info logging

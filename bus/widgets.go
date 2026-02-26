@@ -137,30 +137,28 @@ func (r *styledBubbleRenderer) MinSize() fyne.Size {
 }
 
 func (r *styledBubbleRenderer) Refresh() {
-	fyne.Do(func() {
-		if r.bubble.isLocal {
-			r.senderLabel.Text = "You"
-			r.senderLabel.Color = localTextColor
-			r.background.FillColor = localBubbleColor
-		} else {
-			r.senderLabel.Text = "Peer"
-			r.senderLabel.Color = peerTextColor
-			r.background.FillColor = peerBubbleColor
-		}
+	if r.bubble.isLocal {
+		r.senderLabel.Text = "You"
+		r.senderLabel.Color = localTextColor
+		r.background.FillColor = localBubbleColor
+	} else {
+		r.senderLabel.Text = "Peer"
+		r.senderLabel.Color = peerTextColor
+		r.background.FillColor = peerBubbleColor
+	}
 
-		if !r.bubble.timestamp.IsZero() {
-			r.timeLabel.Text = r.bubble.timestamp.Format("15:04:05")
-		} else {
-			r.timeLabel.Text = ""
-		}
+	if !r.bubble.timestamp.IsZero() {
+		r.timeLabel.Text = r.bubble.timestamp.Format("15:04:05")
+	} else {
+		r.timeLabel.Text = ""
+	}
 
-		r.msgLabel.Text = r.bubble.text
+	r.msgLabel.Text = r.bubble.text
 
-		r.background.Refresh()
-		r.senderLabel.Refresh()
-		r.timeLabel.Refresh()
-		r.msgLabel.Refresh()
-	})
+	r.background.Refresh()
+	r.senderLabel.Refresh()
+	r.timeLabel.Refresh()
+	r.msgLabel.Refresh()
 }
 
 func (r *styledBubbleRenderer) Objects() []fyne.CanvasObject {
@@ -257,31 +255,29 @@ func (r *sessionItemRenderer) MinSize() fyne.Size {
 }
 
 func (r *sessionItemRenderer) Refresh() {
-	fyne.Do(func() {
-		displayID := r.item.sessionID
-		if len(displayID) > 14 {
-			displayID = displayID[:14] + "…"
-		}
-		r.idLabel.Text = displayID
+	displayID := r.item.sessionID
+	if len(displayID) > 14 {
+		displayID = displayID[:14] + "…"
+	}
+	r.idLabel.Text = displayID
 
-		if r.item.isActive {
-			r.background.FillColor = color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0x40}
-			r.statusLabel.Text = "● Active"
-			r.statusLabel.Color = statusConnectedColor
+	if r.item.isActive {
+		r.background.FillColor = color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0x40}
+		r.statusLabel.Text = "● Active"
+		r.statusLabel.Color = statusConnectedColor
+	} else {
+		r.background.FillColor = color.Transparent
+		if !r.item.lastActive.IsZero() {
+			r.statusLabel.Text = r.item.lastActive.Format("15:04")
 		} else {
-			r.background.FillColor = color.Transparent
-			if !r.item.lastActive.IsZero() {
-				r.statusLabel.Text = r.item.lastActive.Format("15:04")
-			} else {
-				r.statusLabel.Text = ""
-			}
-			r.statusLabel.Color = theme.Color(theme.ColorNamePlaceHolder)
+			r.statusLabel.Text = ""
 		}
+		r.statusLabel.Color = theme.Color(theme.ColorNamePlaceHolder)
+	}
 
-		r.background.Refresh()
-		r.idLabel.Refresh()
-		r.statusLabel.Refresh()
-	})
+	r.background.Refresh()
+	r.idLabel.Refresh()
+	r.statusLabel.Refresh()
 }
 
 func (r *sessionItemRenderer) Objects() []fyne.CanvasObject {
@@ -367,23 +363,21 @@ func (r *statusRenderer) MinSize() fyne.Size {
 }
 
 func (r *statusRenderer) Refresh() {
-	fyne.Do(func() {
-		r.label.Text = r.indicator.message
+	r.label.Text = r.indicator.message
 
-		switch r.indicator.status {
-		case StatusDisconnected:
-			r.dot.FillColor = statusDisconnectedColor
-		case StatusConnecting:
-			r.dot.FillColor = statusConnectingColor
-		case StatusConnected:
-			r.dot.FillColor = statusConnectedColor
-		case StatusError:
-			r.dot.FillColor = statusErrorColor
-		}
+	switch r.indicator.status {
+	case StatusDisconnected:
+		r.dot.FillColor = statusDisconnectedColor
+	case StatusConnecting:
+		r.dot.FillColor = statusConnectingColor
+	case StatusConnected:
+		r.dot.FillColor = statusConnectedColor
+	case StatusError:
+		r.dot.FillColor = statusErrorColor
+	}
 
-		r.dot.Refresh()
-		r.label.Refresh()
-	})
+	r.dot.Refresh()
+	r.label.Refresh()
 }
 
 func (r *statusRenderer) Objects() []fyne.CanvasObject {
@@ -571,29 +565,27 @@ func (r *logEntryRenderer) MinSize() fyne.Size {
 }
 
 func (r *logEntryRenderer) Refresh() {
-	fyne.Do(func() {
-		r.timeLabel.Text = r.item.entry.Timestamp.Format("15:04:05")
+	r.timeLabel.Text = r.item.entry.Timestamp.Format("15:04:05")
 
-		r.levelLabel.Text = r.item.entry.Level
-		switch r.item.entry.Level {
-		case "INFO":
-			r.levelLabel.Color = logInfoColor
-		case "WARN":
-			r.levelLabel.Color = logWarnColor
-		case "ERROR":
-			r.levelLabel.Color = logErrorColor
-		case "DEBUG":
-			r.levelLabel.Color = logDebugColor
-		default:
-			r.levelLabel.Color = theme.Color(theme.ColorNameForeground)
-		}
+	r.levelLabel.Text = r.item.entry.Level
+	switch r.item.entry.Level {
+	case "INFO":
+		r.levelLabel.Color = logInfoColor
+	case "WARN":
+		r.levelLabel.Color = logWarnColor
+	case "ERROR":
+		r.levelLabel.Color = logErrorColor
+	case "DEBUG":
+		r.levelLabel.Color = logDebugColor
+	default:
+		r.levelLabel.Color = theme.Color(theme.ColorNameForeground)
+	}
 
-		r.msgLabel.Text = r.item.entry.Message
+	r.msgLabel.Text = r.item.entry.Message
 
-		r.timeLabel.Refresh()
-		r.levelLabel.Refresh()
-		r.msgLabel.Refresh()
-	})
+	r.timeLabel.Refresh()
+	r.levelLabel.Refresh()
+	r.msgLabel.Refresh()
 }
 
 func (r *logEntryRenderer) Objects() []fyne.CanvasObject {
@@ -601,63 +593,6 @@ func (r *logEntryRenderer) Objects() []fyne.CanvasObject {
 }
 
 func (r *logEntryRenderer) Destroy() {}
-
-// FingerprintDisplay is a component for displaying and copying fingerprints
-type FingerprintDisplay struct {
-	emojiFingerprint string
-	hexFingerprint   string
-	app              fyne.App
-}
-
-// NewFingerprintDisplay creates a new fingerprint display
-func NewFingerprintDisplay(app fyne.App) *FingerprintDisplay {
-	f := &FingerprintDisplay{
-		app: app,
-	}
-	return f
-}
-
-// SetFingerprints sets the emoji and hex fingerprints
-func (f *FingerprintDisplay) SetFingerprints(emoji, hex string) {
-	f.emojiFingerprint = emoji
-	f.hexFingerprint = hex
-}
-
-// SetEmojiFingerprint sets just the emoji fingerprint
-func (f *FingerprintDisplay) SetEmojiFingerprint(emoji string) {
-	f.emojiFingerprint = emoji
-}
-
-// BuildUI creates the fingerprint display UI with copy buttons
-func (f *FingerprintDisplay) BuildUI() fyne.CanvasObject {
-	emojiLabel := widget.NewLabelWithStyle("", fyne.TextAlignCenter, fyne.TextStyle{})
-	emojiLabel.Wrapping = fyne.TextWrapWord
-
-	copyEmojiBtn := widget.NewButtonWithIcon("Copy", theme.ContentCopyIcon(), func() {
-		if f.emojiFingerprint != "" {
-			f.app.Clipboard().SetContent(f.emojiFingerprint)
-		}
-	})
-	copyEmojiBtn.Importance = widget.LowImportance
-
-	emojiRow := container.NewBorder(nil, nil, nil, copyEmojiBtn, emojiLabel)
-
-	card := widget.NewCard("Your Fingerprint", "", container.NewVBox(emojiRow))
-
-	// Subscribe to fingerprint updates
-	go func() {
-		for {
-			time.Sleep(100 * time.Millisecond)
-			if f.emojiFingerprint != "" && emojiLabel.Text != f.emojiFingerprint {
-				fyne.Do(func() {
-					emojiLabel.SetText(f.emojiFingerprint)
-				})
-			}
-		}
-	}()
-
-	return card
-}
 
 // ContextMenuItem represents a menu item in a context menu
 type ContextMenuItem struct {
@@ -774,10 +709,8 @@ func (r *animatedDotRenderer) MinSize() fyne.Size {
 }
 
 func (r *animatedDotRenderer) Refresh() {
-	fyne.Do(func() {
-		r.circle.FillColor = r.dot.color
-		r.circle.Refresh()
-	})
+	r.circle.FillColor = r.dot.color
+	r.circle.Refresh()
 }
 
 func (r *animatedDotRenderer) Objects() []fyne.CanvasObject {

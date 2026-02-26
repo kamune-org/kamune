@@ -20,7 +20,6 @@ func main() {
 	path, err := os.MkdirTemp("", "kamune-chat-logs")
 	if err != nil {
 		log.Printf("warning: failed to create temp log directory: %v\n", err)
-	} else {
 		path = "."
 	}
 	path = filepath.Join(path, "bus.log")

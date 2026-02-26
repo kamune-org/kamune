@@ -11,6 +11,26 @@ import (
 	"time"
 )
 
+// resetLogger resets all global state so tests start clean.
+// It is intentionally unexported; tests in this package call it directly.
+func resetLogger() {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if file != nil {
+		_ = file.Close()
+		file = nil
+	}
+	l = nil
+	closed = false
+	entries = nil
+	bufferSize = 200
+
+	subscribersMu.Lock()
+	subscribers = nil
+	subscribersMu.Unlock()
+}
+
 // LogEntry represents a single log entry with metadata
 type LogEntry struct {
 	Timestamp time.Time
@@ -146,7 +166,9 @@ func addEntry(level, msg string) {
 	subscribersMu.RUnlock()
 
 	for _, sub := range subs {
-		go sub(entry)
+		if sub != nil {
+			go sub(entry)
+		}
 	}
 }
 
@@ -196,20 +218,22 @@ func GetBufferSize() int {
 }
 
 // Subscribe adds a callback that will be called for each new log entry.
-// Returns an unsubscribe function.
+// Returns an unsubscribe function that is safe to call multiple times.
 func Subscribe(callback func(LogEntry)) func() {
 	subscribersMu.Lock()
 	subscribers = append(subscribers, callback)
 	index := len(subscribers) - 1
 	subscribersMu.Unlock()
 
+	var once sync.Once
 	return func() {
-		subscribersMu.Lock()
-		defer subscribersMu.Unlock()
-		// Mark as nil rather than removing to avoid index issues
-		if index < len(subscribers) {
-			subscribers[index] = nil
-		}
+		once.Do(func() {
+			subscribersMu.Lock()
+			defer subscribersMu.Unlock()
+			if index < len(subscribers) {
+				subscribers[index] = nil
+			}
+		})
 	}
 }
 
