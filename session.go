@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ var (
 
 	sessionsBucket  = []byte(store.DefaultBucket + "_sessions")
 	handshakeBucket = []byte(store.DefaultBucket + "_handshakes")
+	indexBucket     = []byte(store.DefaultBucket + "_pubkey_index")
 )
 
 // HandshakeState tracks an in-progress handshake identified by the remote
@@ -39,8 +41,6 @@ type HandshakeState struct {
 	Phase           SessionPhase
 	IsInitiator     bool
 }
-
-// TODO(h.yazdani): Replace in-memory maps with persitant storage.
 
 // HandshakeTracker manages in-progress handshakes using public keys as
 // identifiers. This allows handshakes to be resumed after connection resets.
@@ -347,12 +347,18 @@ func (ht *HandshakeTracker) ActiveHandshakes() int {
 
 // SessionManager handles persistence and resumption of session states.
 // Sessions are identified by both session ID and the remote peer's public key.
+//
+// The public-key → session-ID mapping is persisted in a dedicated BoltDB
+// bucket so that it survives process restarts. An in-memory cache
+// (sessionsByPubKey) is populated on first access via rebuildIndex and kept
+// in sync by RegisterSession / UnregisterSession.
 type SessionManager struct {
 	storage          *Storage
 	handshakeTracker *HandshakeTracker
 	sessionsByPubKey map[string]string
 	sessionTimeout   time.Duration
 	mu               sync.RWMutex
+	indexLoaded      bool
 }
 
 // NewSessionManager creates a new session manager.
@@ -374,13 +380,89 @@ func (sm *SessionManager) HandshakeTracker() *HandshakeTracker {
 	return sm.handshakeTracker
 }
 
+// pubKeyIndexKey returns the storage key used in the index bucket for the
+// given remote public key.
+func pubKeyIndexKey(remotePublicKey []byte) []byte {
+	h := sha3.Sum256(remotePublicKey)
+	return h[:]
+}
+
+// rebuildIndex loads the persisted public-key → session-ID index from storage
+// into the in-memory map. It is called lazily on first access, so that startup
+// is cheap when sessions are never queried.
+func (sm *SessionManager) rebuildIndex() {
+	if sm.indexLoaded || sm.storage == nil {
+		return
+	}
+	sm.indexLoaded = true
+
+	_ = sm.storage.store.Query(func(q store.Query) error {
+		for _, value := range q.IterateEncrypted(indexBucket) {
+			var idx pb.PubKeySessionIndex
+			if err := proto.Unmarshal(value, &idx); err != nil {
+				slog.Warn("skipping malformed pubkey index entry",
+					slog.Any("error", err))
+				continue
+			}
+			if len(idx.RemotePublicKey) > 0 && idx.SessionId != "" {
+				sm.sessionsByPubKey[publicKeyHash(idx.RemotePublicKey)] = idx.SessionId
+			}
+		}
+		return nil
+	})
+
+	slog.Debug("rebuilt session pubkey index",
+		slog.Int("entries", len(sm.sessionsByPubKey)))
+}
+
+// persistIndex writes a single public-key → session-ID mapping to the index
+// bucket.
+func (sm *SessionManager) persistIndex(
+	sessionID string, remotePublicKey []byte,
+) error {
+	if sm.storage == nil {
+		return nil
+	}
+	idx := &pb.PubKeySessionIndex{
+		SessionId:       sessionID,
+		RemotePublicKey: remotePublicKey,
+	}
+	data, err := proto.Marshal(idx)
+	if err != nil {
+		return fmt.Errorf("marshaling index entry: %w", err)
+	}
+	key := pubKeyIndexKey(remotePublicKey)
+	return sm.storage.store.Command(func(c store.Command) error {
+		return c.AddEncrypted(indexBucket, key, data)
+	})
+}
+
+// removeIndex deletes a public-key → session-ID mapping from the index bucket.
+func (sm *SessionManager) removeIndex(remotePublicKey []byte) error {
+	if sm.storage == nil {
+		return nil
+	}
+	key := pubKeyIndexKey(remotePublicKey)
+	return sm.storage.store.Command(func(c store.Command) error {
+		return c.Delete(indexBucket, key)
+	})
+}
+
 // RegisterSession associates a session ID with a remote public key.
+// The mapping is persisted so it survives process restarts.
 func (sm *SessionManager) RegisterSession(
 	sessionID string, remotePublicKey []byte,
 ) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	sm.rebuildIndex()
 	sm.sessionsByPubKey[publicKeyHash(remotePublicKey)] = sessionID
+	sm.mu.Unlock()
+
+	if err := sm.persistIndex(sessionID, remotePublicKey); err != nil {
+		slog.Warn("failed to persist pubkey index",
+			slog.String("session_id", sessionID),
+			slog.Any("error", err))
+	}
 }
 
 // GetSessionByPublicKey retrieves a session ID by the remote peer's public key.
@@ -388,47 +470,44 @@ func (sm *SessionManager) GetSessionByPublicKey(
 	remotePublicKey []byte,
 ) (string, bool) {
 	sm.mu.RLock()
-	defer sm.mu.RUnlock()
+	if !sm.indexLoaded {
+		sm.mu.RUnlock()
+		// Upgrade to write lock to rebuild.
+		sm.mu.Lock()
+		sm.rebuildIndex()
+		sm.mu.Unlock()
+		sm.mu.RLock()
+	}
 	sessionID, ok := sm.sessionsByPubKey[publicKeyHash(remotePublicKey)]
+	sm.mu.RUnlock()
 	return sessionID, ok
 }
 
 // UnregisterSession removes the association between a session ID and public key.
 func (sm *SessionManager) UnregisterSession(remotePublicKey []byte) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	sm.rebuildIndex()
 	delete(sm.sessionsByPubKey, publicKeyHash(remotePublicKey))
+	sm.mu.Unlock()
+
+	if err := sm.removeIndex(remotePublicKey); err != nil {
+		slog.Warn("failed to remove pubkey index",
+			slog.Any("error", err))
+	}
 }
 
 // SaveSession persists the session state for potential resumption.
 //
-// NOTE: CreatedAt must be stable across updates. We preserve any existing
-// CreatedAt value in storage and only set it on first save.
+// CreatedAt is preserved across updates: if an existing record is found in
+// the same transaction, its CreatedAt value is reused. This avoids a separate
+// read transaction and eliminates the race between read and write.
 func (sm *SessionManager) SaveSession(state *SessionState) error {
 	if state == nil || state.SessionID == "" {
 		return errors.New("invalid session state")
 	}
 
-	createdAt := timestamppb.Now()
-
-	// Preserve CreatedAt if this session already exists.
 	key := sessionKey(state.SessionID)
-	_ = sm.storage.store.Query(func(q store.Query) error {
-		data, err := q.GetEncrypted(sessionsBucket, key)
-		if err != nil {
-			return err
-		}
-
-		var existing pb.SessionState
-		if err := proto.Unmarshal(data, &existing); err != nil {
-			return err
-		}
-
-		if existing.CreatedAt != nil {
-			createdAt = existing.CreatedAt
-		}
-		return nil
-	})
+	now := timestamppb.Now()
 
 	pbState := &pb.SessionState{
 		Phase:           state.Phase.ToProto(),
@@ -441,16 +520,25 @@ func (sm *SessionManager) SaveSession(state *SessionState) error {
 		RemoteSalt:      state.RemoteSalt,
 		RatchetState:    state.RatchetState,
 		RemotePublicKey: state.RemotePublicKey,
-		CreatedAt:       createdAt,
-		UpdatedAt:       timestamppb.Now(),
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 
-	data, err := proto.Marshal(pbState)
-	if err != nil {
-		return fmt.Errorf("marshaling session state: %w", err)
-	}
+	err := sm.storage.store.Command(func(c store.Command) error {
+		// Attempt to read the existing record inside the same read-write
+		// transaction so that CreatedAt preservation is atomic.
+		existing, qErr := c.GetEncrypted(sessionsBucket, key)
+		if qErr == nil {
+			var prev pb.SessionState
+			if err := proto.Unmarshal(existing, &prev); err == nil && prev.CreatedAt != nil {
+				pbState.CreatedAt = prev.CreatedAt
+			}
+		}
 
-	err = sm.storage.store.Command(func(c store.Command) error {
+		data, err := proto.Marshal(pbState)
+		if err != nil {
+			return fmt.Errorf("marshaling session state: %w", err)
+		}
 		return c.AddEncrypted(sessionsBucket, key, data)
 	})
 	if err != nil {
@@ -573,7 +661,7 @@ func (sm *SessionManager) CanResume(
 	if err != nil {
 		if errors.Is(err, ErrSessionExpired) || errors.Is(
 			err, store.ErrMissingItem,
-		) {
+		) || errors.Is(err, store.ErrMissingBucket) {
 			return false, PhaseInvalid, nil
 		}
 		return false, PhaseInvalid, err
@@ -622,6 +710,7 @@ func (sm *SessionManager) ListActiveSessions() ([]string, error) {
 }
 
 // CleanupExpiredSessions removes all expired sessions from storage.
+// Deletions are batched into a single transaction for efficiency.
 func (sm *SessionManager) CleanupExpiredSessions() (int, error) {
 	var expiredKeys [][]byte
 
@@ -646,14 +735,18 @@ func (sm *SessionManager) CleanupExpiredSessions() (int, error) {
 		return 0, fmt.Errorf("scanning sessions: %w", err)
 	}
 
-	deleted := 0
-	for _, key := range expiredKeys {
-		err := sm.storage.store.Command(func(c store.Command) error {
-			return c.Delete(sessionsBucket, key)
-		})
-		if err == nil {
-			deleted++
-		}
+	if len(expiredKeys) == 0 {
+		return 0, nil
+	}
+
+	var deleted int
+	err = sm.storage.store.Command(func(c store.Command) error {
+		var err error
+		deleted, err = c.DeleteBatch(sessionsBucket, expiredKeys)
+		return err
+	})
+	if err != nil {
+		return deleted, fmt.Errorf("batch deleting expired sessions: %w", err)
 	}
 
 	return deleted, nil
