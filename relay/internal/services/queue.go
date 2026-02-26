@@ -13,9 +13,9 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
-var (
-	queueKeySize = 16
+const queueKeySize = 16
 
+var (
 	// Sentinel errors returned by PushQueue to allow callers and handlers
 	// to identify specific queue-related error conditions.
 	// - ErrMessageTooLarge: payload exceeds configured MaxMessageSize
@@ -80,6 +80,29 @@ func (s *Service) PopQueue(
 	}
 
 	return data, nil
+}
+
+// QueueLen returns the number of pending messages in the queue for the given
+// sender/receiver/session tuple without consuming any of them.
+func (s *Service) QueueLen(
+	sender, receiver attest.PublicKey, sessionID string,
+) (uint64, error) {
+	key, err := queueKey(sender, receiver, sessionID)
+	if err != nil {
+		return 0, fmt.Errorf("derive queue key: %w", err)
+	}
+
+	var length uint64
+	err = s.store.Command(func(c model.Command) error {
+		var err error
+		length, err = c.QLen(key)
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("get queue length: %w", err)
+	}
+
+	return length, nil
 }
 
 func queueKey(sender, receiver attest.PublicKey, sessionID string) ([]byte, error) {

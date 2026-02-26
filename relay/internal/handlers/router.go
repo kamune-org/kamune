@@ -23,6 +23,7 @@ func newRouter(h *Handler, cfg config.Config) *grape.Router {
 		r.UseAll(rateLimitMiddleware(h.service))
 	}
 
+	r.Get("/health", h.HealthHandler)
 	r.Get("/identity", h.IdentityHandler)
 	r.Get("/ip", h.EchoIPHandler)
 
@@ -30,6 +31,8 @@ func newRouter(h *Handler, cfg config.Config) *grape.Router {
 	peers.Post("", h.RegisterPeerHandler)
 	peers.Get("", h.InquiryPeerHandler)
 	peers.Delete("/{id}", h.DiscardPeerHandler)
+
+	r.Post("/convey", h.ConveyHandler)
 
 	// Queue endpoints (push/pop) - registered under /queues
 	queues := r.Group("/queues")

@@ -2,43 +2,93 @@ openapi: 3.1.0
 info:
   title: Kamune Relay server
   description: Relay implementation for the Kamune project
-  version: 0.0.0
+  version: 0.1.0
 paths:
+  /health:
+    get:
+      operationId: healthCheck
+      tags:
+        - health
+      summary: Health check
+      description: >
+        Returns the current health status of the relay server, including
+        storage reachability, uptime, and configured identity algorithm.
+      responses:
+        "200":
+          description: Server is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  health:
+                    $ref: "#/components/schemas/HealthStatus"
+                required:
+                  - health
+                title: HealthCheckOk
+        "503":
+          description: Server is degraded (e.g. storage unreachable).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  health:
+                    $ref: "#/components/schemas/HealthStatus"
+                required:
+                  - health
+                title: HealthCheckDegraded
+  /identity:
+    get:
+      operationId: relayPublicKey
+      tags:
+        - identity
+      summary: Relay public key
+      responses:
+        "200":
+          description: >
+            The request was successful, and the server has returned the
+            requested resource in the response body.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                required:
+                  - key
+                title: RelayPublicKeyOk
+      parameters: []
+  /ip:
+    get:
+      operationId: clientsPublicIp
+      tags:
+        - ip
+      summary: Client's Public IP
+      responses:
+        "200":
+          description: >
+            The request was successful, and the server has returned the
+            requested resource in the response body.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ip:
+                    type: string
+                required:
+                  - ip
+                title: ClientsPublicIpOk
   /peers:
     post:
       operationId: registerAPeer
       tags:
         - peer
       summary: Register a peer
-      responses:
-        "201":
-          description: The request was successful, and a new resource was created.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  peer:
-                    $ref: "#/components/schemas/Peer"
-                required:
-                  - peer
-                title: RegisterAPeerCreated
-        "409":
-          description: The request could not be completed due to a conflict with the
-            current state of the resource. Resolve the conflict and try again.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  peer:
-                    $ref: "#/components/schemas/Peer"
-                required:
-                  - peer
-                title: RegisterAPeerConflict
       requestBody:
         required: true
-        description: ""
         content:
           application/json:
             schema:
@@ -58,14 +108,51 @@ paths:
                 - identity
                 - public_key
                 - title
+      responses:
+        "201":
+          description: The request was successful, and a new resource was created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  peer:
+                    $ref: "#/components/schemas/Peer"
+                required:
+                  - peer
+                title: RegisterAPeerCreated
+        "409":
+          description: >
+            The request could not be completed due to a conflict with the
+            current state of the resource. Resolve the conflict and try again.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  peer:
+                    $ref: "#/components/schemas/Peer"
+                required:
+                  - peer
+                title: RegisterAPeerConflict
     get:
       operationId: inquiryAPeer
       tags:
         - peer
       summary: Inquiry a peer
+      parameters:
+        - in: query
+          name: key
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: string
+          allowReserved: false
       responses:
         "200":
-          description: The request was successful, and the server has returned the
+          description: >
+            The request was successful, and the server has returned the
             requested resource in the response body.
           content:
             application/json:
@@ -79,94 +166,278 @@ paths:
                 title: InquiryAPeerOk
         "404":
           $ref: "#/components/responses/NotFound"
-      parameters:
-        - in: query
-          name: key
-          required: true
-          style: form
-          description: ""
-          explode: true
-          schema:
-            type: string
-          allowReserved: false
-  /identity:
-    get:
-      operationId: relayPublicKey
-      tags:
-        - identity
-      summary: Relay public key
-      responses:
-        "200":
-          description: The request was successful, and the server has returned the
-            requested resource in the response body.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                required:
-                  - id
-                title: RelayPublicKeyOk
-      parameters: []
   /peers/{id}:
     delete:
       operationId: discardAPeer
       tags:
         - peer
       summary: Discard a peer
+      parameters:
+        - in: query
+          name: key
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: string
+          allowReserved: false
+        - $ref: "#/components/parameters/id"
       responses:
         "204":
-          description: The request was successful, but there is no content to return in
+          description: >
+            The request was successful, but there is no content to return in
             the response.
           content:
             application/json:
               schema:
                 type: "null"
                 title: DiscardAPeerNoContent
-      parameters:
-        - in: query
-          name: key
-          required: true
-          style: form
-          description: ""
-          explode: true
-          schema:
-            type: string
-          allowReserved: false
-        - $ref: "#/components/parameters/id"
-  /ip:
-    get:
-      operationId: clientsPublicIp
+  /convey:
+    post:
+      operationId: conveyMessage
       tags:
-        - ip
-      summary: Client's Public IP
+        - convey
+      summary: Relay a message between peers
+      description: >
+        Attempts direct delivery to the receiver's registered addresses.
+        If direct delivery fails (or no addresses are known), the message
+        is automatically enqueued for later retrieval via the queue endpoints.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sender:
+                  type: string
+                  description: Base64 raw URL encoded public key of the sender
+                receiver:
+                  type: string
+                  description: Base64 raw URL encoded public key of the receiver
+                session_id:
+                  type: string
+                  description: Application-level session identifier
+                data:
+                  type: string
+                  description: Base64 raw URL encoded message payload
+              required:
+                - sender
+                - receiver
+                - session_id
+                - data
       responses:
         "200":
-          description: The request was successful, and the server has returned the
-            requested resource in the response body.
+          description: Message was delivered directly to the receiver.
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  ip:
+                  delivered:
+                    type: boolean
+                required:
+                  - delivered
+                title: ConveyMessageDelivered
+        "202":
+          description: >
+            Direct delivery failed; the message has been queued for later
+            retrieval by the receiver.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queued:
+                    type: boolean
+                required:
+                  - queued
+                title: ConveyMessageQueued
+        "400":
+          description: Bad request (missing or invalid fields).
+        "409":
+          description: Queue is full for this sender/receiver/session tuple.
+        "413":
+          description: Message payload exceeds the configured maximum size.
+  /queues:
+    post:
+      operationId: pushToQueue
+      tags:
+        - queue
+      summary: Push a message to the queue
+      description: >
+        Enqueues a message for a specific sender/receiver/session tuple.
+        The message can later be retrieved via `GET /queues`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sender:
+                  type: string
+                  description: Base64 raw URL encoded public key of the sender
+                receiver:
+                  type: string
+                  description: Base64 raw URL encoded public key of the receiver
+                session_id:
+                  type: string
+                  description: Application-level session identifier
+                data:
+                  type: string
+                  description: Base64 raw URL encoded message payload
+              required:
+                - sender
+                - receiver
+                - session_id
+                - data
+      responses:
+        "201":
+          description: Message successfully enqueued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
                     type: string
                 required:
-                  - ip
-                title: ClientsPublicIpOk
+                  - status
+                title: PushToQueueCreated
+        "400":
+          description: Bad request (missing or invalid fields).
+        "409":
+          description: Queue is full for this sender/receiver/session tuple.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+                title: PushToQueueConflict
+        "413":
+          description: Message payload exceeds the configured maximum size.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+                title: PushToQueueTooLarge
+    get:
+      operationId: popFromQueue
+      tags:
+        - queue
+      summary: Pop a message from the queue
+      description: >
+        Dequeues the oldest message for a specific sender/receiver/session
+        tuple. Messages are returned in FIFO order.
+      parameters:
+        - in: query
+          name: sender
+          required: true
+          schema:
+            type: string
+          description: Base64 raw URL encoded public key of the sender
+        - in: query
+          name: receiver
+          required: true
+          schema:
+            type: string
+          description: Base64 raw URL encoded public key of the receiver
+        - in: query
+          name: session
+          required: true
+          schema:
+            type: string
+          description: Application-level session identifier
+      responses:
+        "200":
+          description: A message was successfully dequeued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    description: Base64 raw URL encoded message payload
+                required:
+                  - data
+                title: PopFromQueueOk
+        "204":
+          description: Queue is empty; no messages available.
+        "400":
+          description: Bad request (missing or invalid query parameters).
+        "404":
+          description: No queue found for the given parameters.
+  /queues/length:
+    get:
+      operationId: queueLength
+      tags:
+        - queue
+      summary: Peek at queue depth
+      description: >
+        Returns the number of pending messages in the queue for a given
+        sender/receiver/session tuple without consuming any messages.
+      parameters:
+        - in: query
+          name: sender
+          required: true
+          schema:
+            type: string
+          description: Base64 raw URL encoded public key of the sender
+        - in: query
+          name: receiver
+          required: true
+          schema:
+            type: string
+          description: Base64 raw URL encoded public key of the receiver
+        - in: query
+          name: session
+          required: true
+          schema:
+            type: string
+          description: Application-level session identifier
+      responses:
+        "200":
+          description: Queue length returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  length:
+                    type: integer
+                    format: uint64
+                    description: Number of pending messages in the queue
+                required:
+                  - length
+                title: QueueLengthOk
+        "400":
+          description: Bad request (missing or invalid query parameters).
 servers:
   - url: http://127.0.0.1:8888
     description: Development server
 tags:
-  - name: peer
+  - name: health
   - name: identity
   - name: ip
+  - name: peer
+  - name: convey
+  - name: queue
 components:
   responses:
     NotFound:
-      description: The server cannot find the requested resource. The endpoint may be
+      description: >
+        The server cannot find the requested resource. The endpoint may be
         invalid or the resource may no longer exist.
       content:
         application/json:
@@ -178,7 +449,8 @@ components:
             required:
               - message
     Conflict:
-      description: The request could not be completed due to a conflict with the
+      description: >
+        The request could not be completed due to a conflict with the
         current state of the resource. Resolve the conflict and try again.
       content:
         application/json:
@@ -193,23 +465,56 @@ components:
     Peer:
       type: object
       properties:
-        identity:
-          type: string
-        expires_in:
-          type: string
-        registered_at:
-          type: string
         id:
+          type: string
+        identity:
           type: string
         address:
           type: array
           items:
             type: string
+        registered_at:
+          type: string
+        expires_in:
+          type: string
       required:
         - registered_at
         - identity
         - address
       description: Describing a registered peer
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+        storage:
+          type: string
+          enum:
+            - ok
+            - degraded
+        latency:
+          type: string
+          description: Storage probe latency as a Go duration string
+        identity:
+          type: string
+          description: Configured identity algorithm
+        uptime:
+          type: string
+          description: Server uptime as a Go duration string
+        started_at:
+          type: string
+          format: date-time
+      required:
+        - status
+        - storage
+        - latency
+        - identity
+        - uptime
+        - started_at
+      description: Health status of the relay server
   parameters:
     id:
       name: id

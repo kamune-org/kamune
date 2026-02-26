@@ -18,8 +18,9 @@ type Config struct {
 }
 
 type Server struct {
-	Address  string           `toml:"address"`
-	Identity attest.Algorithm `toml:"identity"`
+	Address         string           `toml:"address"`
+	Identity        attest.Algorithm `toml:"identity"`
+	DeliveryTimeout time.Duration    `toml:"delivery_timeout"`
 }
 
 type Storage struct {

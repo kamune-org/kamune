@@ -33,7 +33,7 @@ func Open(cfg config.Storage) (*Store, error) {
 	}
 	db, err := badger.Open(opts)
 	if err != nil {
-		return nil, fmt.Errorf("openning storage: %w", err)
+		return nil, fmt.Errorf("opening storage: %w", err)
 	}
 
 	go func() {

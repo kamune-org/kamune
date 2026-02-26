@@ -1,6 +1,7 @@
 [server]
 identity = "ed25519"
 address = "127.0.0.1:8888"
+# delivery_timeout = "5s"  # timeout for direct message delivery attempts
 
 [storage]
 path = "./db"

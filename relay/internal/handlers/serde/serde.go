@@ -1,4 +1,4 @@
-package handlers
+package serde
 
 import (
 	"encoding/base64"

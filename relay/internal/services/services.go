@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
@@ -19,19 +20,20 @@ var (
 )
 
 type Service struct {
-	store    model.Store
-	attester attest.Attester
-	cfg      config.Config
+	store     model.Store
+	attester  attest.Attester
+	cfg       config.Config
+	startedAt time.Time
 }
 
-func New(store *storage.Store, cfg config.Config) (*Service, error) {
+func New(store model.Store, cfg config.Config) (*Service, error) {
 	at, err := loadAttest(store, cfg.Server.Identity)
 	if err != nil {
 		return nil, fmt.Errorf("loading attester: %w", err)
 	}
 	fp := strings.Join(fingerprint.Emoji(at.PublicKey().Marshal()), " • ")
 	slog.Info("loaded identity", slog.String("fingerprint", fp))
-	return &Service{store: store, attester: at, cfg: cfg}, nil
+	return &Service{store: store, attester: at, cfg: cfg, startedAt: time.Now()}, nil
 }
 
 // MaxMessageSize returns the configured maximum message size in bytes.
@@ -41,7 +43,7 @@ func (s *Service) MaxMessageSize() int {
 }
 
 func loadAttest(
-	store *storage.Store, algorithm attest.Algorithm,
+	store model.Store, algorithm attest.Algorithm,
 ) (attest.Attester, error) {
 	var at attest.Attester
 	err := store.Command(func(c model.Command) error {

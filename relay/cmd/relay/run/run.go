@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -57,10 +58,10 @@ func Run() error {
 
 	errCh := make(chan error, 1)
 	exitCh := make(chan os.Signal, 1)
-	signal.Notify(exitCh, syscall.SIGINT)
+	signal.Notify(exitCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		slog.Info("starting server", slog.String("address", server.Addr))
-		if err := server.ListenAndServe(); err != nil {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
@@ -68,8 +69,8 @@ func Run() error {
 	select {
 	case err := <-errCh:
 		return fmt.Errorf("starting server: %w", err)
-	case <-exitCh:
-		slogger.Info(ctx, "received exit signal")
+	case sig := <-exitCh:
+		slogger.Info(ctx, "received signal, shutting down", slog.String("signal", sig.String()))
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := server.Shutdown(ctx); err != nil {

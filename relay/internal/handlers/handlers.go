@@ -9,6 +9,7 @@ import (
 	"github.com/hossein1376/grape/errs"
 
 	"github.com/kamune-org/kamune/relay/internal/config"
+	"github.com/kamune-org/kamune/relay/internal/handlers/serde"
 	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/services"
 )
@@ -19,11 +20,17 @@ type Handler struct {
 
 func New(service *services.Service, cfg config.Config) *grape.Router {
 	h := &Handler{service: service}
-	r := newRouter(h, cfg)
-	// Register convey endpoint here so it's bound to our handler instance.
-	// POST /convey accepts JSON with: sender (base64), receiver (base64), session_id, data (base64)
-	r.Post("/convey", h.ConveyHandler)
-	return r
+	return newRouter(h, cfg)
+}
+
+func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	status, err := h.service.Health()
+	if err != nil {
+		grape.Respond(ctx, w, http.StatusServiceUnavailable, grape.Map{"health": status})
+		return
+	}
+	grape.Respond(ctx, w, http.StatusOK, grape.Map{"health": status})
 }
 
 func (h *Handler) IdentityHandler(w http.ResponseWriter, r *http.Request) {
@@ -57,17 +64,17 @@ func (h *Handler) ConveyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Decode and parse keys & payload using centralized helpers
-	senderPK, err := ParsePublicKeyFromBase64(req.Sender, h.service)
+	senderPK, err := serde.ParsePublicKeyFromBase64(req.Sender, h.service)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(fmt.Errorf("sender: %w", err))))
 		return
 	}
-	receiverPK, err := ParsePublicKeyFromBase64(req.Receiver, h.service)
+	receiverPK, err := serde.ParsePublicKeyFromBase64(req.Receiver, h.service)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(fmt.Errorf("receiver: %w", err))))
 		return
 	}
-	dataRaw, err := DecodePayloadFromBase64(req.Data)
+	dataRaw, err := serde.DecodePayloadFromBase64(req.Data)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(fmt.Errorf("data: %w", err))))
 		return
@@ -95,12 +102,10 @@ func (h *Handler) RegisterPeerHandler(w http.ResponseWriter, r *http.Request) {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(err)))
 		return
 	}
-	l := len(req.Addr)
-	addr := make([]string, l, l+1)
-	for i := range addr {
-		addr[i] = req.Addr[i]
-	}
-	addr = append(addr, clientIP(r))
+	addr := make([]string, len(req.Addr)+1)
+	copy(addr, req.Addr)
+	addr[len(req.Addr)] = clientIP(r)
+
 	peer, err := h.service.RegisterPeer(req.publicKey, req.Identity, addr)
 	if err != nil {
 		if errors.Is(err, services.ErrExistingPeer) {

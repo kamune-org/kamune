@@ -8,8 +8,7 @@ import (
 	"github.com/hossein1376/grape"
 	"github.com/hossein1376/grape/errs"
 
-	"github.com/kamune-org/kamune/pkg/attest"
-	handlers "github.com/kamune-org/kamune/relay/internal/handlers"
+	"github.com/kamune-org/kamune/relay/internal/handlers/serde"
 	"github.com/kamune-org/kamune/relay/internal/services"
 )
 
@@ -24,6 +23,8 @@ func New(r *grape.Router, service *services.Service) *QueueHandler {
 	r.Post("", h.NewQueueHandler)
 	// GET  /queues -> pop a message from a queue (uses query params)
 	r.Get("", h.PopQueueHandler)
+	// GET  /queues/length -> peek at queue depth without consuming
+	r.Get("/length", h.QueueLenHandler)
 
 	return h
 }
@@ -40,9 +41,8 @@ type pushQueueRequest struct {
 	Data      string `json:"data"`
 }
 
-// Use centralized parsing helpers from the parent handlers package.
-// Decoding/parsing utilities live in relay/internal/handlers/parse.go
-// and are imported as the `handlers` package above.
+// Use centralized parsing helpers from the serde sub-package.
+// Decoding/parsing utilities live in relay/internal/handlers/serde/serde.go.
 
 // NewQueueHandler handles pushing a message to the queue.
 func (h *QueueHandler) NewQueueHandler(w http.ResponseWriter, r *http.Request) {
@@ -55,14 +55,14 @@ func (h *QueueHandler) NewQueueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// parse sender and receiver via centralized helper
-	senderPK, receiverPK, err := handlers.DecodeAndParsePair(req.Sender, req.Receiver, h.service)
+	senderPK, receiverPK, err := serde.DecodeAndParsePair(req.Sender, req.Receiver, h.service)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(fmt.Errorf("parsing keys: %w", err))))
 		return
 	}
 
 	// decode payload using centralized helper
-	payload, err := handlers.DecodePayloadFromBase64(req.Data)
+	payload, err := serde.DecodePayloadFromBase64(req.Data)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(fmt.Errorf("data: %w", err))))
 		return
@@ -110,7 +110,7 @@ func (h *QueueHandler) PopQueueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// parse sender and receiver via centralized helper
-	senderPK, receiverPK, err := handlers.DecodeAndParsePair(senderEnc, receiverEnc, h.service)
+	senderPK, receiverPK, err := serde.DecodeAndParsePair(senderEnc, receiverEnc, h.service)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(fmt.Errorf("parsing keys: %w", err))))
 		return
@@ -129,13 +129,40 @@ func (h *QueueHandler) PopQueueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// return base64 encoded payload
-	enc := handlers.EncodePayloadToBase64(data)
+	enc := serde.EncodePayloadToBase64(data)
 	grape.Respond(ctx, w, http.StatusOK, grape.Map{"data": enc})
 }
 
-// ParsePublicKeyFor is a small helper to convert raw key bytes into attest.PublicKey
-// using the service's configured identity algorithm. It delegates to the service
-// helper to keep parsing logic centralized.
-func (s *QueueHandler) ParsePublicKeyFor(key []byte) (attest.PublicKey, error) {
-	return s.service.ParsePublicKeyFor(key)
+// QueueLenHandler returns the number of pending messages in a queue without
+// consuming any of them.
+// Expects query parameters:
+// - sender: base64 raw public key of the sender
+// - receiver: base64 raw public key of the receiver
+// - session: session id
+func (h *QueueHandler) QueueLenHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+
+	senderEnc := q.Get("sender")
+	receiverEnc := q.Get("receiver")
+	sessionID := q.Get("session")
+
+	if senderEnc == "" || receiverEnc == "" || sessionID == "" {
+		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(errors.New("sender, receiver and session query params are required"))))
+		return
+	}
+
+	senderPK, receiverPK, err := serde.DecodeAndParsePair(senderEnc, receiverEnc, h.service)
+	if err != nil {
+		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(fmt.Errorf("parsing keys: %w", err))))
+		return
+	}
+
+	length, err := h.service.QueueLen(senderPK, receiverPK, sessionID)
+	if err != nil {
+		grape.ExtractFromErr(ctx, w, fmt.Errorf("queue length: %w", err))
+		return
+	}
+
+	grape.Respond(ctx, w, http.StatusOK, grape.Map{"length": length})
 }
