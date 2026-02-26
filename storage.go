@@ -155,7 +155,7 @@ func (s *Storage) attester() (attest.Attester, error) {
 //   - 4 bytes: random suffix to avoid collision
 func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	var entries []ChatEntry
-	_ = s.store.Query(func(q store.Query) error {
+	err := s.store.Query(func(q store.Query) error {
 		for key, value := range q.IterateEncrypted([]byte("chat_" + sessionID)) {
 			if len(key) < 14 {
 				continue
@@ -172,6 +172,9 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 
 		return nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("querying chat history: %w", err)
+	}
 
 	return entries, nil
 }

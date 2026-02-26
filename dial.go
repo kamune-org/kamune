@@ -1,7 +1,6 @@
 package kamune
 
 import (
-	"crypto/subtle"
 	"fmt"
 	"log/slog"
 	"net"
@@ -9,9 +8,7 @@ import (
 	"time"
 
 	"github.com/xtaci/kcp-go/v5"
-	"google.golang.org/protobuf/proto"
 
-	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 )
@@ -239,146 +236,22 @@ func (d *Dialer) attemptResumption(state *SessionState) (*Transport, error) {
 		d.conn = c
 	}
 
-	// Generate a challenge for the server to prove it has the shared secret
-	challenge := randomBytes(resumeChallengeSize)
-
-	// Create and send reconnect request
-	req := &pb.ReconnectRequest{
-		SessionId:        state.SessionID,
-		LastPhase:        state.Phase.ToProto(),
-		LastSendSequence: state.SendSequence,
-		LastRecvSequence: state.RecvSequence,
-		RemotePublicKey:  d.attester.PublicKey().Marshal(),
-		ResumeChallenge:  challenge,
-	}
-	if err := d.sendSignedMessage(req, RouteReconnect); err != nil {
-		return nil, fmt.Errorf("sending reconnect request: %w", err)
-	}
-
-	// Receive response
-	respPayload, err := d.conn.ReadBytes()
-	if err != nil {
-		return nil, fmt.Errorf("reading reconnect response: %w", err)
-	}
-
-	var respST pb.SignedTransport
-	if err := proto.Unmarshal(respPayload, &respST); err != nil {
-		return nil, fmt.Errorf("unmarshaling response transport: %w", err)
-	}
-
-	// Verify signature from the server
-	remoteKey, err := d.storage.algorithm.Identitfier().ParsePublicKey(
-		state.RemotePublicKey,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("parsing remote public key: %w", err)
-	}
-
-	if !d.storage.algorithm.Identitfier().Verify(
-		remoteKey, respST.Data, respST.Signature,
-	) {
-		return nil, ErrInvalidSignature
-	}
-
-	var resp pb.ReconnectResponse
-	if err := proto.Unmarshal(respST.Data, &resp); err != nil {
-		return nil, fmt.Errorf("unmarshaling response: %w", err)
-	}
-
-	if !resp.Accepted {
-		return nil, fmt.Errorf("%w: %s", ErrResumptionFailed, resp.ErrorMessage)
-	}
-
-	// Verify the server's challenge response
+	// Delegate the entire challenge-response protocol to SessionResumer.
 	resumer := NewSessionResumer(
 		d.storage,
 		d.sessionManager,
 		d.attester,
 		d.resumptionConfig.MaxSessionAge,
 	)
-	expectedResponse, err := resumer.computeChallengeResponse(
-		challenge, state.SharedSecret,
-	)
+
+	transport, err := resumer.InitiateResumption(d.conn, state)
 	if err != nil {
-		return nil, fmt.Errorf("compute expected challenge response: %w", err)
-	}
-	if subtle.ConstantTimeCompare(resp.ChallengeResponse, expectedResponse) != 1 {
-		return nil, ErrChallengeVerifyFailed
-	}
-
-	// Compute our response to the server's challenge
-	clientChallengeResponse, err := resumer.computeChallengeResponse(
-		resp.ServerChallenge, state.SharedSecret,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("compute client challenge response: %w", err)
-	}
-
-	// Determine the sequence numbers to use
-	resumeSendSeq, resumeRecvSeq := resumer.reconcileSequences(
-		state.SendSequence,
-		state.RecvSequence,
-		resp.ServerRecvSequence,
-		resp.ServerSendSequence,
-	)
-
-	// Send verification
-	verify := &pb.ReconnectVerify{
-		ChallengeResponse: clientChallengeResponse,
-		Verified:          true,
-	}
-	if err := d.sendSignedMessage(verify, RouteReconnect); err != nil {
-		return nil, fmt.Errorf("sending verification: %w", err)
-	}
-
-	// Receive completion
-	completePayload, err := d.conn.ReadBytes()
-	if err != nil {
-		return nil, fmt.Errorf("reading completion: %w", err)
-	}
-
-	var completeST pb.SignedTransport
-	if err := proto.Unmarshal(completePayload, &completeST); err != nil {
-		return nil, fmt.Errorf("unmarshaling completion transport: %w", err)
-	}
-
-	if !d.storage.algorithm.Identitfier().Verify(
-		remoteKey, completeST.Data, completeST.Signature,
-	) {
-		return nil, ErrInvalidSignature
-	}
-
-	var complete pb.ReconnectComplete
-	if err := proto.Unmarshal(completeST.Data, &complete); err != nil {
-		return nil, fmt.Errorf("unmarshaling completion: %w", err)
-	}
-
-	if !complete.Success {
-		return nil, fmt.Errorf(
-			"%w: %s", ErrResumptionFailed, complete.ErrorMessage,
-		)
-	}
-
-	// Use the agreed-upon sequence numbers
-	if complete.ResumeSendSequence > 0 {
-		resumeSendSeq = complete.ResumeSendSequence
-	}
-	if complete.ResumeRecvSequence > 0 {
-		resumeRecvSeq = complete.ResumeRecvSequence
-	}
-
-	// Restore the transport
-	transport, err := resumer.restoreTransport(
-		d.conn, state, resumeSendSeq, resumeRecvSeq,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("restoring transport: %w", err)
+		return nil, fmt.Errorf("initiating resumption: %w", err)
 	}
 
 	// Update session state
 	if d.resumptionConfig.PersistSessions {
-		err := SaveSessionForResumption(transport, d.sessionManager)
-		if err != nil {
+		if err := SaveSessionForResumption(transport, d.sessionManager); err != nil {
 			slog.Warn(
 				"failed to update session after resumption",
 				slog.Any("error", err),
@@ -387,32 +260,6 @@ func (d *Dialer) attemptResumption(state *SessionState) (*Transport, error) {
 	}
 
 	return transport, nil
-}
-
-func (d *Dialer) sendSignedMessage(msg Transferable, route Route) error {
-	data, err := proto.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("marshaling message: %w", err)
-	}
-
-	sig, err := d.attester.Sign(data)
-	if err != nil {
-		return fmt.Errorf("signing message: %w", err)
-	}
-
-	st := &pb.SignedTransport{
-		Data:      data,
-		Signature: sig,
-		Padding:   padding(maxPadding),
-		Route:     route.ToProto(),
-	}
-
-	payload, err := proto.Marshal(st)
-	if err != nil {
-		return fmt.Errorf("marshaling transport: %w", err)
-	}
-
-	return d.conn.WriteBytes(payload)
 }
 
 // PublicKey returns the dialer's public key.

@@ -1,7 +1,6 @@
 package kamune
 
 import (
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -213,13 +212,14 @@ func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
 		return s.sendReconnectReject(cn, "session resumption is disabled")
 	}
 
-	// Parse the reconnect request from the signed transport
+	// Parse the reconnect request from the signed transport.
 	var req pb.ReconnectRequest
 	if err := proto.Unmarshal(st.Data, &req); err != nil {
 		return fmt.Errorf("unmarshaling reconnect request: %w", err)
 	}
 
-	// Verify the signature using the claimed public key
+	// Verify the signature using the claimed public key before handing off
+	// to the resumer, which trusts the request is authentic.
 	remoteKey, err := s.algorithm.Identitfier().ParsePublicKey(
 		req.RemotePublicKey,
 	)
@@ -235,7 +235,7 @@ func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
 		slog.String("session_id", req.SessionId),
 	)
 
-	// Create session resumer and handle the resumption
+	// Delegate the entire challenge-response protocol to SessionResumer.
 	resumer := NewSessionResumer(
 		s.storage,
 		s.sessionManager,
@@ -243,126 +243,16 @@ func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
 		s.resumptionConfig.MaxSessionAge,
 	)
 
-	// Look up the session
-	state, err := s.sessionManager.LoadSessionByPublicKey(req.RemotePublicKey)
+	t, err := resumer.HandleResumption(cn, &req)
 	if err != nil {
-		slog.Warn("session not found for reconnection",
-			slog.Any("error", err),
-		)
-		return s.sendReconnectReject(cn, "session not found")
-	}
-
-	// Verify session ID matches
-	if state.SessionID != req.SessionId {
-		return s.sendReconnectReject(cn, "session ID mismatch")
-	}
-
-	// Verify the session is in a resumable state
-	if state.Phase != PhaseEstablished {
-		return s.sendReconnectReject(cn, "session not established")
-	}
-
-	// Verify the session is not too old
-	// Note: We'd need to track creation time in SessionState for this
-	// For now, just check that we have a valid shared secret
-	if len(state.SharedSecret) == 0 {
-		return s.sendReconnectReject(cn, "session state invalid")
-	}
-
-	// Generate server challenge
-	serverChallenge := randomBytes(resumeChallengeSize)
-
-	// Compute response to client's challenge using HMAC
-	challengeResponse, err := resumer.computeChallengeResponse(
-		req.ResumeChallenge, state.SharedSecret,
-	)
-	if err != nil {
-		return fmt.Errorf("compute challenge response: %w", err)
-	}
-
-	// Send accept response
-	resp := &pb.ReconnectResponse{
-		Accepted:           true,
-		ResumeFromPhase:    state.Phase.ToProto(),
-		ChallengeResponse:  challengeResponse,
-		ServerChallenge:    serverChallenge,
-		ServerSendSequence: state.SendSequence,
-		ServerRecvSequence: state.RecvSequence,
-	}
-
-	if err := s.sendSignedMessage(cn, resp, RouteReconnect); err != nil {
-		return fmt.Errorf("sending accept response: %w", err)
-	}
-
-	// Receive client verification
-	verifyPayload, err := cn.ReadBytes()
-	if err != nil {
-		return fmt.Errorf("reading verification: %w", err)
-	}
-
-	var verifyST pb.SignedTransport
-	if err := proto.Unmarshal(verifyPayload, &verifyST); err != nil {
-		return fmt.Errorf("unmarshaling verification transport: %w", err)
-	}
-
-	// Verify signature
-	if !s.algorithm.Identitfier().Verify(
-		remoteKey, verifyST.Data, verifyST.Signature,
-	) {
-		return fmt.Errorf("verification signature invalid")
-	}
-
-	var verify pb.ReconnectVerify
-	if err := proto.Unmarshal(verifyST.Data, &verify); err != nil {
-		return fmt.Errorf("unmarshaling verification: %w", err)
-	}
-
-	// Verify client's response to our challenge
-	expectedClientResponse, err := resumer.computeChallengeResponse(
-		serverChallenge, state.SharedSecret,
-	)
-	if err != nil {
-		return fmt.Errorf("compute client expected response: %w", err)
-	}
-	if len(verify.ChallengeResponse) == 0 ||
-		subtle.ConstantTimeCompare(verify.ChallengeResponse, expectedClientResponse) != 1 {
-		complete := &pb.ReconnectComplete{
-			Success:      false,
-			ErrorMessage: "challenge verification failed",
-		}
-		_ = s.sendSignedMessage(cn, complete, RouteReconnect)
-		return ErrChallengeVerifyFailed
-	}
-
-	// Determine sequence numbers to resume from
-	resumeSendSeq, resumeRecvSeq := resumer.reconcileSequences(
-		state.SendSequence, state.RecvSequence,
-		req.LastRecvSequence, req.LastSendSequence,
-	)
-
-	// Send completion
-	complete := &pb.ReconnectComplete{
-		Success:            true,
-		ResumeSendSequence: resumeSendSeq,
-		ResumeRecvSequence: resumeRecvSeq,
-	}
-	if err := s.sendSignedMessage(cn, complete, RouteReconnect); err != nil {
-		return fmt.Errorf("sending completion: %w", err)
-	}
-
-	// Restore the transport
-	t, err := resumer.restoreTransport(cn, state, resumeSendSeq, resumeRecvSeq)
-	if err != nil {
-		return fmt.Errorf("restoring transport: %w", err)
+		return fmt.Errorf("handling resumption: %w", err)
 	}
 
 	slog.Info("session resumed",
 		slog.String("session_id", t.SessionID()),
-		slog.Uint64("send_seq", resumeSendSeq),
-		slog.Uint64("recv_seq", resumeRecvSeq),
 	)
 
-	// Update session state
+	// Update session state.
 	if s.resumptionConfig.PersistSessions {
 		if err := SaveSessionForResumption(t, s.sessionManager); err != nil {
 			slog.Warn("failed to update session after resumption",

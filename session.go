@@ -244,6 +244,9 @@ func (ht *HandshakeTracker) PersistHandshake(remotePublicKey []byte) error {
 }
 
 // LoadHandshake loads a persisted handshake state from storage.
+// If the handshake has not expired, it is added to the in-memory cache with
+// its UpdatedAt refreshed to the current time so that the expiry window
+// restarts from the moment of loading.
 func (ht *HandshakeTracker) LoadHandshake(
 	remotePublicKey []byte,
 ) (*HandshakeState, error) {
@@ -276,13 +279,15 @@ func (ht *HandshakeTracker) LoadHandshake(
 		}
 	}
 
-	var createdAt, updatedAt time.Time
+	var createdAt time.Time
 	if pbState.CreatedAt != nil {
 		createdAt = pbState.CreatedAt.AsTime()
 	}
-	if pbState.UpdatedAt != nil {
-		updatedAt = pbState.UpdatedAt.AsTime()
-	}
+
+	// Refresh UpdatedAt to now so the expiry window restarts from the moment
+	// the handshake is loaded back into memory, rather than counting from the
+	// original persisted time.
+	now := time.Now()
 
 	state := &HandshakeState{
 		RemotePublicKey: pbState.RemotePublicKey,
@@ -293,7 +298,7 @@ func (ht *HandshakeTracker) LoadHandshake(
 		LocalSalt:       pbState.LocalSalt,
 		RemoteSalt:      pbState.RemoteSalt,
 		CreatedAt:       createdAt,
-		UpdatedAt:       updatedAt,
+		UpdatedAt:       now,
 	}
 
 	// Also add to in-memory cache
@@ -350,15 +355,15 @@ func (ht *HandshakeTracker) ActiveHandshakes() int {
 //
 // The public-key → session-ID mapping is persisted in a dedicated BoltDB
 // bucket so that it survives process restarts. An in-memory cache
-// (sessionsByPubKey) is populated on first access via rebuildIndex and kept
-// in sync by RegisterSession / UnregisterSession.
+// (sessionsByPubKey) is populated on first access via rebuildIndex (guarded
+// by sync.Once) and kept in sync by RegisterSession / UnregisterSession.
 type SessionManager struct {
 	storage          *Storage
 	handshakeTracker *HandshakeTracker
 	sessionsByPubKey map[string]string
 	sessionTimeout   time.Duration
 	mu               sync.RWMutex
-	indexLoaded      bool
+	indexOnce        sync.Once
 }
 
 // NewSessionManager creates a new session manager.
@@ -387,32 +392,36 @@ func pubKeyIndexKey(remotePublicKey []byte) []byte {
 	return h[:]
 }
 
-// rebuildIndex loads the persisted public-key → session-ID index from storage
-// into the in-memory map. It is called lazily on first access, so that startup
-// is cheap when sessions are never queried.
-func (sm *SessionManager) rebuildIndex() {
-	if sm.indexLoaded || sm.storage == nil {
-		return
-	}
-	sm.indexLoaded = true
-
-	_ = sm.storage.store.Query(func(q store.Query) error {
-		for _, value := range q.IterateEncrypted(indexBucket) {
-			var idx pb.PubKeySessionIndex
-			if err := proto.Unmarshal(value, &idx); err != nil {
-				slog.Warn("skipping malformed pubkey index entry",
-					slog.Any("error", err))
-				continue
-			}
-			if len(idx.RemotePublicKey) > 0 && idx.SessionId != "" {
-				sm.sessionsByPubKey[publicKeyHash(idx.RemotePublicKey)] = idx.SessionId
-			}
+// ensureIndex guarantees that the persisted pubkey→session-ID index has been
+// loaded into the in-memory map exactly once. It is safe to call concurrently
+// from any number of goroutines.
+func (sm *SessionManager) ensureIndex() {
+	sm.indexOnce.Do(func() {
+		if sm.storage == nil {
+			return
 		}
-		return nil
-	})
 
-	slog.Debug("rebuilt session pubkey index",
-		slog.Int("entries", len(sm.sessionsByPubKey)))
+		sm.mu.Lock()
+		defer sm.mu.Unlock()
+
+		_ = sm.storage.store.Query(func(q store.Query) error {
+			for _, value := range q.IterateEncrypted(indexBucket) {
+				var idx pb.PubKeySessionIndex
+				if err := proto.Unmarshal(value, &idx); err != nil {
+					slog.Warn("skipping malformed pubkey index entry",
+						slog.Any("error", err))
+					continue
+				}
+				if len(idx.RemotePublicKey) > 0 && idx.SessionId != "" {
+					sm.sessionsByPubKey[publicKeyHash(idx.RemotePublicKey)] = idx.SessionId
+				}
+			}
+			return nil
+		})
+
+		slog.Debug("rebuilt session pubkey index",
+			slog.Int("entries", len(sm.sessionsByPubKey)))
+	})
 }
 
 // persistIndex writes a single public-key → session-ID mapping to the index
@@ -453,8 +462,9 @@ func (sm *SessionManager) removeIndex(remotePublicKey []byte) error {
 func (sm *SessionManager) RegisterSession(
 	sessionID string, remotePublicKey []byte,
 ) {
+	sm.ensureIndex()
+
 	sm.mu.Lock()
-	sm.rebuildIndex()
 	sm.sessionsByPubKey[publicKeyHash(remotePublicKey)] = sessionID
 	sm.mu.Unlock()
 
@@ -469,15 +479,9 @@ func (sm *SessionManager) RegisterSession(
 func (sm *SessionManager) GetSessionByPublicKey(
 	remotePublicKey []byte,
 ) (string, bool) {
+	sm.ensureIndex()
+
 	sm.mu.RLock()
-	if !sm.indexLoaded {
-		sm.mu.RUnlock()
-		// Upgrade to write lock to rebuild.
-		sm.mu.Lock()
-		sm.rebuildIndex()
-		sm.mu.Unlock()
-		sm.mu.RLock()
-	}
 	sessionID, ok := sm.sessionsByPubKey[publicKeyHash(remotePublicKey)]
 	sm.mu.RUnlock()
 	return sessionID, ok
@@ -485,8 +489,9 @@ func (sm *SessionManager) GetSessionByPublicKey(
 
 // UnregisterSession removes the association between a session ID and public key.
 func (sm *SessionManager) UnregisterSession(remotePublicKey []byte) {
+	sm.ensureIndex()
+
 	sm.mu.Lock()
-	sm.rebuildIndex()
 	delete(sm.sessionsByPubKey, publicKeyHash(remotePublicKey))
 	sm.mu.Unlock()
 
@@ -576,8 +581,8 @@ func (sm *SessionManager) LoadSession(sessionID string) (*SessionState, error) {
 	if pbState.UpdatedAt != nil {
 		lastUpdate := pbState.UpdatedAt.AsTime()
 		if time.Since(lastUpdate) > sm.sessionTimeout {
-			// Clean up expired session
-			_ = sm.DeleteSession(sessionID)
+			// Clean up expired session and its index entry.
+			sm.deleteSessionAndIndex(sessionID, pbState.RemotePublicKey)
 			return nil, ErrSessionExpired
 		}
 	}
@@ -608,49 +613,159 @@ func (sm *SessionManager) LoadSessionByPublicKey(
 	return sm.LoadSession(sessionID)
 }
 
-// DeleteSession removes a persisted session state.
+// DeleteSession removes a persisted session state and its pubkey index entry.
 func (sm *SessionManager) DeleteSession(sessionID string) error {
+	// First load the session to discover its RemotePublicKey so we can clean
+	// up the index. If loading fails (already deleted, corrupt, etc.) we still
+	// proceed with the session bucket deletion.
+	var remotePubKey []byte
 	key := sessionKey(sessionID)
-	return sm.storage.store.Command(func(c store.Command) error {
+	_ = sm.storage.store.Query(func(q store.Query) error {
+		data, err := q.GetEncrypted(sessionsBucket, key)
+		if err != nil {
+			return err
+		}
+		var pbState pb.SessionState
+		if err := proto.Unmarshal(data, &pbState); err != nil {
+			return err
+		}
+		remotePubKey = pbState.RemotePublicKey
+		return nil
+	})
+
+	// Delete the session data.
+	err := sm.storage.store.Command(func(c store.Command) error {
 		return c.Delete(sessionsBucket, key)
 	})
-}
-
-// UpdateSessionPhase updates the phase of a persisted session.
-func (sm *SessionManager) UpdateSessionPhase(
-	sessionID string, phase SessionPhase,
-) error {
-	state, err := sm.LoadSession(sessionID)
 	if err != nil {
 		return err
 	}
-	state.Phase = phase
-	return sm.SaveSession(state)
+
+	// Clean up the pubkey index entry (in-memory + on-disk).
+	if len(remotePubKey) > 0 {
+		sm.UnregisterSession(remotePubKey)
+	}
+	return nil
+}
+
+// deleteSessionAndIndex is an internal helper that removes both the session
+// record and its pubkey→session-ID index entry. It is used when an expired
+// session is discovered during load.
+func (sm *SessionManager) deleteSessionAndIndex(sessionID string, remotePubKey []byte) {
+	key := sessionKey(sessionID)
+	_ = sm.storage.store.Command(func(c store.Command) error {
+		return c.Delete(sessionsBucket, key)
+	})
+	if len(remotePubKey) > 0 {
+		sm.ensureIndex()
+		sm.mu.Lock()
+		delete(sm.sessionsByPubKey, publicKeyHash(remotePubKey))
+		sm.mu.Unlock()
+		if err := sm.removeIndex(remotePubKey); err != nil {
+			slog.Warn("failed to remove pubkey index for expired session",
+				slog.String("session_id", sessionID),
+				slog.Any("error", err))
+		}
+	}
+}
+
+// UpdateSessionPhase atomically updates the phase of a persisted session.
+//
+// The read-modify-write is performed inside a single BoltDB read-write
+// transaction so concurrent callers cannot overwrite each other's changes.
+func (sm *SessionManager) UpdateSessionPhase(
+	sessionID string, phase SessionPhase,
+) error {
+	key := sessionKey(sessionID)
+	now := timestamppb.Now()
+
+	err := sm.storage.store.Command(func(c store.Command) error {
+		data, err := c.GetEncrypted(sessionsBucket, key)
+		if err != nil {
+			return fmt.Errorf("loading session state: %w", err)
+		}
+
+		var pbState pb.SessionState
+		if err := proto.Unmarshal(data, &pbState); err != nil {
+			return fmt.Errorf("unmarshaling session state: %w", err)
+		}
+
+		// Check expiration inside the transaction.
+		if pbState.UpdatedAt != nil {
+			if time.Since(pbState.UpdatedAt.AsTime()) > sm.sessionTimeout {
+				return ErrSessionExpired
+			}
+		}
+
+		pbState.Phase = phase.ToProto()
+		pbState.UpdatedAt = now
+
+		updated, err := proto.Marshal(&pbState)
+		if err != nil {
+			return fmt.Errorf("marshaling session state: %w", err)
+		}
+		return c.AddEncrypted(sessionsBucket, key, updated)
+	})
+	if err != nil {
+		return fmt.Errorf("updating session phase: %w", err)
+	}
+	return nil
 }
 
 // UpdateSessionPhaseByPublicKey updates the phase of a session by public key.
 func (sm *SessionManager) UpdateSessionPhaseByPublicKey(
 	remotePublicKey []byte, phase SessionPhase,
 ) error {
-	state, err := sm.LoadSessionByPublicKey(remotePublicKey)
-	if err != nil {
-		return err
+	sessionID, ok := sm.GetSessionByPublicKey(remotePublicKey)
+	if !ok {
+		return ErrSessionNotFound
 	}
-	state.Phase = phase
-	return sm.SaveSession(state)
+	return sm.UpdateSessionPhase(sessionID, phase)
 }
 
-// UpdateSessionSequences updates the sequence numbers of a persisted session.
+// UpdateSessionSequences atomically updates the sequence numbers of a
+// persisted session.
+//
+// The read-modify-write is performed inside a single BoltDB read-write
+// transaction so concurrent callers cannot overwrite each other's changes.
 func (sm *SessionManager) UpdateSessionSequences(
 	sessionID string, sendSeq, recvSeq uint64,
 ) error {
-	state, err := sm.LoadSession(sessionID)
+	key := sessionKey(sessionID)
+	now := timestamppb.Now()
+
+	err := sm.storage.store.Command(func(c store.Command) error {
+		data, err := c.GetEncrypted(sessionsBucket, key)
+		if err != nil {
+			return fmt.Errorf("loading session state: %w", err)
+		}
+
+		var pbState pb.SessionState
+		if err := proto.Unmarshal(data, &pbState); err != nil {
+			return fmt.Errorf("unmarshaling session state: %w", err)
+		}
+
+		// Check expiration inside the transaction.
+		if pbState.UpdatedAt != nil {
+			if time.Since(pbState.UpdatedAt.AsTime()) > sm.sessionTimeout {
+				return ErrSessionExpired
+			}
+		}
+
+		pbState.SendSequence = sendSeq
+		pbState.RecvSequence = recvSeq
+		pbState.UpdatedAt = now
+
+		updated, err := proto.Marshal(&pbState)
+		if err != nil {
+			return fmt.Errorf("marshaling session state: %w", err)
+		}
+		return c.AddEncrypted(sessionsBucket, key, updated)
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("updating session sequences: %w", err)
 	}
-	state.SendSequence = sendSeq
-	state.RecvSequence = recvSeq
-	return sm.SaveSession(state)
+	return nil
 }
 
 // CanResume checks if a session can be resumed based on its state.
@@ -709,10 +824,15 @@ func (sm *SessionManager) ListActiveSessions() ([]string, error) {
 	return sessions, nil
 }
 
-// CleanupExpiredSessions removes all expired sessions from storage.
-// Deletions are batched into a single transaction for efficiency.
+// CleanupExpiredSessions removes all expired sessions and their pubkey index
+// entries from storage. Session deletions are batched into a single
+// transaction for efficiency; index entries are cleaned up afterwards.
 func (sm *SessionManager) CleanupExpiredSessions() (int, error) {
-	var expiredKeys [][]byte
+	type expiredEntry struct {
+		key             []byte
+		remotePublicKey []byte
+	}
+	var expired []expiredEntry
 
 	err := sm.storage.store.Query(func(q store.Query) error {
 		for key, value := range q.IterateEncrypted(sessionsBucket) {
@@ -725,7 +845,10 @@ func (sm *SessionManager) CleanupExpiredSessions() (int, error) {
 				if time.Since(pbState.UpdatedAt.AsTime()) > sm.sessionTimeout {
 					keyCopy := make([]byte, len(key))
 					copy(keyCopy, key)
-					expiredKeys = append(expiredKeys, keyCopy)
+					expired = append(expired, expiredEntry{
+						key:             keyCopy,
+						remotePublicKey: pbState.RemotePublicKey,
+					})
 				}
 			}
 		}
@@ -735,8 +858,14 @@ func (sm *SessionManager) CleanupExpiredSessions() (int, error) {
 		return 0, fmt.Errorf("scanning sessions: %w", err)
 	}
 
-	if len(expiredKeys) == 0 {
+	if len(expired) == 0 {
 		return 0, nil
+	}
+
+	// Batch-delete session records.
+	expiredKeys := make([][]byte, len(expired))
+	for i, e := range expired {
+		expiredKeys[i] = e.key
 	}
 
 	var deleted int
@@ -747,6 +876,22 @@ func (sm *SessionManager) CleanupExpiredSessions() (int, error) {
 	})
 	if err != nil {
 		return deleted, fmt.Errorf("batch deleting expired sessions: %w", err)
+	}
+
+	// Clean up orphan pubkey index entries for the deleted sessions.
+	sm.ensureIndex()
+	for _, e := range expired {
+		if len(e.remotePublicKey) == 0 {
+			continue
+		}
+		hash := publicKeyHash(e.remotePublicKey)
+		sm.mu.Lock()
+		delete(sm.sessionsByPubKey, hash)
+		sm.mu.Unlock()
+		if err := sm.removeIndex(e.remotePublicKey); err != nil {
+			slog.Warn("failed to remove pubkey index for expired session",
+				slog.Any("error", err))
+		}
 	}
 
 	return deleted, nil
@@ -863,7 +1008,9 @@ func (sm *SessionManager) GetSessionInfo(
 }
 
 // SequenceTracker helps maintain message ordering across reconnections.
+// It is safe for concurrent use.
 type SequenceTracker struct {
+	mu      sync.Mutex
 	sendSeq uint64
 	recvSeq uint64
 }
@@ -881,18 +1028,27 @@ func NewSequenceTracker(state *SessionState) *SequenceTracker {
 
 // NextSend returns the next send sequence number.
 func (st *SequenceTracker) NextSend() uint64 {
+	st.mu.Lock()
 	st.sendSeq++
-	return st.sendSeq
+	v := st.sendSeq
+	st.mu.Unlock()
+	return v
 }
 
 // NextRecv returns the next expected receive sequence number.
 func (st *SequenceTracker) NextRecv() uint64 {
+	st.mu.Lock()
 	st.recvSeq++
-	return st.recvSeq
+	v := st.recvSeq
+	st.mu.Unlock()
+	return v
 }
 
 // ValidateRecv checks if a received sequence number is valid.
 func (st *SequenceTracker) ValidateRecv(seq uint64) error {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
 	expected := st.recvSeq + 1
 	if seq < expected {
 		return fmt.Errorf(
@@ -910,11 +1066,15 @@ func (st *SequenceTracker) ValidateRecv(seq uint64) error {
 
 // Sequences returns the current send and receive sequence numbers.
 func (st *SequenceTracker) Sequences() (send, recv uint64) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	return st.sendSeq, st.recvSeq
 }
 
 // EncodeSequences encodes the sequence numbers for transmission.
 func (st *SequenceTracker) EncodeSequences() []byte {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	buf := make([]byte, 16)
 	binary.BigEndian.PutUint64(buf[:8], st.sendSeq)
 	binary.BigEndian.PutUint64(buf[8:], st.recvSeq)
