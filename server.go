@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/xtaci/kcp-go/v5"
@@ -31,9 +32,14 @@ type Server struct {
 	resumptionConfig ResumptionConfig
 	algorithm        attest.Algorithm
 	connType         connType
+
+	mu       sync.Mutex
+	listener net.Listener
 }
 
 // ListenAndServe starts the server and listens for incoming connections.
+// It blocks until the listener is closed via [Server.Close] or an
+// unrecoverable error occurs.
 func (s *Server) ListenAndServe() error {
 	defer func() {
 		if err := s.storage.Close(); err != nil {
@@ -45,8 +51,17 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return fmt.Errorf("listening: %w", err)
 	}
+
+	s.mu.Lock()
+	s.listener = l
+	s.mu.Unlock()
+
 	defer func() {
-		if err := l.Close(); err != nil {
+		s.mu.Lock()
+		s.listener = nil
+		s.mu.Unlock()
+
+		if err := l.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			slog.Warn("closing listener", slog.Any("error", err))
 		}
 	}()
@@ -66,6 +81,21 @@ func (s *Server) ListenAndServe() error {
 		}
 		go s.handleConnection(c)
 	}
+}
+
+// Close gracefully shuts down the server by closing the underlying listener,
+// causing [Server.ListenAndServe] to return. It is safe to call multiple
+// times and concurrently.
+func (s *Server) Close() error {
+	s.mu.Lock()
+	l := s.listener
+	s.listener = nil
+	s.mu.Unlock()
+
+	if l == nil {
+		return nil
+	}
+	return l.Close()
 }
 
 func (s *Server) listen() (net.Listener, error) {
