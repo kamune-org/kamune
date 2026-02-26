@@ -20,6 +20,9 @@ func rateLimitMiddleware(
 				grape.ExtractFromErr(ctx, w, fmt.Errorf("rate limit: %w", err))
 				return
 			case !ok:
+				if m := srvc.Metrics(); m != nil {
+					m.IncRateLimitHits()
+				}
 				grape.Respond(
 					ctx,
 					w,

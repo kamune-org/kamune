@@ -88,6 +88,10 @@ func (h *QueueHandler) NewQueueHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if m := h.service.Metrics(); m != nil {
+		m.IncMessagesQueued()
+	}
+
 	grape.Respond(ctx, w, http.StatusCreated, grape.Map{"status": "ok"})
 }
 
@@ -126,6 +130,10 @@ func (h *QueueHandler) PopQueueHandler(w http.ResponseWriter, r *http.Request) {
 	if data == nil {
 		grape.Respond(ctx, w, http.StatusNoContent, nil)
 		return
+	}
+
+	if m := h.service.Metrics(); m != nil {
+		m.IncMessagesPopped()
 	}
 
 	// return base64 encoded payload

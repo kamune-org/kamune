@@ -4,10 +4,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/hossein1376/grape"
 
@@ -55,19 +53,4 @@ func readKeyFromQuery(q url.Values) ([]byte, error) {
 	}
 
 	return pubKey[:n], nil
-}
-
-// ParseForwardedIP extracts the left-most IP from an X-Forwarded-For header
-// and strips any port if present. Returns empty string if header is empty.
-func ParseForwardedIP(header string) string {
-	if header == "" {
-		return ""
-	}
-	parts := strings.Split(header, ",")
-	ip := strings.TrimSpace(parts[0])
-	// Strip port if present
-	if host, _, err := net.SplitHostPort(ip); err == nil {
-		ip = host
-	}
-	return ip
 }
