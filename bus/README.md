@@ -187,7 +187,6 @@ You can specify custom paths when starting a server or connecting.
 ## Security Notes
 
 - All messages are end-to-end encrypted using the Kamune protocol
-- Session keys use the Double Ratchet algorithm
 - Verify peer identity using emoji fingerprints
 - Database is encrypted at rest (empty passphrase by default in GUI)
 - GUI-based peer verification prevents terminal-based MITM attacks

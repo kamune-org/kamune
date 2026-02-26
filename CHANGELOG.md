@@ -5,11 +5,9 @@
 
 - **Session Resumption:** Implement full client/server session resumption flow
   (`resume.go`) so that peers can reconnect and restore an existing session
-  without repeating the handshake. Ratchet state is persisted and restored
+  without repeating the handshake. Session state is persisted and restored
   automatically.
-- **Ratchet State Serialization:** Add a `State` type with JSON
-  `Serialize`/`Deserialize` and `Restore` support in `pkg/ratchet`, enabling
-  durable persistence of Double Ratchet state across restarts.
+
 - **Router & Route Dispatching:** Introduce `Router` and `RouteDispatcher` with
   middleware support (`router.go`). Add a `Route` enum and thread route
   constants through `Transport.Send` and serialization for structured message
@@ -123,9 +121,8 @@ protocol designed for minimal latency and overhead.
   - ChaCha20-Poly1305X for authenticated symmetric encryption  
   - Optional ML-DSA for post-quantum digital signatures  
 - **Forward Secrecy:**  
-  - Double Ratchet algorithm and ECDH key exchange ensure session keys are
-    regularly refreshed. Past communications remain secure even if long-term
-    keys are compromised.
+  - ECDH key exchange ensures session keys are ephemeral. Past communications
+    remain secure even if long-term keys are compromised.
 - **Ephemeral Keys:**  
   - Each session uses one-time-use keys for handshake and encryption,
     minimizing exposure.

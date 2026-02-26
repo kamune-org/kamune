@@ -13,8 +13,6 @@ const (
 	RouteFinalizeHandshake
 	RouteSendChallenge
 	RouteVerifyChallenge
-	RouteInitializeDoubleRatchet
-	RouteConfirmDoubleRatchet
 	RouteExchangeMessages
 	RouteCloseTransport
 	RouteReconnect
@@ -35,10 +33,6 @@ func (r Route) String() string {
 		return "SendChallenge"
 	case RouteVerifyChallenge:
 		return "VerifyChallenge"
-	case RouteInitializeDoubleRatchet:
-		return "InitializeDoubleRatchet"
-	case RouteConfirmDoubleRatchet:
-		return "ConfirmDoubleRatchet"
 	case RouteExchangeMessages:
 		return "ExchangeMessages"
 	case RouteCloseTransport:
@@ -63,9 +57,7 @@ func (r Route) IsHandshakeRoute() bool {
 		RouteAcceptHandshake,
 		RouteFinalizeHandshake,
 		RouteSendChallenge,
-		RouteVerifyChallenge,
-		RouteInitializeDoubleRatchet,
-		RouteConfirmDoubleRatchet:
+		RouteVerifyChallenge:
 		return true
 	default:
 		return false
@@ -99,10 +91,6 @@ func (r Route) ToProto() pb.Route {
 		return pb.Route_ROUTE_SEND_CHALLENGE
 	case RouteVerifyChallenge:
 		return pb.Route_ROUTE_VERIFY_CHALLENGE
-	case RouteInitializeDoubleRatchet:
-		return pb.Route_ROUTE_INITIALIZE_DOUBLE_RATCHET
-	case RouteConfirmDoubleRatchet:
-		return pb.Route_ROUTE_CONFIRM_DOUBLE_RATCHET
 	case RouteExchangeMessages:
 		return pb.Route_ROUTE_EXCHANGE_MESSAGES
 	case RouteCloseTransport:
@@ -129,10 +117,6 @@ func RouteFromProto(r pb.Route) Route {
 		return RouteSendChallenge
 	case pb.Route_ROUTE_VERIFY_CHALLENGE:
 		return RouteVerifyChallenge
-	case pb.Route_ROUTE_INITIALIZE_DOUBLE_RATCHET:
-		return RouteInitializeDoubleRatchet
-	case pb.Route_ROUTE_CONFIRM_DOUBLE_RATCHET:
-		return RouteConfirmDoubleRatchet
 	case pb.Route_ROUTE_EXCHANGE_MESSAGES:
 		return RouteExchangeMessages
 	case pb.Route_ROUTE_CLOSE_TRANSPORT:
@@ -152,16 +136,12 @@ func RouteFromProto(r pb.Route) Route {
 // Initiator (client):
 //   - sends challenge
 //   - accepts peer's challenge
-//   - sends ratchet init
-//   - receives ratchet confirm
 var handshakeRouteOrderInitiator = []Route{
 	RouteIdentity,
 	RouteRequestHandshake,
 	RouteAcceptHandshake,
 	RouteSendChallenge,
 	RouteVerifyChallenge,
-	RouteInitializeDoubleRatchet,
-	RouteConfirmDoubleRatchet,
 }
 
 // Responder (server):
@@ -169,17 +149,12 @@ var handshakeRouteOrderInitiator = []Route{
 //   - verifies (echoes) it
 //   - sends its own challenge
 //   - receives verification
-//   - receives ratchet init
-//   - sends ratchet confirm
 var handshakeRouteOrderResponder = []Route{
 	RouteIdentity,
 	RouteRequestHandshake,
 	RouteAcceptHandshake,
 	RouteSendChallenge,
 	RouteVerifyChallenge,
-	// Responder receives the initiator's ratchet init first, then confirms.
-	RouteInitializeDoubleRatchet,
-	RouteConfirmDoubleRatchet,
 }
 
 // ExpectedRoutes returns the sequence of routes expected during handshake.

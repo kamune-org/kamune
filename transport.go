@@ -13,7 +13,6 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
-	"github.com/kamune-org/kamune/pkg/ratchet"
 )
 
 var (
@@ -38,7 +37,6 @@ const (
 	PhaseHandshakeAccepted
 	PhaseChallengeSent
 	PhaseChallengeVerified
-	PhaseRatchetInitialized
 	PhaseEstablished
 	PhaseClosed
 )
@@ -56,8 +54,6 @@ func (p SessionPhase) String() string {
 		return "ChallengeSent"
 	case PhaseChallengeVerified:
 		return "ChallengeVerified"
-	case PhaseRatchetInitialized:
-		return "RatchetInitialized"
 	case PhaseEstablished:
 		return "Established"
 	case PhaseClosed:
@@ -80,8 +76,6 @@ func (p SessionPhase) ToProto() pb.SessionPhase {
 		return pb.SessionPhase_PHASE_CHALLENGE_SENT
 	case PhaseChallengeVerified:
 		return pb.SessionPhase_PHASE_CHALLENGE_VERIFIED
-	case PhaseRatchetInitialized:
-		return pb.SessionPhase_PHASE_RATCHET_INITIALIZED
 	case PhaseEstablished:
 		return pb.SessionPhase_PHASE_ESTABLISHED
 	case PhaseClosed:
@@ -104,8 +98,6 @@ func PhaseFromProto(p pb.SessionPhase) SessionPhase {
 		return PhaseChallengeSent
 	case pb.SessionPhase_PHASE_CHALLENGE_VERIFIED:
 		return PhaseChallengeVerified
-	case pb.SessionPhase_PHASE_RATCHET_INITIALIZED:
-		return PhaseRatchetInitialized
 	case pb.SessionPhase_PHASE_ESTABLISHED:
 		return PhaseEstablished
 	case pb.SessionPhase_PHASE_CLOSED:
@@ -197,7 +189,6 @@ type SessionState struct {
 	SharedSecret    []byte
 	LocalSalt       []byte
 	RemoteSalt      []byte
-	RatchetState    []byte
 	RemotePublicKey []byte
 	Phase           SessionPhase
 	SendSequence    uint64
@@ -208,36 +199,32 @@ type SessionState struct {
 // Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
 	*plainTransport
-	encoder          *enigma.Enigma
-	decoder          *enigma.Enigma
-	ratchet          *ratchet.Ratchet
-	mu               *sync.Mutex
-	sessionID        string
-	sharedSecret     []byte
-	remotePublicKey  []byte
-	remoteSalt       []byte
-	localSalt        []byte
-	phase            SessionPhase
-	recvSequence     uint64
-	sendSequence     uint64
-	ratchetThreshold uint64
-	isInitiator      bool
+	encoder         *enigma.Enigma
+	decoder         *enigma.Enigma
+	mu              *sync.Mutex
+	sessionID       string
+	sharedSecret    []byte
+	remotePublicKey []byte
+	remoteSalt      []byte
+	localSalt       []byte
+	phase           SessionPhase
+	recvSequence    uint64
+	sendSequence    uint64
+	isInitiator     bool
 }
 
 func newTransport(
 	pt *plainTransport,
 	sessionID string,
 	encoder, decoder *enigma.Enigma,
-	ratchetThreshold uint64,
 ) *Transport {
 	return &Transport{
-		mu:               &sync.Mutex{},
-		phase:            PhaseHandshakeAccepted,
-		encoder:          encoder,
-		decoder:          decoder,
-		sessionID:        sessionID,
-		plainTransport:   pt,
-		ratchetThreshold: ratchetThreshold,
+		mu:             &sync.Mutex{},
+		phase:          PhaseHandshakeAccepted,
+		encoder:        encoder,
+		decoder:        decoder,
+		sessionID:      sessionID,
+		plainTransport: pt,
 	}
 }
 
@@ -368,25 +355,9 @@ func (t *Transport) Close() error {
 func (t *Transport) Store() *Storage { return t.storage }
 
 // State returns the current session state for potential resumption.
-//
-// It includes the serialized Double Ratchet state when available so that an
-// established session can be resumed without re-handshaking.
 func (t *Transport) State() *SessionState {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
-	var ratchetState []byte
-	if t.ratchet != nil {
-		st, err := t.ratchet.Save()
-		if err == nil && st != nil {
-			// Store JSON encoded ratchet state (ratchet.State uses JSON encoding).
-			// If serialization fails, we fall back to empty, which will prevent
-			// ratchet-based resumption (better to fail closed).
-			if b, err := st.Serialize(); err == nil {
-				ratchetState = b
-			}
-		}
-	}
 
 	return &SessionState{
 		SessionID:       t.sessionID,
@@ -397,7 +368,6 @@ func (t *Transport) State() *SessionState {
 		SharedSecret:    t.sharedSecret,
 		LocalSalt:       t.localSalt,
 		RemoteSalt:      t.remoteSalt,
-		RatchetState:    ratchetState,
 		RemotePublicKey: t.remotePublicKey,
 	}
 }
@@ -448,28 +418,9 @@ func (t *Transport) decryptPayload(payload []byte) ([]byte, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.ratchet == nil {
-		decrypted, err := t.decoder.Decrypt(payload)
-		if err != nil {
-			return nil, fmt.Errorf("decrypting: %w", err)
-		}
-		return decrypted, nil
-	}
-
-	var ratchet pb.Ratchet
-	if err := proto.Unmarshal(payload, &ratchet); err != nil {
-		return nil, fmt.Errorf("unmarshalling ratchet: %w", err)
-	}
-
-	if dh := ratchet.GetDh(); dh != nil {
-		if err := t.ratchet.SetTheirPublic(dh, t.sessionID); err != nil {
-			return nil, fmt.Errorf("setting their public key: %w", err)
-		}
-	}
-
-	decrypted, err := t.ratchet.Decrypt(ratchet.GetCiphertext())
+	decrypted, err := t.decoder.Decrypt(payload)
 	if err != nil {
-		return nil, fmt.Errorf("ratchet decrypt: %w", err)
+		return nil, fmt.Errorf("decrypting: %w", err)
 	}
 	return decrypted, nil
 }
@@ -478,35 +429,5 @@ func (t *Transport) encryptPayload(payload []byte) ([]byte, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.ratchet == nil {
-		return t.encoder.Encrypt(payload), nil
-	}
-
-	// Snapshot send counter before possible ratchet step
-	pn := t.ratchet.Sent()
-
-	// If threshold reached, initiate a new DH ratchet
-	var pub []byte
-	var err error
-	if pn >= t.ratchetThreshold {
-		pub, err = t.ratchet.InitiateRatchet(t.sessionID)
-		if err != nil {
-			return nil, fmt.Errorf("initiating ratchet: %w", err)
-		}
-	}
-
-	// Encrypt with the (possibly updated) send chain
-	ct, err := t.ratchet.Encrypt(payload)
-	if err != nil {
-		return nil, fmt.Errorf("ratchet encrypt: %w", err)
-	}
-	ns := t.ratchet.Sent()
-
-	ratchet := &pb.Ratchet{Dh: pub, Pn: pn, Ns: ns, Ciphertext: ct}
-	data, err := proto.Marshal(ratchet)
-	if err != nil {
-		return nil, fmt.Errorf("marshalling ratchet: %w", err)
-	}
-
-	return data, nil
+	return t.encoder.Encrypt(payload), nil
 }

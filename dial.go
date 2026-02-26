@@ -291,8 +291,7 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 		dialTimeout:      10 * time.Second,
 		resumptionConfig: DefaultResumptionConfig(),
 		handshakeOpts: handshakeOpts{
-			ratchetThreshold: defaultRatchetThreshold,
-			remoteVerifier:   defaultRemoteVerifier,
+			remoteVerifier: defaultRemoteVerifier,
 		},
 	}
 
@@ -373,11 +372,6 @@ func DialWithClientName(name string) DialOption {
 // DialWithStorageOpts sets storage options.
 func DialWithStorageOpts(opts ...StorageOption) DialOption {
 	return func(d *Dialer) { d.storageOpts = opts }
-}
-
-// DialWithRatchetThreshold sets the message threshold for DH ratchet rotation.
-func DialWithRatchetThreshold(threshold uint64) DialOption {
-	return func(d *Dialer) { d.handshakeOpts.ratchetThreshold = threshold }
 }
 
 // DialWithResumption configures session resumption settings.

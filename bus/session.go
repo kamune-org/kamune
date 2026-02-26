@@ -54,7 +54,7 @@ func (c *ChatApp) saveSessionState(session *Session) {
 
 	// The server exposes its SessionManager; for client connections
 	// the library already saves the state inside Dial(), but we save
-	// again here to capture up-to-date ratchet & sequence numbers.
+	// again here to capture up-to-date sequence numbers.
 	sm := sessionManagerForTransport(session.Transport)
 	if sm == nil {
 		logger.Infof("no session manager available for session %s, skipping state save", session.ID)

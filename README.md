@@ -18,7 +18,7 @@ suite. Optionally, `ML-DSA` can be used for full quantum safety.
 - Ephemeral, quantum-resistant key encapsulation with **ML-KEM-768**
 - Key derivation via **HKDF-SHA512** (HMAC-based extract-and-expand)
 - End-to-End, bidirectional symmetric encryption using **ChaCha20-Poly1305X**
-- Forward secrecy with **Double Ratchet** and **ECDH** exchange
+- Forward secrecy with **ECDH** key exchange
 - Lightweight, custom protocol implemented in both **TCP and UDP** for minimal
   overhead and latency
 - **Real-time, instant messaging** over socket-based connection
@@ -44,7 +44,7 @@ removal.
   - [x] UDP
   - [ ] QUIC, WebRTC, or others? *
 - [x] Better timeout and deadline management
-- [x] Double Ratchet
+
 - [x] Routes and session reconnection
 - [x] Relay server
   - [x] IP discovery

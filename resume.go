@@ -10,7 +10,6 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
-	"github.com/kamune-org/kamune/pkg/ratchet"
 )
 
 const (
@@ -31,7 +30,6 @@ type ResumableSession struct {
 	UpdatedAt       time.Time
 	CreatedAt       time.Time
 	SessionID       string
-	RatchetState    []byte
 	RemotePublicKey []byte
 	LocalPublicKey  []byte
 	SharedSecret    []byte
@@ -379,7 +377,7 @@ func (sr *SessionResumer) restoreTransport(
 	}
 
 	// Create transport
-	t := newTransport(pt, state.SessionID, encoder, decoder, defaultRatchetThreshold)
+	t := newTransport(pt, state.SessionID, encoder, decoder)
 	t.SetInitiator(state.IsInitiator)
 	t.SetSecrets(state.SharedSecret, state.LocalSalt, state.RemoteSalt)
 	t.SetRemotePublicKey(state.RemotePublicKey)
@@ -389,30 +387,6 @@ func (sr *SessionResumer) restoreTransport(
 	t.mu.Lock()
 	t.sendSequence = sendSeq
 	t.recvSequence = recvSeq
-	t.mu.Unlock()
-
-	// Ratchet restoration:
-	//
-	// We now support serialization/deserialization for the ratchet package.
-	// An established session may only be resumed if the persisted ratchet state
-	// is present and can be restored successfully.
-	if len(state.RatchetState) == 0 {
-		return nil, fmt.Errorf("%w: missing ratchet state", ErrResumptionFailed)
-	}
-
-	st, err := ratchet.Deserialize(state.RatchetState)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid ratchet state: %v", ErrResumptionFailed, err)
-	}
-
-	dr, err := ratchet.Restore(st)
-	if err != nil {
-		return nil, fmt.Errorf("%w: restore ratchet failed: %v", ErrResumptionFailed, err)
-	}
-
-	// Install ratchet into transport (thread-safe)
-	t.mu.Lock()
-	t.ratchet = dr
 	t.mu.Unlock()
 
 	return t, nil

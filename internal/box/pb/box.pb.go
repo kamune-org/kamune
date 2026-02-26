@@ -25,49 +25,43 @@ const (
 type Route int32
 
 const (
-	Route_ROUTE_INVALID                   Route = 0
-	Route_ROUTE_IDENTITY                  Route = 1
-	Route_ROUTE_REQUEST_HANDSHAKE         Route = 2
-	Route_ROUTE_ACCEPT_HANDSHAKE          Route = 3
-	Route_ROUTE_FINALIZE_HANDSHAKE        Route = 4
-	Route_ROUTE_SEND_CHALLENGE            Route = 5
-	Route_ROUTE_VERIFY_CHALLENGE          Route = 6
-	Route_ROUTE_INITIALIZE_DOUBLE_RATCHET Route = 7
-	Route_ROUTE_CONFIRM_DOUBLE_RATCHET    Route = 8
-	Route_ROUTE_EXCHANGE_MESSAGES         Route = 9
-	Route_ROUTE_CLOSE_TRANSPORT           Route = 10
-	Route_ROUTE_RECONNECT                 Route = 11
+	Route_ROUTE_INVALID            Route = 0
+	Route_ROUTE_IDENTITY           Route = 1
+	Route_ROUTE_REQUEST_HANDSHAKE  Route = 2
+	Route_ROUTE_ACCEPT_HANDSHAKE   Route = 3
+	Route_ROUTE_FINALIZE_HANDSHAKE Route = 4
+	Route_ROUTE_SEND_CHALLENGE     Route = 5
+	Route_ROUTE_VERIFY_CHALLENGE   Route = 6
+	Route_ROUTE_EXCHANGE_MESSAGES  Route = 7
+	Route_ROUTE_CLOSE_TRANSPORT    Route = 8
+	Route_ROUTE_RECONNECT          Route = 9
 )
 
 // Enum value maps for Route.
 var (
 	Route_name = map[int32]string{
-		0:  "ROUTE_INVALID",
-		1:  "ROUTE_IDENTITY",
-		2:  "ROUTE_REQUEST_HANDSHAKE",
-		3:  "ROUTE_ACCEPT_HANDSHAKE",
-		4:  "ROUTE_FINALIZE_HANDSHAKE",
-		5:  "ROUTE_SEND_CHALLENGE",
-		6:  "ROUTE_VERIFY_CHALLENGE",
-		7:  "ROUTE_INITIALIZE_DOUBLE_RATCHET",
-		8:  "ROUTE_CONFIRM_DOUBLE_RATCHET",
-		9:  "ROUTE_EXCHANGE_MESSAGES",
-		10: "ROUTE_CLOSE_TRANSPORT",
-		11: "ROUTE_RECONNECT",
+		0: "ROUTE_INVALID",
+		1: "ROUTE_IDENTITY",
+		2: "ROUTE_REQUEST_HANDSHAKE",
+		3: "ROUTE_ACCEPT_HANDSHAKE",
+		4: "ROUTE_FINALIZE_HANDSHAKE",
+		5: "ROUTE_SEND_CHALLENGE",
+		6: "ROUTE_VERIFY_CHALLENGE",
+		7: "ROUTE_EXCHANGE_MESSAGES",
+		8: "ROUTE_CLOSE_TRANSPORT",
+		9: "ROUTE_RECONNECT",
 	}
 	Route_value = map[string]int32{
-		"ROUTE_INVALID":                   0,
-		"ROUTE_IDENTITY":                  1,
-		"ROUTE_REQUEST_HANDSHAKE":         2,
-		"ROUTE_ACCEPT_HANDSHAKE":          3,
-		"ROUTE_FINALIZE_HANDSHAKE":        4,
-		"ROUTE_SEND_CHALLENGE":            5,
-		"ROUTE_VERIFY_CHALLENGE":          6,
-		"ROUTE_INITIALIZE_DOUBLE_RATCHET": 7,
-		"ROUTE_CONFIRM_DOUBLE_RATCHET":    8,
-		"ROUTE_EXCHANGE_MESSAGES":         9,
-		"ROUTE_CLOSE_TRANSPORT":           10,
-		"ROUTE_RECONNECT":                 11,
+		"ROUTE_INVALID":            0,
+		"ROUTE_IDENTITY":           1,
+		"ROUTE_REQUEST_HANDSHAKE":  2,
+		"ROUTE_ACCEPT_HANDSHAKE":   3,
+		"ROUTE_FINALIZE_HANDSHAKE": 4,
+		"ROUTE_SEND_CHALLENGE":     5,
+		"ROUTE_VERIFY_CHALLENGE":   6,
+		"ROUTE_EXCHANGE_MESSAGES":  7,
+		"ROUTE_CLOSE_TRANSPORT":    8,
+		"ROUTE_RECONNECT":          9,
 	}
 )
 
@@ -107,9 +101,8 @@ const (
 	SessionPhase_PHASE_HANDSHAKE_ACCEPTED  SessionPhase = 3
 	SessionPhase_PHASE_CHALLENGE_SENT      SessionPhase = 4
 	SessionPhase_PHASE_CHALLENGE_VERIFIED  SessionPhase = 5
-	SessionPhase_PHASE_RATCHET_INITIALIZED SessionPhase = 6
-	SessionPhase_PHASE_ESTABLISHED         SessionPhase = 7
-	SessionPhase_PHASE_CLOSED              SessionPhase = 8
+	SessionPhase_PHASE_ESTABLISHED         SessionPhase = 6
+	SessionPhase_PHASE_CLOSED              SessionPhase = 7
 )
 
 // Enum value maps for SessionPhase.
@@ -121,9 +114,8 @@ var (
 		3: "PHASE_HANDSHAKE_ACCEPTED",
 		4: "PHASE_CHALLENGE_SENT",
 		5: "PHASE_CHALLENGE_VERIFIED",
-		6: "PHASE_RATCHET_INITIALIZED",
-		7: "PHASE_ESTABLISHED",
-		8: "PHASE_CLOSED",
+		6: "PHASE_ESTABLISHED",
+		7: "PHASE_CLOSED",
 	}
 	SessionPhase_value = map[string]int32{
 		"PHASE_INVALID":             0,
@@ -132,9 +124,8 @@ var (
 		"PHASE_HANDSHAKE_ACCEPTED":  3,
 		"PHASE_CHALLENGE_SENT":      4,
 		"PHASE_CHALLENGE_VERIFIED":  5,
-		"PHASE_RATCHET_INITIALIZED": 6,
-		"PHASE_ESTABLISHED":         7,
-		"PHASE_CLOSED":              8,
+		"PHASE_ESTABLISHED":         6,
+		"PHASE_CLOSED":              7,
 	}
 )
 
@@ -301,98 +292,27 @@ func (x *Metadata) GetSequence() uint64 {
 	return 0
 }
 
-type Ratchet struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Dh            []byte                 `protobuf:"bytes,1,opt,name=dh,proto3,oneof" json:"dh,omitempty"`           // New DH public key (32 bytes)
-	Pn            uint64                 `protobuf:"varint,2,opt,name=pn,proto3" json:"pn,omitempty"`                // Previous chain message count
-	Ns            uint64                 `protobuf:"varint,3,opt,name=ns,proto3" json:"ns,omitempty"`                // Current message number in send chain
-	Ciphertext    []byte                 `protobuf:"bytes,4,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"` // Ciphertext: Encrypted(SignedTransport)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Ratchet) Reset() {
-	*x = Ratchet{}
-	mi := &file_box_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Ratchet) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Ratchet) ProtoMessage() {}
-
-func (x *Ratchet) ProtoReflect() protoreflect.Message {
-	mi := &file_box_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Ratchet.ProtoReflect.Descriptor instead.
-func (*Ratchet) Descriptor() ([]byte, []int) {
-	return file_box_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *Ratchet) GetDh() []byte {
-	if x != nil {
-		return x.Dh
-	}
-	return nil
-}
-
-func (x *Ratchet) GetPn() uint64 {
-	if x != nil {
-		return x.Pn
-	}
-	return 0
-}
-
-func (x *Ratchet) GetNs() uint64 {
-	if x != nil {
-		return x.Ns
-	}
-	return 0
-}
-
-func (x *Ratchet) GetCiphertext() []byte {
-	if x != nil {
-		return x.Ciphertext
-	}
-	return nil
-}
-
 type SessionState struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	SessionId         string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Phase             SessionPhase           `protobuf:"varint,2,opt,name=phase,proto3,enum=box.SessionPhase" json:"phase,omitempty"`
-	SharedSecret      []byte                 `protobuf:"bytes,3,opt,name=shared_secret,json=sharedSecret,proto3" json:"shared_secret,omitempty"`
-	LocalSalt         []byte                 `protobuf:"bytes,4,opt,name=local_salt,json=localSalt,proto3" json:"local_salt,omitempty"`
-	RemoteSalt        []byte                 `protobuf:"bytes,5,opt,name=remote_salt,json=remoteSalt,proto3" json:"remote_salt,omitempty"`
-	RemotePublicKey   []byte                 `protobuf:"bytes,6,opt,name=remote_public_key,json=remotePublicKey,proto3" json:"remote_public_key,omitempty"`
-	RatchetState      []byte                 `protobuf:"bytes,7,opt,name=ratchet_state,json=ratchetState,proto3" json:"ratchet_state,omitempty"`
-	CreatedAt         *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt         *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	IsInitiator       bool                   `protobuf:"varint,10,opt,name=is_initiator,json=isInitiator,proto3" json:"is_initiator,omitempty"`
-	SendSequence      uint64                 `protobuf:"varint,11,opt,name=send_sequence,json=sendSequence,proto3" json:"send_sequence,omitempty"`
-	RecvSequence      uint64                 `protobuf:"varint,12,opt,name=recv_sequence,json=recvSequence,proto3" json:"recv_sequence,omitempty"`
-	LocalPublicKey    []byte                 `protobuf:"bytes,13,opt,name=local_public_key,json=localPublicKey,proto3" json:"local_public_key,omitempty"`
-	RatchetPublicKey  []byte                 `protobuf:"bytes,14,opt,name=ratchet_public_key,json=ratchetPublicKey,proto3" json:"ratchet_public_key,omitempty"`
-	RatchetPrivateKey []byte                 `protobuf:"bytes,15,opt,name=ratchet_private_key,json=ratchetPrivateKey,proto3" json:"ratchet_private_key,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Phase           SessionPhase           `protobuf:"varint,2,opt,name=phase,proto3,enum=box.SessionPhase" json:"phase,omitempty"`
+	SharedSecret    []byte                 `protobuf:"bytes,3,opt,name=shared_secret,json=sharedSecret,proto3" json:"shared_secret,omitempty"`
+	LocalSalt       []byte                 `protobuf:"bytes,4,opt,name=local_salt,json=localSalt,proto3" json:"local_salt,omitempty"`
+	RemoteSalt      []byte                 `protobuf:"bytes,5,opt,name=remote_salt,json=remoteSalt,proto3" json:"remote_salt,omitempty"`
+	RemotePublicKey []byte                 `protobuf:"bytes,6,opt,name=remote_public_key,json=remotePublicKey,proto3" json:"remote_public_key,omitempty"`
+	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt       *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	IsInitiator     bool                   `protobuf:"varint,9,opt,name=is_initiator,json=isInitiator,proto3" json:"is_initiator,omitempty"`
+	SendSequence    uint64                 `protobuf:"varint,10,opt,name=send_sequence,json=sendSequence,proto3" json:"send_sequence,omitempty"`
+	RecvSequence    uint64                 `protobuf:"varint,11,opt,name=recv_sequence,json=recvSequence,proto3" json:"recv_sequence,omitempty"`
+	LocalPublicKey  []byte                 `protobuf:"bytes,12,opt,name=local_public_key,json=localPublicKey,proto3" json:"local_public_key,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *SessionState) Reset() {
 	*x = SessionState{}
-	mi := &file_box_proto_msgTypes[3]
+	mi := &file_box_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -404,7 +324,7 @@ func (x *SessionState) String() string {
 func (*SessionState) ProtoMessage() {}
 
 func (x *SessionState) ProtoReflect() protoreflect.Message {
-	mi := &file_box_proto_msgTypes[3]
+	mi := &file_box_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -417,7 +337,7 @@ func (x *SessionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionState.ProtoReflect.Descriptor instead.
 func (*SessionState) Descriptor() ([]byte, []int) {
-	return file_box_proto_rawDescGZIP(), []int{3}
+	return file_box_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *SessionState) GetSessionId() string {
@@ -458,13 +378,6 @@ func (x *SessionState) GetRemoteSalt() []byte {
 func (x *SessionState) GetRemotePublicKey() []byte {
 	if x != nil {
 		return x.RemotePublicKey
-	}
-	return nil
-}
-
-func (x *SessionState) GetRatchetState() []byte {
-	if x != nil {
-		return x.RatchetState
 	}
 	return nil
 }
@@ -511,20 +424,6 @@ func (x *SessionState) GetLocalPublicKey() []byte {
 	return nil
 }
 
-func (x *SessionState) GetRatchetPublicKey() []byte {
-	if x != nil {
-		return x.RatchetPublicKey
-	}
-	return nil
-}
-
-func (x *SessionState) GetRatchetPrivateKey() []byte {
-	if x != nil {
-		return x.RatchetPrivateKey
-	}
-	return nil
-}
-
 // ReconnectRequest is sent by a client to request session resumption.
 // The server uses the remote_public_key to look up the existing session.
 type ReconnectRequest struct {
@@ -541,7 +440,7 @@ type ReconnectRequest struct {
 
 func (x *ReconnectRequest) Reset() {
 	*x = ReconnectRequest{}
-	mi := &file_box_proto_msgTypes[4]
+	mi := &file_box_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -553,7 +452,7 @@ func (x *ReconnectRequest) String() string {
 func (*ReconnectRequest) ProtoMessage() {}
 
 func (x *ReconnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_box_proto_msgTypes[4]
+	mi := &file_box_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -566,7 +465,7 @@ func (x *ReconnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReconnectRequest.ProtoReflect.Descriptor instead.
 func (*ReconnectRequest) Descriptor() ([]byte, []int) {
-	return file_box_proto_rawDescGZIP(), []int{4}
+	return file_box_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ReconnectRequest) GetSessionId() string {
@@ -627,7 +526,7 @@ type ReconnectResponse struct {
 
 func (x *ReconnectResponse) Reset() {
 	*x = ReconnectResponse{}
-	mi := &file_box_proto_msgTypes[5]
+	mi := &file_box_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -639,7 +538,7 @@ func (x *ReconnectResponse) String() string {
 func (*ReconnectResponse) ProtoMessage() {}
 
 func (x *ReconnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_box_proto_msgTypes[5]
+	mi := &file_box_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -652,7 +551,7 @@ func (x *ReconnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReconnectResponse.ProtoReflect.Descriptor instead.
 func (*ReconnectResponse) Descriptor() ([]byte, []int) {
-	return file_box_proto_rawDescGZIP(), []int{5}
+	return file_box_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ReconnectResponse) GetAccepted() bool {
@@ -715,7 +614,7 @@ type ReconnectVerify struct {
 
 func (x *ReconnectVerify) Reset() {
 	*x = ReconnectVerify{}
-	mi := &file_box_proto_msgTypes[6]
+	mi := &file_box_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -727,7 +626,7 @@ func (x *ReconnectVerify) String() string {
 func (*ReconnectVerify) ProtoMessage() {}
 
 func (x *ReconnectVerify) ProtoReflect() protoreflect.Message {
-	mi := &file_box_proto_msgTypes[6]
+	mi := &file_box_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -740,7 +639,7 @@ func (x *ReconnectVerify) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReconnectVerify.ProtoReflect.Descriptor instead.
 func (*ReconnectVerify) Descriptor() ([]byte, []int) {
-	return file_box_proto_rawDescGZIP(), []int{6}
+	return file_box_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ReconnectVerify) GetChallengeResponse() []byte {
@@ -770,7 +669,7 @@ type ReconnectComplete struct {
 
 func (x *ReconnectComplete) Reset() {
 	*x = ReconnectComplete{}
-	mi := &file_box_proto_msgTypes[7]
+	mi := &file_box_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -782,7 +681,7 @@ func (x *ReconnectComplete) String() string {
 func (*ReconnectComplete) ProtoMessage() {}
 
 func (x *ReconnectComplete) ProtoReflect() protoreflect.Message {
-	mi := &file_box_proto_msgTypes[7]
+	mi := &file_box_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -795,7 +694,7 @@ func (x *ReconnectComplete) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReconnectComplete.ProtoReflect.Descriptor instead.
 func (*ReconnectComplete) Descriptor() ([]byte, []int) {
-	return file_box_proto_rawDescGZIP(), []int{7}
+	return file_box_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ReconnectComplete) GetSuccess() bool {
@@ -839,7 +738,7 @@ type PubKeySessionIndex struct {
 
 func (x *PubKeySessionIndex) Reset() {
 	*x = PubKeySessionIndex{}
-	mi := &file_box_proto_msgTypes[8]
+	mi := &file_box_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -851,7 +750,7 @@ func (x *PubKeySessionIndex) String() string {
 func (*PubKeySessionIndex) ProtoMessage() {}
 
 func (x *PubKeySessionIndex) ProtoReflect() protoreflect.Message {
-	mi := &file_box_proto_msgTypes[8]
+	mi := &file_box_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -864,7 +763,7 @@ func (x *PubKeySessionIndex) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PubKeySessionIndex.ProtoReflect.Descriptor instead.
 func (*PubKeySessionIndex) Descriptor() ([]byte, []int) {
-	return file_box_proto_rawDescGZIP(), []int{8}
+	return file_box_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PubKeySessionIndex) GetSessionId() string {
@@ -895,7 +794,7 @@ type ResumeHandshake struct {
 
 func (x *ResumeHandshake) Reset() {
 	*x = ResumeHandshake{}
-	mi := &file_box_proto_msgTypes[9]
+	mi := &file_box_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -907,7 +806,7 @@ func (x *ResumeHandshake) String() string {
 func (*ResumeHandshake) ProtoMessage() {}
 
 func (x *ResumeHandshake) ProtoReflect() protoreflect.Message {
-	mi := &file_box_proto_msgTypes[9]
+	mi := &file_box_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -920,7 +819,7 @@ func (x *ResumeHandshake) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeHandshake.ProtoReflect.Descriptor instead.
 func (*ResumeHandshake) Descriptor() ([]byte, []int) {
-	return file_box_proto_rawDescGZIP(), []int{9}
+	return file_box_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ResumeHandshake) GetRemotePublicKey() []byte {
@@ -973,7 +872,7 @@ type ResumeHandshakeResponse struct {
 
 func (x *ResumeHandshakeResponse) Reset() {
 	*x = ResumeHandshakeResponse{}
-	mi := &file_box_proto_msgTypes[10]
+	mi := &file_box_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -985,7 +884,7 @@ func (x *ResumeHandshakeResponse) String() string {
 func (*ResumeHandshakeResponse) ProtoMessage() {}
 
 func (x *ResumeHandshakeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_box_proto_msgTypes[10]
+	mi := &file_box_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -998,7 +897,7 @@ func (x *ResumeHandshakeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeHandshakeResponse.ProtoReflect.Descriptor instead.
 func (*ResumeHandshakeResponse) Descriptor() ([]byte, []int) {
-	return file_box_proto_rawDescGZIP(), []int{10}
+	return file_box_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ResumeHandshakeResponse) GetCanResume() bool {
@@ -1058,15 +957,7 @@ const file_box_proto_rawDesc = "" +
 	"\bMetadata\x12\x0e\n" +
 	"\x02ID\x18\x01 \x01(\tR\x02ID\x128\n" +
 	"\tTimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\x12\x1a\n" +
-	"\bSequence\x18\x03 \x01(\x04R\bSequence\"e\n" +
-	"\aRatchet\x12\x13\n" +
-	"\x02dh\x18\x01 \x01(\fH\x00R\x02dh\x88\x01\x01\x12\x0e\n" +
-	"\x02pn\x18\x02 \x01(\x04R\x02pn\x12\x0e\n" +
-	"\x02ns\x18\x03 \x01(\x04R\x02ns\x12\x1e\n" +
-	"\n" +
-	"ciphertext\x18\x04 \x01(\fR\n" +
-	"ciphertextB\x05\n" +
-	"\x03_dh\"\xf7\x04\n" +
+	"\bSequence\x18\x03 \x01(\x04R\bSequence\"\xf4\x03\n" +
 	"\fSessionState\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12'\n" +
@@ -1076,19 +967,16 @@ const file_box_proto_rawDesc = "" +
 	"local_salt\x18\x04 \x01(\fR\tlocalSalt\x12\x1f\n" +
 	"\vremote_salt\x18\x05 \x01(\fR\n" +
 	"remoteSalt\x12*\n" +
-	"\x11remote_public_key\x18\x06 \x01(\fR\x0fremotePublicKey\x12#\n" +
-	"\rratchet_state\x18\a \x01(\fR\fratchetState\x129\n" +
+	"\x11remote_public_key\x18\x06 \x01(\fR\x0fremotePublicKey\x129\n" +
 	"\n" +
-	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12!\n" +
-	"\fis_initiator\x18\n" +
-	" \x01(\bR\visInitiator\x12#\n" +
-	"\rsend_sequence\x18\v \x01(\x04R\fsendSequence\x12#\n" +
-	"\rrecv_sequence\x18\f \x01(\x04R\frecvSequence\x12(\n" +
-	"\x10local_public_key\x18\r \x01(\fR\x0elocalPublicKey\x12,\n" +
-	"\x12ratchet_public_key\x18\x0e \x01(\fR\x10ratchetPublicKey\x12.\n" +
-	"\x13ratchet_private_key\x18\x0f \x01(\fR\x11ratchetPrivateKey\"\x96\x02\n" +
+	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12!\n" +
+	"\fis_initiator\x18\t \x01(\bR\visInitiator\x12#\n" +
+	"\rsend_sequence\x18\n" +
+	" \x01(\x04R\fsendSequence\x12#\n" +
+	"\rrecv_sequence\x18\v \x01(\x04R\frecvSequence\x12(\n" +
+	"\x10local_public_key\x18\f \x01(\fR\x0elocalPublicKey\"\x96\x02\n" +
 	"\x10ReconnectRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x120\n" +
@@ -1134,7 +1022,7 @@ const file_box_proto_rawDesc = "" +
 	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12\x12\n" +
 	"\x04salt\x18\x04 \x01(\fR\x04salt\x12-\n" +
 	"\x12challenge_response\x18\x05 \x01(\fR\x11challengeResponse\x12)\n" +
-	"\x10server_challenge\x18\x06 \x01(\fR\x0fserverChallenge*\xcf\x02\n" +
+	"\x10server_challenge\x18\x06 \x01(\fR\x0fserverChallenge*\x88\x02\n" +
 	"\x05Route\x12\x11\n" +
 	"\rROUTE_INVALID\x10\x00\x12\x12\n" +
 	"\x0eROUTE_IDENTITY\x10\x01\x12\x1b\n" +
@@ -1142,23 +1030,19 @@ const file_box_proto_rawDesc = "" +
 	"\x16ROUTE_ACCEPT_HANDSHAKE\x10\x03\x12\x1c\n" +
 	"\x18ROUTE_FINALIZE_HANDSHAKE\x10\x04\x12\x18\n" +
 	"\x14ROUTE_SEND_CHALLENGE\x10\x05\x12\x1a\n" +
-	"\x16ROUTE_VERIFY_CHALLENGE\x10\x06\x12#\n" +
-	"\x1fROUTE_INITIALIZE_DOUBLE_RATCHET\x10\a\x12 \n" +
-	"\x1cROUTE_CONFIRM_DOUBLE_RATCHET\x10\b\x12\x1b\n" +
-	"\x17ROUTE_EXCHANGE_MESSAGES\x10\t\x12\x19\n" +
-	"\x15ROUTE_CLOSE_TRANSPORT\x10\n" +
-	"\x12\x13\n" +
-	"\x0fROUTE_RECONNECT\x10\v*\xf6\x01\n" +
+	"\x16ROUTE_VERIFY_CHALLENGE\x10\x06\x12\x1b\n" +
+	"\x17ROUTE_EXCHANGE_MESSAGES\x10\a\x12\x19\n" +
+	"\x15ROUTE_CLOSE_TRANSPORT\x10\b\x12\x13\n" +
+	"\x0fROUTE_RECONNECT\x10\t*\xd7\x01\n" +
 	"\fSessionPhase\x12\x11\n" +
 	"\rPHASE_INVALID\x10\x00\x12\x16\n" +
 	"\x12PHASE_INTRODUCTION\x10\x01\x12\x1d\n" +
 	"\x19PHASE_HANDSHAKE_REQUESTED\x10\x02\x12\x1c\n" +
 	"\x18PHASE_HANDSHAKE_ACCEPTED\x10\x03\x12\x18\n" +
 	"\x14PHASE_CHALLENGE_SENT\x10\x04\x12\x1c\n" +
-	"\x18PHASE_CHALLENGE_VERIFIED\x10\x05\x12\x1d\n" +
-	"\x19PHASE_RATCHET_INITIALIZED\x10\x06\x12\x15\n" +
-	"\x11PHASE_ESTABLISHED\x10\a\x12\x10\n" +
-	"\fPHASE_CLOSED\x10\bB\x06Z\x04./pbb\x06proto3"
+	"\x18PHASE_CHALLENGE_VERIFIED\x10\x05\x12\x15\n" +
+	"\x11PHASE_ESTABLISHED\x10\x06\x12\x10\n" +
+	"\fPHASE_CLOSED\x10\aB\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_box_proto_rawDescOnce sync.Once
@@ -1173,30 +1057,29 @@ func file_box_proto_rawDescGZIP() []byte {
 }
 
 var file_box_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_box_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_box_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_box_proto_goTypes = []any{
 	(Route)(0),                      // 0: box.Route
 	(SessionPhase)(0),               // 1: box.SessionPhase
 	(*SignedTransport)(nil),         // 2: box.SignedTransport
 	(*Metadata)(nil),                // 3: box.Metadata
-	(*Ratchet)(nil),                 // 4: box.Ratchet
-	(*SessionState)(nil),            // 5: box.SessionState
-	(*ReconnectRequest)(nil),        // 6: box.ReconnectRequest
-	(*ReconnectResponse)(nil),       // 7: box.ReconnectResponse
-	(*ReconnectVerify)(nil),         // 8: box.ReconnectVerify
-	(*ReconnectComplete)(nil),       // 9: box.ReconnectComplete
-	(*PubKeySessionIndex)(nil),      // 10: box.PubKeySessionIndex
-	(*ResumeHandshake)(nil),         // 11: box.ResumeHandshake
-	(*ResumeHandshakeResponse)(nil), // 12: box.ResumeHandshakeResponse
-	(*timestamppb.Timestamp)(nil),   // 13: google.protobuf.Timestamp
+	(*SessionState)(nil),            // 4: box.SessionState
+	(*ReconnectRequest)(nil),        // 5: box.ReconnectRequest
+	(*ReconnectResponse)(nil),       // 6: box.ReconnectResponse
+	(*ReconnectVerify)(nil),         // 7: box.ReconnectVerify
+	(*ReconnectComplete)(nil),       // 8: box.ReconnectComplete
+	(*PubKeySessionIndex)(nil),      // 9: box.PubKeySessionIndex
+	(*ResumeHandshake)(nil),         // 10: box.ResumeHandshake
+	(*ResumeHandshakeResponse)(nil), // 11: box.ResumeHandshakeResponse
+	(*timestamppb.Timestamp)(nil),   // 12: google.protobuf.Timestamp
 }
 var file_box_proto_depIdxs = []int32{
 	3,  // 0: box.SignedTransport.Metadata:type_name -> box.Metadata
 	0,  // 1: box.SignedTransport.Route:type_name -> box.Route
-	13, // 2: box.Metadata.Timestamp:type_name -> google.protobuf.Timestamp
+	12, // 2: box.Metadata.Timestamp:type_name -> google.protobuf.Timestamp
 	1,  // 3: box.SessionState.phase:type_name -> box.SessionPhase
-	13, // 4: box.SessionState.created_at:type_name -> google.protobuf.Timestamp
-	13, // 5: box.SessionState.updated_at:type_name -> google.protobuf.Timestamp
+	12, // 4: box.SessionState.created_at:type_name -> google.protobuf.Timestamp
+	12, // 5: box.SessionState.updated_at:type_name -> google.protobuf.Timestamp
 	1,  // 6: box.ReconnectRequest.last_phase:type_name -> box.SessionPhase
 	1,  // 7: box.ReconnectResponse.resume_from_phase:type_name -> box.SessionPhase
 	1,  // 8: box.ResumeHandshake.last_phase:type_name -> box.SessionPhase
@@ -1213,14 +1096,13 @@ func file_box_proto_init() {
 	if File_box_proto != nil {
 		return
 	}
-	file_box_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_box_proto_rawDesc), len(file_box_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   11,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

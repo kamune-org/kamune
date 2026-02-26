@@ -41,8 +41,7 @@ func TestHandshake(t *testing.T) {
 	pt2 := newPlainTransport(conn2, attester1.PublicKey(), attester2, store)
 
 	hndshkeOpts := handshakeOpts{
-		ratchetThreshold: defaultRatchetThreshold,
-		remoteVerifier:   defaultRemoteVerifier,
+		remoteVerifier: defaultRemoteVerifier,
 	}
 
 	var t1 *Transport

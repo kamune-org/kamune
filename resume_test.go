@@ -259,8 +259,7 @@ func TestSaveSessionForResumption(t *testing.T) {
 	pt2 := newPlainTransport(conn2, attester1.PublicKey(), attester2, storage)
 
 	handshakeOpts := handshakeOpts{
-		ratchetThreshold: defaultRatchetThreshold,
-		remoteVerifier:   func(store *Storage, peer *Peer) error { return nil },
+		remoteVerifier: func(store *Storage, peer *Peer) error { return nil },
 	}
 
 	// Perform handshake

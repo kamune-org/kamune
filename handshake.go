@@ -9,12 +9,10 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/exchange"
-	"github.com/kamune-org/kamune/pkg/ratchet"
 )
 
 type handshakeOpts struct {
-	remoteVerifier   RemoteVerifier
-	ratchetThreshold uint64
+	remoteVerifier RemoteVerifier
 }
 
 // handshakeState tracks the state of an ongoing handshake for potential
@@ -108,9 +106,7 @@ func requestHandshake(
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(
-		pt, state.sessionID, encoder, decoder, opts.ratchetThreshold,
-	)
+	t := newTransport(pt, state.sessionID, encoder, decoder)
 	t.SetInitiator(true)
 	t.SetSecrets(secret, state.localSalt, state.remoteSalt)
 	t.SetRemotePublicKey(pt.remote.Marshal())
@@ -127,12 +123,7 @@ func requestHandshake(
 	}
 	t.SetPhase(PhaseChallengeVerified)
 
-	// Step 6: Bootstrap double ratchet
-	r, err := bootstrapDoubleRatchet(t, secret, t.sessionID, true)
-	if err != nil {
-		return nil, fmt.Errorf("bootstrap double ratchet: %w", err)
-	}
-	t.ratchet = r
+	// Step 6: Session established
 	t.SetPhase(PhaseEstablished)
 
 	return t, nil
@@ -208,9 +199,7 @@ func acceptHandshake(
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(
-		pt, state.sessionID, encoder, decoder, opts.ratchetThreshold,
-	)
+	t := newTransport(pt, state.sessionID, encoder, decoder)
 	t.SetInitiator(false)
 	t.SetSecrets(secret, state.localSalt, state.remoteSalt)
 	t.SetRemotePublicKey(pt.remote.Marshal())
@@ -226,12 +215,7 @@ func acceptHandshake(
 	}
 	t.SetPhase(PhaseChallengeVerified)
 
-	// Step 5: Bootstrap double ratchet
-	r, err := bootstrapDoubleRatchet(t, secret, t.sessionID, false)
-	if err != nil {
-		return nil, fmt.Errorf("bootstrap double ratchet: %w", err)
-	}
-	t.ratchet = r
+	// Step 5: Session established
 	t.SetPhase(PhaseEstablished)
 
 	return t, nil
@@ -286,63 +270,6 @@ func acceptChallenge(t *Transport, expectedRoute Route) error {
 	}
 
 	return nil
-}
-
-// bootstrapDoubleRatchet exchanges X25519 public keys over the current
-// enigma-authenticated channel and returns an initialized ratchet.
-func bootstrapDoubleRatchet(
-	t *Transport, secret []byte, sessionID string, initiator bool,
-) (*ratchet.Ratchet, error) {
-	r, err := ratchet.NewFromSecret(secret)
-	if err != nil {
-		return nil, fmt.Errorf("creating new ratchet: %w", err)
-	}
-
-	theirBlob := Bytes(nil)
-	if initiator {
-		if _, err := t.Send(
-			Bytes(r.OurPublic()), RouteInitializeDoubleRatchet,
-		); err != nil {
-			return nil, fmt.Errorf("sending our public key: %w", err)
-		}
-
-		md, route, err := t.ReceiveWithRoute(theirBlob)
-		if err != nil {
-			return nil, fmt.Errorf("receiving their public key: %w", err)
-		}
-		if route != RouteConfirmDoubleRatchet {
-			return nil, fmt.Errorf(
-				"%w: expected %s, got %s",
-				ErrUnexpectedRoute, RouteConfirmDoubleRatchet, route,
-			)
-		}
-		_ = md
-	} else {
-		md, route, err := t.ReceiveWithRoute(theirBlob)
-		if err != nil {
-			return nil, fmt.Errorf("receiving their public key: %w", err)
-		}
-		if route != RouteInitializeDoubleRatchet {
-			return nil, fmt.Errorf(
-				"%w: expected %s, got %s",
-				ErrUnexpectedRoute, RouteInitializeDoubleRatchet, route,
-			)
-		}
-		_ = md
-
-		if _, err := t.Send(
-			Bytes(r.OurPublic()), RouteConfirmDoubleRatchet,
-		); err != nil {
-			return nil, fmt.Errorf("sending our public key: %w", err)
-		}
-	}
-
-	if err := r.SetTheirPublic(theirBlob.GetValue(), sessionID); err != nil {
-		return nil, fmt.Errorf("setting their public key: %w", err)
-	}
-
-	t.SetPhase(PhaseRatchetInitialized)
-	return r, nil
 }
 
 // HandleReconnect processes a reconnection request and attempts to resume

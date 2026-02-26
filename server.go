@@ -328,8 +328,7 @@ func NewServer(
 		handlerFunc:      handler,
 		resumptionConfig: DefaultResumptionConfig(),
 		handshakeOpts: handshakeOpts{
-			ratchetThreshold: defaultRatchetThreshold,
-			remoteVerifier:   defaultRemoteVerifier,
+			remoteVerifier: defaultRemoteVerifier,
 		},
 	}
 
@@ -390,11 +389,6 @@ func ServeWithUDP(opts ...ConnOption) ServerOptions {
 // ServeWithStorageOpts sets storage options.
 func ServeWithStorageOpts(opts ...StorageOption) ServerOptions {
 	return func(s *Server) { s.storageOpts = opts }
-}
-
-// ServeWithRatchetThreshold sets the message threshold for DH ratchet rotation.
-func ServeWithRatchetThreshold(threshold uint64) ServerOptions {
-	return func(s *Server) { s.handshakeOpts.ratchetThreshold = threshold }
 }
 
 // ServeWithResumption configures session resumption settings.

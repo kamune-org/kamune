@@ -523,7 +523,6 @@ func (sm *SessionManager) SaveSession(state *SessionState) error {
 		SharedSecret:    state.SharedSecret,
 		LocalSalt:       state.LocalSalt,
 		RemoteSalt:      state.RemoteSalt,
-		RatchetState:    state.RatchetState,
 		RemotePublicKey: state.RemotePublicKey,
 		CreatedAt:       now,
 		UpdatedAt:       now,
@@ -596,7 +595,6 @@ func (sm *SessionManager) LoadSession(sessionID string) (*SessionState, error) {
 		SharedSecret:    pbState.SharedSecret,
 		LocalSalt:       pbState.LocalSalt,
 		RemoteSalt:      pbState.RemoteSalt,
-		RatchetState:    pbState.RatchetState,
 		RemotePublicKey: pbState.RemotePublicKey,
 	}, nil
 }

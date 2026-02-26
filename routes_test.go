@@ -27,8 +27,6 @@ func TestRouteString(t *testing.T) {
 		{RouteFinalizeHandshake, "FinalizeHandshake"},
 		{RouteSendChallenge, "SendChallenge"},
 		{RouteVerifyChallenge, "VerifyChallenge"},
-		{RouteInitializeDoubleRatchet, "InitializeDoubleRatchet"},
-		{RouteConfirmDoubleRatchet, "ConfirmDoubleRatchet"},
 		{RouteExchangeMessages, "ExchangeMessages"},
 		{RouteCloseTransport, "CloseTransport"},
 		{RouteReconnect, "Reconnect"},
@@ -51,8 +49,6 @@ func TestRouteIsValid(t *testing.T) {
 		RouteFinalizeHandshake,
 		RouteSendChallenge,
 		RouteVerifyChallenge,
-		RouteInitializeDoubleRatchet,
-		RouteConfirmDoubleRatchet,
 		RouteExchangeMessages,
 		RouteCloseTransport,
 		RouteReconnect,
@@ -86,8 +82,6 @@ func TestRouteIsHandshakeRoute(t *testing.T) {
 		RouteFinalizeHandshake,
 		RouteSendChallenge,
 		RouteVerifyChallenge,
-		RouteInitializeDoubleRatchet,
-		RouteConfirmDoubleRatchet,
 	}
 
 	for _, route := range handshakeRoutes {
@@ -148,8 +142,6 @@ func TestRouteProtoConversion(t *testing.T) {
 		{RouteFinalizeHandshake, pb.Route_ROUTE_FINALIZE_HANDSHAKE},
 		{RouteSendChallenge, pb.Route_ROUTE_SEND_CHALLENGE},
 		{RouteVerifyChallenge, pb.Route_ROUTE_VERIFY_CHALLENGE},
-		{RouteInitializeDoubleRatchet, pb.Route_ROUTE_INITIALIZE_DOUBLE_RATCHET},
-		{RouteConfirmDoubleRatchet, pb.Route_ROUTE_CONFIRM_DOUBLE_RATCHET},
 		{RouteExchangeMessages, pb.Route_ROUTE_EXCHANGE_MESSAGES},
 		{RouteCloseTransport, pb.Route_ROUTE_CLOSE_TRANSPORT},
 		{RouteReconnect, pb.Route_ROUTE_RECONNECT},
@@ -193,7 +185,6 @@ func TestSessionPhaseString(t *testing.T) {
 		{PhaseHandshakeAccepted, "HandshakeAccepted"},
 		{PhaseChallengeSent, "ChallengeSent"},
 		{PhaseChallengeVerified, "ChallengeVerified"},
-		{PhaseRatchetInitialized, "RatchetInitialized"},
 		{PhaseEstablished, "Established"},
 		{PhaseClosed, "Closed"},
 	}
@@ -216,7 +207,6 @@ func TestSessionPhaseProtoConversion(t *testing.T) {
 		{PhaseHandshakeAccepted, pb.SessionPhase_PHASE_HANDSHAKE_ACCEPTED},
 		{PhaseChallengeSent, pb.SessionPhase_PHASE_CHALLENGE_SENT},
 		{PhaseChallengeVerified, pb.SessionPhase_PHASE_CHALLENGE_VERIFIED},
-		{PhaseRatchetInitialized, pb.SessionPhase_PHASE_RATCHET_INITIALIZED},
 		{PhaseEstablished, pb.SessionPhase_PHASE_ESTABLISHED},
 		{PhaseClosed, pb.SessionPhase_PHASE_CLOSED},
 		{PhaseInvalid, pb.SessionPhase_PHASE_INVALID},
