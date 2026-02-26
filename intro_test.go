@@ -27,23 +27,31 @@ func TestIntroduce(t *testing.T) {
 	attester2, err := attest.NewAttester(alg)
 	a.NoError(err)
 
+	var sendErr1 error
+	done1 := make(chan struct{})
 	go func() {
-		err = sendIntroduction(conn1, rand.Text(), attester1, alg)
-		a.NoError(err)
+		defer close(done1)
+		sendErr1 = sendIntroduction(conn1, rand.Text(), attester1, alg)
 	}()
 	st2, route2, err := readSignedTransport(conn2)
 	a.NoError(err)
+	<-done1
+	a.NoError(sendErr1)
 	a.Equal(route2, RouteIdentity)
 	peer, err := receiveIntroduction(st2)
 	a.NoError(err)
 	a.Equal(attester1.PublicKey(), peer.PublicKey)
 
+	var sendErr2 error
+	done2 := make(chan struct{})
 	go func() {
-		err = sendIntroduction(conn2, rand.Text(), attester2, alg)
-		a.NoError(err)
+		defer close(done2)
+		sendErr2 = sendIntroduction(conn2, rand.Text(), attester2, alg)
 	}()
 	st1, route1, err := readSignedTransport(conn1)
 	a.NoError(err)
+	<-done2
+	a.NoError(sendErr2)
 	a.True(route1 == RouteIdentity || route1 == RouteInvalid)
 	peer, err = receiveIntroduction(st1)
 	a.NoError(err)

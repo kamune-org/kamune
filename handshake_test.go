@@ -13,8 +13,6 @@ import (
 
 func TestHandshake(t *testing.T) {
 	a := require.New(t)
-	sig := make(chan struct{})
-	defer close(sig)
 	f, err := os.CreateTemp("", "kamune")
 	a.NoError(err)
 	a.NoError(f.Close())
@@ -48,28 +46,32 @@ func TestHandshake(t *testing.T) {
 	}
 
 	var t1 *Transport
+	var handshakeErr error
+	done := make(chan struct{})
 	go func() {
-		t1, err = requestHandshake(pt1, hndshkeOpts)
-		a.NoError(err)
-		sig <- struct{}{}
+		defer close(done)
+		t1, handshakeErr = requestHandshake(pt1, hndshkeOpts)
 	}()
 	t2, err := acceptHandshake(pt2, hndshkeOpts)
 	a.NoError(err)
-	<-sig
+	<-done
+	a.NoError(handshakeErr)
 	a.NotNil(t1)
 	a.NotNil(t2)
 
 	msg1 := Bytes([]byte(rand.Text()))
 	var metadata1 *Metadata
+	var sendErr1 error
+	done1 := make(chan struct{})
 	go func() {
-		metadata1, err = t1.Send(msg1, RouteExchangeMessages)
-		a.NoError(err)
-		sig <- struct{}{}
+		defer close(done1)
+		metadata1, sendErr1 = t1.Send(msg1, RouteExchangeMessages)
 	}()
 	receivedMsg1 := Bytes(nil)
 	receivedMetadata1, err := t2.Receive(receivedMsg1)
 	a.NoError(err)
-	<-sig
+	<-done1
+	a.NoError(sendErr1)
 	a.NotNil(metadata1)
 	a.NotNil(receivedMetadata1)
 	a.Equal(msg1.Value, receivedMsg1.Value)
@@ -79,15 +81,17 @@ func TestHandshake(t *testing.T) {
 
 	msg2 := Bytes([]byte(rand.Text()))
 	var metadata2 *Metadata
+	var sendErr2 error
+	done2 := make(chan struct{})
 	go func() {
-		metadata2, err = t2.Send(msg2, RouteExchangeMessages)
-		a.NoError(err)
-		sig <- struct{}{}
+		defer close(done2)
+		metadata2, sendErr2 = t2.Send(msg2, RouteExchangeMessages)
 	}()
 	receivedMsg2 := Bytes(nil)
 	receivedMetadata2, err := t1.Receive(receivedMsg2)
 	a.NoError(err)
-	<-sig
+	<-done2
+	a.NoError(sendErr2)
 	a.NotNil(metadata2)
 	a.NotNil(receivedMetadata2)
 	a.Equal(msg2.Value, receivedMsg2.Value)
