@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -18,6 +19,12 @@ const gap = "\n\n"
 type (
 	errMsg error
 )
+
+// historyLoaded is sent once the background goroutine finishes reading prior
+// chat entries from the database.
+type historyLoaded struct {
+	messages []string
+}
 
 type model struct {
 	viewport   viewport.Model
@@ -53,7 +60,7 @@ func initialModel(t *kamune.Transport) model {
 	ta.ShowLineNumbers = false
 
 	vp := viewport.New(30, 5)
-	vp.SetContent(fmt.Sprintf(`Session ID is %s. Happy Chatting!`, t.SessionID()))
+	vp.SetContent(fmt.Sprintf(`Session ID is %s. Loading history…`, t.SessionID()))
 	vp.MouseWheelEnabled = true
 	vp.Style = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -74,8 +81,40 @@ func initialModel(t *kamune.Transport) model {
 	}
 }
 
+// loadHistory returns a tea.Cmd that asynchronously reads prior chat entries
+// from the database and delivers them as a historyLoaded message.
+func loadHistory(t *kamune.Transport, userPrefix, userText, peerPrefix, peerText lipgloss.Style) tea.Cmd {
+	return func() tea.Msg {
+		entries, err := t.Store().GetChatHistory(t.SessionID())
+		if err != nil {
+			slog.Warn("failed to load chat history",
+				slog.String("session_id", t.SessionID()),
+				slog.Any("error", err))
+			return historyLoaded{}
+		}
+
+		var msgs []string
+		for _, ent := range entries {
+			sender := "You"
+			prefixStyle := userPrefix
+			textStyle := userText
+			if ent.Sender != kamune.SenderLocal {
+				sender = "Peer"
+				prefixStyle = peerPrefix
+				textStyle = peerText
+			}
+			prefix := fmt.Sprintf("[%s] %s: ", ent.Timestamp.Format(time.DateTime), sender)
+			msgs = append(msgs, prefixStyle.Render(prefix)+textStyle.Render(string(ent.Data)))
+		}
+		return historyLoaded{messages: msgs}
+	}
+}
+
 func (m model) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(
+		textarea.Blink,
+		loadHistory(m.transport, m.userPrefix, m.userText, m.peerPrefix, m.peerText),
+	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -88,6 +127,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
 	switch msg := msg.(type) {
+	case historyLoaded:
+		header := fmt.Sprintf("Session ID is %s. Happy Chatting!", m.transport.SessionID())
+		if len(msg.messages) > 0 {
+			header = fmt.Sprintf("Session ID is %s. Restored %d message(s). Happy Chatting!",
+				m.transport.SessionID(), len(msg.messages))
+			// Prepend historical messages before any that arrived while loading.
+			m.messages = append(msg.messages, m.messages...)
+		}
+		content := header
+		if len(m.messages) > 0 {
+			content = header + "\n" + strings.Join(m.messages, "\n")
+		}
+		m.viewport.SetContent(lipgloss.
+			NewStyle().
+			Width(m.viewport.Width).
+			Render(content),
+		)
+		m.viewport.GotoBottom()
+
 	case tea.WindowSizeMsg:
 		m.viewport.Width = msg.Width
 		m.textarea.SetWidth(msg.Width)
@@ -114,14 +172,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = err
 				return m, tiCmd
 			}
-			go func() {
-				m.transport.Store().AddChatEntry(
-					m.transport.SessionID(),
-					[]byte(text),
-					metadata.Timestamp(),
-					kamune.SenderLocal,
-				)
-			}()
+			if err := m.transport.Store().AddChatEntry(
+				m.transport.SessionID(),
+				[]byte(text),
+				metadata.Timestamp(),
+				kamune.SenderLocal,
+			); err != nil {
+				slog.Error("failed to persist sent chat entry",
+					slog.String("session_id", m.transport.SessionID()),
+					slog.Any("error", err))
+			}
 			prefix := fmt.Sprintf(
 				"[%s] You: ",
 				metadata.Timestamp().Format(time.DateTime),

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -95,14 +96,16 @@ func serveHandler(t *kamune.Transport) error {
 			return nil
 		}
 		p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
-		go func() {
-			t.Store().AddChatEntry(
-				t.SessionID(),
-				b.GetValue(),
-				metadata.Timestamp(),
-				kamune.SenderPeer,
-			)
-		}()
+		if err := t.Store().AddChatEntry(
+			t.SessionID(),
+			b.GetValue(),
+			metadata.Timestamp(),
+			kamune.SenderPeer,
+		); err != nil {
+			slog.Error("failed to persist received chat entry",
+				slog.String("session_id", t.SessionID()),
+				slog.Any("error", err))
+		}
 	}
 }
 
@@ -185,14 +188,16 @@ func client(addr string) {
 			return
 		}
 		p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
-		go func() {
-			t.Store().AddChatEntry(
-				t.SessionID(),
-				b.GetValue(),
-				metadata.Timestamp(),
-				kamune.SenderPeer,
-			)
-		}()
+		if err := t.Store().AddChatEntry(
+			t.SessionID(),
+			b.GetValue(),
+			metadata.Timestamp(),
+			kamune.SenderPeer,
+		); err != nil {
+			slog.Error("failed to persist received chat entry",
+				slog.String("session_id", t.SessionID()),
+				slog.Any("error", err))
+		}
 	}
 }
 
