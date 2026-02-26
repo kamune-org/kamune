@@ -108,6 +108,14 @@ message ReconnectComplete {
   uint64 resume_recv_sequence = 4; // Agreed upon recv sequence to resume from
 }
 
+// PubKeySessionIndex maps a remote public key to its session ID.
+// This is persisted so the in-memory sessionsByPubKey map can be
+// rebuilt on startup.
+message PubKeySessionIndex {
+  string session_id = 1;
+  bytes remote_public_key = 2;
+}
+
 // ResumeHandshake is used to resume an interrupted handshake.
 message ResumeHandshake {
   bytes remote_public_key = 1; // Peer's public key for identification
