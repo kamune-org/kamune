@@ -11,6 +11,8 @@ suite. Optionally, `ML-DSA` can be used for full quantum safety.
 > This is an experimental project. All suggestions and feedbacks are welcome and
 > greatly appreciated.
 
+For a comprehensive technical specification, see [SPEC.md](SPEC.md).
+
 ## Features
 
 - Message signing and verification using **Ed25519**, with support for
@@ -68,6 +70,12 @@ There are three stages. In the following terminology, server is the party who is
 accepting connections, and the client is the party who is trying to establish a
 connection to the server.
 
+> For a comprehensive technical specification, see [SPEC.md](SPEC.md).
+
+<picture>
+  <img alt="Cipher Suite Architecture" src="assets/diagrams/cipher-suite.svg">
+</picture>
+
 ### Introduction
 
 Client sends its public key (think of it like an ID card) to the server and
@@ -99,6 +107,14 @@ suffix). It is encrypted and sent to the other party. They should decrypt the
 message, encrypt it again with their own encryption cipher, and send it back.  
 If each side receive and successfully verify their text, the handshake is deemed
 successful!
+
+<details>
+<summary>Handshake flow diagram</summary>
+
+<picture>
+  <img alt="Handshake Flow" src="assets/diagrams/handshake-flow.svg">
+</picture>
+</details>
 
 ### Communication
 
