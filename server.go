@@ -20,20 +20,19 @@ import (
 // Server handles incoming connections and manages the handshake process.
 type Server struct {
 	attester         attest.Attester
-	storage          *Storage
-	handlerFunc      HandlerFunc
+	listener         net.Listener
+	handshakeOpts    handshakeOpts
 	sessionManager   *SessionManager
+	handlerFunc      HandlerFunc
+	storage          *Storage
 	addr             string
 	serverName       string
-	handshakeOpts    handshakeOpts
 	connOpts         []ConnOption
 	storageOpts      []StorageOption
 	resumptionConfig ResumptionConfig
 	algorithm        attest.Algorithm
 	connType         connType
-
-	mu       sync.Mutex
-	listener net.Listener
+	mu               sync.Mutex
 }
 
 // ListenAndServe starts the server and listens for incoming connections.
