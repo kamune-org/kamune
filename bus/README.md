@@ -1,25 +1,49 @@
-# Kamune Chat GUI
+# Bus — Kamune Chat GUI
 
-A modern, cross-platform graphical user interface for the Kamune secure messaging library, built with [Fyne](https://fyne.io/).
+A modern, cross-platform graphical chat client for the Kamune secure messaging protocol, built with [Fyne](https://fyne.io/).
 
 ## Features
 
-- **Modern Dark Theme**: Clean, visually appealing interface with custom color scheme
-- **Session Management**: Support for multiple concurrent chat sessions
-- **Server & Client Modes**: Start a server or connect to existing peers
-- **Real-time Messaging**: Send and receive encrypted messages instantly
-- **Chat History**: View and export stored chat history from the database
-- **Emoji Fingerprints**: Visual verification of peer identity using emoji fingerprints
-- **Cross-Platform**: Works on macOS, Linux, and Windows
+- **Modern Dark Theme** — Clean, visually polished interface with an indigo-accented dark color scheme
+- **Tabbed Sidebar** — Switch between active Sessions and session History tabs
+- **Session History** — Browse past chat sessions from the database, load and view messages inline (read-only)
+- **Live Sessions** — Start a server or connect to peers with real-time encrypted messaging
+- **Message Bubbles** — Styled message bubbles with sender labels, timestamps, and alignment
+- **Session Indicators** — Online dot, active bar, message count badges on session items
+- **Peer Verification** — GUI-based emoji fingerprint verification with Strict, Quick, and Auto-Accept modes
+- **Log Viewer** — Integrated log panel with real-time streaming, auto-scroll, and level-colored entries
+- **Notifications** — Desktop notifications for new messages and connection events
+- **Cross-Platform** — Works on macOS, Linux, and Windows
 
-## Screenshots
+## Architecture
 
-The application features:
-- Left sidebar with session list and connection controls
-- Central chat area with styled message bubbles
-- Status bar with connection indicator
-- Menu bar with keyboard shortcuts
-- Peer verification dialogs with emoji fingerprints
+```
+bus/
+├── main.go           # Entry point, theme initialization, window setup
+├── app.go            # ChatApp struct, state management, history session loading
+├── ui.go             # Sidebar (tabs), chat panel, status bar, HistorySessionItem widget
+├── session_item.go   # SessionItem widget with status dot, active bar, badge
+├── bubble.go         # StyledMessageBubble widget for chat messages
+├── messaging.go      # Send/receive logic, message refresh, overlay management
+├── network.go        # Server start/stop, client connect, handler lifecycle
+├── session.go        # Session state persistence, chat history loading
+├── dialogs.go        # Server/connect dialogs, session info, clipboard helpers
+├── menu.go           # Menu bar and keyboard shortcuts
+├── history.go        # Standalone history viewer window (legacy, still available)
+├── verifier.go       # GUI peer verification dialogs (Strict/Quick/AutoAccept)
+├── context_menu.go   # Right-click context menus for sessions and messages
+├── log_viewer.go     # LogViewer widget and LogEntryItem
+├── status.go         # StatusIndicator widget
+├── animated_dot.go   # AnimatedDot widget
+├── theme.go          # Custom dark theme (colors, sizes, fonts)
+├── colors.go         # Color palette constants
+├── app_test.go       # Unit tests
+├── logger/
+│   ├── logger.go     # File + in-memory logger with subscriber support
+│   └── logger_test.go
+├── go.mod
+└── go.sum
+```
 
 ## Installation
 
@@ -46,49 +70,55 @@ sudo dnf install golang gcc libXcursor-devel libXrandr-devel mesa-libGL-devel li
 ### Building
 
 ```bash
-cd chat-gui
+cd bus
 go mod tidy
-go build -o kamune-chat .
+go build -o bus .
 ```
 
 ### Running
 
 ```bash
-./kamune-chat
+./bus
 ```
 
 ## Usage
 
 ### Starting a Server
 
-1. Click "Start Server" in the sidebar or use `Ctrl+S`
+1. Click **Start Server** in the sidebar or press `Ctrl+S`
 2. Enter the listen address (e.g., `127.0.0.1:9000`)
-3. Enter the database path (e.g., `./db`)
-4. Click "Start"
+3. Enter the database path (default: `~/.config/kamune/db`)
+4. Click **Start**
 
-The server will listen for incoming connections. Your emoji fingerprint will be displayed for verification.
+Your emoji fingerprint will be displayed in the sidebar for peer verification.
 
 ### Connecting to a Server
 
-1. Click "Connect" in the sidebar or use `Ctrl+N`
+1. Click **Connect** in the sidebar or press `Ctrl+N`
 2. Enter the server address (e.g., `127.0.0.1:9000`)
-3. Enter the database path (e.g., `./db`)
-4. Click "Connect"
+3. Enter the database path
+4. Click **Connect**
 
 ### Sending Messages
 
-1. Select an active session from the sidebar
-2. Type your message in the input area at the bottom
-3. Press Enter or click "Send"
+1. Select an active session from the **Sessions** tab
+2. Type your message in the input area
+3. Press **Enter** or click the send button
 
-### Viewing Chat History
+### Viewing Session History
 
-1. Go to File → View History or use `Ctrl+H`
-2. Enter the database path
-3. Enter the session ID
-4. Click "Load"
+The **History** tab in the sidebar automatically loads past sessions from your database:
 
-You can export the history to text and copy it to your clipboard.
+1. Click the **History** tab in the sidebar (or press `Ctrl+H`)
+2. Browse past sessions — each shows message count and last activity
+3. Click a session to load and view its messages (read-only)
+4. Use **Refresh** to reload the list or **Change DB** to browse a different database
+
+When viewing a history session, a banner indicates read-only mode and the input area is disabled.
+
+### Standalone History Viewer
+
+For advanced use, the standalone history viewer is still available via **File → View History...** which opens a separate window with export functionality.
 
 ## Keyboard Shortcuts
 
@@ -96,43 +126,16 @@ You can export the history to text and copy it to your clipboard.
 |----------|--------|
 | `Ctrl+N` | Connect to server |
 | `Ctrl+S` | Start server |
-| `Ctrl+H` | View chat history |
-| `Enter`  | Send message |
-| `Esc`    | Close dialogs |
-
-## Menu Bar
-
-### File Menu
-- Start Server... - Open server configuration dialog
-- Connect to Server... - Open client connection dialog
-- View History... - Open chat history viewer
-- Quit - Exit the application
-
-### Edit Menu
-- Clear Messages - Clear messages in current session (local only)
-
-### Session Menu
-- Disconnect - Close the current session
-- Session Info - View current session details
-
-### Settings Menu
-- Verification: Strict - Always show verification dialog for all peers
-- Verification: Quick - Auto-accept known peers, show dialog for new peers
-- Verification: Auto-Accept - Accept all peers without dialog (testing only)
-
-### Help Menu
-- About Kamune Chat - Display application information
+| `Ctrl+H` | Show History tab & refresh |
+| `Ctrl+L` | Toggle log panel |
+| `Ctrl+R` | Refresh history |
+| `Ctrl+W` | Close application |
+| `Enter` | Send message |
+| `Escape` | Close log panel |
 
 ## Peer Verification
 
-When connecting to peers, the application provides GUI-based verification dialogs to ensure secure communication. The verification system shows:
-
-- **Peer name** - The advertised name of the connecting peer
-- **Emoji fingerprint** - A visual representation of the peer's public key
-- **Hex fingerprint** - The full cryptographic fingerprint (copyable)
-- **Known peer status** - Whether this peer has been seen before
-
-### Verification Modes
+When connecting to peers, verification dialogs ensure secure communication:
 
 | Mode | Description |
 |------|-------------|
@@ -140,92 +143,83 @@ When connecting to peers, the application provides GUI-based verification dialog
 | **Quick** | Auto-accepts known peers, shows dialog only for new peers |
 | **Auto-Accept** | Accepts all connections without verification (testing only) |
 
-You can change the verification mode from Settings → Verification in the menu bar.
+Change the mode from **Settings → Verification** in the menu bar.
 
 ### Verifying Peers
 
-1. When a new peer connects, a verification dialog appears
-2. Compare the emoji fingerprint with the peer through a secure channel (phone, in-person)
-3. Click "Accept" to allow the connection and save the peer
-4. Click "Reject" to deny the connection
+1. A verification dialog appears when a new peer connects
+2. Compare the emoji fingerprint with the peer through
+ a secure channel
+3. Click **Accept** to allow the connection or **Reject** to deny it
 
-Known peers are stored locally and can be auto-accepted in Quick mode.
+## UI Overview
 
-## Architecture
+### Sidebar (Left Panel)
 
-```
-chat-gui/
-├── main.go      # Application entry point and theme configuration
-├── app.go       # Main ChatApp struct and UI construction
-├── widgets.go   # Custom widgets (StyledMessageBubble, SessionItem, StatusIndicator)
-├── history.go   # Chat history viewer functionality
-├── verifier.go  # GUI-based peer verification dialogs
-├── go.mod       # Go module definition
-└── README.md    # This file
-```
+- **Sessions tab** — Lists active live sessions with online indicators, active bars, and message count badges
+- **History tab** — Lists past sessions from the database with message counts and last activity timestamps
+- **Connection buttons** — Start Server, Connect, Stop Server
+- **Fingerprint card** — Your emoji fingerprint with copy button
 
-### Custom Widgets
+### Chat Panel (Center)
 
-- **StyledMessageBubble**: Message display with colored backgrounds
-- **SessionItem**: Session list item with status indicators
-- **StatusIndicator**: Connection status with colored dot
+- **Session info bar** — Shows current session ID with copy/info/disconnect buttons; uses 🔒 for live and 📖 for history
+- **History banner** — Amber banner shown when viewing a read-only history session
+- **Message list** — Styled message bubbles with sender, timestamp, and word-wrapping
+- **Welcome overlay** — Shown when no session is selected
+- **Empty overlay** — Shown when a session has no messages yet
+- **Message input** — Multi-line entry with send button (disabled in history view)
 
-### Verifier
+### Status Bar (Bottom)
 
-The `GUIVerifier` provides different verification strategies:
-- `CreateRemoteVerifier()` - Full verification dialog
-- `CreateQuickVerifier()` - Auto-accept known, dialog for new
-- `CreateAutoAcceptVerifier()` - Accept all (testing)
+- Connection status indicator (colored dot)
+- Session/message info text
+- Log toggle button
+- Version label
 
 ## Configuration
 
-The application uses the following default paths:
-- Database: `./db`
-
-You can specify custom paths when starting a server or connecting.
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Database path | `~/.config/kamune/db` | Override with `KAMUNE_DB_PATH` env var |
+| Verification mode | Quick | Change via Settings menu |
+| Notifications | Enabled | Desktop notifications for messages and connections |
 
 ## Security Notes
 
 - All messages are end-to-end encrypted using the Kamune protocol
-- Verify peer identity using emoji fingerprints
-- Database is encrypted at rest (empty passphrase by default in GUI)
-- GUI-based peer verification prevents terminal-based MITM attacks
-
-### Recommended Security Practices
-
-1. **Use Strict mode** for sensitive communications
-2. **Always verify** new peers through a separate secure channel
-3. **Compare emoji fingerprints** visually with your peer
-4. **Use Quick mode** only after initially verifying peers in Strict mode
-5. **Never use Auto-Accept mode** in production or untrusted networks
-
-For production use, consider implementing passphrase support by modifying the storage options.
+- Verify peer identity using emoji fingerprints through a separate secure channel
+- Database is encrypted at rest (empty passphrase by default)
+- Use **Strict** mode for sensitive communications
+- Never use **Auto-Accept** mode in production or untrusted networks
 
 ## Development
+
+### Running Tests
+
+```bash
+cd bus
+go test ./... -v
+```
 
 ### Building for Different Platforms
 
 ```bash
 # macOS
-GOOS=darwin GOARCH=amd64 go build -o kamune-chat-macos .
+GOOS=darwin GOARCH=amd64 go build -o bus-macos .
 
 # Linux
-GOOS=linux GOARCH=amd64 go build -o kamune-chat-linux .
+GOOS=linux GOARCH=amd64 go build -o bus-linux .
 
 # Windows
-GOOS=windows GOARCH=amd64 go build -o kamune-chat.exe .
+GOOS=windows GOARCH=amd64 go build -o bus.exe .
 ```
 
 ### Packaging
 
-Use `fyne package` to create distributable packages:
-
 ```bash
-# Install fyne CLI
 go install fyne.io/tools/cmd/fyne@latest
-
-# Package for current platform
-fyne package -name "Kamune Chat" -icon icon.png
+fyne package -name "Bus" -icon icon.png
 ```
 
 ## License
@@ -234,6 +228,6 @@ This project is part of the Kamune messaging library. See the main repository fo
 
 ## Related
 
-- [Kamune Library](../) - Core messaging library
-- [Kamune Chat TUI](../chat/) - Terminal UI reference implementation
-- [Fyne Framework](https://fyne.io/) - UI toolkit used for this application
+- [Kamune Library](../) — Core messaging library
+- [Kamune Chat TUI](../chat/) — Terminal UI reference implementation
+- [Fyne Framework](https://fyne.io/) — UI toolkit

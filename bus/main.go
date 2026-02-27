@@ -28,13 +28,13 @@ func main() {
 		defer func() { _ = logger.Close() }()
 	}
 
-	logger.Info("Kamune Chat starting...")
+	logger.Info("Bus starting...")
 
 	a := app.NewWithID("org.kamune.bus")
 	a.Settings().SetTheme(&chatTheme{})
 
-	w := a.NewWindow("Bus - Kamune Chat")
-	w.Resize(fyne.NewSize(950, 650))
+	w := a.NewWindow("Bus — Kamune Chat")
+	w.Resize(fyne.NewSize(1050, 720))
 	w.SetMaster()
 
 	chatApp := NewChatApp(a, w)
@@ -47,6 +47,6 @@ func main() {
 		w.Close()
 	})
 
-	logger.Info("Kamune Chat started successfully")
+	logger.Info("Bus started successfully")
 	w.ShowAndRun()
 }

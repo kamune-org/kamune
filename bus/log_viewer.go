@@ -5,7 +5,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -16,7 +15,6 @@ import (
 type LogViewer struct {
 	entries     []logger.LogEntry
 	list        *widget.List
-	visible     bool
 	autoScroll  bool
 	unsubscribe func()
 }
@@ -75,7 +73,7 @@ func (lv *LogViewer) GetEntryCount() int {
 	return len(lv.entries)
 }
 
-// BuildUI creates the log viewer UI.
+// BuildUI creates the log viewer UI (just the list — chrome is added by the log panel).
 func (lv *LogViewer) BuildUI() fyne.CanvasObject {
 	lv.list = widget.NewList(
 		func() int {
@@ -92,28 +90,7 @@ func (lv *LogViewer) BuildUI() fyne.CanvasObject {
 		},
 	)
 
-	// Control buttons
-	clearBtn := widget.NewButtonWithIcon("Clear", theme.DeleteIcon(), func() {
-		lv.Clear()
-	})
-
-	autoScrollCheck := widget.NewCheck("Auto-scroll", func(checked bool) {
-		lv.autoScroll = checked
-	})
-	autoScrollCheck.SetChecked(true)
-
-	controls := container.NewHBox(
-		clearBtn,
-		autoScrollCheck,
-	)
-
-	header := widget.NewLabelWithStyle("Application Logs", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-
-	return container.NewBorder(
-		container.NewVBox(header, controls, widget.NewSeparator()),
-		nil, nil, nil,
-		lv.list,
-	)
+	return lv.list
 }
 
 // ---------------------------------------------------------------------------

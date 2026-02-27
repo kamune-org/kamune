@@ -120,6 +120,7 @@ func (c *ChatApp) stopServer() {
 					logger.Errorf("failed to close session %s: %v", session.ID, err)
 				}
 			}
+			c.tabManager.CloseTab(session.ID)
 		}
 		c.sessions = make([]*Session, 0)
 		c.activeSession = nil
@@ -128,7 +129,6 @@ func (c *ChatApp) stopServer() {
 
 		c.runOnMain(func() {
 			c.sessionList.Refresh()
-			c.refreshMessages()
 			c.statusIndicator.SetStatus(StatusDisconnected, "Server stopped")
 			c.updateStatusText("Server stopped")
 			if c.stopServerBtn != nil {
@@ -157,18 +157,14 @@ func (c *ChatApp) serverHandler(t *kamune.Transport) error {
 
 	c.mu.Lock()
 	c.sessions = append(c.sessions, session)
-	// Only set as active if no session is currently active
-	if c.activeSession == nil {
-		c.activeSession = session
-	}
 	c.mu.Unlock()
 
-	// Update UI on main thread
+	// Open a tab for the new session and update UI on main thread
+	c.tabManager.OpenSession(session)
+
 	c.runOnMain(func() {
 		c.sessionList.Refresh()
-		c.refreshMessages()
 		c.updateStatusText(fmt.Sprintf("New session: %s", truncateSessionID(session.ID)))
-		// Send notification for new connection
 		c.sendNotification("New Connection", fmt.Sprintf("Peer connected: %s", truncateSessionID(session.ID)))
 	})
 
@@ -181,7 +177,9 @@ func (c *ChatApp) serverHandler(t *kamune.Transport) error {
 	// Save session state for potential resumption before cleaning up.
 	c.saveSessionState(session)
 
-	// Clean up session from list when connection closes
+	// Clean up session from list and close its tab when connection closes
+	c.tabManager.CloseTab(session.ID)
+
 	c.mu.Lock()
 	for i, s := range c.sessions {
 		if s == session {
@@ -196,8 +194,10 @@ func (c *ChatApp) serverHandler(t *kamune.Transport) error {
 
 	c.runOnMain(func() {
 		c.sessionList.Refresh()
-		c.refreshMessages()
 	})
+
+	// Refresh history so the closed session appears in the History tab.
+	go c.refreshHistorySessions()
 
 	logger.Infof("Session closed: %s", session.ID)
 	return nil
@@ -270,19 +270,22 @@ func (c *ChatApp) connectToServer(addr, dbPath string) {
 
 		c.mu.Lock()
 		c.sessions = append(c.sessions, session)
-		c.activeSession = session
 		c.mu.Unlock()
 
-		// Update UI on main thread
+		// Open a tab for the new session and update UI on main thread
+		c.tabManager.OpenSession(session)
+
 		c.runOnMain(func() {
 			c.sessionList.Refresh()
-			c.refreshMessages()
 			c.statusIndicator.SetStatus(StatusConnected, "Connected")
 			c.updateStatusText(fmt.Sprintf("Connected - Session: %s", truncateSessionID(session.ID)))
 		})
 
 		logger.Infof("Connected successfully, session: %s", session.ID)
 		c.sendNotification("Connected", fmt.Sprintf("Session: %s", truncateSessionID(session.ID)))
+
+		// Refresh history to include any resumed session data.
+		go c.refreshHistorySessions()
 
 		// Start receiving messages in its own goroutine
 		go c.receiveMessages(session)

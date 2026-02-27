@@ -76,7 +76,7 @@ func (c *ChatApp) receiveMessagesBlocking(session *Session) {
 		}
 
 		logger.Debugf("Received message in session %s: %d bytes", session.ID, len(msgText))
-		c.refreshMessages()
+		c.refreshSessionMessages(session.ID)
 	}
 }
 
@@ -95,6 +95,11 @@ func (c *ChatApp) receiveMessages(session *Session) {
 func (c *ChatApp) sendMessage() {
 	text := strings.TrimSpace(c.messageEntry.Text)
 	if text == "" {
+		return
+	}
+
+	// Don't allow sending in history view mode
+	if c.isViewingHistory() {
 		return
 	}
 
@@ -147,64 +152,18 @@ func (c *ChatApp) sendMessage() {
 	})
 
 	logger.Debugf("Sent message in session %s: %d bytes", session.ID, len(text))
-	c.refreshMessages()
+	c.refreshSessionMessages(session.ID)
 }
 
 // ---------------------------------------------------------------------------
 // Refresh
 // ---------------------------------------------------------------------------
 
-// refreshMessages updates the message list display.
-func (c *ChatApp) refreshMessages() {
-	// Ensure Refresh runs on the main thread
-	c.runOnMain(func() {
-		if c.messageList != nil {
-			c.messageList.Refresh()
-		}
-	})
-
-	// Scroll to bottom with a slight delay to ensure list is updated
-	c.mu.RLock()
-	session := c.activeSession
-	msgCount := 0
-	if session != nil {
-		msgCount = len(session.Messages)
+// refreshSessionMessages refreshes the tab for a specific session ID.
+// Use this when a background session (not the active tab) receives a message.
+func (c *ChatApp) refreshSessionMessages(sessionID string) {
+	if c.tabManager == nil {
+		return
 	}
-	c.mu.RUnlock()
-
-	// Update welcome/empty overlays explicitly as sessions/messages change.
-	c.runOnMain(func() {
-		if c.welcomeOverlay == nil || c.emptyOverlay == nil {
-			return
-		}
-
-		hasSession := session != nil
-
-		if !hasSession {
-			c.welcomeOverlay.Show()
-			c.emptyOverlay.Hide()
-			return
-		}
-
-		if msgCount == 0 {
-			c.welcomeOverlay.Hide()
-			c.emptyOverlay.Show()
-			return
-		}
-
-		c.welcomeOverlay.Hide()
-		c.emptyOverlay.Hide()
-	})
-
-	if msgCount > 0 {
-		// Use goroutine with small delay then request scroll on main thread
-		go func() {
-			time.Sleep(50 * time.Millisecond)
-			c.runOnMain(func() {
-				if c.messageList != nil {
-					c.messageList.ScrollToBottom()
-				}
-			})
-		}()
-	}
+	c.tabManager.RefreshTab(sessionID)
 }

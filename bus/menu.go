@@ -18,6 +18,22 @@ func (c *ChatApp) setupMenus() {
 		fyne.NewMenuItem("Connect to Server...", c.showConnectDialog),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("View History...", c.historyViewer.ShowHistoryDialog),
+		fyne.NewMenuItem("Refresh History", func() {
+			c.refreshHistorySessions()
+		}),
+		fyne.NewMenuItem("Delete Session History...", func() {
+			c.mu.RLock()
+			hs := c.activeHistSession
+			c.mu.RUnlock()
+			if hs != nil {
+				c.deleteHistorySession(hs)
+			} else {
+				dialog.ShowInformation("No History Session", "Select a history session first.", c.window)
+			}
+		}),
+		fyne.NewMenuItem("Database Path...", func() {
+			c.showDBPathDialog()
+		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Quit", func() {
 			c.cleanup()
@@ -28,12 +44,16 @@ func (c *ChatApp) setupMenus() {
 	// Edit menu
 	editMenu := fyne.NewMenu("Edit",
 		fyne.NewMenuItem("Clear Messages", func() {
+			ct := c.tabManager.SelectedTab()
+			if ct == nil {
+				return
+			}
 			c.mu.Lock()
-			if c.activeSession != nil {
-				c.activeSession.Messages = make([]ChatMessage, 0)
+			if ct.Kind == ChatTabLive && ct.Session != nil {
+				ct.Session.Messages = make([]ChatMessage, 0)
 			}
 			c.mu.Unlock()
-			c.refreshMessages()
+			c.tabManager.RefreshActiveTab()
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Copy Session ID", func() {
@@ -49,8 +69,31 @@ func (c *ChatApp) setupMenus() {
 		fyne.NewMenuItem("Session Info", func() {
 			c.showSessionInfo()
 		}),
+		fyne.NewMenuItem("Rename Session", func() {
+			c.mu.RLock()
+			session := c.activeSession
+			histSession := c.activeHistSession
+			c.mu.RUnlock()
+			if session != nil {
+				c.showRenameSessionDialog(session)
+			} else if histSession != nil {
+				c.showRenameHistorySessionDialog(histSession)
+			} else {
+				dialog.ShowInformation("No Session", "Select a session to rename.", c.window)
+			}
+		}),
 		fyne.NewMenuItem("Copy Session ID", func() {
 			c.copyActiveSessionID()
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Close Other Tabs", func() {
+			c.tabManager.CloseOtherTabs()
+		}),
+		fyne.NewMenuItem("Close Tabs to the Right", func() {
+			c.tabManager.CloseTabsToTheRight()
+		}),
+		fyne.NewMenuItem("Close All Tabs", func() {
+			c.tabManager.CloseAllTabs()
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("End Session", func() {
@@ -65,6 +108,17 @@ func (c *ChatApp) setupMenus() {
 		}),
 		fyne.NewMenuItem("Clear Logs", func() {
 			c.logViewer.Clear()
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Show Sessions Tab", func() {
+			if c.sidebarTabs != nil {
+				c.sidebarTabs.SelectIndex(0)
+			}
+		}),
+		fyne.NewMenuItem("Show History Tab", func() {
+			if c.sidebarTabs != nil {
+				c.sidebarTabs.SelectIndex(1)
+			}
 		}),
 	)
 
@@ -90,9 +144,9 @@ func (c *ChatApp) setupMenus() {
 			c.showShortcutsHelp()
 		}),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("About Kamune Chat", func() {
-			dialog.ShowInformation("About Kamune Chat",
-				fmt.Sprintf("Kamune Chat GUI v%s\n\nA secure messaging application built with Fyne.\n\nPowered by the Kamune protocol for end-to-end encrypted communication.\n\nShortcuts:\n• Ctrl+W - Close window\n• Ctrl+N - New connection\n• Ctrl+S - Start server\n• Ctrl+H - View history\n• Ctrl+L - Toggle logs", appVersion),
+		fyne.NewMenuItem("About Bus", func() {
+			dialog.ShowInformation("About Bus",
+				fmt.Sprintf("Bus — Kamune Chat v%s\n\nSecure end-to-end encrypted messaging.\nBuilt with Fyne and the Kamune protocol.\n\nShortcuts:\n  Ctrl+N — Connect\n  Ctrl+S — Start Server\n  Ctrl+H — View History\n  Ctrl+L — Toggle Logs\n  Ctrl+W — Close Tab\n  Ctrl+Shift+W — Close All Tabs", appVersion),
 				c.window)
 		}),
 	)
@@ -103,25 +157,49 @@ func (c *ChatApp) setupMenus() {
 
 // setupShortcuts configures keyboard shortcuts.
 func (c *ChatApp) setupShortcuts() {
-	// Ctrl+W - Close window
+	// Ctrl+W — Close active tab, or quit if no tabs open
 	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
 		KeyName:  fyne.KeyW,
 		Modifier: fyne.KeyModifierControl,
 	}, func(shortcut fyne.Shortcut) {
-		c.cleanup()
-		c.window.Close()
+		if c.tabManager.TabCount() > 0 {
+			c.tabManager.CloseActiveTab()
+		} else {
+			c.cleanup()
+			c.window.Close()
+		}
 	})
 
-	// Cmd+W for macOS
+	// Cmd+W for macOS — same behaviour
 	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
 		KeyName:  fyne.KeyW,
 		Modifier: fyne.KeyModifierSuper,
 	}, func(shortcut fyne.Shortcut) {
-		c.cleanup()
-		c.window.Close()
+		if c.tabManager.TabCount() > 0 {
+			c.tabManager.CloseActiveTab()
+		} else {
+			c.cleanup()
+			c.window.Close()
+		}
 	})
 
-	// Ctrl+N - New connection
+	// Ctrl+Shift+W — Close all tabs
+	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
+		KeyName:  fyne.KeyW,
+		Modifier: fyne.KeyModifierControl | fyne.KeyModifierShift,
+	}, func(shortcut fyne.Shortcut) {
+		c.tabManager.CloseAllTabs()
+	})
+
+	// Cmd+Shift+W for macOS — Close all tabs
+	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
+		KeyName:  fyne.KeyW,
+		Modifier: fyne.KeyModifierSuper | fyne.KeyModifierShift,
+	}, func(shortcut fyne.Shortcut) {
+		c.tabManager.CloseAllTabs()
+	})
+
+	// Ctrl+N — New connection
 	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
 		KeyName:  fyne.KeyN,
 		Modifier: fyne.KeyModifierControl,
@@ -129,7 +207,7 @@ func (c *ChatApp) setupShortcuts() {
 		c.showConnectDialog()
 	})
 
-	// Ctrl+S - Start server
+	// Ctrl+S — Start server
 	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
 		KeyName:  fyne.KeyS,
 		Modifier: fyne.KeyModifierControl,
@@ -137,15 +215,18 @@ func (c *ChatApp) setupShortcuts() {
 		c.showServerDialog()
 	})
 
-	// Ctrl+H - View history
+	// Ctrl+H — View history / switch to history tab
 	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
 		KeyName:  fyne.KeyH,
 		Modifier: fyne.KeyModifierControl,
 	}, func(shortcut fyne.Shortcut) {
-		c.historyViewer.ShowHistoryDialog()
+		if c.sidebarTabs != nil {
+			c.sidebarTabs.SelectIndex(1)
+		}
+		c.refreshHistorySessions()
 	})
 
-	// Ctrl+L - Toggle logs
+	// Ctrl+L — Toggle logs
 	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
 		KeyName:  fyne.KeyL,
 		Modifier: fyne.KeyModifierControl,
@@ -153,7 +234,15 @@ func (c *ChatApp) setupShortcuts() {
 		c.toggleLogPanel()
 	})
 
-	// Escape - Close log panel if open
+	// Ctrl+R — Refresh history
+	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
+		KeyName:  fyne.KeyR,
+		Modifier: fyne.KeyModifierControl,
+	}, func(shortcut fyne.Shortcut) {
+		c.refreshHistorySessions()
+	})
+
+	// Escape — Close log panel if open
 	c.window.Canvas().AddShortcut(&desktop.CustomShortcut{
 		KeyName: fyne.KeyEscape,
 	}, func(shortcut fyne.Shortcut) {
@@ -167,12 +256,15 @@ func (c *ChatApp) setupShortcuts() {
 func (c *ChatApp) showShortcutsHelp() {
 	shortcuts := `Keyboard Shortcuts:
 
-• Ctrl+W / Cmd+W - Close application
-• Ctrl+N / Cmd+N - Connect to server
-• Ctrl+S / Cmd+S - Start server
-• Ctrl+H / Cmd+H - View history
-• Ctrl+L / Cmd+L - Toggle log panel
-• Enter - Send message (in message field)
+  Ctrl+N / Cmd+N — Connect to server
+  Ctrl+S / Cmd+S — Start server
+  Ctrl+H / Cmd+H — Show history tab
+  Ctrl+L / Cmd+L — Toggle log panel
+  Ctrl+R / Cmd+R — Refresh history
+  Ctrl+W / Cmd+W — Close active tab (quit if none)
+  Ctrl+Shift+W   — Close all tabs
+  Enter — Send message (in message field)
+  Escape — Close log panel
 
 Right-click on sessions or messages for context menus.`
 
@@ -184,11 +276,11 @@ func (c *ChatApp) showVerificationModeNotification() {
 	var modeText string
 	switch c.verificationMode {
 	case VerificationModeStrict:
-		modeText = "Strict - All peers require verification"
+		modeText = "Strict — All peers require verification"
 	case VerificationModeQuick:
-		modeText = "Quick - Known peers auto-accepted"
+		modeText = "Quick — Known peers auto-accepted"
 	case VerificationModeAutoAccept:
-		modeText = "Auto-Accept - All peers accepted (testing only)"
+		modeText = "Auto-Accept — All peers accepted (testing only)"
 	}
 	dialog.ShowInformation("Verification Mode", modeText, c.window)
 	logger.Infof("Verification mode changed to: %s", modeText)

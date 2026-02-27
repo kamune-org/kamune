@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log/slog"
 	"time"
 
 	"github.com/kamune-org/kamune"
@@ -76,7 +75,7 @@ func sessionManagerForTransport(t *kamune.Transport) *kamune.SessionManager {
 	}
 	sm := kamune.NewSessionManager(t.Store(), 24*time.Hour)
 	if sm == nil {
-		slog.Warn("failed to create session manager from transport store")
+		logger.Warn("failed to create session manager from transport store")
 	}
 	return sm
 }

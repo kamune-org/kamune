@@ -31,29 +31,34 @@ type SessionInfo struct {
 
 // HistoryViewer provides functionality to browse and display chat history
 type HistoryViewer struct {
-	window  fyne.Window
-	parent  fyne.Window
-	app     fyne.App
-	storage *kamune.Storage
-	entries []HistoryEntry
-	list    *widget.List
-	dbPath  string
+	window   fyne.Window
+	parent   fyne.Window
+	app      fyne.App
+	storage  *kamune.Storage
+	entries  []HistoryEntry
+	list     *widget.List
+	dbPath   string
+	dbPathFn func() string // returns the current DB path from the app
 }
 
-// NewHistoryViewer creates a new history viewer
-func NewHistoryViewer(app fyne.App, parent fyne.Window) *HistoryViewer {
+// NewHistoryViewer creates a new history viewer.
+// dbPathFn is called each time the viewer needs the current database path.
+func NewHistoryViewer(app fyne.App, parent fyne.Window, dbPathFn func() string) *HistoryViewer {
 	return &HistoryViewer{
-		app:     app,
-		parent:  parent,
-		entries: make([]HistoryEntry, 0),
+		app:      app,
+		parent:   parent,
+		entries:  make([]HistoryEntry, 0),
+		dbPathFn: dbPathFn,
 	}
 }
 
 // ShowHistoryDialog displays a dialog to select database and session for viewing history
 func (h *HistoryViewer) ShowHistoryDialog() {
-	dbEntry := widget.NewEntry()
-	dbEntry.SetPlaceHolder("Path to database file")
-	dbEntry.SetText(getDefaultDBDir())
+	dbPath := h.dbPathFn()
+
+	dbLabel := widget.NewLabel(dbPath)
+	dbLabel.Wrapping = fyne.TextWrapWord
+	dbLabel.Importance = widget.LowImportance
 
 	// Session selection - will be populated when database is loaded
 	sessionSelect := widget.NewSelect([]string{}, nil)
@@ -65,7 +70,7 @@ func (h *HistoryViewer) ShowHistoryDialog() {
 
 	// Load sessions button
 	loadSessionsBtn := widget.NewButtonWithIcon("Load Sessions", theme.FolderOpenIcon(), func() {
-		loadedSessions, err := h.ListSessionsWithInfo(dbEntry.Text)
+		loadedSessions, err := h.ListSessionsWithInfo(dbPath)
 		if err != nil {
 			dialog.ShowError(fmt.Errorf("failed to load sessions: %w", err), h.parent)
 			return
@@ -134,10 +139,10 @@ func (h *HistoryViewer) ShowHistoryDialog() {
 	manualEntry.SetPlaceHolder("Or enter session ID manually...")
 
 	// Form layout
-	dbRow := container.NewBorder(nil, nil, nil, loadSessionsBtn, dbEntry)
+	dbRow := container.NewBorder(nil, nil, nil, loadSessionsBtn, dbLabel)
 
 	content := container.NewVBox(
-		widget.NewLabel("Database Path:"),
+		widget.NewLabel("Database:"),
 		dbRow,
 		widget.NewSeparator(),
 		widget.NewLabel("Select Session:"),
@@ -166,15 +171,16 @@ func (h *HistoryViewer) ShowHistoryDialog() {
 			return
 		}
 
-		h.loadAndShowHistory(dbEntry.Text, sessionID)
+		h.loadAndShowHistory(dbPath, sessionID)
 	}, h.parent)
 	d.Resize(fyne.NewSize(500, 400))
 	d.Show()
 }
 
-// ListSessionsWithInfo returns a list of sessions with metadata from a database
+// ListSessionsWithInfo returns a list of sessions with metadata from a database,
+// sorted by most recent activity first. It delegates to Storage.ListSessionsByRecent
+// which uses cursor seeks and BoltDB bucket stats — no chat payloads are decrypted.
 func (h *HistoryViewer) ListSessionsWithInfo(dbPath string) ([]SessionInfo, error) {
-	// Open storage to get session list
 	storage, err := kamune.OpenStorage(
 		kamune.StorageWithDBPath(dbPath),
 		kamune.StorageWithNoPassphrase(),
@@ -186,29 +192,23 @@ func (h *HistoryViewer) ListSessionsWithInfo(dbPath string) ([]SessionInfo, erro
 		_ = storage.Close()
 	}()
 
-	// Use kamune's ListSessions method
-	sessionIDs, err := storage.ListSessions()
+	summaries, err := storage.ListSessionsByRecent()
 	if err != nil {
 		return nil, fmt.Errorf("listing sessions: %w", err)
 	}
 
-	if len(sessionIDs) == 0 {
+	if len(summaries) == 0 {
 		return []SessionInfo{}, nil
 	}
 
-	sessions := make([]SessionInfo, 0, len(sessionIDs))
-	for _, id := range sessionIDs {
-		info := SessionInfo{ID: id}
-
-		// Try to get message count and timestamps
-		entries, err := storage.GetChatHistory(id)
-		if err == nil && len(entries) > 0 {
-			info.MessageCount = len(entries)
-			info.FirstMessage = entries[0].Timestamp
-			info.LastMessage = entries[len(entries)-1].Timestamp
-		}
-
-		sessions = append(sessions, info)
+	sessions := make([]SessionInfo, 0, len(summaries))
+	for _, s := range summaries {
+		sessions = append(sessions, SessionInfo{
+			ID:           s.ID,
+			MessageCount: s.MessageCount,
+			FirstMessage: s.FirstMessage,
+			LastMessage:  s.LastMessage,
+		})
 	}
 
 	return sessions, nil

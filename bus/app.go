@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/bus/logger"
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 )
 
 // getDefaultDBDir returns the default database path, checking KAMUNE_DB_PATH env var first.
@@ -34,7 +36,7 @@ type notificationConfig struct {
 	soundOnRecv bool
 }
 
-const appVersion = "1.1.0"
+const appVersion = "2.0.0"
 
 // ChatMessage represents a single message in the conversation.
 type ChatMessage struct {
@@ -52,6 +54,25 @@ type Session struct {
 	LastActivity time.Time
 }
 
+// HistorySession represents a past session loaded from the database.
+type HistorySession struct {
+	ID           string
+	Name         string
+	MessageCount int
+	FirstMessage time.Time
+	LastMessage  time.Time
+	Messages     []ChatMessage
+	Loaded       bool
+}
+
+// SidebarMode controls what is displayed in the sidebar.
+type SidebarMode int
+
+const (
+	SidebarModeSessions SidebarMode = iota
+	SidebarModeHistory
+)
+
 // ChatApp is the main application state.
 type ChatApp struct {
 	app    fyne.App
@@ -59,16 +80,15 @@ type ChatApp struct {
 
 	// UI components
 	sessionList    *widget.List
-	messageList    *widget.List
 	messageEntry   *widget.Entry
 	sendButton     *widget.Button
 	statusLabel    *widget.Label
 	fingerprintLbl *widget.Label
 	stopServerBtn  *widget.Button
 
-	// Chat overlays (stored so we can reliably toggle them on session/message changes)
+	// Chat tabs
+	tabManager     *ChatTabManager
 	welcomeOverlay fyne.CanvasObject
-	emptyOverlay   fyne.CanvasObject
 
 	// Log viewer panel
 	logViewer    *LogViewer
@@ -87,7 +107,19 @@ type ChatApp struct {
 	hexFingerprint   string
 	server           *kamune.Server
 
-	// History viewer
+	// Database path (single source of truth for all DB consumers)
+	dbPath string
+
+	// History sessions (past sessions from DB)
+	historySessions   []*HistorySession
+	activeHistSession *HistorySession
+	historyLoaded     bool
+	sidebarMode       SidebarMode
+	historyList       *widget.List
+	sidebarTabs       *container.AppTabs
+	historyRefreshBtn *widget.Button
+
+	// History viewer (standalone window)
 	historyViewer *HistoryViewer
 
 	// Status indicator
@@ -106,63 +138,313 @@ func NewChatApp(app fyne.App, window fyne.Window) *ChatApp {
 	c := &ChatApp{
 		app:              app,
 		window:           window,
+		dbPath:           getDefaultDBDir(),
 		sessions:         make([]*Session, 0),
+		historySessions:  make([]*HistorySession, 0),
 		stopChan:         make(chan struct{}),
-		verificationMode: VerificationModeQuick, // Auto-accept known peers
+		verificationMode: VerificationModeQuick,
+		sidebarMode:      SidebarModeSessions,
 	}
-	c.historyViewer = NewHistoryViewer(app, window)
+	c.historyViewer = NewHistoryViewer(app, window, c.DBPath)
 	c.statusIndicator = NewStatusIndicator()
 	c.notifications = notificationConfig{enabled: true, soundOnRecv: false}
 	c.verifier = NewGUIVerifier(app, window)
 	c.logViewer = NewLogViewer()
+	c.tabManager = NewChatTabManager(c)
 	return c
 }
 
 // BuildUI constructs the main user interface.
 func (c *ChatApp) BuildUI() fyne.CanvasObject {
-	// Set up menus
 	c.setupMenus()
-
-	// Set up keyboard shortcuts
 	c.setupShortcuts()
 
-	// Create the session list panel (left sidebar)
+	// Left sidebar with tabs for sessions and history
 	sessionPanel := c.buildSessionPanel()
 
-	// Create the chat panel (center)
+	// Center chat panel
 	chatPanel := c.buildChatPanel()
 
-	// Create the status bar (bottom)
+	// Bottom status bar
 	statusBar := c.buildStatusBar()
 
-	// Build log panel (hidden by default)
+	// Log panel (hidden by default)
 	c.logPanel = c.buildLogPanel()
 	c.logPanel.Hide()
 
-	// Main layout with split view
+	// Horizontal split: sidebar | chat
 	split := container.NewHSplit(sessionPanel, chatPanel)
-	split.SetOffset(0.25)
+	split.SetOffset(0.26)
 
-	// Create vertical split for log panel
+	// Vertical split for log panel
 	c.mainSplit = container.NewVSplit(split, c.logPanel)
-	c.mainSplit.SetOffset(1.0) // Log panel hidden
+	c.mainSplit.SetOffset(1.0)
 
-	// Combine with status bar
 	mainContent := container.NewBorder(nil, statusBar, nil, nil, c.mainSplit)
 
 	// Start log viewer
 	c.logViewer.Start()
 
+	// Load fingerprint and history from existing storage in a single DB open.
+	go c.initFromStorage()
+
 	return mainContent
+}
+
+// initFromStorage opens the database once on startup to load both the
+// identity fingerprint and history sessions, avoiding redundant DB opens.
+func (c *ChatApp) initFromStorage() {
+	dbPath := c.DBPath()
+
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return
+	}
+
+	storage, err := kamune.OpenStorage(
+		kamune.StorageWithDBPath(dbPath),
+		kamune.StorageWithNoPassphrase(),
+	)
+	if err != nil {
+		logger.Debugf("No existing storage to load from: %v", err)
+		return
+	}
+	defer func() { _ = storage.Close() }()
+
+	// ── Fingerprint ──
+	pubKey, err := storage.PublicKey()
+	if err != nil {
+		logger.Debugf("No identity key found in storage: %v", err)
+	} else {
+		fp := strings.Join(fingerprint.Emoji(pubKey), " • ")
+		hexFp := fingerprint.Hex(pubKey)
+
+		c.mu.Lock()
+		c.emojiFingerprint = fp
+		c.hexFingerprint = hexFp
+		c.mu.Unlock()
+
+		c.runOnMain(func() {
+			if c.fingerprintLbl != nil {
+				c.fingerprintLbl.SetText(fp)
+			}
+		})
+
+		logger.Infof("Loaded fingerprint from existing identity")
+	}
+
+	// ── History sessions ──
+	c.loadHistoryFromStorage(storage)
+}
+
+// DBPath returns the current database path.
+func (c *ChatApp) DBPath() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.dbPath
+}
+
+// SetDBPath updates the database path and refreshes history.
+func (c *ChatApp) SetDBPath(path string) {
+	c.mu.Lock()
+	c.dbPath = path
+	c.mu.Unlock()
+
+	logger.Infof("Database path changed to: %s", path)
+	c.refreshHistorySessions()
+}
+
+// loadHistorySessions opens the database and loads history sessions.
+// Use loadHistoryFromStorage when you already have an open *Storage.
+func (c *ChatApp) loadHistorySessions(dbPath string) {
+	storage, err := kamune.OpenStorage(
+		kamune.StorageWithDBPath(dbPath),
+		kamune.StorageWithNoPassphrase(),
+	)
+	if err != nil {
+		logger.Errorf("failed to open history database: %v", err)
+		return
+	}
+	defer func() { _ = storage.Close() }()
+
+	c.loadHistoryFromStorage(storage)
+}
+
+// loadHistoryFromStorage loads past sessions from an already-open storage
+// into the sidebar. It uses ListSessionsByRecent which obtains timestamps via
+// cursor seeks and key counts from BoltDB stats — no chat payloads are
+// decrypted.
+func (c *ChatApp) loadHistoryFromStorage(storage *kamune.Storage) {
+	summaries, err := storage.ListSessionsByRecent()
+	if err != nil {
+		logger.Errorf("failed to list history sessions: %v", err)
+		return
+	}
+
+	if len(summaries) == 0 {
+		c.mu.Lock()
+		c.historyLoaded = true
+		c.mu.Unlock()
+		return
+	}
+
+	sessions := make([]*HistorySession, 0, len(summaries))
+	for _, s := range summaries {
+		sessions = append(sessions, &HistorySession{
+			ID:           s.ID,
+			MessageCount: s.MessageCount,
+			FirstMessage: s.FirstMessage,
+			LastMessage:  s.LastMessage,
+			Name:         s.Name,
+		})
+	}
+
+	c.mu.Lock()
+	c.historySessions = sessions
+	c.historyLoaded = true
+	c.mu.Unlock()
+
+	c.runOnMain(func() {
+		if c.historyList != nil {
+			c.historyList.Refresh()
+		}
+	})
+
+	logger.Infof("Loaded %d history sessions", len(sessions))
+}
+
+// loadHistoryMessages loads the full chat messages for a history session.
+func (c *ChatApp) loadHistoryMessages(hs *HistorySession) error {
+	if hs.Loaded {
+		return nil
+	}
+
+	dbPath := c.DBPath()
+
+	storage, err := kamune.OpenStorage(
+		kamune.StorageWithDBPath(dbPath),
+		kamune.StorageWithNoPassphrase(),
+	)
+	if err != nil {
+		return fmt.Errorf("opening database: %w", err)
+	}
+	defer func() { _ = storage.Close() }()
+
+	entries, err := storage.GetChatHistory(hs.ID)
+	if err != nil {
+		return fmt.Errorf("loading history: %w", err)
+	}
+
+	msgs := make([]ChatMessage, 0, len(entries))
+	for _, entry := range entries {
+		msgs = append(msgs, ChatMessage{
+			Text:      string(entry.Data),
+			Timestamp: entry.Timestamp,
+			IsLocal:   entry.Sender == kamune.SenderLocal,
+		})
+	}
+
+	c.mu.Lock()
+	hs.Messages = msgs
+	hs.Loaded = true
+	hs.MessageCount = len(msgs)
+	if len(msgs) > 0 {
+		hs.FirstMessage = msgs[0].Timestamp
+		hs.LastMessage = msgs[len(msgs)-1].Timestamp
+	}
+	c.mu.Unlock()
+
+	return nil
+}
+
+// refreshHistorySessions reloads the history session list.
+func (c *ChatApp) refreshHistorySessions() {
+	dbPath := c.DBPath()
+
+	// Reset
+	c.mu.Lock()
+	c.historySessions = make([]*HistorySession, 0)
+	c.activeHistSession = nil
+	c.historyLoaded = false
+	c.mu.Unlock()
+
+	c.runOnMain(func() {
+		if c.historyList != nil {
+			c.historyList.Refresh()
+		}
+	})
+
+	go c.loadHistorySessions(dbPath)
+}
+
+// isViewingHistory returns true if the user is viewing a history session.
+func (c *ChatApp) isViewingHistory() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.activeHistSession != nil && c.activeSession == nil
+}
+
+// dbPathDisplay returns a shortened version of the DB path for UI display.
+func (c *ChatApp) dbPathDisplay() string {
+	p := c.DBPath()
+	home, err := os.UserHomeDir()
+	if err == nil && strings.HasPrefix(p, home) {
+		p = "~" + p[len(home):]
+	}
+	return p
+}
+
+// getDisplayMessages returns messages to show in the message list.
+// Delegates to the selected tab in the tab manager, falling back to
+// direct active session pointers when no tab manager is available.
+func (c *ChatApp) getDisplayMessages() []ChatMessage {
+	if c.tabManager != nil {
+		ct := c.tabManager.SelectedTab()
+		if ct != nil {
+			return c.tabManager.tabMessages(ct)
+		}
+	}
+
+	// Fallback for tests or cases without a tab manager.
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.activeSession != nil {
+		return c.activeSession.Messages
+	}
+	if c.activeHistSession != nil && c.activeHistSession.Loaded {
+		return c.activeHistSession.Messages
+	}
+	return nil
+}
+
+// getDisplaySessionID returns the session ID for the current view.
+// Delegates to the selected tab in the tab manager, falling back to
+// direct active session pointers when no tab manager is available.
+func (c *ChatApp) getDisplaySessionID() string {
+	if c.tabManager != nil {
+		ct := c.tabManager.SelectedTab()
+		if ct != nil {
+			return ct.ID
+		}
+	}
+
+	// Fallback for tests or cases without a tab manager.
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.activeSession != nil {
+		return c.activeSession.ID
+	}
+	if c.activeHistSession != nil {
+		return c.activeHistSession.ID
+	}
+	return ""
 }
 
 // cleanup performs cleanup when closing the application.
 func (c *ChatApp) cleanup() {
-	// Signal background goroutines (e.g. session-info-bar poller) to stop.
-	// Use a select to avoid panicking if stopChan was already closed.
 	select {
 	case <-c.stopChan:
-		// already closed
 	default:
 		close(c.stopChan)
 	}
@@ -170,12 +452,10 @@ func (c *ChatApp) cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Stop log viewer
 	if c.logViewer != nil {
 		c.logViewer.Stop()
 	}
 
-	// Shut down the server listener so ListenAndServe returns.
 	if c.server != nil {
 		if err := c.server.Close(); err != nil {
 			logger.Errorf("failed to close server: %v", err)
@@ -195,8 +475,56 @@ func (c *ChatApp) cleanup() {
 	logger.Info("Application cleanup complete")
 }
 
+// deleteHistorySession removes a session's stored chat history from the database.
+func (c *ChatApp) deleteHistorySession(hs *HistorySession) {
+	if hs == nil {
+		return
+	}
+
+	dialog.ShowConfirm("Delete Session History",
+		fmt.Sprintf("Permanently delete history for session %s?\n\nThis cannot be undone.", truncateSessionID(hs.ID)),
+		func(confirmed bool) {
+			if !confirmed {
+				return
+			}
+
+			go func() {
+				dbPath := c.DBPath()
+
+				storage, err := kamune.OpenStorage(
+					kamune.StorageWithDBPath(dbPath),
+					kamune.StorageWithNoPassphrase(),
+				)
+				if err != nil {
+					c.showError(fmt.Errorf("opening database: %w", err))
+					return
+				}
+				defer func() { _ = storage.Close() }()
+
+				if err := storage.DeleteSession(hs.ID); err != nil {
+					c.showError(fmt.Errorf("deleting session: %w", err))
+					return
+				}
+
+				logger.Infof("Deleted history session: %s", hs.ID)
+
+				// Close the tab if it's open for this session
+				c.tabManager.CloseTab(hs.ID)
+
+				// If we're viewing the deleted session, deselect it
+				c.mu.Lock()
+				if c.activeHistSession == hs {
+					c.activeHistSession = nil
+				}
+				c.mu.Unlock()
+
+				c.refreshHistorySessions()
+			}()
+		}, c.window)
+}
+
 // ---------------------------------------------------------------------------
-// Small helpers
+// Helpers
 // ---------------------------------------------------------------------------
 
 // sendNotification sends a desktop notification if enabled.
@@ -230,25 +558,30 @@ func (c *ChatApp) showError(err error) {
 
 // updateStatus updates the status bar based on current state.
 func (c *ChatApp) updateStatus() {
-	// Compute state under lock, but update widgets on the UI thread.
 	c.mu.RLock()
 	active := c.activeSession
+	histActive := c.activeHistSession
 	sessionCount := len(c.sessions)
 	msgCount := 0
 	activeID := ""
 	if active != nil {
 		activeID = active.ID
 		msgCount = len(active.Messages)
+	} else if histActive != nil {
+		activeID = histActive.ID
+		msgCount = histActive.MessageCount
 	}
 	c.mu.RUnlock()
 
 	var text string
 	if active != nil {
-		text = fmt.Sprintf("Session: %s | Messages: %d", truncateSessionID(activeID), msgCount)
+		text = fmt.Sprintf("Session: %s  •  %d messages", truncateSessionID(activeID), msgCount)
+	} else if histActive != nil {
+		text = fmt.Sprintf("History: %s  •  %d messages", truncateSessionID(activeID), msgCount)
 	} else if sessionCount > 0 {
-		text = fmt.Sprintf("%d session(s) active", sessionCount)
+		text = fmt.Sprintf("%d active session(s)", sessionCount)
 	} else {
-		text = "Not connected"
+		text = "Ready"
 	}
 
 	c.runOnMain(func() {

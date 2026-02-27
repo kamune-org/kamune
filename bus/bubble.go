@@ -5,7 +5,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -48,14 +47,14 @@ func (m *StyledMessageBubble) SetOnCopy(fn func(string)) {
 // CreateRenderer implements fyne.Widget.
 func (m *StyledMessageBubble) CreateRenderer() fyne.WidgetRenderer {
 	background := canvas.NewRectangle(localBubbleColor)
-	background.CornerRadius = 12
+	background.CornerRadius = 14
 	background.StrokeWidth = 0
 
 	senderLabel := canvas.NewText("You", localTextColor)
 	senderLabel.TextStyle = fyne.TextStyle{Bold: true}
 	senderLabel.TextSize = 11
 
-	timeLabel := canvas.NewText("", theme.Color(theme.ColorNamePlaceHolder))
+	timeLabel := canvas.NewText("", textTimestamp)
 	timeLabel.TextSize = 10
 	timeLabel.Alignment = fyne.TextAlignTrailing
 
@@ -80,29 +79,30 @@ type styledBubbleRenderer struct {
 }
 
 func (r *styledBubbleRenderer) Layout(size fyne.Size) {
-	padding := float32(14)
+	paddingH := float32(16)
+	paddingV := float32(12)
 	headerHeight := float32(16)
 
 	r.background.Resize(size)
 	r.background.Move(fyne.NewPos(0, 0))
 
-	r.senderLabel.Move(fyne.NewPos(padding, padding))
-	r.senderLabel.Resize(fyne.NewSize(100, headerHeight))
+	r.senderLabel.Move(fyne.NewPos(paddingH, paddingV))
+	r.senderLabel.Resize(fyne.NewSize(120, headerHeight))
 
-	timeWidth := float32(60)
-	r.timeLabel.Move(fyne.NewPos(size.Width-timeWidth-padding, padding))
+	timeWidth := float32(70)
+	r.timeLabel.Move(fyne.NewPos(size.Width-timeWidth-paddingH, paddingV))
 	r.timeLabel.Resize(fyne.NewSize(timeWidth, headerHeight))
 
-	msgTop := padding + headerHeight + 6
-	r.msgLabel.Move(fyne.NewPos(padding, msgTop))
-	r.msgLabel.Resize(fyne.NewSize(size.Width-padding*2, size.Height-msgTop-padding))
+	msgTop := paddingV + headerHeight + 6
+	r.msgLabel.Move(fyne.NewPos(paddingH, msgTop))
+	r.msgLabel.Resize(fyne.NewSize(size.Width-paddingH*2, size.Height-msgTop-paddingV))
 }
 
 func (r *styledBubbleRenderer) MinSize() fyne.Size {
 	textMin := r.msgLabel.MinSize()
 	return fyne.NewSize(
-		fyne.Max(textMin.Width+28, 220),
-		fyne.Max(textMin.Height+56, 72),
+		fyne.Max(textMin.Width+32, 240),
+		fyne.Max(textMin.Height+58, 74),
 	)
 }
 

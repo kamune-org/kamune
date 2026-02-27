@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -8,6 +9,306 @@ import (
 	"github.com/kamune-org/kamune"
 	"github.com/stretchr/testify/assert"
 )
+
+// TestHistorySessionCreation verifies HistorySession struct creation
+func TestHistorySessionCreation(t *testing.T) {
+	a := assert.New(t)
+
+	now := time.Now()
+	hs := &HistorySession{
+		ID:           "hist-session-abc",
+		MessageCount: 42,
+		FirstMessage: now.Add(-1 * time.Hour),
+		LastMessage:  now,
+		Messages:     nil,
+		Loaded:       false,
+	}
+
+	a.Equal("hist-session-abc", hs.ID)
+	a.Equal(42, hs.MessageCount)
+	a.False(hs.Loaded, "history session should not be loaded initially")
+	a.Nil(hs.Messages, "messages should be nil before loading")
+}
+
+// TestHistorySessionLoaded verifies the Loaded flag behavior
+func TestHistorySessionLoaded(t *testing.T) {
+	a := assert.New(t)
+
+	hs := &HistorySession{
+		ID:     "hist-loaded-test",
+		Loaded: false,
+	}
+
+	a.False(hs.Loaded)
+
+	// Simulate loading messages
+	hs.Messages = []ChatMessage{
+		{Text: "Hello from history", Timestamp: time.Now(), IsLocal: true},
+		{Text: "Reply from history", Timestamp: time.Now(), IsLocal: false},
+	}
+	hs.Loaded = true
+	hs.MessageCount = len(hs.Messages)
+
+	a.True(hs.Loaded)
+	a.Equal(2, hs.MessageCount)
+	a.Equal("Hello from history", hs.Messages[0].Text)
+}
+
+// TestSidebarModeConstants verifies SidebarMode enum values
+func TestSidebarModeConstants(t *testing.T) {
+	a := assert.New(t)
+
+	a.Equal(SidebarMode(0), SidebarModeSessions)
+	a.Equal(SidebarMode(1), SidebarModeHistory)
+	a.NotEqual(SidebarModeSessions, SidebarModeHistory)
+}
+
+// TestGetDisplayMessagesNoSession verifies getDisplayMessages with no active session
+func TestGetDisplayMessagesNoSession(t *testing.T) {
+	a := assert.New(t)
+
+	c := &ChatApp{
+		sessions:        make([]*Session, 0),
+		historySessions: make([]*HistorySession, 0),
+	}
+
+	msgs := c.getDisplayMessages()
+	a.Nil(msgs, "should return nil when no session is active")
+}
+
+// TestGetDisplayMessagesLiveSession verifies getDisplayMessages with a live session
+func TestGetDisplayMessagesLiveSession(t *testing.T) {
+	a := assert.New(t)
+
+	session := &Session{
+		ID: "live-session",
+		Messages: []ChatMessage{
+			{Text: "msg1", Timestamp: time.Now(), IsLocal: true},
+			{Text: "msg2", Timestamp: time.Now(), IsLocal: false},
+		},
+	}
+
+	c := &ChatApp{
+		sessions:      []*Session{session},
+		activeSession: session,
+	}
+
+	msgs := c.getDisplayMessages()
+	a.NotNil(msgs)
+	a.Equal(2, len(msgs))
+	a.Equal("msg1", msgs[0].Text)
+}
+
+// TestGetDisplayMessagesHistorySession verifies getDisplayMessages with a history session
+func TestGetDisplayMessagesHistorySession(t *testing.T) {
+	a := assert.New(t)
+
+	hs := &HistorySession{
+		ID:     "hist-session",
+		Loaded: true,
+		Messages: []ChatMessage{
+			{Text: "old-msg1", Timestamp: time.Now().Add(-1 * time.Hour), IsLocal: true},
+			{Text: "old-msg2", Timestamp: time.Now().Add(-30 * time.Minute), IsLocal: false},
+			{Text: "old-msg3", Timestamp: time.Now(), IsLocal: true},
+		},
+		MessageCount: 3,
+	}
+
+	c := &ChatApp{
+		sessions:          make([]*Session, 0),
+		activeSession:     nil,
+		activeHistSession: hs,
+	}
+
+	msgs := c.getDisplayMessages()
+	a.NotNil(msgs)
+	a.Equal(3, len(msgs))
+	a.Equal("old-msg1", msgs[0].Text)
+}
+
+// TestGetDisplayMessagesHistoryNotLoaded verifies nil when history is not loaded
+func TestGetDisplayMessagesHistoryNotLoaded(t *testing.T) {
+	a := assert.New(t)
+
+	hs := &HistorySession{
+		ID:     "hist-not-loaded",
+		Loaded: false,
+	}
+
+	c := &ChatApp{
+		activeHistSession: hs,
+	}
+
+	msgs := c.getDisplayMessages()
+	a.Nil(msgs, "should return nil when history session is not loaded")
+}
+
+// TestGetDisplaySessionID verifies getDisplaySessionID
+func TestGetDisplaySessionID(t *testing.T) {
+	a := assert.New(t)
+
+	// No session
+	c := &ChatApp{}
+	a.Equal("", c.getDisplaySessionID())
+
+	// Live session
+	c.activeSession = &Session{ID: "live-id-123"}
+	a.Equal("live-id-123", c.getDisplaySessionID())
+
+	// Live takes priority over history
+	c.activeHistSession = &HistorySession{ID: "hist-id-456"}
+	a.Equal("live-id-123", c.getDisplaySessionID(), "live session should take priority")
+
+	// Only history
+	c.activeSession = nil
+	a.Equal("hist-id-456", c.getDisplaySessionID())
+}
+
+// TestIsViewingHistory verifies the isViewingHistory helper
+func TestIsViewingHistory(t *testing.T) {
+	a := assert.New(t)
+
+	c := &ChatApp{}
+	a.False(c.isViewingHistory(), "should be false with no sessions")
+
+	c.activeSession = &Session{ID: "live"}
+	a.False(c.isViewingHistory(), "should be false with live session active")
+
+	c.activeHistSession = &HistorySession{ID: "hist"}
+	a.False(c.isViewingHistory(), "should be false when both live and history are set")
+
+	c.activeSession = nil
+	a.True(c.isViewingHistory(), "should be true with only history session active")
+}
+
+// TestLiveTakePriorityOverHistory verifies live session display priority
+func TestLiveTakePriorityOverHistory(t *testing.T) {
+	a := assert.New(t)
+
+	liveSession := &Session{
+		ID:       "live",
+		Messages: []ChatMessage{{Text: "live-msg", IsLocal: true}},
+	}
+	histSession := &HistorySession{
+		ID:       "hist",
+		Loaded:   true,
+		Messages: []ChatMessage{{Text: "hist-msg", IsLocal: true}},
+	}
+
+	c := &ChatApp{
+		activeSession:     liveSession,
+		activeHistSession: histSession,
+	}
+
+	msgs := c.getDisplayMessages()
+	a.Equal(1, len(msgs))
+	a.Equal("live-msg", msgs[0].Text, "live session messages should take priority")
+	a.False(c.isViewingHistory())
+}
+
+// TestAppVersionUpdated verifies version was bumped
+func TestAppVersionUpdated(t *testing.T) {
+	a := assert.New(t)
+
+	a.Equal("2.0.0", appVersion, "appVersion should be 2.0.0 after refactor")
+}
+
+// TestDBPathDefault verifies that DBPath returns the default on construction
+func TestDBPathDefault(t *testing.T) {
+	a := assert.New(t)
+
+	c := &ChatApp{
+		dbPath: getDefaultDBDir(),
+	}
+
+	a.Equal(getDefaultDBDir(), c.DBPath())
+	a.NotEmpty(c.DBPath(), "default DB path should not be empty")
+}
+
+// TestSetDBPath verifies that setting dbPath updates the value returned by DBPath
+func TestSetDBPath(t *testing.T) {
+	a := assert.New(t)
+
+	c := &ChatApp{
+		dbPath: getDefaultDBDir(),
+	}
+
+	original := c.DBPath()
+	a.NotEmpty(original)
+
+	// Simulate what SetDBPath does without triggering UI refresh (no Fyne app in tests)
+	c.mu.Lock()
+	c.dbPath = "/tmp/test-kamune-db"
+	c.mu.Unlock()
+
+	a.Equal("/tmp/test-kamune-db", c.DBPath())
+	a.NotEqual(original, c.DBPath(), "path should have changed")
+
+	// Set back
+	c.mu.Lock()
+	c.dbPath = original
+	c.mu.Unlock()
+	a.Equal(original, c.DBPath())
+}
+
+// TestDBPathDisplay verifies tilde-shortening of home directory
+func TestDBPathDisplay(t *testing.T) {
+	a := assert.New(t)
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+
+	c := &ChatApp{dbPath: home + "/some/path/db"}
+	display := c.dbPathDisplay()
+	a.Equal("~/some/path/db", display, "home dir should be replaced with ~")
+
+	c.dbPath = "/opt/other/db"
+	display = c.dbPathDisplay()
+	a.Equal("/opt/other/db", display, "non-home path should be unchanged")
+
+	c.dbPath = home
+	display = c.dbPathDisplay()
+	a.Equal("~", display, "exact home dir should become ~")
+}
+
+// TestDBPathConcurrency verifies that DBPath is safe for concurrent read/write
+func TestDBPathConcurrency(t *testing.T) {
+	a := assert.New(t)
+
+	c := &ChatApp{
+		dbPath: "/initial/path",
+	}
+
+	var wg sync.WaitGroup
+
+	// Concurrent writers (set dbPath directly under lock to avoid Fyne UI calls)
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			c.mu.Lock()
+			c.dbPath = "/path/" + string(rune('a'+n))
+			c.mu.Unlock()
+		}(i)
+	}
+
+	// Concurrent readers
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p := c.DBPath()
+			a.NotEmpty(p, "DBPath should never be empty during concurrent access")
+		}()
+	}
+
+	wg.Wait()
+
+	// Final value should be one of the written paths
+	a.NotEmpty(c.DBPath())
+}
 
 // TestSessionCreation verifies that sessions are properly created and stored
 func TestSessionCreation(t *testing.T) {
@@ -330,6 +631,7 @@ func TestChatAppVersionConstant(t *testing.T) {
 	a := assert.New(t)
 
 	a.NotEmpty(appVersion, "appVersion should not be empty")
+	a.Equal("2.0.0", appVersion, "appVersion should be 2.0.0")
 
 	// Version should be in semver format (basic check)
 	a.GreaterOrEqual(len(appVersion), 5, "appVersion '%s' seems too short for semver", appVersion)

@@ -33,7 +33,7 @@ func ShowContextMenu(window fyne.Window, items []ContextMenuItem, pos fyne.Posit
 }
 
 // CreateSessionContextMenu creates context menu items for a session.
-func CreateSessionContextMenu(app fyne.App, window fyne.Window, sessionID string, onDisconnect, onInfo func()) []ContextMenuItem {
+func CreateSessionContextMenu(app fyne.App, window fyne.Window, sessionID string, onDisconnect, onInfo, onRename func()) []ContextMenuItem {
 	return []ContextMenuItem{
 		{
 			Label: "Copy Session ID",
@@ -44,6 +44,11 @@ func CreateSessionContextMenu(app fyne.App, window fyne.Window, sessionID string
 		},
 		{Label: "---"},
 		{
+			Label:  "Rename Session",
+			Icon:   theme.DocumentCreateIcon(),
+			Action: onRename,
+		},
+		{
 			Label:  "Session Info",
 			Icon:   theme.InfoIcon(),
 			Action: onInfo,
@@ -53,6 +58,36 @@ func CreateSessionContextMenu(app fyne.App, window fyne.Window, sessionID string
 			Label:  "Disconnect",
 			Icon:   theme.CancelIcon(),
 			Action: onDisconnect,
+		},
+	}
+}
+
+// CreateHistoryContextMenu creates context menu items for a history session.
+func CreateHistoryContextMenu(app fyne.App, window fyne.Window, sessionID string, onInfo, onRename, onDelete func()) []ContextMenuItem {
+	return []ContextMenuItem{
+		{
+			Label: "Copy Session ID",
+			Icon:  theme.ContentCopyIcon(),
+			Action: func() {
+				app.Clipboard().SetContent(sessionID)
+			},
+		},
+		{Label: "---"},
+		{
+			Label:  "Rename Session",
+			Icon:   theme.DocumentCreateIcon(),
+			Action: onRename,
+		},
+		{
+			Label:  "Session Info",
+			Icon:   theme.InfoIcon(),
+			Action: onInfo,
+		},
+		{Label: "---"},
+		{
+			Label:  "Delete Session",
+			Icon:   theme.DeleteIcon(),
+			Action: onDelete,
 		},
 	}
 }
