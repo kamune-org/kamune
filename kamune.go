@@ -14,10 +14,19 @@ import (
 const (
 	// must be less than or equal to 65535 ([math.MaxUint16])
 	maxTransportSize = 50 * 1024
-	saltSize         = 16
-	sessionIDLength  = 20
-	challengeSize    = 32
-	maxPadding       = 256
+
+	// exportKeySize is the size of symmetric keys exported from the HPKE
+	// context for bidirectional transport encryption.
+	exportKeySize = 32
+
+	// handshakeTimeout bounds the entire handshake so a peer can't block
+	// indefinitely mid-flight.
+	handshakeTimeout = 30 * time.Second
+
+	saltSize        = 16
+	sessionIDLength = 20
+	challengeSize   = 32
+	maxPadding      = 256
 
 	c2s = "client-to-server"
 	s2c = "server-to-client"

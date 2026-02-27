@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"bytes"
 	"crypto/rand"
 	"net"
 	"os"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
 )
 
@@ -97,4 +99,114 @@ func TestHandshake(t *testing.T) {
 	a.Equal(metadata2.ID(), receivedMetadata2.ID())
 	a.Equal(metadata2.Timestamp(), receivedMetadata2.Timestamp())
 	a.Equal(metadata2.SequenceNum(), receivedMetadata2.SequenceNum())
+}
+
+func BenchmarkValidateHandshakeFields_OK(b *testing.B) {
+	salt := make([]byte, saltSize)
+	sessionKey := bytes.Repeat([]byte{'A'}, sessionIDLength/2)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := validateHandshakeFields(salt, string(sessionKey)); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkValidateHandshakeFields_BadSalt(b *testing.B) {
+	salt := make([]byte, saltSize-1)
+	sessionKey := bytes.Repeat([]byte{'A'}, sessionIDLength/2)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = validateHandshakeFields(salt, string(sessionKey))
+	}
+}
+
+func BenchmarkValidateHandshakeFields_BadSessionKey(b *testing.B) {
+	salt := make([]byte, saltSize)
+	sessionKey := bytes.Repeat([]byte{'A'}, sessionIDLength/2-1)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = validateHandshakeFields(salt, string(sessionKey))
+	}
+}
+
+func BenchmarkHandshakeTranscriptHash_HandshakeFieldsTypical(b *testing.B) {
+	// Model a typical handshake (inner pb.Handshake fields only):
+	// - req.Key: initiator HPKE public key bytes (small)
+	// - resp.Key: HPKE enc bytes (small/moderate)
+	// - salts: 16 bytes
+	// - session prefix/suffix: 10 chars each
+	//
+	// Note: these sizes are representative; the benchmark is about per-call
+	// overhead rather than exact on-wire sizing.
+	req := &pb.Handshake{
+		Key:        make([]byte, 64),
+		Salt:       make([]byte, saltSize),
+		SessionKey: "AAAAAAAAAA",
+	}
+	resp := &pb.Handshake{
+		Key:        make([]byte, 128),
+		Salt:       make([]byte, saltSize),
+		SessionKey: "BBBBBBBBBB",
+	}
+
+	// Bytes processed by the hasher inside handshakeTranscriptHash:
+	// domain label + length prefixes + field bytes.
+	totalBytes :=
+		len("kamune/handshake/v1") +
+			4 + len(req.GetKey()) +
+			4 + len(req.GetSalt()) +
+			4 + len(req.GetSessionKey()) +
+			4 + len(resp.GetKey()) +
+			4 + len(resp.GetSalt()) +
+			4 + len(resp.GetSessionKey())
+
+	b.ReportAllocs()
+	b.SetBytes(int64(totalBytes))
+	for b.Loop() {
+		_ = handshakeTranscriptHash(req, resp)
+	}
+}
+
+func BenchmarkHandshakeTranscriptHash_LargeKeyMaterial(b *testing.B) {
+	// Stress case: larger KEM/enc blobs (still hashing only inner fields).
+	req := &pb.Handshake{
+		Key:        make([]byte, 2048),
+		Salt:       make([]byte, saltSize),
+		SessionKey: "AAAAAAAAAA",
+	}
+	resp := &pb.Handshake{
+		Key:        make([]byte, 2048),
+		Salt:       make([]byte, saltSize),
+		SessionKey: "BBBBBBBBBB",
+	}
+
+	totalBytes :=
+		len("kamune/handshake/v1") +
+			4 + len(req.GetKey()) +
+			4 + len(req.GetSalt()) +
+			4 + len(req.GetSessionKey()) +
+			4 + len(resp.GetKey()) +
+			4 + len(resp.GetSalt()) +
+			4 + len(resp.GetSessionKey())
+
+	b.ReportAllocs()
+	b.SetBytes(int64(totalBytes))
+	for b.Loop() {
+		_ = handshakeTranscriptHash(req, resp)
+	}
+}
+
+func BenchmarkDeriveChallengeInfo(b *testing.B) {
+	sessionID := "12345678901234567890" // sessionIDLength
+	direction := c2s
+	var transcriptHash [32]byte
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = deriveChallengeInfo(sessionID, direction, transcriptHash)
+	}
 }
