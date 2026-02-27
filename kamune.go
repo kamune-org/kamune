@@ -43,7 +43,8 @@ func Bytes(b []byte) *wrapperspb.BytesValue {
 
 // Metadata contains metadata about a received message.
 type Metadata struct {
-	pb *pb.Metadata
+	pb    *pb.Metadata
+	route Route
 }
 
 // ID returns the unique message ID.
@@ -52,8 +53,11 @@ func (m Metadata) ID() string { return m.pb.GetID() }
 // Timestamp returns the time the message was sent.
 func (m Metadata) Timestamp() time.Time { return m.pb.Timestamp.AsTime() }
 
-// SequenceNum returns the message sequence number.
+// SequenceNum returns the per-message sequence number.
 func (m Metadata) SequenceNum() uint64 { return m.pb.GetSequence() }
+
+// Route returns the route associated with this message.
+func (m Metadata) Route() Route { return m.route }
 
 // protoMarshal marshals a protobuf message to bytes.
 func protoMarshal(msg Transferable) ([]byte, error) {

@@ -54,7 +54,7 @@ func requestHandshake(
 		SessionKey: state.sessionPrefix,
 	}
 
-	reqBytes, _, err := pt.serialize(req, RouteRequestHandshake)
+	reqBytes, _, err := pt.serialize(req, RouteRequestHandshake, 0)
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake request: %w", err)
 	}
@@ -70,7 +70,7 @@ func requestHandshake(
 	}
 
 	var resp pb.Handshake
-	_, route, err := pt.deserialize(respBytes, &resp)
+	_, route, _, err := pt.deserialize(respBytes, &resp)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing handshake response: %w", err)
 	}
@@ -145,7 +145,7 @@ func acceptHandshake(
 	}
 
 	var req pb.Handshake
-	_, route, err := pt.deserialize(reqBytes, &req)
+	_, route, _, err := pt.deserialize(reqBytes, &req)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing handshake request: %w", err)
 	}
@@ -176,7 +176,7 @@ func acceptHandshake(
 		SessionKey: state.sessionSuffix,
 	}
 
-	respBytes, _, err := pt.serialize(resp, RouteAcceptHandshake)
+	respBytes, _, err := pt.serialize(resp, RouteAcceptHandshake, 0)
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake response: %w", err)
 	}

@@ -132,7 +132,7 @@ func newPlainTransport(
 }
 
 func (pt *plainTransport) serialize(
-	msg Transferable, route Route,
+	msg Transferable, route Route, sequence uint64,
 ) ([]byte, *Metadata, error) {
 	message, err := proto.Marshal(msg)
 	if err != nil {
@@ -146,7 +146,7 @@ func (pt *plainTransport) serialize(
 	md := &pb.Metadata{
 		ID:        rand.Text(),
 		Timestamp: timestamppb.Now(),
-		Sequence:  uint64(route),
+		Sequence:  sequence,
 	}
 	st := &pb.SignedTransport{
 		Data:      message,
@@ -160,27 +160,28 @@ func (pt *plainTransport) serialize(
 		return nil, nil, fmt.Errorf("marshalling transport: %w", err)
 	}
 
-	return payload, &Metadata{md}, nil
+	return payload, &Metadata{md, route}, nil
 }
 
 func (pt *plainTransport) deserialize(
 	payload []byte, dst Transferable,
-) (*Metadata, Route, error) {
+) (*Metadata, Route, uint64, error) {
 	var st pb.SignedTransport
 	if err := proto.Unmarshal(payload, &st); err != nil {
-		return nil, RouteInvalid, fmt.Errorf("unmarshalling transport: %w", err)
+		return nil, RouteInvalid, 0, fmt.Errorf("unmarshalling transport: %w", err)
 	}
 
 	msg := st.GetData()
 	if ok := pt.id.Verify(pt.remote, msg, st.Signature); !ok {
-		return nil, RouteInvalid, ErrInvalidSignature
+		return nil, RouteInvalid, 0, ErrInvalidSignature
 	}
 	if err := proto.Unmarshal(msg, dst); err != nil {
-		return nil, RouteInvalid, fmt.Errorf("unmarshalling message: %w", err)
+		return nil, RouteInvalid, 0, fmt.Errorf("unmarshalling message: %w", err)
 	}
 
 	route := RouteFromProto(st.GetRoute())
-	return &Metadata{st.GetMetadata()}, route, nil
+	seq := st.GetMetadata().GetSequence()
+	return &Metadata{st.GetMetadata(), route}, route, seq, nil
 }
 
 // SessionState holds the current state of a session for potential resumption.
@@ -254,27 +255,29 @@ func (t *Transport) ReceiveWithRoute(
 		return nil, RouteInvalid, fmt.Errorf("decrypting payload: %w", err)
 	}
 
-	metadata, route, err := t.deserialize(decrypted, dst)
+	metadata, route, seq, err := t.deserialize(decrypted, dst)
 	if err != nil {
 		return nil, RouteInvalid, fmt.Errorf("deserializing: %w", err)
 	}
 
-	// Validate that metadata and transport route agree (defense-in-depth).
-	// We use Metadata.Sequence to carry the Route for logging/debugging.
-	if metadata != nil && metadata.pb != nil {
-		mdRoute := Route(metadata.pb.Sequence)
-		if mdRoute != RouteInvalid && mdRoute != route {
+	// Validate per-message sequence number to detect
+	// duplicates, missing, or out-of-order messages.
+	t.mu.Lock()
+	expected := t.recvSequence + 1
+	if seq != expected {
+		t.mu.Unlock()
+		if seq < expected {
 			return nil, RouteInvalid, fmt.Errorf(
-				"%w: metadata route %s does not match transport route %s",
-				ErrUnexpectedRoute,
-				mdRoute,
-				route,
+				"%w: duplicate message seq %d, expected %d",
+				ErrOutOfSync, seq, expected,
 			)
 		}
+		return nil, RouteInvalid, fmt.Errorf(
+			"%w: missing messages, got seq %d, expected %d",
+			ErrOutOfSync, seq, expected,
+		)
 	}
-
-	t.mu.Lock()
-	t.recvSequence++
+	t.recvSequence = seq
 	t.mu.Unlock()
 
 	return metadata, route, nil
@@ -303,7 +306,12 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
 	}
 
-	payload, metadata, err := t.serialize(message, route)
+	t.mu.Lock()
+	t.sendSequence++
+	seq := t.sendSequence
+	t.mu.Unlock()
+
+	payload, metadata, err := t.serialize(message, route, seq)
 	if err != nil {
 		return nil, fmt.Errorf("serializing: %w", err)
 	}
@@ -315,10 +323,6 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 	if err := t.conn.WriteBytes(encrypted); err != nil {
 		return nil, fmt.Errorf("writing: %w", err)
 	}
-
-	t.mu.Lock()
-	t.sendSequence++
-	t.mu.Unlock()
 
 	return metadata, nil
 }
