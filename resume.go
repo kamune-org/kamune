@@ -10,11 +10,24 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
 	resumeChallengeSize = 32
 	resumeTimeout       = 30 * time.Second
+)
+
+const (
+	// Domain separation labels for reconnect message encryption.
+	//
+	// We intentionally use distinct labels for each direction to reduce the risk
+	// of key/nonce reuse in case of implementation errors and to provide clearer
+	// protocol separation.
+	reconnectC2SEncryptInfo = "kamune/reconnect/c2s/encrypt/v1"
+	reconnectC2SDecryptInfo = "kamune/reconnect/c2s/decrypt/v1"
+	reconnectS2CEncryptInfo = "kamune/reconnect/s2c/encrypt/v1"
+	reconnectS2CDecryptInfo = "kamune/reconnect/s2c/decrypt/v1"
 )
 
 var (
@@ -49,6 +62,172 @@ type SessionResumer struct {
 	maxSessionAge  time.Duration
 }
 
+// sessionAgeOK enforces the configured max session age for resumption.
+// We accept UpdatedAt as the primary freshness signal (because it moves forward
+// across resumption and normal session updates). If UpdatedAt is missing, we
+// fall back to CreatedAt. If both are missing, we fail closed.
+func (sr *SessionResumer) sessionAgeOK(state *SessionState) error {
+	if sr.maxSessionAge <= 0 {
+		return nil
+	}
+	if state == nil {
+		return ErrSessionTooOld
+	}
+
+	// Prefer UpdatedAt if available; otherwise fall back to CreatedAt.
+	t := state.UpdatedAt
+	if t.IsZero() {
+		t = state.CreatedAt
+	}
+
+	// Fail closed if we cannot establish the session's age.
+	if t.IsZero() {
+		return ErrSessionTooOld
+	}
+
+	if time.Since(t) > sr.maxSessionAge {
+		return ErrSessionTooOld
+	}
+
+	return nil
+}
+
+// encryptSignedTransport encrypts a SignedTransport payload (protobuf bytes)
+// using a key derived from the session shared secret.
+//
+// The ciphertext is stored in SignedTransport.Data, and the signature covers
+// the encrypted Data bytes.
+func (sr *SessionResumer) encryptSignedTransport(sharedSecret []byte, info string, st *pb.SignedTransport) error {
+	if st == nil {
+		return errors.New("nil signed transport")
+	}
+	// Nothing to do if there's no data.
+	if len(st.Data) == 0 {
+		return nil
+	}
+
+	e, err := enigma.NewEnigma(sharedSecret, nil, []byte(info))
+	if err != nil {
+		return fmt.Errorf("creating reconnect encryptor: %w", err)
+	}
+	st.Data = e.Encrypt(st.Data)
+	return nil
+}
+
+// decryptSignedTransport decrypts SignedTransport.Data using a key derived from
+// the session shared secret.
+func (sr *SessionResumer) decryptSignedTransport(sharedSecret []byte, info string, st *pb.SignedTransport) error {
+	if st == nil {
+		return errors.New("nil signed transport")
+	}
+	if len(st.Data) == 0 {
+		return nil
+	}
+
+	e, err := enigma.NewEnigma(sharedSecret, nil, []byte(info))
+	if err != nil {
+		return fmt.Errorf("creating reconnect decryptor: %w", err)
+	}
+	plain, err := e.Decrypt(st.Data)
+	if err != nil {
+		return fmt.Errorf("decrypting reconnect payload: %w", err)
+	}
+	st.Data = plain
+	return nil
+}
+
+// sendSignedMessageWithSecret sends a signed reconnect message.
+//
+// If sharedSecret is non-empty, it encrypts the message payload first (with the
+// provided info label) and then signs the encrypted bytes. This reduces metadata
+// leakage during resumption while still authenticating the ciphertext.
+func (sr *SessionResumer) sendSignedMessageWithSecret(
+	conn Conn,
+	sharedSecret []byte,
+	encryptInfo string,
+	msg Transferable,
+	route Route,
+) error {
+	data, err := marshalMessage(msg)
+	if err != nil {
+		return fmt.Errorf("marshaling message: %w", err)
+	}
+
+	st := &pb.SignedTransport{
+		Data:    data,
+		Padding: padding(maxPadding),
+		Route:   route.ToProto(),
+	}
+
+	if len(sharedSecret) > 0 && encryptInfo != "" {
+		if err := sr.encryptSignedTransport(sharedSecret, encryptInfo, st); err != nil {
+			return err
+		}
+	}
+
+	sig, err := sr.attester.Sign(st.Data)
+	if err != nil {
+		return fmt.Errorf("signing message: %w", err)
+	}
+	st.Signature = sig
+
+	payload, err := proto.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("marshaling transport: %w", err)
+	}
+
+	if err := conn.WriteBytes(payload); err != nil {
+		return fmt.Errorf("writing: %w", err)
+	}
+
+	return nil
+}
+
+// receiveSignedMessageWithSecret receives, verifies, and decrypts (when possible)
+// a signed reconnect message.
+func (sr *SessionResumer) receiveSignedMessageWithSecret(
+	conn Conn,
+	sharedSecret []byte,
+	decryptInfo string,
+	dst Transferable,
+	remotePublicKey []byte,
+) (Route, error) {
+	payload, err := conn.ReadBytes()
+	if err != nil {
+		return RouteInvalid, fmt.Errorf("reading: %w", err)
+	}
+
+	var st pb.SignedTransport
+	if err := proto.Unmarshal(payload, &st); err != nil {
+		return RouteInvalid, fmt.Errorf("unmarshaling transport: %w", err)
+	}
+
+	// Verify signature over the current Data bytes (encrypted or plaintext).
+	remoteKey, err := sr.storage.algorithm.Identitfier().ParsePublicKey(remotePublicKey)
+	if err != nil {
+		return RouteInvalid, fmt.Errorf("parsing remote key: %w", err)
+	}
+
+	if !sr.storage.algorithm.Identitfier().Verify(remoteKey, st.Data, st.Signature) {
+		return RouteInvalid, ErrInvalidSignature
+	}
+
+	route := RouteFromProto(st.Route)
+
+	// Decrypt if a shared secret is available.
+	if len(sharedSecret) > 0 && decryptInfo != "" {
+		if err := sr.decryptSignedTransport(sharedSecret, decryptInfo, &st); err != nil {
+			return RouteInvalid, err
+		}
+	}
+
+	if err := unmarshalMessage(st.Data, dst); err != nil {
+		return RouteInvalid, fmt.Errorf("unmarshaling message: %w", err)
+	}
+
+	return route, nil
+}
+
 // NewSessionResumer creates a new session resumer.
 func NewSessionResumer(
 	storage *Storage,
@@ -79,14 +258,19 @@ func (sr *SessionResumer) CanResume(
 		return false, nil, err
 	}
 
-	// Check if session is too old
+	// Must be fully established.
 	if state.Phase != PhaseEstablished {
 		return false, nil, nil
 	}
 
-	// Must have shared secret for resumption
+	// Must have shared secret for resumption.
 	if len(state.SharedSecret) == 0 {
 		return false, nil, nil
+	}
+
+	// Enforce session age if possible.
+	if err := sr.sessionAgeOK(state); err != nil {
+		return false, nil, err
 	}
 
 	return true, state, nil
@@ -96,6 +280,10 @@ func (sr *SessionResumer) CanResume(
 func (sr *SessionResumer) InitiateResumption(
 	conn Conn, state *SessionState,
 ) (*Transport, error) {
+	if err := sr.sessionAgeOK(state); err != nil {
+		return nil, err
+	}
+
 	// Generate a challenge
 	challenge := make([]byte, resumeChallengeSize)
 	if _, err := rand.Read(challenge); err != nil {
@@ -112,14 +300,26 @@ func (sr *SessionResumer) InitiateResumption(
 		ResumeChallenge:  challenge,
 	}
 
-	// Send the reconnect request (unencrypted but signed)
-	if err := sr.sendSignedMessage(conn, req, RouteReconnect); err != nil {
+	// Send the reconnect request (encrypted + signed)
+	if err := sr.sendSignedMessageWithSecret(
+		conn,
+		state.SharedSecret,
+		reconnectC2SEncryptInfo,
+		req,
+		RouteReconnect,
+	); err != nil {
 		return nil, fmt.Errorf("sending reconnect request: %w", err)
 	}
 
-	// Receive response
+	// Receive response (encrypted + signed)
 	var resp pb.ReconnectResponse
-	route, err := sr.receiveSignedMessage(conn, &resp, state.RemotePublicKey)
+	route, err := sr.receiveSignedMessageWithSecret(
+		conn,
+		state.SharedSecret,
+		reconnectS2CDecryptInfo,
+		&resp,
+		state.RemotePublicKey,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("receiving reconnect response: %w", err)
 	}
@@ -158,18 +358,30 @@ func (sr *SessionResumer) InitiateResumption(
 		resp.ServerSendSequence,
 	)
 
-	// Send verification
+	// Send verification (encrypted + signed)
 	verify := &pb.ReconnectVerify{
 		ChallengeResponse: clientChallengeResponse,
 		Verified:          true,
 	}
-	if err := sr.sendSignedMessage(conn, verify, RouteReconnect); err != nil {
+	if err := sr.sendSignedMessageWithSecret(
+		conn,
+		state.SharedSecret,
+		reconnectC2SEncryptInfo,
+		verify,
+		RouteReconnect,
+	); err != nil {
 		return nil, fmt.Errorf("sending verification: %w", err)
 	}
 
-	// Receive completion
+	// Receive completion (encrypted + signed)
 	var complete pb.ReconnectComplete
-	route, err = sr.receiveSignedMessage(conn, &complete, state.RemotePublicKey)
+	route, err = sr.receiveSignedMessageWithSecret(
+		conn,
+		state.SharedSecret,
+		reconnectS2CDecryptInfo,
+		&complete,
+		state.RemotePublicKey,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("receiving completion: %w", err)
 	}
@@ -200,38 +412,50 @@ func (sr *SessionResumer) InitiateResumption(
 func (sr *SessionResumer) HandleResumption(
 	conn Conn, req *pb.ReconnectRequest,
 ) (*Transport, error) {
-	// Look up the session by the client's public key
+	// Look up the session by the client's public key.
 	state, err := sr.sessionManager.LoadSessionByPublicKey(req.RemotePublicKey)
 	if err != nil {
-		if err := sr.sendRejectResponse(conn, "session not found"); err != nil {
+		// Generic rejection to reduce session enumeration.
+		if err := sr.sendRejectResponse(conn, "resumption failed"); err != nil {
 			return nil, err
 		}
 		return nil, fmt.Errorf("loading session: %w", err)
 	}
 
-	// Verify session ID matches
+	// Enforce session age if possible.
+	if err := sr.sessionAgeOK(state); err != nil {
+		// Generic rejection to reduce session enumeration.
+		if err2 := sr.sendRejectResponse(conn, "resumption failed"); err2 != nil {
+			return nil, err2
+		}
+		return nil, ErrSessionTooOld
+	}
+
+	// Verify session ID matches.
 	if state.SessionID != req.SessionId {
-		if err := sr.sendRejectResponse(conn, "session ID mismatch"); err != nil {
+		// Generic rejection to reduce session enumeration.
+		if err := sr.sendRejectResponse(conn, "resumption failed"); err != nil {
 			return nil, err
 		}
 		return nil, ErrSessionMismatch
 	}
 
-	// Verify the session is in a resumable state
+	// Verify the session is in a resumable state.
 	if state.Phase != PhaseEstablished {
-		if err := sr.sendRejectResponse(conn, "session not established"); err != nil {
+		// Generic rejection to reduce session enumeration.
+		if err := sr.sendRejectResponse(conn, "resumption failed"); err != nil {
 			return nil, err
 		}
 		return nil, ErrResumptionNotSupported
 	}
 
-	// Generate server challenge
+	// Generate server challenge.
 	serverChallenge := make([]byte, resumeChallengeSize)
 	if _, err := rand.Read(serverChallenge); err != nil {
 		return nil, fmt.Errorf("generating server challenge: %w", err)
 	}
 
-	// Compute response to client's challenge
+	// Compute response to client's challenge.
 	challengeResponse, err := sr.computeChallengeResponse(
 		req.ResumeChallenge, state.SharedSecret,
 	)
@@ -239,7 +463,7 @@ func (sr *SessionResumer) HandleResumption(
 		return nil, fmt.Errorf("compute challenge response: %w", err)
 	}
 
-	// Send accept response
+	// Send accept response (encrypted + signed).
 	resp := &pb.ReconnectResponse{
 		Accepted:           true,
 		ResumeFromPhase:    state.Phase.ToProto(),
@@ -248,13 +472,25 @@ func (sr *SessionResumer) HandleResumption(
 		ServerSendSequence: state.SendSequence,
 		ServerRecvSequence: state.RecvSequence,
 	}
-	if err := sr.sendSignedMessage(conn, resp, RouteReconnect); err != nil {
+	if err := sr.sendSignedMessageWithSecret(
+		conn,
+		state.SharedSecret,
+		reconnectS2CEncryptInfo,
+		resp,
+		RouteReconnect,
+	); err != nil {
 		return nil, fmt.Errorf("sending accept response: %w", err)
 	}
 
-	// Receive client verification
+	// Receive client verification (encrypted + signed).
 	var verify pb.ReconnectVerify
-	route, err := sr.receiveSignedMessage(conn, &verify, req.RemotePublicKey)
+	route, err := sr.receiveSignedMessageWithSecret(
+		conn,
+		state.SharedSecret,
+		reconnectC2SDecryptInfo,
+		&verify,
+		req.RemotePublicKey,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("receiving verification: %w", err)
 	}
@@ -264,7 +500,7 @@ func (sr *SessionResumer) HandleResumption(
 		)
 	}
 
-	// Verify client's response to our challenge
+	// Verify client's response to our challenge.
 	expectedClientResponse, err := sr.computeChallengeResponse(
 		serverChallenge, state.SharedSecret,
 	)
@@ -274,29 +510,41 @@ func (sr *SessionResumer) HandleResumption(
 	if subtle.ConstantTimeCompare(verify.ChallengeResponse, expectedClientResponse) != 1 {
 		complete := &pb.ReconnectComplete{
 			Success:      false,
-			ErrorMessage: "challenge verification failed",
+			ErrorMessage: "resumption failed",
 		}
-		_ = sr.sendSignedMessage(conn, complete, RouteReconnect)
+		_ = sr.sendSignedMessageWithSecret(
+			conn,
+			state.SharedSecret,
+			reconnectS2CEncryptInfo,
+			complete,
+			RouteReconnect,
+		)
 		return nil, ErrChallengeVerifyFailed
 	}
 
-	// Determine sequence numbers
+	// Determine sequence numbers.
 	resumeSendSeq, resumeRecvSeq := sr.reconcileSequences(
 		state.SendSequence, state.RecvSequence,
 		req.LastRecvSequence, req.LastSendSequence,
 	)
 
-	// Send completion
+	// Send completion (encrypted + signed).
 	complete := &pb.ReconnectComplete{
 		Success:            true,
 		ResumeSendSequence: resumeSendSeq,
 		ResumeRecvSequence: resumeRecvSeq,
 	}
-	if err := sr.sendSignedMessage(conn, complete, RouteReconnect); err != nil {
+	if err := sr.sendSignedMessageWithSecret(
+		conn,
+		state.SharedSecret,
+		reconnectS2CEncryptInfo,
+		complete,
+		RouteReconnect,
+	); err != nil {
 		return nil, fmt.Errorf("sending completion: %w", err)
 	}
 
-	// Create the transport with restored state
+	// Create the transport with restored state.
 	transport, err := sr.restoreTransport(conn, state, resumeSendSeq, resumeRecvSeq)
 	if err != nil {
 		return nil, fmt.Errorf("restoring transport: %w", err)
@@ -392,7 +640,10 @@ func (sr *SessionResumer) restoreTransport(
 	return t, nil
 }
 
-// sendSignedMessage sends a signed but unencrypted message.
+// sendSignedMessage sends a signed (but not encrypted) message.
+//
+// This is used for non-resumption traffic and for resumption rejection paths
+// where no sharedSecret is available.
 func (sr *SessionResumer) sendSignedMessage(conn Conn, msg Transferable, route Route) error {
 	data, err := marshalMessage(msg)
 	if err != nil {
@@ -423,7 +674,7 @@ func (sr *SessionResumer) sendSignedMessage(conn Conn, msg Transferable, route R
 	return nil
 }
 
-// receiveSignedMessage receives and verifies a signed message.
+// receiveSignedMessage receives and verifies a signed (but not encrypted) message.
 func (sr *SessionResumer) receiveSignedMessage(
 	conn Conn,
 	dst Transferable,
@@ -439,7 +690,7 @@ func (sr *SessionResumer) receiveSignedMessage(
 		return RouteInvalid, fmt.Errorf("unmarshaling transport: %w", err)
 	}
 
-	// Verify signature
+	// Verify signature.
 	remoteKey, err := sr.storage.algorithm.Identitfier().ParsePublicKey(remotePublicKey)
 	if err != nil {
 		return RouteInvalid, fmt.Errorf("parsing remote key: %w", err)

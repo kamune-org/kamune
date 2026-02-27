@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -186,6 +187,8 @@ func (pt *plainTransport) deserialize(
 
 // SessionState holds the current state of a session for potential resumption.
 type SessionState struct {
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 	SessionID       string
 	SharedSecret    []byte
 	LocalSalt       []byte

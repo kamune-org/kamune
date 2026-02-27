@@ -534,8 +534,10 @@ func (sm *SessionManager) SaveSession(state *SessionState) error {
 		existing, qErr := c.GetEncrypted(sessionsBucket, key)
 		if qErr == nil {
 			var prev pb.SessionState
-			if err := proto.Unmarshal(existing, &prev); err == nil && prev.CreatedAt != nil {
-				pbState.CreatedAt = prev.CreatedAt
+			if err := proto.Unmarshal(existing, &prev); err == nil {
+				if prev.CreatedAt != nil {
+					pbState.CreatedAt = prev.CreatedAt
+				}
 			}
 		}
 
@@ -553,6 +555,11 @@ func (sm *SessionManager) SaveSession(state *SessionState) error {
 	if len(state.RemotePublicKey) > 0 {
 		sm.RegisterSession(state.SessionID, state.RemotePublicKey)
 	}
+
+	// Populate timestamps on the in-memory state as well (useful for callers
+	// that keep the struct around after persisting).
+	state.UpdatedAt = pbState.UpdatedAt.AsTime()
+	state.CreatedAt = pbState.CreatedAt.AsTime()
 
 	return nil
 }
@@ -576,10 +583,18 @@ func (sm *SessionManager) LoadSession(sessionID string) (*SessionState, error) {
 		return nil, fmt.Errorf("unmarshaling session state: %w", err)
 	}
 
-	// Check if session has expired
+	createdAt := time.Time{}
+	updatedAt := time.Time{}
+	if pbState.CreatedAt != nil {
+		createdAt = pbState.CreatedAt.AsTime()
+	}
 	if pbState.UpdatedAt != nil {
-		lastUpdate := pbState.UpdatedAt.AsTime()
-		if time.Since(lastUpdate) > sm.sessionTimeout {
+		updatedAt = pbState.UpdatedAt.AsTime()
+	}
+
+	// Check if session has expired (based on UpdatedAt).
+	if !updatedAt.IsZero() {
+		if time.Since(updatedAt) > sm.sessionTimeout {
 			// Clean up expired session and its index entry.
 			sm.deleteSessionAndIndex(sessionID, pbState.RemotePublicKey)
 			return nil, ErrSessionExpired
@@ -587,6 +602,8 @@ func (sm *SessionManager) LoadSession(sessionID string) (*SessionState, error) {
 	}
 
 	return &SessionState{
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
 		Phase:           PhaseFromProto(pbState.Phase),
 		SessionID:       pbState.SessionId,
 		IsInitiator:     pbState.IsInitiator,

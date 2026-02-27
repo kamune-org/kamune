@@ -208,7 +208,7 @@ func (s *Server) handleNewConnection(cn Conn, st *pb.SignedTransport) error {
 func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
 	if !s.resumptionConfig.Enabled {
 		slog.Warn("reconnection attempted but resumption is disabled")
-		return s.sendReconnectReject(cn, "session resumption is disabled")
+		return s.sendReconnectReject(cn, "resumption failed")
 	}
 
 	// Parse the reconnect request from the signed transport.
@@ -223,11 +223,11 @@ func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
 		req.RemotePublicKey,
 	)
 	if err != nil {
-		return s.sendReconnectReject(cn, "invalid public key")
+		return s.sendReconnectReject(cn, "resumption failed")
 	}
 
 	if !s.algorithm.Identitfier().Verify(remoteKey, st.Data, st.Signature) {
-		return s.sendReconnectReject(cn, "signature verification failed")
+		return s.sendReconnectReject(cn, "resumption failed")
 	}
 
 	slog.Info("reconnection request received",
@@ -268,14 +268,19 @@ func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
 }
 
 func (s *Server) sendReconnectReject(cn Conn, reason string) error {
+	// Always send a generic rejection reason on the wire to reduce information
+	// leakage / session enumeration. The provided `reason` is used only for logs.
 	resp := &pb.ReconnectResponse{
 		Accepted:     false,
-		ErrorMessage: reason,
+		ErrorMessage: "resumption failed",
 	}
 	if err := s.sendSignedMessage(cn, resp, RouteReconnect); err != nil {
 		return fmt.Errorf("sending reject: %w", err)
 	}
-	return fmt.Errorf("reconnection rejected: %s", reason)
+
+	// Avoid returning an error that includes the specific rejection reason.
+	// Callers can log `reason` explicitly if needed.
+	return fmt.Errorf("reconnection rejected")
 }
 
 func (s *Server) sendSignedMessage(
