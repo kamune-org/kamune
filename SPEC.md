@@ -2,7 +2,7 @@
 
 **Version:** 0.2.0  
 **Status:** Experimental  
-**Suite:** `Ed25519_ML-KEM-768_HKDF_SHA512_ChaCha20-Poly1305X`
+**Suite:** `Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
 
 ---
 
@@ -44,9 +44,9 @@ The protocol operates in three sequential stages — **Introduction**,
 bidirectional channel between two peers without requiring an intermediary server.
 
 The default cipher suite is
-`Ed25519_ML-KEM-768_HKDF_SHA512_ChaCha20-Poly1305X`. An alternative
-fully post-quantum suite substituting ML-DSA-65 for Ed25519 is supported for
-identity signing.
+`Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`.
+An alternative fully post-quantum suite substituting ML-DSA-65 for Ed25519 is
+supported for identity signing.
 
 <picture>
   <img alt="Protocol Overview" src="assets/diagrams/protocol-overview.svg">
@@ -65,8 +65,9 @@ identity signing.
 | **Peer** | A remote party identified by its public key, name, algorithm, and timestamps. |
 | **Transport** | The encrypted, session-aware communication channel between two peers. |
 | **Plain Transport** | The unencrypted, signature-verified serialization layer used during Introduction and Handshake. |
-| **Enigma** | The symmetric encryption/decryption engine wrapping ChaCha20-Poly1305X with HKDF-derived keys. |
-| **Session** | A cryptographic context comprising shared secret, salts, session ID, sequence counters, and phase. |
+| **HPKE** | Hybrid Public Key Encryption (RFC 9180). Performs key encapsulation and key schedule derivation in a single operation during the Handshake phase. Configured with MLKEM768-X25519 KEM, HKDF-SHA256 KDF, and ChaCha20-Poly1305 AEAD. Bidirectional transport keys are exported from the HPKE context. |
+| **Enigma** | The symmetric encryption/decryption engine wrapping XChaCha20-Poly1305 with keys exported from the HPKE context and further derived via HKDF-SHA512. |
+| **Session** | A cryptographic context comprising HPKE-exported shared secret, salts, session ID, sequence counters, and phase. |
 | **Route** | A typed tag on each message identifying its purpose and protocol phase. |
 | **Fingerprint** | A human-readable representation of a public key (emoji, hex, or base64). |
 
@@ -78,20 +79,21 @@ identity signing.
   <img alt="Cipher Suite Architecture" src="assets/diagrams/cipher-suite.svg">
 </picture>
 
-### 3.1 Default Suite: `Ed25519_ML-KEM-768_HKDF_SHA512_ChaCha20-Poly1305X`
+### 3.1 Default Suite: `Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
 
 | Component | Algorithm | Purpose |
 |-----------|-----------|---------|
 | **Identity Signing** | Ed25519 | Digital signatures for authentication and message integrity during Introduction, Handshake, and all signed transports. |
-| **Key Encapsulation** | ML-KEM-768 | Post-quantum key encapsulation mechanism (KEM) for deriving the shared secret during handshake. Uses ephemeral keys per session. |
-| **Key Derivation** | HKDF-SHA512 | HMAC-based extract-and-expand key derivation function. Derives encryption keys, decryption keys, and challenge tokens from the shared secret. |
-| **Symmetric Encryption** | XChaCha20-Poly1305 | Extended-nonce AEAD cipher for bidirectional message encryption and authentication during the Communication phase. |
+| **Key Establishment** | HPKE (RFC 9180) with MLKEM768-X25519 KEM | Hybrid Public Key Encryption using the X-Wing hybrid KEM (ML-KEM-768 + X25519). Performs key encapsulation and derives the shared key schedule in a single operation. Ephemeral keypairs are used per session. Uses Go's standard library `crypto/hpke`. |
+| **HPKE KDF** | HKDF-SHA256 | Key derivation function within the HPKE key schedule. Used internally by HPKE to derive the shared context and for exporting bidirectional symmetric keys. |
+| **HPKE AEAD** | ChaCha20-Poly1305 | AEAD cipher within the HPKE key schedule. Used internally by HPKE for its key scheduling; transport-level encryption uses the exported keys with XChaCha20-Poly1305 (see below). |
+| **Transport Encryption** | XChaCha20-Poly1305 | Extended-nonce AEAD cipher for bidirectional message encryption and authentication during the Communication phase. Keys are exported from the HPKE context. |
 
-### 3.2 Alternative Suite: `ML-DSA-65_ML-KEM-768_HKDF_SHA512_ChaCha20-Poly1305X`
+### 3.2 Alternative Suite: `ML-DSA-65_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
 
 When the `MLDSA` algorithm is selected, ML-DSA-65 (CRYSTALS-Dilithium) replaces
 Ed25519 for identity signing, providing full post-quantum security for both
-key exchange and digital signatures.
+key establishment and digital signatures.
 
 ### 3.3 Algorithm Negotiation
 
@@ -306,22 +308,25 @@ other's authenticated public key and proceed to the Handshake.
 
 ### 7.2 Handshake
 
-The Handshake phase derives a shared secret using ML-KEM-768 key
-encapsulation and establishes session-specific symmetric encryption keys.
+The Handshake phase uses HPKE (RFC 9180) with the hybrid post-quantum
+MLKEM768-X25519 KEM to establish a shared key schedule and derive
+session-specific symmetric encryption keys.
 
 ```
 Initiator                                    Responder
     |                                            |
     |  ---- PlainTransport[REQUEST_HS] ------>   |
     |        Handshake {                         |
-    |          Key:  ML-KEM-768 PublicKey,        |
+    |          Key:  HPKE PublicKey               |
+    |               (MLKEM768-X25519),            |
     |          Salt: 16 random bytes,             |
     |          SessionKey: 10-char prefix          |
     |        }                                   |
     |                                            |
     |   <---- PlainTransport[ACCEPT_HS] ------   |
     |          Handshake {                       |
-    |            Key:  KEM Ciphertext,            |
+    |            Key:  HPKE enc (encapsulated     |
+    |                  key from NewSender),        |
     |            Salt: 16 random bytes,           |
     |            SessionKey: 10-char suffix        |
     |          }                                 |
@@ -330,10 +335,11 @@ Initiator                                    Responder
 
 **Step-by-step:**
 
-1. **Initiator generates ephemeral ML-KEM-768 keypair**:
-   - A fresh ML-KEM-768 decapsulation/encapsulation key pair is generated.
-     This keypair is **ephemeral** — used for this session only and discarded
-     afterward.
+1. **Initiator generates ephemeral HPKE keypair**:
+   - A fresh keypair is generated using `hpke.MLKEM768X25519().GenerateKey()`.
+     The MLKEM768-X25519 KEM (also known as X-Wing) combines ML-KEM-768 for
+     post-quantum resistance with X25519 for classical security. This keypair
+     is **ephemeral** — used for this session only and discarded afterward.
 
 2. **Initiator generates session parameters**:
    - `localSalt`: 16 bytes of cryptographically random data.
@@ -341,7 +347,7 @@ Initiator                                    Responder
      2-7), generated from the custom alphabet `ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`.
 
 3. **Initiator sends `Handshake` request** (route: `ROUTE_REQUEST_HANDSHAKE`):
-   - `Key`: The ML-KEM-768 encapsulation (public) key bytes.
+   - `Key`: The HPKE public key bytes (MLKEM768-X25519 encapsulation key).
    - `Salt`: The initiator's local salt.
    - `SessionKey`: The session ID prefix.
    - This message is serialized via the `plainTransport`, which wraps it in a
@@ -352,46 +358,69 @@ Initiator                                    Responder
      key (from the Introduction phase).
    - The route is validated to be `ROUTE_REQUEST_HANDSHAKE`.
 
-5. **Responder performs ML-KEM-768 encapsulation**:
-   - Using the received encapsulation key, the responder calls
-     `Encapsulate()`, which produces:
-     - `secret`: The 32-byte shared secret.
-     - `ct`: The KEM ciphertext that only the initiator can decapsulate.
-
-6. **Responder generates its own session parameters**:
+5. **Responder generates session parameters**:
    - `localSalt`: 16 bytes of cryptographically random data.
    - `sessionSuffix`: 10 characters of random base32 text.
    - `sessionID`: Concatenation of `sessionPrefix + sessionSuffix` (20
      characters total).
 
-7. **Responder creates symmetric ciphers**:
-   - **Encoder** (for outgoing messages):
-     `HKDF-SHA512(secret, localSalt, sessionID + "server-to-client")` → 
-     `XChaCha20-Poly1305` key.
-   - **Decoder** (for incoming messages):
-     `HKDF-SHA512(secret, remoteSalt, sessionID + "client-to-server")` →
-     `XChaCha20-Poly1305` key.
-   - The info strings `"server-to-client"` and `"client-to-server"` bind the
-     derived keys to their directional role, ensuring the encoder and decoder
-     keys are distinct even if the salts happen to collide.
+6. **Responder creates HPKE Sender context**:
+   - The received public key is parsed via `kem.NewPublicKey()`.
+   - `hpke.NewSender(pubKey, kdf, aead, []byte(sessionID))` is called, which
+     performs KEM encapsulation and derives the full HPKE key schedule in a
+     single operation. This replaces the previous manual `Encapsulate()` +
+     HKDF chain.
+   - The call produces:
+     - `enc`: The encapsulated key (sent back to the initiator).
+     - `sender`: A stateful HPKE Sender context for key export.
+   - The `info` parameter (`sessionID`) binds the key schedule to this
+     specific session.
 
-8. **Responder sends `Handshake` response** (route: `ROUTE_ACCEPT_HANDSHAKE`):
-   - `Key`: The KEM ciphertext.
+7. **Responder exports bidirectional keys and shared secret**:
+   - **c2s key**: `sender.Export(sessionID + "client-to-server", 32)` — used
+     by the initiator's encoder and the responder's decoder.
+   - **s2c key**: `sender.Export(sessionID + "server-to-client", 32)` — used
+     by the responder's encoder and the initiator's decoder.
+   - **shared secret**: `sender.Export(sessionID + "-shared", 32)` — used for
+     challenge verification and session resumption.
+   - These exports use HPKE's `Export` function (RFC 9180, Section 5.3),
+     which derives independent keys from the shared key schedule using
+     distinct exporter contexts.
+
+8. **Responder creates symmetric ciphers**:
+   - **Encoder** (for outgoing messages):
+     `NewEnigma(s2cKey, localSalt, sessionID + "server-to-client")` →
+     XChaCha20-Poly1305 AEAD.
+   - **Decoder** (for incoming messages):
+     `NewEnigma(c2sKey, remoteSalt, sessionID + "client-to-server")` →
+     XChaCha20-Poly1305 AEAD.
+   - The HPKE-exported keys serve as the input keying material (IKM). The
+     directional info strings and per-side salts ensure encoder and decoder
+     keys are distinct.
+
+9. **Responder sends `Handshake` response** (route: `ROUTE_ACCEPT_HANDSHAKE`):
+   - `Key`: The HPKE encapsulated key (`enc`).
    - `Salt`: The responder's local salt.
    - `SessionKey`: The session ID suffix.
 
-9. **Initiator receives the response and decapsulates**:
-   - Verifies the signature and route (`ROUTE_ACCEPT_HANDSHAKE`).
-   - Calls `Decapsulate(ct)` using the ephemeral ML-KEM private key to
-     recover the same 32-byte shared secret.
-   - Constructs `sessionID = sessionPrefix + sessionSuffix`.
+10. **Initiator receives the response and creates HPKE Recipient context**:
+    - Verifies the signature and route (`ROUTE_ACCEPT_HANDSHAKE`).
+    - Constructs `sessionID = sessionPrefix + sessionSuffix`.
+    - `hpke.NewRecipient(enc, privKey, kdf, aead, []byte(sessionID))` is
+      called, which decapsulates the key and derives the same shared key
+      schedule as the sender.
 
-10. **Initiator creates symmetric ciphers** (mirrored):
-    - **Encoder**: `HKDF-SHA512(secret, localSalt, sessionID + "client-to-server")`.
-    - **Decoder**: `HKDF-SHA512(secret, remoteSalt, sessionID + "server-to-client")`.
+11. **Initiator exports bidirectional keys and shared secret**:
+    - Uses the same `Export` calls as the responder (step 7), producing
+      identical keys due to the deterministic HPKE key schedule.
 
-At this point, both parties hold the same shared secret and have established
-matching symmetric cipher pairs. The ephemeral ML-KEM private key is discarded.
+12. **Initiator creates symmetric ciphers** (mirrored):
+    - **Encoder**: `NewEnigma(c2sKey, localSalt, sessionID + "client-to-server")`.
+    - **Decoder**: `NewEnigma(s2cKey, remoteSalt, sessionID + "server-to-client")`.
+
+At this point, both parties hold the same HPKE-derived keys and have
+established matching symmetric cipher pairs. The ephemeral HPKE private key
+is discarded.
 
 ### 7.3 Challenge Exchange
 
@@ -420,7 +449,9 @@ Initiator                                     Responder
 
 1. **Initiator generates and sends challenge**:
    - Derives a 32-byte challenge token:
-     `HKDF-SHA512(secret, nil, sessionID + "client-to-server", 32)`.
+     `HKDF-SHA512(sharedSecret, nil, sessionID + "client-to-server", 32)`.
+     The `sharedSecret` is the HPKE-exported shared secret from the
+     Handshake phase.
    - Encrypts and sends it via the `Transport` (route: `ROUTE_SEND_CHALLENGE`).
      This is the first message encrypted with the session's symmetric keys.
 
@@ -436,7 +467,7 @@ Initiator                                     Responder
 
 4. **Responder generates and sends its own challenge**:
    - Derives a 32-byte challenge token:
-     `HKDF-SHA512(secret, nil, sessionID + "server-to-client", 32)`.
+     `HKDF-SHA512(sharedSecret, nil, sessionID + "server-to-client", 32)`.
    - Encrypts and sends it (route: `ROUTE_SEND_CHALLENGE`).
 
 5. **Initiator receives, decrypts, and echoes**:
@@ -450,9 +481,9 @@ Initiator                                     Responder
 The challenge exchange proves that:
 - The initiator can decrypt messages encrypted by the responder (and vice
   versa).
-- Both parties derived the same shared secret.
+- Both parties derived the same HPKE key schedule and exported identical keys.
 - The session ID is agreed upon.
-- No man-in-the-middle has substituted or tampered with the KEM parameters.
+- No man-in-the-middle has substituted or tampered with the HPKE parameters.
 
 ### 7.4 Communication
 
@@ -496,8 +527,8 @@ the `Transport`:
 ## 8. Protocol Flow: Session Resumption
 
 Session resumption allows peers to re-establish an encrypted channel without
-repeating the full Introduction and Handshake phases, using the shared secret
-from a previously established session.
+repeating the full Introduction and Handshake phases, using the HPKE-exported
+shared secret from a previously established session.
 
 <picture>
   <img alt="Session Resumption Flow" src="assets/diagrams/session-resumption.svg">
@@ -507,9 +538,9 @@ from a previously established session.
 
 - Both parties have a persisted `SessionState` from a prior `Established`
   session.
-- The session state includes: `SessionID`, `SharedSecret`, `LocalSalt`,
-  `RemoteSalt`, `RemotePublicKey`, `SendSequence`, `RecvSequence`, and
-  `IsInitiator`.
+- The session state includes: `SessionID`, `SharedSecret` (the HPKE-exported
+  shared secret), `LocalSalt`, `RemoteSalt`, `RemotePublicKey`,
+  `SendSequence`, `RecvSequence`, and `IsInitiator`.
 - The session has not exceeded `MaxSessionAge` (default: 24 hours).
 
 ### 8.2 Resumption Flow
@@ -570,8 +601,8 @@ Initiator                                      Responder
 
 3. **Responder sends `ReconnectResponse`**:
    - `ChallengeResponse`: `HKDF-SHA512(SharedSecret, nil, ResumeChallenge, 32)` —
-     proves possession of the shared secret by deriving a deterministic
-     response from the initiator's challenge.
+     proves possession of the HPKE-exported shared secret by deriving a
+     deterministic response from the initiator's challenge.
    - `ServerChallenge`: 32 bytes of fresh random data.
    - `ServerSendSequence` / `ServerRecvSequence`: The responder's last known
      sequence numbers, used for reconciliation.
@@ -603,9 +634,14 @@ Initiator                                      Responder
      `ResumeRecvSequence`.
 
 9. **Both parties restore the `Transport`**:
+   - The persisted `SharedSecret` is the value originally exported from the
+     HPKE context during the Handshake phase (via
+     `Export(sessionID + "-shared", 32)`). Since the HPKE context itself is
+     not persisted, resumption relies on the exported secret rather than
+     re-deriving from the HPKE key schedule.
    - Recreate `Enigma` encoder/decoder from the persisted `SharedSecret`,
-     salts, and session ID using the same HKDF derivation as the original
-     handshake.
+     salts, and session ID using the same HKDF-SHA512 derivation as the
+     original handshake.
    - Restore sequence counters to the reconciled values.
    - Set phase to `Established`.
 
@@ -624,43 +660,61 @@ establishing a new one.
   <img alt="Key Derivation Schedule" src="assets/diagrams/key-derivation.svg">
 </picture>
 
-### 9.1 HKDF-SHA512
+### 9.1 HPKE Key Schedule
 
-All key derivation in Kamune uses HKDF (RFC 5869) with SHA-512 as the hash
-function:
+Key establishment in Kamune uses HPKE (Hybrid Public Key Encryption, RFC 9180)
+with the following ciphersuite:
 
-```
-DerivedKey = HKDF-Expand(HKDF-Extract(salt, IKM), info, L)
-```
+- **KEM**: MLKEM768-X25519 (hybrid post-quantum + classical, a.k.a. X-Wing)
+- **KDF**: HKDF-SHA256
+- **AEAD**: ChaCha20-Poly1305
 
-Where:
-- `IKM` (Input Keying Material): The ML-KEM shared secret (32 bytes).
-- `salt`: A 16-byte random value unique to each direction.
-- `info`: A context string binding the key to its purpose.
-- `L`: The output length (32 bytes for ChaCha20-Poly1305 keys, 32 bytes for
-  challenges).
+The HPKE key schedule is established during the Handshake phase:
 
-### 9.2 Key Derivation Schedule
+1. The initiator generates an ephemeral HPKE keypair and sends the public key.
+2. The responder creates an HPKE Sender context via `hpke.NewSender()`, which
+   performs KEM encapsulation and derives the shared key schedule internally.
+3. The initiator creates an HPKE Recipient context via `hpke.NewRecipient()`,
+   which decapsulates and derives the same key schedule.
+4. Both sides use the HPKE `Export` function (RFC 9180, Section 5.3) to
+   derive bidirectional symmetric keys and a shared secret.
 
-From the shared secret `S`, session ID `SID`, initiator salt `IS`, and
+The `info` parameter passed to `NewSender`/`NewRecipient` is the session ID,
+binding the entire key schedule to the specific session.
+
+### 9.2 Key Export Schedule
+
+From the HPKE context `H`, session ID `SID`, initiator salt `IS`, and
 responder salt `RS`:
+
+**HPKE-exported keys (identical on both sides):**
+
+| Key | Export Derivation | Size |
+|-----|-------------------|------|
+| c2s Key | `H.Export(SID \|\| "client-to-server", 32)` | 32 bytes |
+| s2c Key | `H.Export(SID \|\| "server-to-client", 32)` | 32 bytes |
+| Shared Secret | `H.Export(SID \|\| "-shared", 32)` | 32 bytes |
+
+**Transport cipher keys (derived from exported keys via HKDF-SHA512):**
 
 | Key | Derivation | Purpose |
 |-----|-----------|---------|
-| Client Encoder Key | `HKDF(S, IS, SID \|\| "client-to-server", 32)` | Initiator encrypts outgoing messages |
-| Client Decoder Key | `HKDF(S, RS, SID \|\| "server-to-client", 32)` | Initiator decrypts incoming messages |
-| Server Encoder Key | `HKDF(S, RS, SID \|\| "server-to-client", 32)` | Responder encrypts outgoing messages |
-| Server Decoder Key | `HKDF(S, IS, SID \|\| "client-to-server", 32)` | Responder decrypts incoming messages |
-| Client Challenge | `HKDF(S, nil, SID \|\| "client-to-server", 32)` | Initiator's challenge token |
-| Server Challenge | `HKDF(S, nil, SID \|\| "server-to-client", 32)` | Responder's challenge token |
-| Resume Response | `HKDF(S, nil, challenge_bytes, 32)` | Session resumption challenge-response |
+| Client Encoder Key | `HKDF-SHA512(c2sKey, IS, SID \|\| "client-to-server", 32)` | Initiator encrypts outgoing messages |
+| Client Decoder Key | `HKDF-SHA512(s2cKey, RS, SID \|\| "server-to-client", 32)` | Initiator decrypts incoming messages |
+| Server Encoder Key | `HKDF-SHA512(s2cKey, RS, SID \|\| "server-to-client", 32)` | Responder encrypts outgoing messages |
+| Server Decoder Key | `HKDF-SHA512(c2sKey, IS, SID \|\| "client-to-server", 32)` | Responder decrypts incoming messages |
+| Client Challenge | `HKDF-SHA512(SharedSecret, nil, SID \|\| "client-to-server", 32)` | Initiator's challenge token |
+| Server Challenge | `HKDF-SHA512(SharedSecret, nil, SID \|\| "server-to-client", 32)` | Responder's challenge token |
+| Resume Response | `HKDF-SHA512(SharedSecret, nil, challenge_bytes, 32)` | Session resumption challenge-response |
 
 Note: The client's encoder key and the server's decoder key are identical
-(and vice versa), ensuring symmetric decryption.
+(and vice versa), ensuring symmetric decryption. The two-layer derivation
+(HPKE Export → HKDF-SHA512) provides defense in depth: even if one layer
+were weakened, the other would maintain key separation.
 
 ### 9.3 XChaCha20-Poly1305
 
-- **Key size**: 32 bytes (derived via HKDF).
+- **Key size**: 32 bytes (derived via HPKE Export + HKDF-SHA512).
 - **Nonce size**: 24 bytes (extended nonce), generated randomly per encryption.
 - **Tag size**: 16 bytes (Poly1305 authentication tag).
 - **No additional authenticated data (AAD)**: The `nil` AAD parameter is used;
@@ -885,8 +939,9 @@ high-level API:
 ### 14.1 Confidentiality
 
 All application messages are encrypted with XChaCha20-Poly1305 using
-session-specific keys derived from a shared secret established via ML-KEM-768.
-Only the two session participants can decrypt the messages.
+session-specific keys exported from an HPKE context established with the
+hybrid post-quantum MLKEM768-X25519 KEM. Only the two session participants
+can decrypt the messages.
 
 ### 14.2 Integrity
 
@@ -902,9 +957,10 @@ ciphers.
 
 ### 14.4 Forward Secrecy
 
-Each session uses an ephemeral ML-KEM-768 keypair. The shared secret is
-derived from this ephemeral key exchange, not from the long-term identity keys.
-Compromise of a long-term identity key does not reveal past session keys.
+Each session uses an ephemeral HPKE keypair (MLKEM768-X25519). The shared key
+schedule is derived from this ephemeral key encapsulation, not from the
+long-term identity keys. Compromise of a long-term identity key does not
+reveal past session keys.
 
 Note: Within a single session, the same symmetric keys are used for all
 messages (no per-message ratcheting). Forward secrecy is per-session, not
@@ -912,14 +968,19 @@ per-message.
 
 ### 14.5 Post-Quantum Resistance
 
-ML-KEM-768 provides resistance against quantum computer attacks on the key
-exchange. When ML-DSA-65 is used for identity signing, the entire protocol is
+The MLKEM768-X25519 hybrid KEM provides resistance against quantum computer
+attacks on the key establishment. The hybrid construction ensures that the
+protocol remains secure as long as either ML-KEM-768 **or** X25519 remains
+unbroken, providing defense in depth against both classical and quantum
+adversaries.
+
+When ML-DSA-65 is used for identity signing, the entire protocol is
 post-quantum secure.
 
-With the default Ed25519 signing, the key exchange is quantum-resistant but
-the identity signatures are not. An attacker with a quantum computer could
+With the default Ed25519 signing, the key establishment is quantum-resistant
+but the identity signatures are not. An attacker with a quantum computer could
 forge signatures but could not recover session keys from observed
-key exchanges.
+key encapsulations.
 
 ### 14.6 Replay Protection
 
@@ -935,9 +996,13 @@ analysis.
 
 ### 14.8 Key Binding
 
-Derived keys are bound to session-specific context via HKDF info strings that
-incorporate the session ID and directionality (`"client-to-server"` /
-`"server-to-client"`). This prevents key confusion attacks where keys from one
+Keys are bound to session-specific context at two levels:
+1. The HPKE key schedule's `info` parameter is set to the session ID, binding
+   the entire key schedule to the session.
+2. HPKE Export contexts and HKDF-SHA512 info strings incorporate the session
+   ID and directionality (`"client-to-server"` / `"server-to-client"`).
+
+This two-layer binding prevents key confusion attacks where keys from one
 session or direction could be misused in another.
 
 ---
@@ -1080,6 +1145,7 @@ message PubKeySessionIndex {
 | `resumeChallengeSize` | 32 bytes | Size of resumption challenge tokens |
 | `maxPadding` | 256 bytes | Maximum random padding added to messages |
 | `nonceSize` | 24 bytes | XChaCha20-Poly1305 nonce size |
+| `exportKeySize` | 32 bytes | Size of symmetric keys exported from the HPKE context |
 | `keySize` | 32 bytes | ChaCha20-Poly1305 / HKDF output key size |
 | `defaultReadTimeout` | 5 minutes | Default TCP/KCP read deadline |
 | `defaultWriteTimeout` | 1 minute | Default TCP/KCP write deadline |

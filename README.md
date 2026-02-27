@@ -2,8 +2,8 @@
 
 Communication over untrusted networks.
 
-Kamune provides `Ed25519_ML-KEM-768_HKDF_SHA512_ChaCha20-Poly1305X` security
-suite. Optionally, `ML-DSA` can be used for full quantum safety.
+Kamune provides `Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
+security suite. Optionally, `ML-DSA` can be used for full quantum safety.
 
 ![demo](assets/demo.gif)
 
@@ -17,10 +17,13 @@ For a comprehensive technical specification, see [SPEC.md](SPEC.md).
 
 - Message signing and verification using **Ed25519**, with support for
   quantum safe **ML-DSA-65**
-- Ephemeral, quantum-resistant key encapsulation with **ML-KEM-768**
-- Key derivation via **HKDF-SHA512** (HMAC-based extract-and-expand)
-- End-to-End, bidirectional symmetric encryption using **ChaCha20-Poly1305X**
-- Forward secrecy with **ECDH** key exchange
+- Key establishment via **HPKE** ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180))
+  with the hybrid post-quantum **MLKEM768-X25519** KEM (a.k.a. X-Wing),
+  **HKDF-SHA256** KDF, and **ChaCha20-Poly1305** AEAD — using Go's standard
+  library [`crypto/hpke`](https://pkg.go.dev/crypto/hpke)
+- Bidirectional transport keys exported from the HPKE context, used with
+  **XChaCha20-Poly1305** for end-to-end symmetric encryption
+- Forward secrecy via ephemeral HPKE keypairs per session
 - Lightweight, custom protocol implemented in both **TCP and UDP** for minimal
   overhead and latency
 - **Real-time, instant messaging** over socket-based connection
@@ -84,29 +87,30 @@ server, in return, responds with its own public key (ID card). If both parties
 
 ### Handshake
 
-Client creates a new, **ephemeral** (one-time use) ml-kem key. Its public key,
-alongside randomly generated salt and ID prefix are sent to the server.
+Client creates a new, **ephemeral** (one-time use) HPKE keypair using the
+hybrid post-quantum **MLKEM768-X25519** KEM. The public key, alongside a
+randomly generated salt and ID prefix, are sent to the server.
 
-Server uses the received public key to derive a secret (also called shared 
-secret; as well as a ciphertext that we'll get to in a minute). With that secret,
-a decryption cipher is created to decrypt incoming messages. By deriving another
-key from the shared secret, an encryption cipher is also created to encrypt 
-outgoing messages. The ciphertext plus newly generated ID suffix and salt are
-sent back to the client.
+Server parses the received public key and creates an **HPKE Sender context**
+(`hpke.NewSender`). This single call performs KEM encapsulation and derives the
+full HPKE key schedule internally. The encapsulated key (`enc`), a newly
+generated ID suffix, and salt are sent back to the client.
 
-Client uses the received ciphertext and their private key (that was previously
-generated), to derive the same exact shared secret. Then, encryption and
-decryption ciphers are created likewise.
+Client receives the encapsulated key and creates an **HPKE Recipient context**
+(`hpke.NewRecipient`), which decapsulates the key and derives the same shared
+key schedule. Both sides then **export** bidirectional symmetric keys from their
+HPKE context — one key for client-to-server and one for server-to-client — used
+to create XChaCha20-Poly1305 encryption ciphers for the transport layer.
 
-To make sure everyone are on the same page, each party performs a **challenge** 
-to verify that the other party (them) can decipher our messages, and if we can
+To make sure everyone is on the same page, each party performs a **challenge**
+to verify that the other party can decipher our messages, and if we can
 decipher their messages as well.  
-A random text is created by driving a new key from the shared secret and the
+A challenge token is derived from the HPKE-exported shared secret and the
 agreed upon session ID (which was created by concatenating the ID prefix and
 suffix). It is encrypted and sent to the other party. They should decrypt the
 message, encrypt it again with their own encryption cipher, and send it back.  
-If each side receive and successfully verify their text, the handshake is deemed
-successful!
+If each side receives and successfully verifies their token, the handshake is
+deemed successful!
 
 <details>
 <summary>Handshake flow diagram</summary>

@@ -1,4 +1,66 @@
 
+## v0.3.0
+
+### HPKE Integration
+
+- **HPKE Key Establishment:** Replace the manual ML-KEM-768 + HKDF-SHA512
+  handshake chain with Go 1.26's standard library `crypto/hpke` package
+  (RFC 9180). The handshake now uses `hpke.NewSender` / `hpke.NewRecipient`
+  for a single-call key encapsulation and key schedule derivation, replacing
+  the previous `exchange.NewMLKEM` + `exchange.EncapsulateMLKEM` +
+  `enigma.Derive` + `enigma.NewEnigma` chain.
+
+- **Hybrid Post-Quantum KEM:** Upgrade from raw ML-KEM-768 to the hybrid
+  **MLKEM768-X25519** KEM (a.k.a. X-Wing), which combines ML-KEM-768 for
+  post-quantum resistance with X25519 for classical security. The protocol
+  remains secure as long as either algorithm is unbroken.
+
+- **HPKE Export for Bidirectional Keys:** Derive bidirectional transport keys
+  and a shared secret using HPKE's `Export` function (RFC 9180, Section 5.3)
+  with distinct exporter contexts (`client-to-server`, `server-to-client`,
+  `-shared`), replacing the previous direct HKDF derivation from the KEM
+  shared secret.
+
+- **Two-Layer Key Derivation:** Transport cipher keys are now derived through
+  two layers — HPKE Export followed by HKDF-SHA512 — providing defense in
+  depth for key separation.
+
+- **Go 1.26:** Bump minimum Go version from 1.25 to 1.26 to enable
+  `crypto/hpke`.
+
+### Updated Cipher Suite
+
+The default cipher suite is now:
+`Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
+
+| Component | Before | After |
+|-----------|--------|-------|
+| Key Encapsulation | Raw ML-KEM-768 | HPKE with MLKEM768-X25519 (hybrid) |
+| Key Derivation (handshake) | Manual HKDF-SHA512 | HPKE key schedule (HKDF-SHA256) + Export |
+| Transport Encryption | XChaCha20-Poly1305 (unchanged) | XChaCha20-Poly1305 (unchanged) |
+
+### Documentation
+
+- **SPEC.md:** Rewrite Sections 3 (Cipher Suite), 7.2 (Handshake), 9
+  (Encryption and Key Derivation), and 14 (Security Properties) to document
+  the HPKE-based protocol flow, two-layer key export schedule, and hybrid KEM
+  security properties.
+- **README.md:** Update feature list, cipher suite description, and handshake
+  explanation to reflect HPKE with MLKEM768-X25519.
+
+### Internal
+
+- The `pkg/exchange` package is no longer imported by the core handshake.
+  The `exchange.MLKEM` and `exchange.ECDH` types remain available for
+  external consumers.
+- The `internal/enigma` package is unchanged and continues to handle symmetric
+  transport encryption, key derivation for challenges/resumption, and text
+  generation.
+- `cloudflare/circl` remains a dependency for ML-DSA-65 signatures in
+  `pkg/attest`.
+
+---
+
 ## v0.2.0
 
 ### Session Resumption & Routing
