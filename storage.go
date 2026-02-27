@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"golang.org/x/term"
@@ -20,8 +21,21 @@ import (
 var (
 	ErrMissingChatBucket = errors.New("chat bucket not found")
 
-	defaultBucket = []byte(store.DefaultBucket)
+	defaultBucket     = []byte(store.DefaultBucket)
+	sessionMetaKey    = []byte("name")
+	sessionMetaBucket = "session_meta"
 )
+
+// SessionSummary holds a session ID together with its first and last message
+// timestamps, as read from the database. It is returned by
+// ListSessionsByRecent so callers don't need to load full chat histories.
+type SessionSummary struct {
+	ID           string
+	FirstMessage time.Time
+	LastMessage  time.Time
+	MessageCount int
+	Name         string
+}
 
 type Sender uint16
 
@@ -93,7 +107,7 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 		return nil, fmt.Errorf("creating database directory %s: %w", dir, err)
 	}
 
-	slog.Info("opening kamune storage", slog.String("db_path", s.dbPath))
+	slog.Debug("opening kamune storage", slog.String("db_path", s.dbPath))
 
 	pass, err := s.passphraseHandler()
 	if err != nil {
@@ -110,6 +124,16 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 
 func (s *Storage) Close() error {
 	return s.store.Close()
+}
+
+// PublicKey returns the marshalled public key from the stored identity.
+// It returns an error if no identity has been created yet.
+func (s *Storage) PublicKey() ([]byte, error) {
+	at, err := s.attester()
+	if err != nil {
+		return nil, fmt.Errorf("loading attester: %w", err)
+	}
+	return at.PublicKey().Marshal(), nil
 }
 
 func (s *Storage) attester() (attest.Attester, error) {
@@ -205,6 +229,135 @@ func (s *Storage) ListSessions() ([]string, error) {
 		return nil, fmt.Errorf("listing sessions: %w", err)
 	}
 	return sessions, nil
+}
+
+// SessionTimestamps returns the first and last message timestamps for the
+// given session by reading only the first and last keys in its chat bucket.
+// This is an O(1) operation per session (two cursor seeks) and avoids loading
+// every entry. If the bucket is empty or does not exist both timestamps are
+// zero-valued.
+func (s *Storage) SessionTimestamps(sessionID string) (first, last time.Time, count int, err error) {
+	bucket := []byte("chat_" + sessionID)
+	err = s.store.Query(func(q store.Query) error {
+		firstKey := q.FirstKey(bucket)
+		lastKey := q.LastKey(bucket)
+		if firstKey != nil && len(firstKey) >= 8 {
+			first = time.Unix(0, int64(binary.BigEndian.Uint64(firstKey[:8])))
+		}
+		if lastKey != nil && len(lastKey) >= 8 {
+			last = time.Unix(0, int64(binary.BigEndian.Uint64(lastKey[:8])))
+		}
+		// Use BoltDB bucket stats for an efficient key count (no iteration).
+		count = q.BucketKeyCount(bucket)
+		return nil
+	})
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, fmt.Errorf("session timestamps for %s: %w", sessionID, err)
+	}
+	return first, last, count, nil
+}
+
+// ListSessionsByRecent returns summaries for every stored session, sorted by
+// the most recent message first (descending LastMessage). Timestamps and
+// counts are obtained via cursor seeks and key iteration — no chat payloads
+// are decrypted.
+func (s *Storage) ListSessionsByRecent() ([]SessionSummary, error) {
+	ids, err := s.ListSessions()
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]SessionSummary, 0, len(ids))
+	for _, id := range ids {
+		first, last, count, err := s.SessionTimestamps(id)
+		if err != nil {
+			slog.Warn("skipping session with unreadable timestamps",
+				slog.String("session_id", id), slog.Any("error", err))
+			continue
+		}
+		name, _ := s.GetSessionName(id)
+		summaries = append(summaries, SessionSummary{
+			ID:           id,
+			FirstMessage: first,
+			LastMessage:  last,
+			MessageCount: count,
+			Name:         name,
+		})
+	}
+
+	slices.SortFunc(summaries, func(a, b SessionSummary) int {
+		return b.LastMessage.Compare(a.LastMessage)
+	})
+
+	return summaries, nil
+}
+
+// GetSessionName returns the user-assigned display name for a session. If no
+// name has been set, an empty string is returned with a nil error.
+func (s *Storage) GetSessionName(sessionID string) (string, error) {
+	bucket := []byte(sessionMetaBucket + "_" + sessionID)
+	var name string
+	err := s.store.Query(func(q store.Query) error {
+		data, err := q.GetEncrypted(bucket, sessionMetaKey)
+		if err != nil {
+			return err
+		}
+		name = string(data)
+		return nil
+	})
+	if err != nil {
+		// Missing bucket or key just means no name set yet.
+		if errors.Is(err, store.ErrMissingBucket) || errors.Is(err, store.ErrMissingItem) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get session name for %s: %w", sessionID, err)
+	}
+	return name, nil
+}
+
+// SetSessionName persists a user-assigned display name for a session. Pass an
+// empty string to clear the name.
+func (s *Storage) SetSessionName(sessionID, name string) error {
+	bucket := []byte(sessionMetaBucket + "_" + sessionID)
+	if name == "" {
+		// Remove the key (and tolerate a missing bucket).
+		err := s.store.Command(func(c store.Command) error {
+			return c.Delete(bucket, sessionMetaKey)
+		})
+		if err != nil && !errors.Is(err, store.ErrMissingBucket) {
+			return fmt.Errorf("clear session name for %s: %w", sessionID, err)
+		}
+		return nil
+	}
+	err := s.store.Command(func(c store.Command) error {
+		return c.AddEncrypted(bucket, sessionMetaKey, []byte(name))
+	})
+	if err != nil {
+		return fmt.Errorf("set session name for %s: %w", sessionID, err)
+	}
+	return nil
+}
+
+// DeleteSession removes the entire chat history bucket for the given session ID.
+func (s *Storage) DeleteSession(sessionID string) error {
+	chatBucket := []byte("chat_" + sessionID)
+	metaBucket := []byte(sessionMetaBucket + "_" + sessionID)
+	err := s.store.Command(func(c store.Command) error {
+		if err := c.DeleteBucket(chatBucket); err != nil {
+			return err
+		}
+		// Clean up the metadata bucket as well; ignore missing bucket
+		// errors because the session may never have been renamed.
+		if err := c.DeleteBucket(metaBucket); err != nil &&
+			!errors.Is(err, store.ErrMissingBucket) {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("delete session %s: %w", sessionID, err)
+	}
+	return nil
 }
 
 func (s *Storage) AddChatEntry(

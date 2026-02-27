@@ -81,6 +81,60 @@ func (q *Query) IterateEncrypted(bucket []byte) iter.Seq2[[]byte, []byte] {
 	}
 }
 
+// FirstKey returns the first key in the given bucket, or nil if the bucket
+// is empty or does not exist. BoltDB stores keys in sorted byte order, so
+// this is the lexicographically smallest key.
+func (q *Query) FirstKey(bucket []byte) []byte {
+	if len(bucket) == 0 {
+		bucket = []byte(DefaultBucket)
+	}
+	b := q.tx.Bucket(bucket)
+	if b == nil {
+		return nil
+	}
+	k, _ := b.Cursor().First()
+	if k == nil {
+		return nil
+	}
+	out := make([]byte, len(k))
+	copy(out, k)
+	return out
+}
+
+// LastKey returns the last key in the given bucket, or nil if the bucket
+// is empty or does not exist. BoltDB stores keys in sorted byte order, so
+// this is the lexicographically largest key.
+func (q *Query) LastKey(bucket []byte) []byte {
+	if len(bucket) == 0 {
+		bucket = []byte(DefaultBucket)
+	}
+	b := q.tx.Bucket(bucket)
+	if b == nil {
+		return nil
+	}
+	k, _ := b.Cursor().Last()
+	if k == nil {
+		return nil
+	}
+	out := make([]byte, len(k))
+	copy(out, k)
+	return out
+}
+
+// BucketKeyCount returns the number of keys in the given bucket without
+// iterating. It uses BoltDB's internal B+ tree stats for an efficient count.
+// Returns 0 if the bucket does not exist.
+func (q *Query) BucketKeyCount(bucket []byte) int {
+	if len(bucket) == 0 {
+		bucket = []byte(DefaultBucket)
+	}
+	b := q.tx.Bucket(bucket)
+	if b == nil {
+		return 0
+	}
+	return b.Stats().KeyN
+}
+
 // ListBuckets returns a list of all bucket names in the database
 func (q *Query) ListBuckets() []string {
 	var buckets []string

@@ -1,7 +1,10 @@
 package store
 
 import (
+	"errors"
 	"fmt"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 func (c *Command) AddPlain(bucket, key, value []byte) error {
@@ -29,6 +32,22 @@ func (c *Command) AddEncrypted(bucket, key, value []byte) error {
 func (c *Command) CreateBucket(name []byte) error {
 	_, err := c.tx.CreateBucket(name)
 	return err
+}
+
+// DeleteBucket removes an entire bucket and all of its contents.
+// If the bucket does not exist, ErrMissingBucket is returned (wrapped)
+// so callers can check with errors.Is(err, ErrMissingBucket).
+func (c *Command) DeleteBucket(name []byte) error {
+	if len(name) == 0 {
+		return ErrMissingBucket
+	}
+	if err := c.tx.DeleteBucket(name); err != nil {
+		if errors.Is(err, bolt.ErrBucketNotFound) {
+			return fmt.Errorf("delete bucket %q: %w", name, ErrMissingBucket)
+		}
+		return fmt.Errorf("delete bucket %q: %w", name, err)
+	}
+	return nil
 }
 
 func (c *Command) Delete(bucket, key []byte) error {
