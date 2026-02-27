@@ -1,0 +1,207 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="gIntro" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="gHsReq" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#79c0ff"/>
+      <stop offset="100%" stop-color="#388bfd"/>
+    </linearGradient>
+    <linearGradient id="gHsAcc" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d2a8ff"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="gChSent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f778ba"/>
+      <stop offset="100%" stop-color="#db61a2"/>
+    </linearGradient>
+    <linearGradient id="gChVer" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffa657"/>
+      <stop offset="100%" stop-color="#d29922"/>
+    </linearGradient>
+    <linearGradient id="gEstab" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7ee787"/>
+      <stop offset="100%" stop-color="#238636"/>
+    </linearGradient>
+    <linearGradient id="gClosed" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b949e"/>
+      <stop offset="100%" stop-color="#484f58"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowGray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#d2a8ff"/>
+    </marker>
+    <marker id="arrowPink" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#f778ba"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#ffa657"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#7ee787"/>
+    </marker>
+    <marker id="arrowDimGray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#6e7681"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="520" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="898" height="518" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="19" font-weight="700" letter-spacing="0.5">Session Phase State Machine</text>
+  <text x="450" y="58" text-anchor="middle" fill="#8b949e" font-size="11">Monotonically increasing phase transitions during session lifecycle</text>
+
+  <!-- ═══════ Phase group backgrounds ═══════ -->
+  <!-- Introduction group -->
+  <rect x="30" y="80" width="180" height="390" rx="10" fill="#58a6ff" opacity="0.03" stroke="#58a6ff" stroke-width="0.5" stroke-dasharray="6,4"/>
+  <text x="120" y="102" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="600" letter-spacing="1" opacity="0.6">INTRODUCTION</text>
+
+  <!-- Handshake group -->
+  <rect x="230" y="80" width="220" height="390" rx="10" fill="#d2a8ff" opacity="0.03" stroke="#d2a8ff" stroke-width="0.5" stroke-dasharray="6,4"/>
+  <text x="340" y="102" text-anchor="middle" fill="#d2a8ff" font-size="9" font-weight="600" letter-spacing="1" opacity="0.6">HANDSHAKE</text>
+
+  <!-- Challenge group -->
+  <rect x="470" y="80" width="200" height="390" rx="10" fill="#f778ba" opacity="0.03" stroke="#f778ba" stroke-width="0.5" stroke-dasharray="6,4"/>
+  <text x="570" y="102" text-anchor="middle" fill="#f778ba" font-size="9" font-weight="600" letter-spacing="1" opacity="0.6">CHALLENGE</text>
+
+  <!-- Established group -->
+  <rect x="690" y="80" width="180" height="390" rx="10" fill="#7ee787" opacity="0.03" stroke="#7ee787" stroke-width="0.5" stroke-dasharray="6,4"/>
+  <text x="780" y="102" text-anchor="middle" fill="#7ee787" font-size="9" font-weight="600" letter-spacing="1" opacity="0.6">SESSION</text>
+
+  <!-- ═══════ Phase 1: Introduction ═══════ -->
+  <rect x="55" y="175" width="130" height="60" rx="10" fill="#0d1117" stroke="#58a6ff" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="55" y="175" width="130" height="4" rx="2" fill="url(#gIntro)"/>
+  <text x="120" y="200" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="700">Introduction</text>
+  <text x="120" y="216" text-anchor="middle" fill="#8b949e" font-size="9">Phase 1</text>
+  <!-- Phase number badge -->
+  <circle cx="172" cy="182" r="10" fill="#21262d" stroke="#58a6ff" stroke-width="1"/>
+  <text x="172" y="186" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="700">1</text>
+
+  <!-- ═══════ Phase 2: HandshakeRequested ═══════ -->
+  <rect x="265" y="135" width="150" height="60" rx="10" fill="#0d1117" stroke="#388bfd" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="265" y="135" width="150" height="4" rx="2" fill="url(#gHsReq)"/>
+  <text x="340" y="160" text-anchor="middle" fill="#79c0ff" font-size="11" font-weight="700">Handshake</text>
+  <text x="340" y="174" text-anchor="middle" fill="#79c0ff" font-size="11" font-weight="700">Requested</text>
+  <text x="340" y="190" text-anchor="middle" fill="#8b949e" font-size="9">Phase 2</text>
+  <circle cx="402" cy="142" r="10" fill="#21262d" stroke="#388bfd" stroke-width="1"/>
+  <text x="402" y="146" text-anchor="middle" fill="#388bfd" font-size="9" font-weight="700">2</text>
+
+  <!-- ═══════ Phase 3: HandshakeAccepted ═══════ -->
+  <rect x="265" y="265" width="150" height="60" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="265" y="265" width="150" height="4" rx="2" fill="url(#gHsAcc)"/>
+  <text x="340" y="290" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">Handshake</text>
+  <text x="340" y="304" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">Accepted</text>
+  <text x="340" y="320" text-anchor="middle" fill="#8b949e" font-size="9">Phase 3</text>
+  <circle cx="402" cy="272" r="10" fill="#21262d" stroke="#8b5cf6" stroke-width="1"/>
+  <text x="402" y="276" text-anchor="middle" fill="#8b5cf6" font-size="9" font-weight="700">3</text>
+
+  <!-- ═══════ Phase 4: ChallengeSent ═══════ -->
+  <rect x="500" y="135" width="140" height="60" rx="10" fill="#0d1117" stroke="#db61a2" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="500" y="135" width="140" height="4" rx="2" fill="url(#gChSent)"/>
+  <text x="570" y="160" text-anchor="middle" fill="#f778ba" font-size="11" font-weight="700">Challenge</text>
+  <text x="570" y="174" text-anchor="middle" fill="#f778ba" font-size="11" font-weight="700">Sent</text>
+  <text x="570" y="190" text-anchor="middle" fill="#8b949e" font-size="9">Phase 4</text>
+  <circle cx="627" cy="142" r="10" fill="#21262d" stroke="#db61a2" stroke-width="1"/>
+  <text x="627" y="146" text-anchor="middle" fill="#db61a2" font-size="9" font-weight="700">4</text>
+
+  <!-- ═══════ Phase 5: ChallengeVerified ═══════ -->
+  <rect x="500" y="265" width="140" height="60" rx="10" fill="#0d1117" stroke="#d29922" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="500" y="265" width="140" height="4" rx="2" fill="url(#gChVer)"/>
+  <text x="570" y="290" text-anchor="middle" fill="#ffa657" font-size="11" font-weight="700">Challenge</text>
+  <text x="570" y="304" text-anchor="middle" fill="#ffa657" font-size="11" font-weight="700">Verified</text>
+  <text x="570" y="320" text-anchor="middle" fill="#8b949e" font-size="9">Phase 5</text>
+  <circle cx="627" cy="272" r="10" fill="#21262d" stroke="#d29922" stroke-width="1"/>
+  <text x="627" y="276" text-anchor="middle" fill="#d29922" font-size="9" font-weight="700">5</text>
+
+  <!-- ═══════ Phase 6: Established ═══════ -->
+  <rect x="715" y="175" width="130" height="60" rx="10" fill="#0d1117" stroke="#7ee787" stroke-width="2.5" filter="url(#shadow)"/>
+  <rect x="715" y="175" width="130" height="4" rx="2" fill="url(#gEstab)"/>
+  <!-- Glow effect for Established -->
+  <rect x="713" y="173" width="134" height="64" rx="11" fill="none" stroke="#7ee787" stroke-width="1" opacity="0.3" filter="url(#glow)"/>
+  <text x="780" y="200" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="700">Established</text>
+  <text x="780" y="216" text-anchor="middle" fill="#8b949e" font-size="9">Phase 6</text>
+  <circle cx="832" cy="182" r="10" fill="#21262d" stroke="#7ee787" stroke-width="1"/>
+  <text x="832" y="186" text-anchor="middle" fill="#7ee787" font-size="9" font-weight="700">6</text>
+
+  <!-- ═══════ Phase 7: Closed ═══════ -->
+  <rect x="715" y="340" width="130" height="55" rx="10" fill="#0d1117" stroke="#484f58" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="715" y="340" width="130" height="4" rx="2" fill="url(#gClosed)"/>
+  <text x="780" y="365" text-anchor="middle" fill="#8b949e" font-size="13" font-weight="700">Closed</text>
+  <text x="780" y="381" text-anchor="middle" fill="#6e7681" font-size="9">Phase 7</text>
+  <circle cx="832" cy="347" r="10" fill="#21262d" stroke="#484f58" stroke-width="1"/>
+  <text x="832" y="351" text-anchor="middle" fill="#484f58" font-size="9" font-weight="700">7</text>
+
+  <!-- ═══════ TRANSITION ARROWS ═══════ -->
+
+  <!-- Phase 1 → Phase 2: Introduction → HandshakeRequested -->
+  <path d="M 185 195 C 215 195, 225 165, 265 165" fill="none" stroke="#58a6ff" stroke-width="1.8" marker-end="url(#arrowBlue)"/>
+  <rect x="193" y="168" width="80" height="16" rx="4" fill="#0d1117" opacity="0.9"/>
+  <text x="233" y="179" text-anchor="middle" fill="#58a6ff" font-size="8" font-weight="600">send KEM key</text>
+
+  <!-- Phase 2 → Phase 3: HandshakeRequested → HandshakeAccepted -->
+  <line x1="340" y1="195" x2="340" y2="263" stroke="#d2a8ff" stroke-width="1.8" marker-end="url(#arrowPurple)"/>
+  <rect x="345" y="218" width="90" height="16" rx="4" fill="#0d1117" opacity="0.9"/>
+  <text x="390" y="229" text-anchor="middle" fill="#d2a8ff" font-size="8" font-weight="600">encapsulate secret</text>
+
+  <!-- Phase 3 → Phase 4: HandshakeAccepted → ChallengeSent -->
+  <path d="M 415 285 C 450 275, 470 195, 500 175" fill="none" stroke="#f778ba" stroke-width="1.8" marker-end="url(#arrowPink)"/>
+  <rect x="429" y="224" width="80" height="16" rx="4" fill="#0d1117" opacity="0.9"/>
+  <text x="469" y="235" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">send challenge</text>
+
+  <!-- Phase 4 → Phase 5: ChallengeSent → ChallengeVerified -->
+  <line x1="570" y1="195" x2="570" y2="263" stroke="#ffa657" stroke-width="1.8" marker-end="url(#arrowOrange)"/>
+  <rect x="575" y="218" width="75" height="16" rx="4" fill="#0d1117" opacity="0.9"/>
+  <text x="612" y="229" text-anchor="middle" fill="#ffa657" font-size="8" font-weight="600">verify echo</text>
+
+  <!-- Phase 5 → Phase 6: ChallengeVerified → Established -->
+  <path d="M 640 285 C 670 275, 690 225, 715 215" fill="none" stroke="#7ee787" stroke-width="1.8" marker-end="url(#arrowGreen)"/>
+  <rect x="648" y="238" width="70" height="16" rx="4" fill="#0d1117" opacity="0.9"/>
+  <text x="683" y="249" text-anchor="middle" fill="#7ee787" font-size="8" font-weight="600">both verified</text>
+
+  <!-- Phase 6 → Phase 7: Established → Closed -->
+  <line x1="780" y1="237" x2="780" y2="338" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrowDimGray)"/>
+  <rect x="785" y="275" width="60" height="16" rx="4" fill="#0d1117" opacity="0.9"/>
+  <text x="815" y="286" text-anchor="middle" fill="#8b949e" font-size="8" font-weight="600">close()</text>
+
+  <!-- ═══════ Resumption arrow (Established → Established) ═══════ -->
+  <path d="M 845 195 C 875 195, 880 155, 870 135 C 860 115, 830 110, 800 115 C 770 120, 735 145, 730 175" fill="none" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowGreen)"/>
+  <rect x="802" y="110" width="68" height="16" rx="4" fill="#0d1117" opacity="0.9"/>
+  <text x="836" y="121" text-anchor="middle" fill="#3fb950" font-size="8" font-weight="600">resumption</text>
+
+  <!-- ═══════ Error transitions ═══════ -->
+  <!-- Any phase can fail and close -->
+  <path d="M 120 237 C 120 420, 400 430, 713 370" fill="none" stroke="#f85149" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrowDimGray)" opacity="0.5"/>
+  <text x="320" y="418" fill="#f85149" font-size="8" opacity="0.6">error at any phase → connection terminates</text>
+
+  <!-- ═══════ Legend ═══════ -->
+  <rect x="40" y="482" width="820" height="26" rx="6" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+  <line x1="58" y1="495" x2="88" y2="495" stroke="#58a6ff" stroke-width="2"/>
+  <text x="95" y="499" fill="#8b949e" font-size="9">Normal transition</text>
+  <line x1="205" y1="495" x2="235" y2="495" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="242" y="499" fill="#8b949e" font-size="9">Session resumption</text>
+  <line x1="375" y1="495" x2="405" y2="495" stroke="#f85149" stroke-width="1" stroke-dasharray="4,4" opacity="0.6"/>
+  <text x="412" y="499" fill="#8b949e" font-size="9">Error path</text>
+  <text x="542" y="499" fill="#6e7681" font-size="9">Phases are monotonically increasing (1 → 2 → 3 → 4 → 5 → 6 → 7)</text>
+</svg>

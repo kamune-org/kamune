@@ -1,0 +1,268 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 720" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d2a8ff"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7ee787"/>
+      <stop offset="100%" stop-color="#238636"/>
+    </linearGradient>
+    <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#da6d25"/>
+    </linearGradient>
+    <linearGradient id="gPink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f778ba"/>
+      <stop offset="100%" stop-color="#db61a2"/>
+    </linearGradient>
+    <linearGradient id="gTeal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#56d4dd"/>
+      <stop offset="100%" stop-color="#1b7c83"/>
+    </linearGradient>
+    <linearGradient id="gYellow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e3b341"/>
+      <stop offset="100%" stop-color="#d29922"/>
+    </linearGradient>
+    <linearGradient id="gRed" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f85149"/>
+      <stop offset="100%" stop-color="#da3633"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowGray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#7ee787"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#f0883e"/>
+    </marker>
+    <marker id="arrowPink" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#f778ba"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#56d4dd"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#d2a8ff"/>
+    </marker>
+    <marker id="arrowYellow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#e3b341"/>
+    </marker>
+    <marker id="arrowDownGray" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 3.5 10, 7 0" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowDownPurple" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 3.5 10, 7 0" fill="#d2a8ff"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="720" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="898" height="718" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.5">Key Derivation Schedule</text>
+  <text x="450" y="60" text-anchor="middle" fill="#8b949e" font-size="11">HKDF-SHA512: Extract-and-Expand from shared secret to directional session keys</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- SOURCE: Shared Secret from ML-KEM-768                        -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="310" y="78" width="280" height="60" rx="12" fill="#0d1117" stroke="#d2a8ff" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="308" y="76" width="284" height="64" rx="14" fill="none" stroke="#d2a8ff" stroke-width="1" opacity="0.2" filter="url(#glow)"/>
+  <rect x="310" y="78" width="280" height="5" rx="3" fill="url(#gPurple)"/>
+  <text x="450" y="106" text-anchor="middle" fill="#d2a8ff" font-size="14" font-weight="700">Shared Secret (S)</text>
+  <text x="450" y="124" text-anchor="middle" fill="#8b949e" font-size="10">32 bytes · from ML-KEM-768 Encapsulate/Decapsulate</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- INPUTS: Session ID + Salts                                    -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+
+  <!-- Session ID -->
+  <rect x="55" y="82" width="210" height="52" rx="10" fill="#0d1117" stroke="#f0883e" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="55" y="82" width="210" height="4" rx="2" fill="url(#gOrange)"/>
+  <text x="160" y="106" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="700">Session ID (SID)</text>
+  <text x="160" y="122" text-anchor="middle" fill="#8b949e" font-size="9">20 chars = prefix (10) + suffix (10)</text>
+
+  <!-- Salts -->
+  <rect x="635" y="82" width="210" height="52" rx="10" fill="#0d1117" stroke="#56d4dd" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="635" y="82" width="210" height="4" rx="2" fill="url(#gTeal)"/>
+  <text x="740" y="106" text-anchor="middle" fill="#56d4dd" font-size="12" font-weight="700">Salts</text>
+  <text x="740" y="122" text-anchor="middle" fill="#8b949e" font-size="9">Initiator Salt (IS) · Responder Salt (RS) · 16B each</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- HKDF Engine                                                   -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+
+  <!-- Arrows from inputs down to HKDF -->
+  <line x1="160" y1="136" x2="160" y2="158" stroke="#f0883e" stroke-width="1.2" stroke-dasharray="4,3"/>
+  <path d="M 160 158 C 160 172, 300 178, 350 178" fill="none" stroke="#f0883e" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowOrange)"/>
+
+  <line x1="450" y1="140" x2="450" y2="168" stroke="#d2a8ff" stroke-width="1.5" marker-end="url(#arrowDownPurple)"/>
+
+  <line x1="740" y1="136" x2="740" y2="158" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="4,3"/>
+  <path d="M 740 158 C 740 172, 600 178, 550 178" fill="none" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
+
+  <!-- Input labels on arrows -->
+  <text x="302" y="163" fill="#f0883e" font-size="8" font-weight="600">info</text>
+  <text x="450" y="160" text-anchor="middle" fill="#d2a8ff" font-size="8" font-weight="600">IKM</text>
+  <text x="598" y="163" text-anchor="end" fill="#56d4dd" font-size="8" font-weight="600">salt</text>
+
+  <!-- HKDF Box -->
+  <rect x="350" y="172" width="200" height="50" rx="10" fill="#0d1117" stroke="#58a6ff" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="350" y="172" width="200" height="5" rx="3" fill="url(#gBlue)"/>
+  <text x="450" y="198" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="700">HKDF-SHA512</text>
+  <text x="450" y="214" text-anchor="middle" fill="#8b949e" font-size="9">RFC 5869 · Extract-and-Expand</text>
+
+  <!-- Formula -->
+  <rect x="235" y="230" width="430" height="22" rx="5" fill="#21262d" stroke="#30363d" stroke-width="0.8"/>
+  <text x="450" y="245" text-anchor="middle" fill="#6e7681" font-size="9" font-family="'SF Mono','Fira Code',monospace">DerivedKey = HKDF-Expand(HKDF-Extract(salt, S), info, 32)</text>
+
+  <!-- Main output arrow -->
+  <line x1="450" y1="254" x2="450" y2="278" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrowDownGray)"/>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- DERIVED KEYS SECTION                                          -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="30" y="284" width="840" height="406" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="1.2" filter="url(#shadow)"/>
+  <!-- Header -->
+  <rect x="30" y="284" width="840" height="30" rx="12" fill="#58a6ff" opacity="0.06"/>
+  <rect x="30" y="304" width="840" height="10" fill="#58a6ff" opacity="0.06"/>
+  <text x="450" y="304" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="700" letter-spacing="0.8">DERIVED KEYS</text>
+
+  <!-- ════════════ GROUP 1: Session Encryption Keys ════════════ -->
+
+  <!-- Section label -->
+  <text x="55" y="340" fill="#e6edf3" font-size="12" font-weight="700">Session Encryption Keys</text>
+  <text x="350" y="340" fill="#6e7681" font-size="9">Symmetric keys for XChaCha20-Poly1305 AEAD · 32 bytes each</text>
+
+  <!-- Column headers -->
+  <text x="55" y="362" fill="#484f58" font-size="9" font-weight="600" letter-spacing="0.5">KEY</text>
+  <text x="290" y="362" fill="#484f58" font-size="9" font-weight="600" letter-spacing="0.5">HKDF PARAMETERS</text>
+  <text x="670" y="362" fill="#484f58" font-size="9" font-weight="600" letter-spacing="0.5">PURPOSE</text>
+
+  <line x1="50" y1="368" x2="850" y2="368" stroke="#21262d" stroke-width="1"/>
+
+  <!-- Key 1: Client Encoder / Server Decoder -->
+  <rect x="45" y="374" width="810" height="54" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1" opacity="0.9"/>
+  <rect x="45" y="374" width="4" height="54" rx="2" fill="url(#gGreen)"/>
+
+  <text x="62" y="394" fill="#7ee787" font-size="11" font-weight="700">Client Encoder</text>
+  <text x="62" y="410" fill="#7ee787" font-size="9" opacity="0.7">= Server Decoder</text>
+
+  <text x="290" y="394" fill="#c9d1d9" font-size="10" font-family="'SF Mono','Fira Code',monospace">HKDF(S, IS, SID||"client-to-server", 32)</text>
+  <rect x="295" y="403" width="50" height="14" rx="3" fill="#21262d" stroke="#d2a8ff" stroke-width="0.6"/>
+  <text x="320" y="413" text-anchor="middle" fill="#d2a8ff" font-size="7.5" font-weight="600">IKM: S</text>
+  <rect x="352" y="403" width="50" height="14" rx="3" fill="#21262d" stroke="#56d4dd" stroke-width="0.6"/>
+  <text x="377" y="413" text-anchor="middle" fill="#56d4dd" font-size="7.5" font-weight="600">salt: IS</text>
+  <rect x="409" y="403" width="150" height="14" rx="3" fill="#21262d" stroke="#f0883e" stroke-width="0.6"/>
+  <text x="484" y="413" text-anchor="middle" fill="#f0883e" font-size="7.5" font-weight="600">info: SID||"client-to-server"</text>
+
+  <text x="670" y="394" fill="#8b949e" font-size="10">Initiator encrypts outgoing</text>
+  <text x="670" y="410" fill="#6e7681" font-size="9">Responder decrypts incoming</text>
+
+  <!-- Key 2: Server Encoder / Client Decoder -->
+  <rect x="45" y="436" width="810" height="54" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1" opacity="0.9"/>
+  <rect x="45" y="436" width="4" height="54" rx="2" fill="url(#gBlue)"/>
+
+  <text x="62" y="456" fill="#58a6ff" font-size="11" font-weight="700">Server Encoder</text>
+  <text x="62" y="472" fill="#58a6ff" font-size="9" opacity="0.7">= Client Decoder</text>
+
+  <text x="290" y="456" fill="#c9d1d9" font-size="10" font-family="'SF Mono','Fira Code',monospace">HKDF(S, RS, SID||"server-to-client", 32)</text>
+  <rect x="295" y="465" width="50" height="14" rx="3" fill="#21262d" stroke="#d2a8ff" stroke-width="0.6"/>
+  <text x="320" y="475" text-anchor="middle" fill="#d2a8ff" font-size="7.5" font-weight="600">IKM: S</text>
+  <rect x="352" y="465" width="52" height="14" rx="3" fill="#21262d" stroke="#56d4dd" stroke-width="0.6"/>
+  <text x="378" y="475" text-anchor="middle" fill="#56d4dd" font-size="7.5" font-weight="600">salt: RS</text>
+  <rect x="411" y="465" width="152" height="14" rx="3" fill="#21262d" stroke="#f0883e" stroke-width="0.6"/>
+  <text x="487" y="475" text-anchor="middle" fill="#f0883e" font-size="7.5" font-weight="600">info: SID||"server-to-client"</text>
+
+  <text x="670" y="456" fill="#8b949e" font-size="10">Responder encrypts outgoing</text>
+  <text x="670" y="472" fill="#6e7681" font-size="9">Initiator decrypts incoming</text>
+
+  <!-- Symmetry note -->
+  <rect x="55" y="497" width="795" height="20" rx="5" fill="#21262d" stroke="#30363d" stroke-width="0.6"/>
+  <text x="450" y="511" text-anchor="middle" fill="#6e7681" font-size="9">Note: Client Encoder Key ≡ Server Decoder Key (and vice versa), ensuring symmetric decryption</text>
+
+  <!-- ════════════ GROUP 2: Challenge Tokens ════════════ -->
+
+  <line x1="50" y1="528" x2="850" y2="528" stroke="#21262d" stroke-width="1"/>
+
+  <text x="55" y="550" fill="#e6edf3" font-size="12" font-weight="700">Handshake Challenge Tokens</text>
+  <text x="350" y="550" fill="#6e7681" font-size="9">Deterministic challenges for mutual proof-of-possession · 32 bytes each</text>
+
+  <!-- Challenge column headers -->
+  <text x="55" y="568" fill="#484f58" font-size="9" font-weight="600" letter-spacing="0.5">TOKEN</text>
+  <text x="290" y="568" fill="#484f58" font-size="9" font-weight="600" letter-spacing="0.5">HKDF PARAMETERS</text>
+  <text x="670" y="568" fill="#484f58" font-size="9" font-weight="600" letter-spacing="0.5">PURPOSE</text>
+
+  <line x1="50" y1="574" x2="850" y2="574" stroke="#21262d" stroke-width="1"/>
+
+  <!-- Challenge 1: Client Challenge -->
+  <rect x="45" y="580" width="810" height="42" rx="8" fill="#161b22" stroke="#f778ba" stroke-width="1" opacity="0.9"/>
+  <rect x="45" y="580" width="4" height="42" rx="2" fill="url(#gPink)"/>
+
+  <text x="62" y="600" fill="#f778ba" font-size="11" font-weight="700">Client Challenge</text>
+
+  <text x="290" y="600" fill="#c9d1d9" font-size="10" font-family="'SF Mono','Fira Code',monospace">HKDF(S, nil, SID||"client-to-server", 32)</text>
+  <text x="290" y="614" fill="#6e7681" font-size="8">salt = nil (no salt)</text>
+
+  <text x="670" y="600" fill="#8b949e" font-size="10">Initiator's challenge token</text>
+  <text x="670" y="614" fill="#6e7681" font-size="9">Echoed by responder to prove decryption</text>
+
+  <!-- Challenge 2: Server Challenge -->
+  <rect x="45" y="628" width="810" height="42" rx="8" fill="#161b22" stroke="#e3b341" stroke-width="1" opacity="0.9"/>
+  <rect x="45" y="628" width="4" height="42" rx="2" fill="url(#gYellow)"/>
+
+  <text x="62" y="648" fill="#e3b341" font-size="11" font-weight="700">Server Challenge</text>
+
+  <text x="290" y="648" fill="#c9d1d9" font-size="10" font-family="'SF Mono','Fira Code',monospace">HKDF(S, nil, SID||"server-to-client", 32)</text>
+  <text x="290" y="662" fill="#6e7681" font-size="8">salt = nil (no salt)</text>
+
+  <text x="670" y="648" fill="#8b949e" font-size="10">Responder's challenge token</text>
+  <text x="670" y="662" fill="#6e7681" font-size="9">Echoed by initiator to prove decryption</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- FOOTER: Legend and Notes                                      -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="30" y="698" width="840" height="4" rx="2" fill="none"/>
+
+  <!-- Legend items -->
+  <rect x="50" y="698" width="10" height="10" rx="2" fill="url(#gPurple)"/>
+  <text x="66" y="708" fill="#8b949e" font-size="9">IKM (shared secret)</text>
+
+  <rect x="190" y="698" width="10" height="10" rx="2" fill="url(#gTeal)"/>
+  <text x="206" y="708" fill="#8b949e" font-size="9">Salt (per-direction)</text>
+
+  <rect x="320" y="698" width="10" height="10" rx="2" fill="url(#gOrange)"/>
+  <text x="336" y="708" fill="#8b949e" font-size="9">Info (context binding)</text>
+
+  <rect x="460" y="698" width="10" height="10" rx="2" fill="url(#gGreen)"/>
+  <text x="476" y="708" fill="#8b949e" font-size="9">Client→Server direction</text>
+
+  <rect x="620" y="698" width="10" height="10" rx="2" fill="url(#gBlue)"/>
+  <text x="636" y="708" fill="#8b949e" font-size="9">Server→Client direction</text>
+
+  <rect x="770" y="698" width="10" height="10" rx="2" fill="url(#gPink)"/>
+  <text x="786" y="708" fill="#8b949e" font-size="9">Challenge</text>
+</svg>

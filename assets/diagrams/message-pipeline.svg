@@ -1,0 +1,340 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 680" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d2a8ff"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7ee787"/>
+      <stop offset="100%" stop-color="#238636"/>
+    </linearGradient>
+    <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#da6d25"/>
+    </linearGradient>
+    <linearGradient id="gPink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f778ba"/>
+      <stop offset="100%" stop-color="#db61a2"/>
+    </linearGradient>
+    <linearGradient id="gTeal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#56d4dd"/>
+      <stop offset="100%" stop-color="#1b7c83"/>
+    </linearGradient>
+    <linearGradient id="gRed" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f85149"/>
+      <stop offset="100%" stop-color="#da3633"/>
+    </linearGradient>
+    <linearGradient id="gYellow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e3b341"/>
+      <stop offset="100%" stop-color="#d29922"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowRight" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowRightBlue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrowRightGreen" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7ee787"/>
+    </marker>
+    <marker id="arrowRightPurple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#d2a8ff"/>
+    </marker>
+    <marker id="arrowRightOrange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f0883e"/>
+    </marker>
+    <marker id="arrowRightPink" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f778ba"/>
+    </marker>
+    <marker id="arrowRightTeal" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#56d4dd"/>
+    </marker>
+    <marker id="arrowLeftGreen" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="10 0, 0 3.5, 10 7" fill="#7ee787"/>
+    </marker>
+    <marker id="arrowDown" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 3.5 10, 7 0" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowDownRed" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 3.5 10, 7 0" fill="#f85149"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="680" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="898" height="678" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.5">Message Pipeline</text>
+  <text x="450" y="58" text-anchor="middle" fill="#8b949e" font-size="11">Send and receive paths during the Communication phase</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- SEND PIPELINE                                                  -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="30" y="74" width="840" height="248" rx="12" fill="#0d1117" stroke="#1f6feb" stroke-width="1.2" filter="url(#shadow)"/>
+  <!-- Header bar -->
+  <rect x="30" y="74" width="840" height="30" rx="12" fill="url(#gBlue)" opacity="0.12"/>
+  <rect x="30" y="94" width="840" height="10" fill="url(#gBlue)" opacity="0.12"/>
+  <circle cx="52" cy="89" r="5.5" fill="url(#gBlue)"/>
+  <text x="68" y="94" fill="#58a6ff" font-size="13" font-weight="700" letter-spacing="1">SEND PIPELINE</text>
+  <text x="855" y="94" text-anchor="end" fill="#8b949e" font-size="10">Sender → Wire</text>
+
+  <!-- Step 1: App Message -->
+  <rect x="50" y="118" width="110" height="72" rx="8" fill="#21262d" stroke="#58a6ff" stroke-width="1.5"/>
+  <rect x="50" y="118" width="110" height="4" rx="2" fill="url(#gBlue)"/>
+  <text x="105" y="143" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">1</text>
+  <text x="105" y="158" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">App Message</text>
+  <text x="105" y="173" text-anchor="middle" fill="#8b949e" font-size="8">Protobuf</text>
+  <text x="105" y="184" text-anchor="middle" fill="#8b949e" font-size="8">Transferable</text>
+
+  <!-- Arrow 1→2 -->
+  <line x1="162" y1="154" x2="182" y2="154" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrowRightBlue)"/>
+
+  <!-- Step 2: Serialize + Increment Seq -->
+  <rect x="186" y="118" width="110" height="72" rx="8" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5"/>
+  <rect x="186" y="118" width="110" height="4" rx="2" fill="url(#gPurple)"/>
+  <text x="241" y="143" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">2</text>
+  <text x="241" y="158" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Serialize</text>
+  <text x="241" y="173" text-anchor="middle" fill="#8b949e" font-size="8">proto.Marshal()</text>
+  <text x="241" y="184" text-anchor="middle" fill="#8b949e" font-size="8">sendSeq++</text>
+
+  <!-- Arrow 2→3 -->
+  <line x1="298" y1="154" x2="318" y2="154" stroke="#d2a8ff" stroke-width="1.5" marker-end="url(#arrowRightPurple)"/>
+
+  <!-- Step 3: Sign -->
+  <rect x="322" y="118" width="110" height="72" rx="8" fill="#21262d" stroke="#f0883e" stroke-width="1.5"/>
+  <rect x="322" y="118" width="110" height="4" rx="2" fill="url(#gOrange)"/>
+  <text x="377" y="143" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="700">3</text>
+  <text x="377" y="158" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Sign</text>
+  <text x="377" y="173" text-anchor="middle" fill="#8b949e" font-size="8">Ed25519 /</text>
+  <text x="377" y="184" text-anchor="middle" fill="#8b949e" font-size="8">ML-DSA-65</text>
+
+  <!-- Arrow 3→4 -->
+  <line x1="434" y1="154" x2="454" y2="154" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowRightOrange)"/>
+
+  <!-- Step 4: Envelope -->
+  <rect x="458" y="118" width="110" height="72" rx="8" fill="#21262d" stroke="#f778ba" stroke-width="1.5"/>
+  <rect x="458" y="118" width="110" height="4" rx="2" fill="url(#gPink)"/>
+  <text x="513" y="143" text-anchor="middle" fill="#f778ba" font-size="11" font-weight="700">4</text>
+  <text x="513" y="158" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Envelope</text>
+  <text x="513" y="173" text-anchor="middle" fill="#8b949e" font-size="8">SignedTransport</text>
+  <text x="513" y="184" text-anchor="middle" fill="#8b949e" font-size="8">+ padding + route</text>
+
+  <!-- Arrow 4→5 -->
+  <line x1="570" y1="154" x2="590" y2="154" stroke="#f778ba" stroke-width="1.5" marker-end="url(#arrowRightPink)"/>
+
+  <!-- Step 5: Encrypt -->
+  <rect x="594" y="118" width="110" height="72" rx="8" fill="#21262d" stroke="#7ee787" stroke-width="1.5"/>
+  <rect x="594" y="118" width="110" height="4" rx="2" fill="url(#gGreen)"/>
+  <text x="649" y="143" text-anchor="middle" fill="#7ee787" font-size="11" font-weight="700">5</text>
+  <text x="649" y="158" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Encrypt</text>
+  <text x="649" y="173" text-anchor="middle" fill="#8b949e" font-size="8">XChaCha20-</text>
+  <text x="649" y="184" text-anchor="middle" fill="#8b949e" font-size="8">Poly1305</text>
+
+  <!-- Arrow 5→6 -->
+  <line x1="706" y1="154" x2="726" y2="154" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrowRightGreen)"/>
+
+  <!-- Step 6: Frame + Write -->
+  <rect x="730" y="118" width="110" height="72" rx="8" fill="#21262d" stroke="#56d4dd" stroke-width="1.5"/>
+  <rect x="730" y="118" width="110" height="4" rx="2" fill="url(#gTeal)"/>
+  <text x="785" y="143" text-anchor="middle" fill="#56d4dd" font-size="11" font-weight="700">6</text>
+  <text x="785" y="158" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Frame + Write</text>
+  <text x="785" y="173" text-anchor="middle" fill="#8b949e" font-size="8">2-byte len prefix</text>
+  <text x="785" y="184" text-anchor="middle" fill="#8b949e" font-size="8">→ conn.Write()</text>
+
+  <!-- Detail row below send steps -->
+  <!-- Sequence detail -->
+  <rect x="50" y="206" width="245" height="46" rx="6" fill="#161b22" stroke="#30363d" stroke-width="0.8"/>
+  <text x="62" y="222" fill="#d2a8ff" font-size="9" font-weight="600">Sequence Counter</text>
+  <text x="62" y="236" fill="#6e7681" font-size="8">sendSequence++ before each message.</text>
+  <text x="62" y="248" fill="#6e7681" font-size="8">First message is seq=1. Embedded in Metadata.</text>
+
+  <!-- Signature detail -->
+  <rect x="308" y="206" width="245" height="46" rx="6" fill="#161b22" stroke="#30363d" stroke-width="0.8"/>
+  <text x="320" y="222" fill="#f0883e" font-size="9" font-weight="600">Signature Scope</text>
+  <text x="320" y="236" fill="#6e7681" font-size="8">Sign(privateKey, Data) — covers only the inner</text>
+  <text x="320" y="248" fill="#6e7681" font-size="8">serialized Protobuf, not metadata or padding.</text>
+
+  <!-- Encryption detail -->
+  <rect x="566" y="206" width="276" height="46" rx="6" fill="#161b22" stroke="#30363d" stroke-width="0.8"/>
+  <text x="578" y="222" fill="#7ee787" font-size="9" font-weight="600">AEAD Encryption</text>
+  <text x="578" y="236" fill="#6e7681" font-size="8">Random 24-byte nonce per message. Nonce prepended</text>
+  <text x="578" y="248" fill="#6e7681" font-size="8">to ciphertext. 16-byte Poly1305 tag appended.</text>
+
+  <!-- Dotted lines from detail boxes to steps -->
+  <line x1="172" y1="192" x2="172" y2="204" stroke="#30363d" stroke-width="0.7" stroke-dasharray="2,2"/>
+  <line x1="430" y1="192" x2="430" y2="204" stroke="#30363d" stroke-width="0.7" stroke-dasharray="2,2"/>
+  <line x1="704" y1="192" x2="704" y2="204" stroke="#30363d" stroke-width="0.7" stroke-dasharray="2,2"/>
+
+  <!-- Wire symbol between send and receive -->
+  <rect x="360" y="334" width="180" height="36" rx="8" fill="#21262d" stroke="#30363d" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="450" y="352" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">🌐 Network (TCP / UDP)</text>
+  <text x="450" y="364" text-anchor="middle" fill="#6e7681" font-size="8">Length-prefixed binary stream</text>
+
+  <!-- Arrow from send to wire -->
+  <line x1="785" y1="192" x2="785" y2="312" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="5,3"/>
+  <path d="M 785 312 C 785 340, 600 352, 542 352" fill="none" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrowRightTeal)"/>
+
+  <!-- Arrow from wire to receive -->
+  <path d="M 360 352 C 300 352, 115 340, 115 312" fill="none" stroke="#7ee787" stroke-width="1.2" stroke-dasharray="5,3"/>
+  <line x1="115" y1="312" x2="115" y2="265" stroke="#7ee787" stroke-width="1.2" stroke-dasharray="5,3"/>
+
+  <!-- Rotated "send" label on left arrow -->
+  <text x="800" y="285" fill="#56d4dd" font-size="8" font-weight="600">SEND ↓</text>
+  <text x="80" y="285" fill="#7ee787" font-size="8" font-weight="600">↑ RECV</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- RECEIVE PIPELINE                                               -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="30" y="384" width="840" height="268" rx="12" fill="#0d1117" stroke="#238636" stroke-width="1.2" filter="url(#shadow)"/>
+  <!-- Header bar -->
+  <rect x="30" y="384" width="840" height="30" rx="12" fill="url(#gGreen)" opacity="0.12"/>
+  <rect x="30" y="404" width="840" height="10" fill="url(#gGreen)" opacity="0.12"/>
+  <circle cx="52" cy="399" r="5.5" fill="url(#gGreen)"/>
+  <text x="68" y="404" fill="#7ee787" font-size="13" font-weight="700" letter-spacing="1">RECEIVE PIPELINE</text>
+  <text x="855" y="404" text-anchor="end" fill="#8b949e" font-size="10">Wire → Application</text>
+
+  <!-- Step 1: Read + Deframe -->
+  <rect x="50" y="428" width="110" height="72" rx="8" fill="#21262d" stroke="#56d4dd" stroke-width="1.5"/>
+  <rect x="50" y="428" width="110" height="4" rx="2" fill="url(#gTeal)"/>
+  <text x="105" y="453" text-anchor="middle" fill="#56d4dd" font-size="11" font-weight="700">1</text>
+  <text x="105" y="468" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Read + Deframe</text>
+  <text x="105" y="483" text-anchor="middle" fill="#8b949e" font-size="8">ReadBytes()</text>
+  <text x="105" y="494" text-anchor="middle" fill="#8b949e" font-size="8">2-byte len → body</text>
+
+  <!-- Arrow 1→2 -->
+  <line x1="162" y1="464" x2="182" y2="464" stroke="#56d4dd" stroke-width="1.5" marker-end="url(#arrowRightTeal)"/>
+
+  <!-- Step 2: Decrypt -->
+  <rect x="186" y="428" width="110" height="72" rx="8" fill="#21262d" stroke="#7ee787" stroke-width="1.5"/>
+  <rect x="186" y="428" width="110" height="4" rx="2" fill="url(#gGreen)"/>
+  <text x="241" y="453" text-anchor="middle" fill="#7ee787" font-size="11" font-weight="700">2</text>
+  <text x="241" y="468" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Decrypt</text>
+  <text x="241" y="483" text-anchor="middle" fill="#8b949e" font-size="8">XChaCha20-</text>
+  <text x="241" y="494" text-anchor="middle" fill="#8b949e" font-size="8">Poly1305</text>
+
+  <!-- Arrow 2→3 -->
+  <line x1="298" y1="464" x2="318" y2="464" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrowRightGreen)"/>
+
+  <!-- Step 3: Deserialize -->
+  <rect x="322" y="428" width="110" height="72" rx="8" fill="#21262d" stroke="#f778ba" stroke-width="1.5"/>
+  <rect x="322" y="428" width="110" height="4" rx="2" fill="url(#gPink)"/>
+  <text x="377" y="453" text-anchor="middle" fill="#f778ba" font-size="11" font-weight="700">3</text>
+  <text x="377" y="468" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Deserialize</text>
+  <text x="377" y="483" text-anchor="middle" fill="#8b949e" font-size="8">SignedTransport</text>
+  <text x="377" y="494" text-anchor="middle" fill="#8b949e" font-size="8">proto.Unmarshal()</text>
+
+  <!-- Arrow 3→4 -->
+  <line x1="434" y1="464" x2="454" y2="464" stroke="#f778ba" stroke-width="1.5" marker-end="url(#arrowRightPink)"/>
+
+  <!-- Step 4: Verify Signature -->
+  <rect x="458" y="428" width="110" height="72" rx="8" fill="#21262d" stroke="#f0883e" stroke-width="1.5"/>
+  <rect x="458" y="428" width="110" height="4" rx="2" fill="url(#gOrange)"/>
+  <text x="513" y="453" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="700">4</text>
+  <text x="513" y="468" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Verify Sig</text>
+  <text x="513" y="483" text-anchor="middle" fill="#8b949e" font-size="8">id.Verify(remote,</text>
+  <text x="513" y="494" text-anchor="middle" fill="#8b949e" font-size="8">data, sig)</text>
+
+  <!-- Arrow 4→5 -->
+  <line x1="570" y1="464" x2="590" y2="464" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowRightOrange)"/>
+
+  <!-- Step 5: Validate Seq -->
+  <rect x="594" y="428" width="110" height="72" rx="8" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5"/>
+  <rect x="594" y="428" width="110" height="4" rx="2" fill="url(#gPurple)"/>
+  <text x="649" y="453" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">5</text>
+  <text x="649" y="468" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Validate Seq</text>
+  <text x="649" y="483" text-anchor="middle" fill="#8b949e" font-size="8">seq == recv+1?</text>
+  <text x="649" y="494" text-anchor="middle" fill="#8b949e" font-size="8">recvSequence++</text>
+
+  <!-- Arrow 5→6 -->
+  <line x1="706" y1="464" x2="726" y2="464" stroke="#d2a8ff" stroke-width="1.5" marker-end="url(#arrowRightPurple)"/>
+
+  <!-- Step 6: Deliver -->
+  <rect x="730" y="428" width="110" height="72" rx="8" fill="#21262d" stroke="#58a6ff" stroke-width="1.5"/>
+  <rect x="730" y="428" width="110" height="4" rx="2" fill="url(#gBlue)"/>
+  <text x="785" y="453" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">6</text>
+  <text x="785" y="468" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Deliver</text>
+  <text x="785" y="483" text-anchor="middle" fill="#8b949e" font-size="8">Route + Metadata</text>
+  <text x="785" y="494" text-anchor="middle" fill="#8b949e" font-size="8">→ Application</text>
+
+  <!-- Detail row below receive steps -->
+  <!-- AEAD check detail -->
+  <rect x="50" y="516" width="245" height="46" rx="6" fill="#161b22" stroke="#30363d" stroke-width="0.8"/>
+  <text x="62" y="532" fill="#7ee787" font-size="9" font-weight="600">AEAD Integrity Check</text>
+  <text x="62" y="546" fill="#6e7681" font-size="8">If Poly1305 auth tag verification fails, decryption</text>
+  <text x="62" y="558" fill="#6e7681" font-size="8">returns error — tampered or corrupted ciphertext.</text>
+
+  <!-- Signature check detail -->
+  <rect x="308" y="516" width="245" height="46" rx="6" fill="#161b22" stroke="#30363d" stroke-width="0.8"/>
+  <text x="320" y="532" fill="#f0883e" font-size="9" font-weight="600">Signature Verification</text>
+  <text x="320" y="546" fill="#6e7681" font-size="8">Uses peer's public key from Introduction phase.</text>
+  <text x="320" y="558" fill="#6e7681" font-size="8">Invalid signature → ErrInvalidSignature.</text>
+
+  <!-- Sequence check detail -->
+  <rect x="566" y="516" width="276" height="46" rx="6" fill="#161b22" stroke="#30363d" stroke-width="0.8"/>
+  <text x="578" y="532" fill="#d2a8ff" font-size="9" font-weight="600">Replay &amp; Order Protection</text>
+  <text x="578" y="546" fill="#6e7681" font-size="8">seq &lt; expected → duplicate (ErrOutOfSync)</text>
+  <text x="578" y="558" fill="#6e7681" font-size="8">seq &gt; expected → gap / missing (ErrOutOfSync)</text>
+
+  <!-- Dotted lines from detail boxes to steps -->
+  <line x1="172" y1="502" x2="172" y2="514" stroke="#30363d" stroke-width="0.7" stroke-dasharray="2,2"/>
+  <line x1="430" y1="502" x2="430" y2="514" stroke="#30363d" stroke-width="0.7" stroke-dasharray="2,2"/>
+  <line x1="704" y1="502" x2="704" y2="514" stroke="#30363d" stroke-width="0.7" stroke-dasharray="2,2"/>
+
+  <!-- Rejection arrows from validation steps -->
+  <!-- AEAD fail -->
+  <line x1="241" y1="502" x2="241" y2="580" stroke="#f85149" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrowDownRed)" opacity="0.5"/>
+  <rect x="207" y="582" width="68" height="16" rx="4" fill="#21262d" stroke="#f85149" stroke-width="0.7" opacity="0.7"/>
+  <text x="241" y="594" text-anchor="middle" fill="#f85149" font-size="7.5" font-weight="600">✗ REJECT</text>
+
+  <!-- Sig fail -->
+  <line x1="513" y1="502" x2="513" y2="580" stroke="#f85149" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrowDownRed)" opacity="0.5"/>
+  <rect x="479" y="582" width="68" height="16" rx="4" fill="#21262d" stroke="#f85149" stroke-width="0.7" opacity="0.7"/>
+  <text x="513" y="594" text-anchor="middle" fill="#f85149" font-size="7.5" font-weight="600">✗ REJECT</text>
+
+  <!-- Seq fail -->
+  <line x1="649" y1="502" x2="649" y2="580" stroke="#f85149" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrowDownRed)" opacity="0.5"/>
+  <rect x="615" y="582" width="68" height="16" rx="4" fill="#21262d" stroke="#f85149" stroke-width="0.7" opacity="0.7"/>
+  <text x="649" y="594" text-anchor="middle" fill="#f85149" font-size="7.5" font-weight="600">✗ REJECT</text>
+
+  <!-- ══════════ Legend at bottom ══════════ -->
+  <rect x="50" y="620" width="800" height="44" rx="8" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Legend: Integrity Layers -->
+  <text x="70" y="640" fill="#e6edf3" font-size="10" font-weight="600">Three Integrity Layers:</text>
+  <!-- Layer 1 -->
+  <circle cx="220" cy="636" r="5" fill="#7ee787"/>
+  <text x="232" y="640" fill="#8b949e" font-size="9">AEAD Tag (Poly1305)</text>
+  <!-- Layer 2 -->
+  <circle cx="380" cy="636" r="5" fill="#f0883e"/>
+  <text x="392" y="640" fill="#8b949e" font-size="9">Digital Signature</text>
+  <!-- Layer 3 -->
+  <circle cx="530" cy="636" r="5" fill="#d2a8ff"/>
+  <text x="542" y="640" fill="#8b949e" font-size="9">Sequence Number</text>
+
+  <text x="70" y="656" fill="#6e7681" font-size="9">Each layer independently detects: ciphertext tampering · message forgery · replay/reorder attacks</text>
+
+  <!-- Reject legend -->
+  <line x1="680" y1="636" x2="700" y2="636" stroke="#f85149" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+  <text x="708" y="640" fill="#f85149" font-size="9" opacity="0.8">Rejection path</text>
+  <line x1="680" y1="652" x2="700" y2="652" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="5,3"/>
+  <text x="708" y="656" fill="#8b949e" font-size="9">Wire transit</text>
+</svg>

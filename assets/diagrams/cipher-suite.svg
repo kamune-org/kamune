@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="gSign" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#da6d25"/>
+    </linearGradient>
+    <linearGradient id="gKem" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d2a8ff"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="gKdf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="gEnc" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7ee787"/>
+      <stop offset="100%" stop-color="#238636"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowGray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="500" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="898" height="498" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="19" font-weight="700" letter-spacing="0.5">Cipher Suite Architecture</text>
+  <text x="450" y="58" text-anchor="middle" fill="#8b949e" font-size="11" font-family="'SF Mono','Fira Code',monospace">Ed25519 _ ML-KEM-768 _ HKDF-SHA512 _ XChaCha20-Poly1305</text>
+
+  <!-- ═══════════ Layer 1: Identity / Signing ═══════════ -->
+  <rect x="40" y="82" width="380" height="120" rx="10" fill="#0d1117" stroke="#da6d25" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="40" y="82" width="380" height="26" rx="10" fill="url(#gSign)" opacity="0.15"/>
+  <rect x="40" y="98" width="380" height="10" fill="url(#gSign)" opacity="0.15"/>
+  <circle cx="58" cy="95" r="4.5" fill="url(#gSign)"/>
+  <text x="72" y="100" fill="#f0883e" font-size="11" font-weight="700" letter-spacing="1">IDENTITY &amp; SIGNING</text>
+
+  <!-- Ed25519 box -->
+  <rect x="60" y="118" width="155" height="68" rx="7" fill="#21262d" stroke="#f0883e" stroke-width="1" opacity="0.9"/>
+  <text x="137" y="140" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600">Ed25519</text>
+  <text x="137" y="156" text-anchor="middle" fill="#8b949e" font-size="9.5">Digital Signatures</text>
+  <text x="137" y="170" text-anchor="middle" fill="#6e7681" font-size="8.5">Default · Classical</text>
+  <rect x="60" y="118" width="155" height="3" rx="2" fill="url(#gSign)" opacity="0.6"/>
+
+  <!-- ML-DSA box -->
+  <rect x="245" y="118" width="155" height="68" rx="7" fill="#21262d" stroke="#f0883e" stroke-width="1" stroke-dasharray="4,3" opacity="0.9"/>
+  <text x="322" y="140" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600">ML-DSA-65</text>
+  <text x="322" y="156" text-anchor="middle" fill="#8b949e" font-size="9.5">Digital Signatures</text>
+  <text x="322" y="170" text-anchor="middle" fill="#6e7681" font-size="8.5">Optional · Post-Quantum</text>
+  <rect x="245" y="118" width="155" height="3" rx="2" fill="url(#gSign)" opacity="0.4"/>
+
+  <!-- "or" label -->
+  <text x="229" y="158" text-anchor="middle" fill="#f0883e" font-size="10" font-weight="600">OR</text>
+
+  <!-- Purpose labels for signing -->
+  <rect x="62" y="192" width="151" height="4" rx="2" fill="none"/>
+
+  <!-- ═══════════ Layer 2: Key Encapsulation ═══════════ -->
+  <rect x="480" y="82" width="380" height="120" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="480" y="82" width="380" height="26" rx="10" fill="url(#gKem)" opacity="0.15"/>
+  <rect x="480" y="98" width="380" height="10" fill="url(#gKem)" opacity="0.15"/>
+  <circle cx="498" cy="95" r="4.5" fill="url(#gKem)"/>
+  <text x="512" y="100" fill="#d2a8ff" font-size="11" font-weight="700" letter-spacing="1">KEY ENCAPSULATION</text>
+
+  <!-- ML-KEM box -->
+  <rect x="530" y="118" width="280" height="68" rx="7" fill="#21262d" stroke="#8b5cf6" stroke-width="1" opacity="0.9"/>
+  <text x="670" y="140" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600">ML-KEM-768</text>
+  <text x="670" y="156" text-anchor="middle" fill="#8b949e" font-size="9.5">Post-Quantum Key Encapsulation Mechanism</text>
+  <text x="670" y="170" text-anchor="middle" fill="#6e7681" font-size="8.5">Ephemeral · One-time per session</text>
+  <rect x="530" y="118" width="280" height="3" rx="2" fill="url(#gKem)" opacity="0.6"/>
+
+  <!-- ═══════════ Arrow: Signing feeds into flow ═══════════ -->
+  <!-- Arrow from signing down -->
+  <line x1="230" y1="202" x2="230" y2="244" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
+  <text x="238" y="225" fill="#6e7681" font-size="8.5">signs all</text>
+  <text x="238" y="235" fill="#6e7681" font-size="8.5">messages</text>
+
+  <!-- Arrow from KEM down to KDF -->
+  <line x1="670" y1="202" x2="670" y2="244" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
+  <text x="678" y="225" fill="#6e7681" font-size="8.5">32-byte</text>
+  <text x="678" y="235" fill="#6e7681" font-size="8.5">shared secret</text>
+
+  <!-- ═══════════ Layer 3: Key Derivation ═══════════ -->
+  <rect x="260" y="252" width="380" height="100" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="260" y="252" width="380" height="26" rx="10" fill="url(#gKdf)" opacity="0.15"/>
+  <rect x="260" y="268" width="380" height="10" fill="url(#gKdf)" opacity="0.15"/>
+  <circle cx="278" cy="265" r="4.5" fill="url(#gKdf)"/>
+  <text x="292" y="270" fill="#58a6ff" font-size="11" font-weight="700" letter-spacing="1">KEY DERIVATION</text>
+
+  <!-- HKDF box -->
+  <rect x="290" y="288" width="320" height="50" rx="7" fill="#21262d" stroke="#1f6feb" stroke-width="1" opacity="0.9"/>
+  <text x="450" y="310" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600">HKDF-SHA512</text>
+  <text x="450" y="326" text-anchor="middle" fill="#8b949e" font-size="9.5">Extract-and-Expand · RFC 5869 · Directional info binding</text>
+  <rect x="290" y="288" width="320" height="3" rx="2" fill="url(#gKdf)" opacity="0.6"/>
+
+  <!-- Inputs to HKDF -->
+  <text x="295" y="348" fill="#6e7681" font-size="8">Inputs: shared_secret + salt + sessionID||direction</text>
+
+  <!-- Arrow from KDF down -->
+  <line x1="450" y1="352" x2="450" y2="394" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
+  <text x="458" y="372" fill="#6e7681" font-size="8.5">32-byte</text>
+  <text x="458" y="382" fill="#6e7681" font-size="8.5">derived keys</text>
+
+  <!-- ═══════════ Layer 4: Symmetric Encryption ═══════════ -->
+  <rect x="260" y="402" width="380" height="80" rx="10" fill="#0d1117" stroke="#238636" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="260" y="402" width="380" height="26" rx="10" fill="url(#gEnc)" opacity="0.15"/>
+  <rect x="260" y="418" width="380" height="10" fill="url(#gEnc)" opacity="0.15"/>
+  <circle cx="278" cy="415" r="4.5" fill="url(#gEnc)"/>
+  <text x="292" y="420" fill="#7ee787" font-size="11" font-weight="700" letter-spacing="1">SYMMETRIC ENCRYPTION</text>
+
+  <!-- XChaCha20 box -->
+  <rect x="290" y="438" width="320" height="32" rx="7" fill="#21262d" stroke="#238636" stroke-width="1" opacity="0.9"/>
+  <text x="450" y="458" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600">XChaCha20-Poly1305</text>
+  <rect x="290" y="438" width="320" height="3" rx="2" fill="url(#gEnc)" opacity="0.6"/>
+
+  <!-- Properties under XChaCha20 -->
+  <text x="450" y="488" text-anchor="middle" fill="#6e7681" font-size="9">24-byte nonce · 32-byte key · 16-byte auth tag · AEAD</text>
+
+  <!-- ═══════════ Side annotations ═══════════ -->
+  <!-- Phase labels on the left -->
+  <text x="30" y="148" fill="#484f58" font-size="9" font-weight="600" transform="rotate(-90,30,148)" text-anchor="middle">INTRODUCTION</text>
+  <text x="30" y="310" fill="#484f58" font-size="9" font-weight="600" transform="rotate(-90,30,310)" text-anchor="middle">HANDSHAKE</text>
+  <text x="30" y="445" fill="#484f58" font-size="9" font-weight="600" transform="rotate(-90,30,445)" text-anchor="middle">COMMUNICATION</text>
+
+  <!-- Dotted separators on left -->
+  <line x1="44" y1="212" x2="44" y2="242" stroke="#30363d" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="44" y1="362" x2="44" y2="392" stroke="#30363d" stroke-width="1" stroke-dasharray="3,3"/>
+
+  <!-- Security property tags at right -->
+  <rect x="740" y="262" width="130" height="22" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+  <text x="805" y="277" text-anchor="middle" fill="#f0883e" font-size="9" font-weight="600">🛡 Authentication</text>
+
+  <rect x="740" y="292" width="130" height="22" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+  <text x="805" y="307" text-anchor="middle" fill="#d2a8ff" font-size="9" font-weight="600">🔑 PQ Key Exchange</text>
+
+  <rect x="740" y="322" width="130" height="22" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+  <text x="805" y="337" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="600">🔗 Key Binding</text>
+
+  <rect x="740" y="352" width="130" height="22" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+  <text x="805" y="367" text-anchor="middle" fill="#7ee787" font-size="9" font-weight="600">🔒 Confidentiality</text>
+
+  <!-- Connecting lines from properties -->
+  <line x1="230" y1="270" x2="740" y2="273" stroke="#f0883e" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.4"/>
+  <line x1="670" y1="270" x2="740" y2="303" stroke="#d2a8ff" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.4"/>
+  <line x1="640" y1="310" x2="740" y2="333" stroke="#58a6ff" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.4"/>
+  <line x1="640" y1="450" x2="740" y2="363" stroke="#7ee787" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.4"/>
+</svg>

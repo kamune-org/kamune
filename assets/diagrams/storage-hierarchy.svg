@@ -1,0 +1,316 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 760" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d2a8ff"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7ee787"/>
+      <stop offset="100%" stop-color="#238636"/>
+    </linearGradient>
+    <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#da6d25"/>
+    </linearGradient>
+    <linearGradient id="gPink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f778ba"/>
+      <stop offset="100%" stop-color="#db61a2"/>
+    </linearGradient>
+    <linearGradient id="gTeal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#56d4dd"/>
+      <stop offset="100%" stop-color="#1b7c83"/>
+    </linearGradient>
+    <linearGradient id="gYellow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e3b341"/>
+      <stop offset="100%" stop-color="#d29922"/>
+    </linearGradient>
+    <linearGradient id="gRed" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f85149"/>
+      <stop offset="100%" stop-color="#da3633"/>
+    </linearGradient>
+    <linearGradient id="gGray" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b949e"/>
+      <stop offset="100%" stop-color="#484f58"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowGray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#d2a8ff"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#f0883e"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#7ee787"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#56d4dd"/>
+    </marker>
+    <marker id="arrowDownGray" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 3.5 10, 7 0" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowDownPurple" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 3.5 10, 7 0" fill="#d2a8ff"/>
+    </marker>
+    <marker id="arrowDownBlue" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 3.5 10, 7 0" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrowDownOrange" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 3.5 10, 7 0" fill="#f0883e"/>
+    </marker>
+    <marker id="arrowDownGreen" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 3.5 10, 7 0" fill="#7ee787"/>
+    </marker>
+    <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#30363d" stroke-width="0.8"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="760" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="898" height="758" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.5">Storage Key Hierarchy</text>
+  <text x="450" y="60" text-anchor="middle" fill="#8b949e" font-size="11">Passphrase-derived encryption for BoltDB at-rest protection</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- SECTION 1: Key Derivation Chain                               -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="30" y="76" width="840" height="340" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="1.2" filter="url(#shadow)"/>
+  <!-- Header -->
+  <rect x="30" y="76" width="840" height="30" rx="12" fill="url(#gPurple)" opacity="0.1"/>
+  <rect x="30" y="96" width="840" height="10" fill="url(#gPurple)" opacity="0.1"/>
+  <circle cx="52" cy="91" r="5.5" fill="url(#gPurple)"/>
+  <text x="68" y="96" fill="#d2a8ff" font-size="13" font-weight="700" letter-spacing="1">KEY DERIVATION CHAIN</text>
+  <text x="855" y="96" text-anchor="end" fill="#8b949e" font-size="10">Passphrase → KEK → DEK</text>
+
+  <!-- ════════ Step 1: Passphrase ════════ -->
+  <rect x="345" y="118" width="210" height="52" rx="10" fill="#21262d" stroke="#f0883e" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="343" y="116" width="214" height="56" rx="12" fill="none" stroke="#f0883e" stroke-width="1" opacity="0.2" filter="url(#glow)"/>
+  <rect x="345" y="118" width="210" height="5" rx="3" fill="url(#gOrange)"/>
+  <text x="450" y="142" text-anchor="middle" fill="#f0883e" font-size="14" font-weight="700">User Passphrase</text>
+  <text x="450" y="160" text-anchor="middle" fill="#8b949e" font-size="9">Interactive prompt or KAMUNE_DB_PASSPHRASE</text>
+
+  <!-- deriveSalt label (left of passphrase) -->
+  <rect x="100" y="126" width="120" height="36" rx="7" fill="#21262d" stroke="#56d4dd" stroke-width="1"/>
+  <rect x="100" y="126" width="120" height="3" rx="2" fill="url(#gTeal)"/>
+  <text x="160" y="146" text-anchor="middle" fill="#56d4dd" font-size="10" font-weight="600">deriveSalt</text>
+  <text x="160" y="158" text-anchor="middle" fill="#6e7681" font-size="8">32 random bytes</text>
+
+  <!-- Arrow: deriveSalt → HKDF -->
+  <path d="M 220 144 C 260 144, 280 192, 330 192" fill="none" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
+  <text x="268" y="165" fill="#56d4dd" font-size="7.5" font-weight="600">salt</text>
+
+  <!-- Arrow: Passphrase → HKDF -->
+  <line x1="450" y1="172" x2="450" y2="182" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowDownOrange)"/>
+  <text x="462" y="180" fill="#f0883e" font-size="7.5" font-weight="600">IKM</text>
+
+  <!-- HKDF Step 1 -->
+  <rect x="335" y="188" width="230" height="36" rx="8" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="335" y="188" width="230" height="4" rx="2" fill="url(#gBlue)"/>
+  <text x="450" y="208" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">HKDF-SHA512</text>
+  <text x="450" y="220" text-anchor="middle" fill="#8b949e" font-size="8" font-family="'SF Mono','Fira Code',monospace">info: "derived-passphrase-key"</text>
+
+  <!-- Step 1 output label -->
+  <text x="385" y="238" fill="#484f58" font-size="8">Step 1</text>
+
+  <!-- Arrow down to derivedPass -->
+  <line x1="450" y1="226" x2="450" y2="246" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowDownGray)"/>
+
+  <!-- derivedPass (intermediate) -->
+  <rect x="375" y="250" width="150" height="30" rx="7" fill="#21262d" stroke="#d2a8ff" stroke-width="1"/>
+  <rect x="375" y="250" width="150" height="3" rx="2" fill="url(#gPurple)"/>
+  <text x="450" y="270" text-anchor="middle" fill="#d2a8ff" font-size="10" font-weight="600">derivedPass (32B)</text>
+
+  <!-- wrappedSalt label (left) -->
+  <rect x="100" y="248" width="120" height="36" rx="7" fill="#21262d" stroke="#56d4dd" stroke-width="1"/>
+  <rect x="100" y="248" width="120" height="3" rx="2" fill="url(#gTeal)"/>
+  <text x="160" y="268" text-anchor="middle" fill="#56d4dd" font-size="10" font-weight="600">wrappedSalt</text>
+  <text x="160" y="280" text-anchor="middle" fill="#6e7681" font-size="8">32 random bytes</text>
+
+  <!-- Arrow: wrappedSalt → Enigma KEK -->
+  <path d="M 220 266 C 260 266, 280 302, 330 302" fill="none" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
+  <text x="268" y="282" fill="#56d4dd" font-size="7.5" font-weight="600">salt</text>
+
+  <!-- Arrow down to Enigma KEK -->
+  <line x1="450" y1="282" x2="450" y2="292" stroke="#d2a8ff" stroke-width="1.2" marker-end="url(#arrowDownPurple)"/>
+
+  <!-- Enigma KEK cipher creation -->
+  <rect x="335" y="296" width="230" height="36" rx="8" fill="#0d1117" stroke="#d2a8ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="335" y="296" width="230" height="4" rx="2" fill="url(#gPurple)"/>
+  <text x="450" y="316" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">Enigma (KEK Cipher)</text>
+  <text x="450" y="328" text-anchor="middle" fill="#8b949e" font-size="8" font-family="'SF Mono','Fira Code',monospace">info: "key-encryption-key"</text>
+
+  <!-- Step 2 output label -->
+  <text x="385" y="346" fill="#484f58" font-size="8">Step 2</text>
+
+  <!-- Arrow down from KEK -->
+  <line x1="450" y1="334" x2="450" y2="346" stroke="#d2a8ff" stroke-width="1.2" marker-end="url(#arrowDownPurple)"/>
+
+  <!-- KEK operation: Decrypt wrapped-key -->
+  <rect x="340" y="350" width="220" height="50" rx="8" fill="#21262d" stroke="#e3b341" stroke-width="1.5"/>
+  <rect x="340" y="350" width="220" height="4" rx="2" fill="url(#gYellow)"/>
+  <text x="450" y="372" text-anchor="middle" fill="#e3b341" font-size="10" font-weight="700">KEK.Decrypt(wrapped-key)</text>
+  <text x="450" y="388" text-anchor="middle" fill="#8b949e" font-size="8">Unwraps the random 32-byte master secret</text>
+  <text x="450" y="400" text-anchor="middle" fill="#6e7681" font-size="8">wrapped-key is stored in DB as ciphertext</text>
+
+  <!-- Arrow from wrapped-key storage to KEK -->
+  <rect x="660" y="340" width="160" height="50" rx="7" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+  <rect x="660" y="340" width="160" height="50" rx="7" fill="url(#hatch)" opacity="0.2"/>
+  <rect x="660" y="340" width="160" height="3" rx="2" fill="#484f58" opacity="0.5"/>
+  <text x="740" y="362" text-anchor="middle" fill="#8b949e" font-size="10" font-weight="600">wrapped-key</text>
+  <text x="740" y="376" text-anchor="middle" fill="#6e7681" font-size="8">Stored in DB (plaintext bucket)</text>
+  <text x="740" y="388" text-anchor="middle" fill="#6e7681" font-size="8">Encrypted by KEK</text>
+
+  <!-- Arrow from DB to KEK operation -->
+  <line x1="660" y1="365" x2="562" y2="365" stroke="#8b949e" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrowGray)"/>
+  <text x="610" y="360" fill="#6e7681" font-size="7.5">input</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- SECTION 2: DEK Derivation                                     -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+
+  <!-- Arrow down from KEK decrypt to secret -->
+  <line x1="450" y1="402" x2="450" y2="424" stroke="#e3b341" stroke-width="1.2" stroke-dasharray="4,3"/>
+
+  <!-- Secret (unwrapped) -->
+  <rect x="355" y="428" width="190" height="44" rx="10" fill="#0d1117" stroke="#7ee787" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="353" y="426" width="194" height="48" rx="12" fill="none" stroke="#7ee787" stroke-width="1" opacity="0.2" filter="url(#glow)"/>
+  <rect x="355" y="428" width="190" height="5" rx="3" fill="url(#gGreen)"/>
+  <text x="450" y="452" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="700">Master Secret</text>
+  <text x="450" y="466" text-anchor="middle" fill="#8b949e" font-size="9">32 random bytes (generated once)</text>
+
+  <!-- secretSalt label (left) -->
+  <rect x="100" y="438" width="120" height="36" rx="7" fill="#21262d" stroke="#56d4dd" stroke-width="1"/>
+  <rect x="100" y="438" width="120" height="3" rx="2" fill="url(#gTeal)"/>
+  <text x="160" y="458" text-anchor="middle" fill="#56d4dd" font-size="10" font-weight="600">secretSalt</text>
+  <text x="160" y="470" text-anchor="middle" fill="#6e7681" font-size="8">32 random bytes</text>
+
+  <!-- Arrow: secretSalt → Enigma DEK -->
+  <path d="M 220 456 C 260 456, 280 498, 330 498" fill="none" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
+  <text x="268" y="475" fill="#56d4dd" font-size="7.5" font-weight="600">salt</text>
+
+  <!-- Arrow down from secret to DEK -->
+  <line x1="450" y1="474" x2="450" y2="488" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrowDownGreen)"/>
+  <text x="462" y="485" fill="#7ee787" font-size="7.5" font-weight="600">IKM</text>
+
+  <!-- Enigma DEK cipher creation -->
+  <rect x="335" y="492" width="230" height="36" rx="8" fill="#0d1117" stroke="#7ee787" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="333" y="490" width="234" height="40" rx="10" fill="none" stroke="#7ee787" stroke-width="1" opacity="0.15" filter="url(#glow)"/>
+  <rect x="335" y="492" width="230" height="4" rx="2" fill="url(#gGreen)"/>
+  <text x="450" y="512" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">Enigma (DEK Cipher)</text>
+  <text x="450" y="524" text-anchor="middle" fill="#8b949e" font-size="8" font-family="'SF Mono','Fira Code',monospace">info: "data-encryption-key"</text>
+
+  <!-- Step 3 output label -->
+  <text x="385" y="544" fill="#484f58" font-size="8">Step 3 — Final cipher for all data</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- SECTION 3: What the DEK encrypts — Bucket Map                 -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+
+  <!-- Fan-out arrows from DEK to buckets -->
+  <line x1="450" y1="530" x2="450" y2="558" stroke="#7ee787" stroke-width="1.5"/>
+
+  <!-- Horizontal distribution line -->
+  <line x1="110" y1="558" x2="790" y2="558" stroke="#7ee787" stroke-width="1.5"/>
+
+  <!-- Vertical drops to each bucket -->
+  <line x1="110" y1="558" x2="110" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="280" y1="558" x2="280" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="450" y1="558" x2="450" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="620" y1="558" x2="620" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="790" y1="558" x2="790" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+
+  <!-- "encrypts" label -->
+  <rect x="410" y="546" width="80" height="16" rx="4" fill="#0d1117"/>
+  <text x="450" y="558" text-anchor="middle" fill="#7ee787" font-size="8.5" font-weight="600">encrypts ↓</text>
+
+  <!-- ═══════ Bucket 1: Peers ═══════ -->
+  <rect x="40" y="586" width="140" height="90" rx="8" fill="#21262d" stroke="#f778ba" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="40" y="586" width="140" height="4" rx="2" fill="url(#gPink)"/>
+  <text x="110" y="608" text-anchor="middle" fill="#f778ba" font-size="11" font-weight="700">peers</text>
+  <text x="110" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: SHA3-512(pubKey)</text>
+  <text x="110" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Protobuf Peer</text>
+  <text x="110" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Name, PubKey, Algorithm</text>
+  <text x="110" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">FirstSeen, LastSeen</text>
+
+  <!-- ═══════ Bucket 2: Sessions ═══════ -->
+  <rect x="210" y="586" width="140" height="90" rx="8" fill="#21262d" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="210" y="586" width="140" height="4" rx="2" fill="url(#gBlue)"/>
+  <text x="280" y="608" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">sessions</text>
+  <text x="280" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: SHA3-512(sessionID)</text>
+  <text x="280" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Protobuf SessionState</text>
+  <text x="280" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">SharedSecret, Salts, Phase</text>
+  <text x="280" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">SeqNums, IsInitiator</text>
+
+  <!-- ═══════ Bucket 3: PubKey Index ═══════ -->
+  <rect x="380" y="586" width="140" height="90" rx="8" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="380" y="586" width="140" height="4" rx="2" fill="url(#gPurple)"/>
+  <text x="450" y="608" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">pubkey_index</text>
+  <text x="450" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: SHA3-512(pubKey)</text>
+  <text x="450" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: PubKeySessionIndex</text>
+  <text x="450" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Maps remote pubKey</text>
+  <text x="450" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">→ sessionID for lookup</text>
+
+  <!-- ═══════ Bucket 4: Chat History ═══════ -->
+  <rect x="550" y="586" width="140" height="90" rx="8" fill="#21262d" stroke="#e3b341" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="550" y="586" width="140" height="4" rx="2" fill="url(#gYellow)"/>
+  <text x="620" y="608" text-anchor="middle" fill="#e3b341" font-size="10" font-weight="700">chat_&lt;sessionID&gt;</text>
+  <text x="620" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: 14-byte composite</text>
+  <text x="620" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Message payload</text>
+  <text x="620" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">ts(8B) + sender(2B)</text>
+  <text x="620" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">+ random(4B)</text>
+
+  <!-- ═══════ Bucket 5: Handshakes ═══════ -->
+  <rect x="720" y="586" width="140" height="90" rx="8" fill="#21262d" stroke="#56d4dd" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="720" y="586" width="140" height="4" rx="2" fill="url(#gTeal)"/>
+  <text x="790" y="608" text-anchor="middle" fill="#56d4dd" font-size="11" font-weight="700">handshakes</text>
+  <text x="790" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: SHA3-512(pubKey)</text>
+  <text x="790" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: HandshakeState</text>
+  <text x="790" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">In-progress handshake</text>
+  <text x="790" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">state for resumption</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- LEGEND / NOTES                                                -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="30" y="694" width="840" height="50" rx="8" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Legend row 1 -->
+  <rect x="50" y="704" width="10" height="10" rx="2" fill="url(#gOrange)"/>
+  <text x="66" y="714" fill="#8b949e" font-size="9">User passphrase (never stored)</text>
+
+  <rect x="250" y="704" width="10" height="10" rx="2" fill="url(#gTeal)"/>
+  <text x="266" y="714" fill="#8b949e" font-size="9">Salts (stored plaintext in DB)</text>
+
+  <rect x="440" y="704" width="10" height="10" rx="2" fill="url(#gPurple)"/>
+  <text x="456" y="714" fill="#8b949e" font-size="9">KEK (wraps master secret)</text>
+
+  <rect x="620" y="704" width="10" height="10" rx="2" fill="url(#gGreen)"/>
+  <text x="636" y="714" fill="#8b949e" font-size="9">DEK (encrypts all data)</text>
+
+  <!-- Legend row 2 -->
+  <text x="50" y="734" fill="#6e7681" font-size="9">Database: BoltDB (bbolt) at ~/.config/kamune/db · All sensitive values encrypted with DEK (XChaCha20-Poly1305) · Identity keys stored plaintext in default bucket</text>
+</svg>

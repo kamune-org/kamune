@@ -1,0 +1,225 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="gLen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#da6d25"/>
+    </linearGradient>
+    <linearGradient id="gPayload" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="gSig" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#d2a8ff"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="gEnc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7ee787"/>
+      <stop offset="100%" stop-color="#238636"/>
+    </linearGradient>
+    <linearGradient id="gNonce" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f778ba"/>
+      <stop offset="100%" stop-color="#db61a2"/>
+    </linearGradient>
+    <linearGradient id="gTag" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ffa657"/>
+      <stop offset="100%" stop-color="#d29922"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowDown" markerWidth="8" markerHeight="8" refX="4" refY="8" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 8, 4 6" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowRight" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
+    </marker>
+    <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#30363d" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="620" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="898" height="618" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="19" font-weight="700" letter-spacing="0.5">Wire Format</text>
+  <text x="450" y="58" text-anchor="middle" fill="#8b949e" font-size="11">Length-prefixed framing, signed envelopes, and encrypted payloads</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 1: Length-Prefixed Frame                          -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <text x="55" y="94" fill="#e6edf3" font-size="13" font-weight="700">1. Length-Prefixed Frame</text>
+  <text x="55" y="112" fill="#6e7681" font-size="10">Every message on the wire is preceded by a 2-byte big-endian length header</text>
+
+  <!-- Frame box -->
+  <rect x="55" y="124" width="790" height="60" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1" filter="url(#shadow)"/>
+
+  <!-- Length field -->
+  <rect x="65" y="134" width="120" height="40" rx="6" fill="#21262d" stroke="#f0883e" stroke-width="1.5"/>
+  <rect x="65" y="134" width="120" height="4" rx="2" fill="url(#gLen)"/>
+  <text x="125" y="156" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Length</text>
+  <text x="125" y="170" text-anchor="middle" fill="#8b949e" font-size="9">2 bytes · BE uint16</text>
+
+  <!-- Payload field -->
+  <rect x="200" y="134" width="635" height="40" rx="6" fill="#21262d" stroke="#58a6ff" stroke-width="1.5"/>
+  <rect x="200" y="134" width="635" height="4" rx="2" fill="url(#gPayload)"/>
+  <text x="517" y="156" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Payload</text>
+  <text x="517" y="170" text-anchor="middle" fill="#8b949e" font-size="9">N bytes · Serialized Protobuf (max 50 KiB)</text>
+
+  <!-- Size annotations -->
+  <!-- Length bracket -->
+  <line x1="65" y1="180" x2="65" y2="190" stroke="#6e7681" stroke-width="0.8"/>
+  <line x1="185" y1="180" x2="185" y2="190" stroke="#6e7681" stroke-width="0.8"/>
+  <line x1="65" y1="188" x2="185" y2="188" stroke="#6e7681" stroke-width="0.8"/>
+  <text x="125" y="200" text-anchor="middle" fill="#6e7681" font-size="8">2 bytes</text>
+
+  <!-- Payload bracket -->
+  <line x1="200" y1="180" x2="200" y2="190" stroke="#6e7681" stroke-width="0.8"/>
+  <line x1="835" y1="180" x2="835" y2="190" stroke="#6e7681" stroke-width="0.8"/>
+  <line x1="200" y1="188" x2="835" y2="188" stroke="#6e7681" stroke-width="0.8"/>
+  <text x="517" y="200" text-anchor="middle" fill="#6e7681" font-size="8">0 – 51,200 bytes</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 2: SignedTransport Envelope                       -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Connecting arrow from Payload to SignedTransport -->
+  <line x1="517" y1="204" x2="517" y2="224" stroke="#8b949e" stroke-width="1" marker-end="url(#arrowDown)" stroke-dasharray="4,3"/>
+  <text x="530" y="218" fill="#6e7681" font-size="8.5">expands to</text>
+
+  <text x="55" y="243" fill="#e6edf3" font-size="13" font-weight="700">2. SignedTransport Envelope</text>
+  <text x="55" y="261" fill="#6e7681" font-size="10">Protobuf message wrapping every protocol exchange</text>
+
+  <!-- Envelope container -->
+  <rect x="55" y="273" width="790" height="130" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1" filter="url(#shadow)"/>
+
+  <!-- Field: Data -->
+  <rect x="65" y="283" width="220" height="54" rx="6" fill="#21262d" stroke="#58a6ff" stroke-width="1.5"/>
+  <rect x="65" y="283" width="220" height="4" rx="2" fill="url(#gPayload)"/>
+  <text x="175" y="306" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Data</text>
+  <text x="175" y="320" text-anchor="middle" fill="#8b949e" font-size="8.5">Serialized inner message</text>
+  <text x="175" y="332" text-anchor="middle" fill="#6e7681" font-size="8">Introduce | Handshake | App msg</text>
+
+  <!-- Field: Signature -->
+  <rect x="295" y="283" width="145" height="54" rx="6" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5"/>
+  <rect x="295" y="283" width="145" height="4" rx="2" fill="url(#gSig)"/>
+  <text x="367" y="306" text-anchor="middle" fill="#d2a8ff" font-size="12" font-weight="600">Signature</text>
+  <text x="367" y="320" text-anchor="middle" fill="#8b949e" font-size="8.5">Ed25519 or ML-DSA</text>
+  <text x="367" y="332" text-anchor="middle" fill="#6e7681" font-size="8">over Data bytes</text>
+
+  <!-- Field: Metadata -->
+  <rect x="450" y="283" width="165" height="54" rx="6" fill="#21262d" stroke="#3fb950" stroke-width="1"/>
+  <rect x="450" y="283" width="165" height="4" rx="2" fill="#3fb950" opacity="0.5"/>
+  <text x="532" y="306" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">Metadata</text>
+  <text x="532" y="320" text-anchor="middle" fill="#8b949e" font-size="8.5">ID · Timestamp · Seq</text>
+  <text x="532" y="332" text-anchor="middle" fill="#6e7681" font-size="8">monotonic uint64</text>
+
+  <!-- Field: Padding -->
+  <rect x="625" y="283" width="95" height="54" rx="6" fill="#21262d" stroke="#484f58" stroke-width="1"/>
+  <rect x="625" y="283" width="95" height="54" rx="6" fill="url(#hatch)" opacity="0.3"/>
+  <rect x="625" y="283" width="95" height="4" rx="2" fill="#484f58" opacity="0.5"/>
+  <text x="672" y="306" text-anchor="middle" fill="#8b949e" font-size="12" font-weight="600">Padding</text>
+  <text x="672" y="320" text-anchor="middle" fill="#6e7681" font-size="8.5">0–256 random</text>
+  <text x="672" y="332" text-anchor="middle" fill="#6e7681" font-size="8">bytes</text>
+
+  <!-- Field: Route -->
+  <rect x="730" y="283" width="105" height="54" rx="6" fill="#21262d" stroke="#ffa657" stroke-width="1"/>
+  <rect x="730" y="283" width="105" height="4" rx="2" fill="url(#gTag)" opacity="0.7"/>
+  <text x="782" y="306" text-anchor="middle" fill="#ffa657" font-size="12" font-weight="600">Route</text>
+  <text x="782" y="320" text-anchor="middle" fill="#8b949e" font-size="8.5">Message type</text>
+  <text x="782" y="332" text-anchor="middle" fill="#6e7681" font-size="8">enum (0–9)</text>
+
+  <!-- Protobuf field numbers -->
+  <text x="76" y="396" fill="#484f58" font-size="8.5" font-family="'SF Mono','Fira Code',monospace">field 1</text>
+  <text x="325" y="396" fill="#484f58" font-size="8.5" font-family="'SF Mono','Fira Code',monospace">field 2</text>
+  <text x="485" y="396" fill="#484f58" font-size="8.5" font-family="'SF Mono','Fira Code',monospace">field 3</text>
+  <text x="640" y="396" fill="#484f58" font-size="8.5" font-family="'SF Mono','Fira Code',monospace">field 4</text>
+  <text x="748" y="396" fill="#484f58" font-size="8.5" font-family="'SF Mono','Fira Code',monospace">field 5</text>
+
+  <!-- Dotted lines from fields to labels -->
+  <line x1="100" y1="340" x2="100" y2="389" stroke="#484f58" stroke-width="0.6" stroke-dasharray="2,3"/>
+  <line x1="350" y1="340" x2="350" y2="389" stroke="#484f58" stroke-width="0.6" stroke-dasharray="2,3"/>
+  <line x1="510" y1="340" x2="510" y2="389" stroke="#484f58" stroke-width="0.6" stroke-dasharray="2,3"/>
+  <line x1="665" y1="340" x2="665" y2="389" stroke="#484f58" stroke-width="0.6" stroke-dasharray="2,3"/>
+  <line x1="773" y1="340" x2="773" y2="389" stroke="#484f58" stroke-width="0.6" stroke-dasharray="2,3"/>
+
+  <!-- Signature scope annotation -->
+  <line x1="65" y1="348" x2="65" y2="365" stroke="#d2a8ff" stroke-width="1"/>
+  <line x1="285" y1="348" x2="285" y2="365" stroke="#d2a8ff" stroke-width="1"/>
+  <line x1="65" y1="362" x2="285" y2="362" stroke="#d2a8ff" stroke-width="1"/>
+  <text x="175" y="378" text-anchor="middle" fill="#d2a8ff" font-size="8.5" font-weight="600">← Signature scope →</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 3: Encrypted Message (Communication Phase)        -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <text x="55" y="430" fill="#e6edf3" font-size="13" font-weight="700">3. Encrypted Message</text>
+  <text x="200" y="430" fill="#6e7681" font-size="10">(Communication phase — after handshake)</text>
+
+  <!-- Outer wire frame -->
+  <rect x="55" y="444" width="790" height="60" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1" filter="url(#shadow)"/>
+
+  <!-- Length field -->
+  <rect x="65" y="454" width="90" height="40" rx="6" fill="#21262d" stroke="#f0883e" stroke-width="1.5"/>
+  <rect x="65" y="454" width="90" height="4" rx="2" fill="url(#gLen)"/>
+  <text x="110" y="476" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">Length</text>
+  <text x="110" y="489" text-anchor="middle" fill="#8b949e" font-size="8">2 bytes</text>
+
+  <!-- Ciphertext region -->
+  <rect x="168" y="454" width="668" height="40" rx="6" fill="#21262d" stroke="#7ee787" stroke-width="1.5"/>
+  <rect x="168" y="454" width="668" height="4" rx="2" fill="url(#gEnc)"/>
+  <text x="502" y="476" text-anchor="middle" fill="#7ee787" font-size="11" font-weight="600">XChaCha20-Poly1305 Ciphertext</text>
+  <text x="502" y="489" text-anchor="middle" fill="#8b949e" font-size="8">Encrypted SignedTransport</text>
+
+  <!-- Expand arrow -->
+  <line x1="502" y1="500" x2="502" y2="520" stroke="#7ee787" stroke-width="1" marker-end="url(#arrowDown)" stroke-dasharray="4,3"/>
+  <text x="516" y="515" fill="#7ee787" font-size="8.5">decrypts to</text>
+
+  <!-- Ciphertext detail breakdown -->
+  <rect x="55" y="528" width="790" height="72" rx="8" fill="#0d1117" stroke="#7ee787" stroke-width="1" stroke-dasharray="5,3" filter="url(#shadow)"/>
+
+  <!-- Nonce -->
+  <rect x="65" y="540" width="150" height="46" rx="6" fill="#21262d" stroke="#f778ba" stroke-width="1.5"/>
+  <rect x="65" y="540" width="150" height="4" rx="2" fill="url(#gNonce)"/>
+  <text x="140" y="562" text-anchor="middle" fill="#f778ba" font-size="12" font-weight="600">Nonce</text>
+  <text x="140" y="578" text-anchor="middle" fill="#8b949e" font-size="9">24 bytes · random</text>
+
+  <!-- Encrypted SignedTransport -->
+  <rect x="228" y="540" width="470" height="46" rx="6" fill="#21262d" stroke="#7ee787" stroke-width="1.5"/>
+  <rect x="228" y="540" width="470" height="4" rx="2" fill="url(#gEnc)"/>
+  <text x="463" y="562" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="600">Encrypted SignedTransport</text>
+  <text x="463" y="578" text-anchor="middle" fill="#8b949e" font-size="9">Variable length · Protobuf envelope from Section 2</text>
+
+  <!-- Auth Tag -->
+  <rect x="711" y="540" width="124" height="46" rx="6" fill="#21262d" stroke="#ffa657" stroke-width="1.5"/>
+  <rect x="711" y="540" width="124" height="4" rx="2" fill="url(#gTag)"/>
+  <text x="773" y="562" text-anchor="middle" fill="#ffa657" font-size="12" font-weight="600">Auth Tag</text>
+  <text x="773" y="578" text-anchor="middle" fill="#8b949e" font-size="9">16 bytes · Poly1305</text>
+
+  <!-- Size brackets under ciphertext detail -->
+  <line x1="65" y1="592" x2="65" y2="600" stroke="#6e7681" stroke-width="0.7"/>
+  <line x1="215" y1="592" x2="215" y2="600" stroke="#6e7681" stroke-width="0.7"/>
+  <line x1="65" y1="598" x2="215" y2="598" stroke="#6e7681" stroke-width="0.7"/>
+  <text x="140" y="610" text-anchor="middle" fill="#6e7681" font-size="8">24 B</text>
+
+  <line x1="711" y1="592" x2="711" y2="600" stroke="#6e7681" stroke-width="0.7"/>
+  <line x1="835" y1="592" x2="835" y2="600" stroke="#6e7681" stroke-width="0.7"/>
+  <line x1="711" y1="598" x2="835" y2="598" stroke="#6e7681" stroke-width="0.7"/>
+  <text x="773" y="610" text-anchor="middle" fill="#6e7681" font-size="8">16 B</text>
+
+  <!-- Lock icon annotation -->
+  <text x="850" y="432" text-anchor="end" fill="#484f58" font-size="9">🔒 AEAD</text>
+</svg>

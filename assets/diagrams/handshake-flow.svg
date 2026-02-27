@@ -1,0 +1,265 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 880" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d2a8ff"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="gPink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f778ba"/>
+      <stop offset="100%" stop-color="#db61a2"/>
+    </linearGradient>
+    <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7ee787"/>
+      <stop offset="100%" stop-color="#238636"/>
+    </linearGradient>
+    <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#da6d25"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrowBlueL" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="10 0, 0 3.5, 10 7" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#d2a8ff"/>
+    </marker>
+    <marker id="arrowPurpleL" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="10 0, 0 3.5, 10 7" fill="#d2a8ff"/>
+    </marker>
+    <marker id="arrowPink" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f778ba"/>
+    </marker>
+    <marker id="arrowPinkL" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="10 0, 0 3.5, 10 7" fill="#f778ba"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7ee787"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f0883e"/>
+    </marker>
+    <marker id="arrowOrangeL" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="10 0, 0 3.5, 10 7" fill="#f0883e"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="880" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="898" height="878" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.5">Handshake Flow</text>
+  <text x="450" y="60" text-anchor="middle" fill="#8b949e" font-size="11">Full session establishment: Introduction → Key Exchange → Challenge → Established</text>
+
+  <!-- ══════════ Peer Headers ══════════ -->
+  <!-- Initiator header -->
+  <rect x="70" y="78" width="160" height="44" rx="10" fill="#21262d" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="70" y="78" width="160" height="4" rx="2" fill="url(#gBlue)"/>
+  <text x="150" y="101" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Initiator</text>
+  <text x="150" y="116" text-anchor="middle" fill="#8b949e" font-size="10">(Client)</text>
+
+  <!-- Responder header -->
+  <rect x="670" y="78" width="160" height="44" rx="10" fill="#21262d" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="670" y="78" width="160" height="4" rx="2" fill="url(#gBlue)"/>
+  <text x="750" y="101" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Responder</text>
+  <text x="750" y="116" text-anchor="middle" fill="#8b949e" font-size="10">(Server)</text>
+
+  <!-- Vertical lifelines -->
+  <line x1="150" y1="128" x2="150" y2="840" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <line x1="750" y1="128" x2="750" y2="840" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6,4"/>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- SECTION 1: INTRODUCTION                                       -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="40" y="140" width="820" height="145" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.2" filter="url(#shadow)"/>
+  <!-- Header bar -->
+  <rect x="40" y="140" width="820" height="28" rx="10" fill="url(#gBlue)" opacity="0.12"/>
+  <rect x="40" y="158" width="820" height="10" fill="url(#gBlue)" opacity="0.12"/>
+  <circle cx="60" cy="154" r="5" fill="url(#gBlue)"/>
+  <text x="75" y="159" fill="#58a6ff" font-size="12" font-weight="700" letter-spacing="0.8">INTRODUCTION</text>
+  <text x="845" y="159" text-anchor="end" fill="#8b949e" font-size="10">Route: IDENTITY</text>
+
+  <!-- Step 1: Initiator action -->
+  <rect x="55" y="178" width="85" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
+  <text x="97" y="191" text-anchor="middle" fill="#8b949e" font-size="8" font-weight="600">Generate Key</text>
+
+  <!-- Arrow 1: Initiator → Responder (Introduce) -->
+  <line x1="170" y1="202" x2="730" y2="202" stroke="#58a6ff" stroke-width="1.8" marker-end="url(#arrowBlue)" filter="url(#glow)"/>
+  <rect x="315" y="190" width="270" height="22" rx="5" fill="#0d1117" stroke="#1f6feb" stroke-width="0.8"/>
+  <text x="450" y="205" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">Introduce { Name, PublicKey, Algorithm }</text>
+
+  <!-- Step 2: Responder action -->
+  <rect x="755" y="210" width="95" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
+  <text x="802" y="223" text-anchor="middle" fill="#58a6ff" font-size="8" font-weight="600">✓ Verify Sig</text>
+
+  <!-- Arrow 2: Responder → Initiator (Introduce) -->
+  <line x1="730" y1="240" x2="170" y2="240" stroke="#58a6ff" stroke-width="1.8" marker-end="url(#arrowBlueL)" filter="url(#glow)"/>
+  <rect x="315" y="228" width="270" height="22" rx="5" fill="#0d1117" stroke="#1f6feb" stroke-width="0.8"/>
+  <text x="450" y="243" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">Introduce { Name, PublicKey, Algorithm }</text>
+
+  <!-- Step 3: Initiator verify -->
+  <rect x="55" y="248" width="85" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
+  <text x="97" y="261" text-anchor="middle" fill="#58a6ff" font-size="8" font-weight="600">✓ Verify Sig</text>
+
+  <!-- Both have peer's PubKey note -->
+  <text x="450" y="278" text-anchor="middle" fill="#6e7681" font-size="9" font-style="italic">Both peers now hold each other's authenticated public key</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- SECTION 2: KEY EXCHANGE (ML-KEM-768)                          -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="40" y="298" width="820" height="228" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.2" filter="url(#shadow)"/>
+  <!-- Header bar -->
+  <rect x="40" y="298" width="820" height="28" rx="10" fill="url(#gPurple)" opacity="0.12"/>
+  <rect x="40" y="316" width="820" height="10" fill="url(#gPurple)" opacity="0.12"/>
+  <circle cx="60" cy="312" r="5" fill="url(#gPurple)"/>
+  <text x="75" y="317" fill="#d2a8ff" font-size="12" font-weight="700" letter-spacing="0.8">KEY EXCHANGE</text>
+  <text x="845" y="317" text-anchor="end" fill="#8b949e" font-size="10">ML-KEM-768 · Ephemeral</text>
+
+  <!-- Initiator generates KEM keypair -->
+  <rect x="55" y="336" width="120" height="32" rx="6" fill="#21262d" stroke="#8b5cf6" stroke-width="0.8"/>
+  <text x="115" y="350" text-anchor="middle" fill="#d2a8ff" font-size="8.5" font-weight="600">Gen ML-KEM-768</text>
+  <text x="115" y="362" text-anchor="middle" fill="#6e7681" font-size="7.5">pk_kem, sk_kem</text>
+
+  <!-- Initiator generates salt + prefix -->
+  <rect x="55" y="372" width="120" height="32" rx="6" fill="#21262d" stroke="#8b5cf6" stroke-width="0.8"/>
+  <text x="115" y="386" text-anchor="middle" fill="#d2a8ff" font-size="8.5" font-weight="600">Gen Parameters</text>
+  <text x="115" y="398" text-anchor="middle" fill="#6e7681" font-size="7.5">salt (16B) + prefix (10ch)</text>
+
+  <!-- Arrow 3: Initiator → Responder (Handshake Request) -->
+  <line x1="170" y1="417" x2="730" y2="417" stroke="#d2a8ff" stroke-width="1.8" marker-end="url(#arrowPurple)" filter="url(#glow)"/>
+  <rect x="275" y="405" width="350" height="22" rx="5" fill="#0d1117" stroke="#8b5cf6" stroke-width="0.8"/>
+  <text x="450" y="420" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">Handshake { pk_kem, Salt, SessionPrefix }</text>
+  <!-- Route label -->
+  <text x="715" y="413" text-anchor="end" fill="#8b949e" font-size="7.5">REQUEST_HANDSHAKE</text>
+
+  <!-- Responder encapsulates -->
+  <rect x="725" y="427" width="120" height="46" rx="6" fill="#21262d" stroke="#8b5cf6" stroke-width="0.8"/>
+  <text x="785" y="441" text-anchor="middle" fill="#d2a8ff" font-size="8.5" font-weight="600">Encapsulate(pk_kem)</text>
+  <text x="785" y="454" text-anchor="middle" fill="#6e7681" font-size="7.5">→ secret (32B), ct</text>
+  <text x="785" y="466" text-anchor="middle" fill="#6e7681" font-size="7.5">+ gen salt, suffix</text>
+
+  <!-- Arrow 4: Responder → Initiator (Handshake Accept) -->
+  <line x1="730" y1="485" x2="170" y2="485" stroke="#d2a8ff" stroke-width="1.8" marker-end="url(#arrowPurpleL)" filter="url(#glow)"/>
+  <rect x="280" y="473" width="340" height="22" rx="5" fill="#0d1117" stroke="#8b5cf6" stroke-width="0.8"/>
+  <text x="450" y="488" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">Handshake { Ciphertext, Salt, SessionSuffix }</text>
+  <text x="715" y="481" text-anchor="end" fill="#8b949e" font-size="7.5">ACCEPT_HANDSHAKE</text>
+
+  <!-- Initiator decapsulates -->
+  <rect x="55" y="493" width="120" height="22" rx="6" fill="#21262d" stroke="#8b5cf6" stroke-width="0.8"/>
+  <text x="115" y="508" text-anchor="middle" fill="#d2a8ff" font-size="8.5" font-weight="600">Decapsulate(ct)</text>
+
+  <!-- Both derive same shared secret -->
+  <!-- Initiator key derivation -->
+  <rect x="55" y="345" width="2" height="175" rx="1" fill="url(#gPurple)" opacity="0.2"/>
+
+  <!-- Responder key derivation -->
+  <rect x="843" y="345" width="2" height="170" rx="1" fill="url(#gPurple)" opacity="0.2"/>
+
+  <!-- Shared secret note -->
+  <text x="450" y="520" text-anchor="middle" fill="#d2a8ff" font-size="9" font-weight="600">Both derive: secret = 32-byte shared secret</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- SECTION 3: CHALLENGE EXCHANGE                                 -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="40" y="538" width="820" height="260" rx="10" fill="#0d1117" stroke="#db61a2" stroke-width="1.2" filter="url(#shadow)"/>
+  <!-- Header bar -->
+  <rect x="40" y="538" width="820" height="28" rx="10" fill="url(#gPink)" opacity="0.12"/>
+  <rect x="40" y="556" width="820" height="10" fill="url(#gPink)" opacity="0.12"/>
+  <circle cx="60" cy="552" r="5" fill="url(#gPink)"/>
+  <text x="75" y="557" fill="#f778ba" font-size="12" font-weight="700" letter-spacing="0.8">CHALLENGE EXCHANGE</text>
+  <text x="845" y="557" text-anchor="end" fill="#8b949e" font-size="10">🔒 Encrypted · Mutual Verification</text>
+
+  <!-- Both create ciphers note -->
+  <rect x="55" y="574" width="115" height="32" rx="6" fill="#21262d" stroke="#db61a2" stroke-width="0.8"/>
+  <text x="112" y="588" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Create Ciphers</text>
+  <text x="112" y="600" text-anchor="middle" fill="#6e7681" font-size="7">HKDF → XChaCha20</text>
+
+  <rect x="730" y="574" width="115" height="32" rx="6" fill="#21262d" stroke="#db61a2" stroke-width="0.8"/>
+  <text x="787" y="588" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Create Ciphers</text>
+  <text x="787" y="600" text-anchor="middle" fill="#6e7681" font-size="7">HKDF → XChaCha20</text>
+
+  <!-- Derive challenge_c label -->
+  <rect x="55" y="612" width="115" height="22" rx="6" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
+  <text x="112" y="627" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Derive challenge_c</text>
+
+  <!-- Arrow 5: Initiator → Responder (challenge_c encrypted) -->
+  <line x1="170" y1="644" x2="730" y2="644" stroke="#f778ba" stroke-width="1.8" marker-end="url(#arrowPink)" filter="url(#glow)"/>
+  <rect x="340" y="632" width="220" height="22" rx="5" fill="#0d1117" stroke="#db61a2" stroke-width="0.8"/>
+  <text x="450" y="647" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">🔒 Encrypt(challenge_c)</text>
+  <text x="715" y="640" text-anchor="end" fill="#8b949e" font-size="7.5">SEND_CHALLENGE</text>
+
+  <!-- Responder decrypts and echoes -->
+  <rect x="755" y="652" width="85" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
+  <text x="797" y="665" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Decrypt + Echo</text>
+
+  <!-- Arrow 6: Responder → Initiator (echo challenge_c) -->
+  <line x1="730" y1="680" x2="170" y2="680" stroke="#f778ba" stroke-width="1.8" marker-end="url(#arrowPinkL)" filter="url(#glow)"/>
+  <rect x="340" y="668" width="220" height="22" rx="5" fill="#0d1117" stroke="#db61a2" stroke-width="0.8"/>
+  <text x="450" y="683" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">🔒 Encrypt(challenge_c)</text>
+  <text x="715" y="676" text-anchor="end" fill="#8b949e" font-size="7.5">VERIFY_CHALLENGE</text>
+
+  <!-- Initiator verifies -->
+  <rect x="55" y="688" width="115" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
+  <text x="112" y="701" text-anchor="middle" fill="#7ee787" font-size="8" font-weight="600">✓ ConstantTimeCompare</text>
+
+  <!-- Responder derives challenge_s -->
+  <rect x="730" y="700" width="115" height="22" rx="6" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
+  <text x="787" y="715" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Derive challenge_s</text>
+
+  <!-- Arrow 7: Responder → Initiator (challenge_s encrypted) -->
+  <line x1="730" y1="732" x2="170" y2="732" stroke="#f778ba" stroke-width="1.8" marker-end="url(#arrowPinkL)" filter="url(#glow)"/>
+  <rect x="340" y="720" width="220" height="22" rx="5" fill="#0d1117" stroke="#db61a2" stroke-width="0.8"/>
+  <text x="450" y="735" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">🔒 Encrypt(challenge_s)</text>
+  <text x="185" y="728" fill="#8b949e" font-size="7.5">SEND_CHALLENGE</text>
+
+  <!-- Initiator decrypts and echoes -->
+  <rect x="55" y="740" width="85" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
+  <text x="97" y="753" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Decrypt + Echo</text>
+
+  <!-- Arrow 8: Initiator → Responder (echo challenge_s) -->
+  <line x1="170" y1="768" x2="730" y2="768" stroke="#f778ba" stroke-width="1.8" marker-end="url(#arrowPink)" filter="url(#glow)"/>
+  <rect x="340" y="756" width="220" height="22" rx="5" fill="#0d1117" stroke="#db61a2" stroke-width="0.8"/>
+  <text x="450" y="771" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">🔒 Encrypt(challenge_s)</text>
+  <text x="715" y="764" text-anchor="end" fill="#8b949e" font-size="7.5">VERIFY_CHALLENGE</text>
+
+  <!-- Responder verifies -->
+  <rect x="730" y="778" width="115" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
+  <text x="787" y="791" text-anchor="middle" fill="#7ee787" font-size="8" font-weight="600">✓ ConstantTimeCompare</text>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <!-- ESTABLISHED BANNER                                            -->
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <rect x="250" y="816" width="400" height="42" rx="10" fill="#0d1117" stroke="#7ee787" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="248" y="814" width="404" height="46" rx="12" fill="none" stroke="#7ee787" stroke-width="1" opacity="0.25" filter="url(#glow)"/>
+  <rect x="250" y="816" width="400" height="4" rx="2" fill="url(#gGreen)"/>
+  <text x="450" y="843" text-anchor="middle" fill="#7ee787" font-size="15" font-weight="700" letter-spacing="1">✓ SESSION ESTABLISHED</text>
+
+  <!-- Connection lines to established -->
+  <line x1="150" y1="800" x2="150" y2="837" stroke="#7ee787" stroke-width="1.5"/>
+  <circle cx="150" cy="837" r="4" fill="#7ee787"/>
+  <line x1="750" y1="800" x2="750" y2="837" stroke="#7ee787" stroke-width="1.5"/>
+  <circle cx="750" cy="837" r="4" fill="#7ee787"/>
+
+  <!-- Footer legend -->
+  <text x="450" y="873" text-anchor="middle" fill="#484f58" font-size="9">Forward secrecy via ephemeral ML-KEM-768 · Key binding via HKDF-SHA512(secret, salt, sessionID||direction)</text>
+</svg>
