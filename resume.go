@@ -21,13 +21,11 @@ const (
 const (
 	// Domain separation labels for reconnect message encryption.
 	//
-	// We intentionally use distinct labels for each direction to reduce the risk
-	// of key/nonce reuse in case of implementation errors and to provide clearer
-	// protocol separation.
-	reconnectC2SEncryptInfo = "kamune/reconnect/c2s/encrypt/v1"
-	reconnectC2SDecryptInfo = "kamune/reconnect/c2s/decrypt/v1"
-	reconnectS2CEncryptInfo = "kamune/reconnect/s2c/encrypt/v1"
-	reconnectS2CDecryptInfo = "kamune/reconnect/s2c/decrypt/v1"
+	// We use one distinct label per direction so that both sides derive the
+	// same symmetric key from HKDF for a given direction, while ensuring
+	// client-to-server and server-to-client traffic use independent keys.
+	reconnectC2SInfo = "kamune/reconnect/c2s/v1"
+	reconnectS2CInfo = "kamune/reconnect/s2c/v1"
 )
 
 var (
@@ -304,7 +302,7 @@ func (sr *SessionResumer) InitiateResumption(
 	if err := sr.sendSignedMessageWithSecret(
 		conn,
 		state.SharedSecret,
-		reconnectC2SEncryptInfo,
+		reconnectC2SInfo,
 		req,
 		RouteReconnect,
 	); err != nil {
@@ -316,7 +314,7 @@ func (sr *SessionResumer) InitiateResumption(
 	route, err := sr.receiveSignedMessageWithSecret(
 		conn,
 		state.SharedSecret,
-		reconnectS2CDecryptInfo,
+		reconnectS2CInfo,
 		&resp,
 		state.RemotePublicKey,
 	)
@@ -366,7 +364,7 @@ func (sr *SessionResumer) InitiateResumption(
 	if err := sr.sendSignedMessageWithSecret(
 		conn,
 		state.SharedSecret,
-		reconnectC2SEncryptInfo,
+		reconnectC2SInfo,
 		verify,
 		RouteReconnect,
 	); err != nil {
@@ -378,7 +376,7 @@ func (sr *SessionResumer) InitiateResumption(
 	route, err = sr.receiveSignedMessageWithSecret(
 		conn,
 		state.SharedSecret,
-		reconnectS2CDecryptInfo,
+		reconnectS2CInfo,
 		&complete,
 		state.RemotePublicKey,
 	)
@@ -475,7 +473,7 @@ func (sr *SessionResumer) HandleResumption(
 	if err := sr.sendSignedMessageWithSecret(
 		conn,
 		state.SharedSecret,
-		reconnectS2CEncryptInfo,
+		reconnectS2CInfo,
 		resp,
 		RouteReconnect,
 	); err != nil {
@@ -487,7 +485,7 @@ func (sr *SessionResumer) HandleResumption(
 	route, err := sr.receiveSignedMessageWithSecret(
 		conn,
 		state.SharedSecret,
-		reconnectC2SDecryptInfo,
+		reconnectC2SInfo,
 		&verify,
 		req.RemotePublicKey,
 	)
@@ -515,7 +513,7 @@ func (sr *SessionResumer) HandleResumption(
 		_ = sr.sendSignedMessageWithSecret(
 			conn,
 			state.SharedSecret,
-			reconnectS2CEncryptInfo,
+			reconnectS2CInfo,
 			complete,
 			RouteReconnect,
 		)
@@ -537,7 +535,7 @@ func (sr *SessionResumer) HandleResumption(
 	if err := sr.sendSignedMessageWithSecret(
 		conn,
 		state.SharedSecret,
-		reconnectS2CEncryptInfo,
+		reconnectS2CInfo,
 		complete,
 		RouteReconnect,
 	); err != nil {
