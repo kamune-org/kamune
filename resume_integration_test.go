@@ -86,6 +86,7 @@ func handshakePair(t *testing.T, e *testEnv) (*Transport, *Transport) {
 
 	opts := handshakeOpts{
 		remoteVerifier: func(_ *Storage, _ *Peer) error { return nil },
+		timeout:        30 * time.Second,
 	}
 
 	var tA *Transport

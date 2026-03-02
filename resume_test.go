@@ -260,6 +260,7 @@ func TestSaveSessionForResumption(t *testing.T) {
 
 	handshakeOpts := handshakeOpts{
 		remoteVerifier: func(store *Storage, peer *Peer) error { return nil },
+		timeout:        30 * time.Second,
 	}
 
 	// Perform handshake

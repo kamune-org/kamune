@@ -292,6 +292,7 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 		resumptionConfig: DefaultResumptionConfig(),
 		handshakeOpts: handshakeOpts{
 			remoteVerifier: defaultRemoteVerifier,
+			timeout:        30 * time.Second,
 		},
 	}
 

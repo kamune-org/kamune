@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
-	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -60,6 +61,22 @@ type SessionResumer struct {
 	maxSessionAge  time.Duration
 }
 
+// ResumptionConfig contains configuration for session resumption.
+type ResumptionConfig struct {
+	MaxSessionAge   time.Duration
+	Enabled         bool
+	PersistSessions bool
+}
+
+// DefaultResumptionConfig returns the default resumption configuration.
+func DefaultResumptionConfig() ResumptionConfig {
+	return ResumptionConfig{
+		Enabled:         true,
+		MaxSessionAge:   24 * time.Hour,
+		PersistSessions: true,
+	}
+}
+
 // sessionAgeOK enforces the configured max session age for resumption.
 // We accept UpdatedAt as the primary freshness signal (because it moves forward
 // across resumption and normal session updates). If UpdatedAt is missing, we
@@ -95,7 +112,9 @@ func (sr *SessionResumer) sessionAgeOK(state *SessionState) error {
 //
 // The ciphertext is stored in SignedTransport.Data, and the signature covers
 // the encrypted Data bytes.
-func (sr *SessionResumer) encryptSignedTransport(sharedSecret []byte, info string, st *pb.SignedTransport) error {
+func (sr *SessionResumer) encryptSignedTransport(
+	sharedSecret []byte, info string, st *pb.SignedTransport,
+) error {
 	if st == nil {
 		return errors.New("nil signed transport")
 	}
@@ -114,7 +133,9 @@ func (sr *SessionResumer) encryptSignedTransport(sharedSecret []byte, info strin
 
 // decryptSignedTransport decrypts SignedTransport.Data using a key derived from
 // the session shared secret.
-func (sr *SessionResumer) decryptSignedTransport(sharedSecret []byte, info string, st *pb.SignedTransport) error {
+func (sr *SessionResumer) decryptSignedTransport(
+	sharedSecret []byte, info string, st *pb.SignedTransport,
+) error {
 	if st == nil {
 		return errors.New("nil signed transport")
 	}
@@ -605,11 +626,11 @@ func (sr *SessionResumer) restoreTransport(
 	// Recreate enigma encoders/decoders
 	var encoderInfo, decoderInfo string
 	if state.IsInitiator {
-		encoderInfo = state.SessionID + c2s
-		decoderInfo = state.SessionID + s2c
+		encoderInfo = handshakeC2SInfo
+		decoderInfo = handshakeS2CInfo
 	} else {
-		encoderInfo = state.SessionID + s2c
-		decoderInfo = state.SessionID + c2s
+		encoderInfo = handshakeS2CInfo
+		decoderInfo = handshakeC2SInfo
 	}
 
 	encoder, err := enigma.NewEnigma(state.SharedSecret, state.LocalSalt, []byte(encoderInfo))

@@ -333,6 +333,7 @@ func NewServer(
 		resumptionConfig: DefaultResumptionConfig(),
 		handshakeOpts: handshakeOpts{
 			remoteVerifier: defaultRemoteVerifier,
+			timeout:        30 * time.Second,
 		},
 	}
 

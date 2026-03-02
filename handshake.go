@@ -14,6 +14,16 @@ import (
 	"github.com/kamune-org/kamune/internal/enigma"
 )
 
+const (
+	// Domain separation labels for handshake message encryption.
+	handshakeC2SInfo = "kamune/handshake/client-to-server/v1"
+	handshakeS2CInfo = "kamune/handshake/server-to-client/v1"
+
+	// exportKeySize is the size of symmetric keys exported from the HPKE
+	// context for bidirectional transport encryption.
+	exportKeySize = 32
+)
+
 // HPKE ciphersuite components used for key establishment.
 // MLKEM768-X25519 provides hybrid post-quantum + classical security.
 // HKDF-SHA512 is the KDF and ChaCha20Poly1305 is the AEAD (used only
@@ -27,6 +37,7 @@ var (
 
 type handshakeOpts struct {
 	remoteVerifier RemoteVerifier
+	timeout        time.Duration
 }
 
 // handshakeState tracks the state of an ongoing handshake for potential
@@ -58,7 +69,7 @@ func requestHandshake(
 ) (*Transport, error) {
 	// Bound the handshake to avoid indefinite blocking.
 	// SetDeadline is part of net.Conn, embedded in Conn.
-	_ = pt.conn.SetDeadline(time.Now().Add(handshakeTimeout))
+	_ = pt.conn.SetDeadline(time.Now().Add(opts.timeout))
 	defer func() { _ = pt.conn.SetDeadline(time.Time{}) }()
 
 	state := &handshakeState{
@@ -66,10 +77,8 @@ func requestHandshake(
 		phase:       PhaseIntroduction,
 	}
 
-	kem := hpkeKEM()
-
 	// Step 1: Generate HPKE keypair and send handshake request
-	privKey, err := kem.GenerateKey()
+	privKey, err := hpkeKEM().GenerateKey()
 	if err != nil {
 		return nil, fmt.Errorf("generating HPKE key: %w", err)
 	}
@@ -144,11 +153,15 @@ func requestHandshake(
 	// Step 4: Export bidirectional symmetric keys from the HPKE context.
 	// The HPKE Export function derives independent keys using distinct
 	// exporter contexts, ensuring each direction has its own key material.
-	c2sKey, err := recipient.Export(state.sessionID+c2s, exportKeySize)
+	c2sKey, err := recipient.Export(
+		state.sessionID+handshakeC2SInfo, exportKeySize,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("exporting c2s key: %w", err)
 	}
-	s2cKey, err := recipient.Export(state.sessionID+s2c, exportKeySize)
+	s2cKey, err := recipient.Export(
+		state.sessionID+handshakeS2CInfo, exportKeySize,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("exporting s2c key: %w", err)
 	}
@@ -164,13 +177,13 @@ func requestHandshake(
 	// Step 5: Create transport with encryption using exported keys.
 	// The initiator encrypts with c2s and decrypts with s2c.
 	encoder, err := enigma.NewEnigma(
-		c2sKey, state.localSalt, []byte(state.sessionID+c2s),
+		c2sKey, state.localSalt, []byte(handshakeC2SInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
 	decoder, err := enigma.NewEnigma(
-		s2cKey, state.remoteSalt, []byte(state.sessionID+s2c),
+		s2cKey, state.remoteSalt, []byte(handshakeS2CInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
@@ -185,7 +198,7 @@ func requestHandshake(
 	err = sendChallenge(
 		t,
 		sharedSecret,
-		deriveChallengeInfo(state.sessionID, c2s, transcriptHash),
+		deriveChallengeInfo(state.sessionID, handshakeC2SInfo, transcriptHash),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
@@ -215,7 +228,7 @@ func acceptHandshake(
 	pt *plainTransport, opts handshakeOpts,
 ) (*Transport, error) {
 	// Bound the handshake to avoid indefinite blocking.
-	_ = pt.conn.SetDeadline(time.Now().Add(handshakeTimeout))
+	_ = pt.conn.SetDeadline(time.Now().Add(opts.timeout))
 	defer func() { _ = pt.conn.SetDeadline(time.Time{}) }()
 
 	state := &handshakeState{
@@ -301,11 +314,11 @@ func acceptHandshake(
 	// Step 3: Export bidirectional symmetric keys from the HPKE context.
 	// Both sides derive the same keys because the HPKE key schedule is
 	// deterministic given the same shared secret and info.
-	c2sKey, err := sender.Export(state.sessionID+c2s, exportKeySize)
+	c2sKey, err := sender.Export(state.sessionID+handshakeC2SInfo, exportKeySize)
 	if err != nil {
 		return nil, fmt.Errorf("exporting c2s key: %w", err)
 	}
-	s2cKey, err := sender.Export(state.sessionID+s2c, exportKeySize)
+	s2cKey, err := sender.Export(state.sessionID+handshakeS2CInfo, exportKeySize)
 	if err != nil {
 		return nil, fmt.Errorf("exporting s2c key: %w", err)
 	}
@@ -320,13 +333,13 @@ func acceptHandshake(
 	// Step 4: Create transport with encryption using exported keys.
 	// The responder encrypts with s2c and decrypts with c2s.
 	encoder, err := enigma.NewEnigma(
-		s2cKey, state.localSalt, []byte(state.sessionID+s2c),
+		s2cKey, state.localSalt, []byte(handshakeS2CInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
 	decoder, err := enigma.NewEnigma(
-		c2sKey, state.remoteSalt, []byte(state.sessionID+c2s),
+		c2sKey, state.remoteSalt, []byte(handshakeC2SInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
@@ -347,7 +360,7 @@ func acceptHandshake(
 	if err := sendChallenge(
 		t,
 		sharedSecret,
-		deriveChallengeInfo(state.sessionID, s2c, transcriptHash),
+		deriveChallengeInfo(state.sessionID, handshakeS2CInfo, transcriptHash),
 	); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -44,6 +45,7 @@ func TestHandshake(t *testing.T) {
 
 	hndshkeOpts := handshakeOpts{
 		remoteVerifier: defaultRemoteVerifier,
+		timeout:        30 * time.Second,
 	}
 
 	var t1 *Transport
@@ -202,7 +204,7 @@ func BenchmarkHandshakeTranscriptHash_LargeKeyMaterial(b *testing.B) {
 
 func BenchmarkDeriveChallengeInfo(b *testing.B) {
 	sessionID := "12345678901234567890" // sessionIDLength
-	direction := c2s
+	direction := handshakeC2SInfo
 	var transcriptHash [32]byte
 
 	b.ReportAllocs()
