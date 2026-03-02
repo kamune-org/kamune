@@ -31,12 +31,12 @@
 ### Updated Cipher Suite
 
 The default cipher suite is now:
-`Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
+`Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA512, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
 
 | Component | Before | After |
 |-----------|--------|-------|
 | Key Encapsulation | Raw ML-KEM-768 | HPKE with MLKEM768-X25519 (hybrid) |
-| Key Derivation (handshake) | Manual HKDF-SHA512 | HPKE key schedule (HKDF-SHA256) + Export |
+| Key Derivation (handshake) | Manual HKDF-SHA512 | HPKE key schedule (HKDF-SHA512) + Export |
 | Transport Encryption | XChaCha20-Poly1305 (unchanged) | XChaCha20-Poly1305 (unchanged) |
 
 ### Documentation

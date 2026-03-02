@@ -2,7 +2,7 @@
 
 **Version:** 0.2.0  
 **Status:** Experimental  
-**Suite:** `Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
+**Suite:** `Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA512, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
 
 ---
 
@@ -44,7 +44,7 @@ The protocol operates in three sequential stages — **Introduction**,
 bidirectional channel between two peers without requiring an intermediary server.
 
 The default cipher suite is
-`Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`.
+`Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA512, ChaCha20-Poly1305)_ChaCha20-Poly1305X`.
 An alternative fully post-quantum suite substituting ML-DSA-65 for Ed25519 is
 supported for identity signing.
 
@@ -65,7 +65,7 @@ supported for identity signing.
 | **Peer** | A remote party identified by its public key, name, algorithm, and timestamps. |
 | **Transport** | The encrypted, session-aware communication channel between two peers. |
 | **Plain Transport** | The unencrypted, signature-verified serialization layer used during Introduction and Handshake. |
-| **HPKE** | Hybrid Public Key Encryption (RFC 9180). Performs key encapsulation and key schedule derivation in a single operation during the Handshake phase. Configured with MLKEM768-X25519 KEM, HKDF-SHA256 KDF, and ChaCha20-Poly1305 AEAD. Bidirectional transport keys are exported from the HPKE context. |
+| **HPKE** | Hybrid Public Key Encryption (RFC 9180). Performs key encapsulation and key schedule derivation in a single operation during the Handshake phase. Configured with MLKEM768-X25519 KEM, HKDF-SHA512 KDF, and ChaCha20-Poly1305 AEAD. Bidirectional transport keys are exported from the HPKE context. |
 | **Enigma** | The symmetric encryption/decryption engine wrapping XChaCha20-Poly1305 with keys exported from the HPKE context and further derived via HKDF-SHA512. |
 | **Session** | A cryptographic context comprising HPKE-exported shared secret, salts, session ID, sequence counters, and phase. |
 | **Route** | A typed tag on each message identifying its purpose and protocol phase. |
@@ -79,17 +79,17 @@ supported for identity signing.
   <img alt="Cipher Suite Architecture" src="assets/diagrams/cipher-suite.svg">
 </picture>
 
-### 3.1 Default Suite: `Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
+### 3.1 Default Suite: `Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA512, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
 
 | Component | Algorithm | Purpose |
 |-----------|-----------|---------|
 | **Identity Signing** | Ed25519 | Digital signatures for authentication and message integrity during Introduction, Handshake, and all signed transports. |
 | **Key Establishment** | HPKE (RFC 9180) with MLKEM768-X25519 KEM | Hybrid Public Key Encryption using the X-Wing hybrid KEM (ML-KEM-768 + X25519). Performs key encapsulation and derives the shared key schedule in a single operation. Ephemeral keypairs are used per session. Uses Go's standard library `crypto/hpke`. |
-| **HPKE KDF** | HKDF-SHA256 | Key derivation function within the HPKE key schedule. Used internally by HPKE to derive the shared context and for exporting bidirectional symmetric keys. |
+| **HPKE KDF** | HKDF-SHA512 | Key derivation function within the HPKE key schedule. Used internally by HPKE to derive the shared context and for exporting bidirectional symmetric keys. |
 | **HPKE AEAD** | ChaCha20-Poly1305 | AEAD cipher within the HPKE key schedule. Used internally by HPKE for its key scheduling; transport-level encryption uses the exported keys with XChaCha20-Poly1305 (see below). |
 | **Transport Encryption** | XChaCha20-Poly1305 | Extended-nonce AEAD cipher for bidirectional message encryption and authentication during the Communication phase. Keys are exported from the HPKE context. |
 
-### 3.2 Alternative Suite: `ML-DSA-65_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
+### 3.2 Alternative Suite: `ML-DSA-65_HPKE(MLKEM768-X25519, HKDF-SHA512, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
 
 When the `MLDSA` algorithm is selected, ML-DSA-65 (CRYSTALS-Dilithium) replaces
 Ed25519 for identity signing, providing full post-quantum security for both
@@ -666,7 +666,7 @@ Key establishment in Kamune uses HPKE (Hybrid Public Key Encryption, RFC 9180)
 with the following ciphersuite:
 
 - **KEM**: MLKEM768-X25519 (hybrid post-quantum + classical, a.k.a. X-Wing)
-- **KDF**: HKDF-SHA256
+- **KDF**: HKDF-SHA512
 - **AEAD**: ChaCha20-Poly1305
 
 The HPKE key schedule is established during the Handshake phase:

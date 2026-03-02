@@ -2,7 +2,7 @@
 
 Communication over untrusted networks.
 
-Kamune provides `Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA256, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
+Kamune provides `Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA512, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
 security suite. Optionally, `ML-DSA` can be used for full quantum safety.
 
 ![demo](assets/demo.gif)
@@ -19,7 +19,7 @@ For a comprehensive technical specification, see [SPEC.md](SPEC.md).
   quantum safe **ML-DSA-65**
 - Key establishment via **HPKE** ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180))
   with the hybrid post-quantum **MLKEM768-X25519** KEM (a.k.a. X-Wing),
-  **HKDF-SHA256** KDF, and **ChaCha20-Poly1305** AEAD — using Go's standard
+  **HKDF-SHA512** KDF, and **ChaCha20-Poly1305** AEAD — using Go's standard
   library [`crypto/hpke`](https://pkg.go.dev/crypto/hpke)
 - Bidirectional transport keys exported from the HPKE context, used with
   **XChaCha20-Poly1305** for end-to-end symmetric encryption
