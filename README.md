@@ -2,8 +2,8 @@
 
 Communication over untrusted networks.
 
-Kamune provides `Ed25519_HPKE(MLKEM768-X25519, HKDF-SHA512, ChaCha20-Poly1305)_ChaCha20-Poly1305X`
-security suite. Optionally, `ML-DSA` can be used for full quantum safety.
+Kamune provides `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X` security suite.
+Optionally, `ML-DSA` can be used for full quantum safety.
 
 ![demo](assets/demo.gif)
 
@@ -17,13 +17,11 @@ For a comprehensive technical specification, see [SPEC.md](SPEC.md).
 
 - Message signing and verification using **Ed25519**, with support for
   quantum safe **ML-DSA-65**
-- Key establishment via **HPKE** ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180))
-  with the hybrid post-quantum **MLKEM768-X25519** KEM (a.k.a. X-Wing),
-  **HKDF-SHA512** KDF, and **ChaCha20-Poly1305** AEAD — using Go's standard
-  library [`crypto/hpke`](https://pkg.go.dev/crypto/hpke)
-- Bidirectional transport keys exported from the HPKE context, used with
-  **XChaCha20-Poly1305** for end-to-end symmetric encryption
-- Forward secrecy via ephemeral HPKE keypairs per session
+- Encrypted handhsake using **HPKE** ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180))
+- Ephemeral, quantum-resistant key encapsulation with **ML-KEM-768**, providing
+  **Forward secrecy**.
+- End-to-End, bidirectional symmetric encryption using **ChaCha20-Poly1305X**
+- Key derivation via **HKDF-SHA512** (HMAC-based extract-and-expand)
 - Lightweight, custom protocol implemented in both **TCP and UDP** for minimal
   overhead and latency
 - **Real-time, instant messaging** over socket-based connection
@@ -49,12 +47,11 @@ removal.
   - [x] UDP
   - [ ] QUIC, WebRTC, or others? *
 - [x] Better timeout and deadline management
-
 - [x] Routes and session reconnection
 - [x] Relay server
   - [x] IP discovery
-  - [ ] Message conveying
-  - [ ] Queue persistence
+  - [x] Message conveying
+  - [x] Queue persistence
 - [x] Handling remotes, connection retries, and session management
   - [x] QR code generation
   - [x] Peer name
@@ -79,6 +76,12 @@ connection to the server.
   <img alt="Cipher Suite Architecture" src="assets/diagrams/cipher-suite.svg">
 </picture>
 
+## Exchange
+
+Both parties exchange HPKE public keys and agree on a shared secret, which will
+be used to encrypt the following handshake steps. Afterwards, separate ciphers
+will be used for encryption of user messages.
+
 ### Introduction
 
 Client sends its public key (think of it like an ID card) to the server and
@@ -87,28 +90,26 @@ server, in return, responds with its own public key (ID card). If both parties
 
 ### Handshake
 
-Client creates a new, **ephemeral** (one-time use) HPKE keypair using the
-hybrid post-quantum **MLKEM768-X25519** KEM. The public key, alongside a
-randomly generated salt and ID prefix, are sent to the server.
+Client creates a new, **ephemeral** (one-time use) keypair using the 
+post-quantum **MLKEM768** KEM. The public key, alongside a randomly generated
+salt and ID prefix, are sent to the server.
 
-Server parses the received public key and creates an **HPKE Sender context**
-(`hpke.NewSender`). This single call performs KEM encapsulation and derives the
-full HPKE key schedule internally. The encapsulated key (`enc`), a newly
-generated ID suffix, and salt are sent back to the client.
+Server parses the received public key and performs KEM encapsulation and derives
+the full secret key internally. The encapsulated key (`enc` or `ciphertext`), a
+newly generated ID suffix, and salt are sent back to the client.
 
-Client receives the encapsulated key and creates an **HPKE Recipient context**
-(`hpke.NewRecipient`), which decapsulates the key and derives the same shared
-key schedule. Both sides then **export** bidirectional symmetric keys from their
-HPKE context — one key for client-to-server and one for server-to-client — used
-to create XChaCha20-Poly1305 encryption ciphers for the transport layer.
+Client receives the encapsulated key and decapsulates the key and derives the 
+same shared secret. Both sides then create bidirectional symmetric encryption
+ciphers for the transport layer — one key for client-to-server and one for 
+server-to-client.
 
 To make sure everyone is on the same page, each party performs a **challenge**
 to verify that the other party can decipher our messages, and if we can
 decipher their messages as well.  
-A challenge token is derived from the HPKE-exported shared secret and the
-agreed upon session ID (which was created by concatenating the ID prefix and
-suffix). It is encrypted and sent to the other party. They should decrypt the
-message, encrypt it again with their own encryption cipher, and send it back.  
+A challenge token is derived from the shared secret and the agreed upon session
+ID (which was created by concatenating the ID prefix and suffix). It is 
+encrypted and sent to the other party. They should decrypt the message, encrypt 
+it again with their own encryption cipher, and send it back.  
 If each side receives and successfully verifies their token, the handshake is
 deemed successful!
 
