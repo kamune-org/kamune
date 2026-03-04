@@ -19,16 +19,6 @@ const (
 	resumeTimeout       = 30 * time.Second
 )
 
-const (
-	// Domain separation labels for reconnect message encryption.
-	//
-	// We use one distinct label per direction so that both sides derive the
-	// same symmetric key from HKDF for a given direction, while ensuring
-	// client-to-server and server-to-client traffic use independent keys.
-	reconnectC2SInfo = "kamune/reconnect/c2s/v1"
-	reconnectS2CInfo = "kamune/reconnect/s2c/v1"
-)
-
 var (
 	ErrResumptionNotSupported = errors.New("session resumption not supported")
 	ErrResumptionFailed       = errors.New("session resumption failed")

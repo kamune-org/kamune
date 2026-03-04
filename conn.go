@@ -239,6 +239,11 @@ func newConn(c net.Conn, opts ...ConnOption) (*conn, error) {
 	return cn, nil
 }
 
+// encryptedConn uses HPKE to provide an encrypted communication. It is meant
+// to be used during the handshake process and it should not be used for other
+// purposes.
+//
+// It implements the [Conn] interface.
 type encryptedConn struct {
 	conn      Conn
 	sender    *hpke.Sender

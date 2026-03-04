@@ -141,8 +141,8 @@ func BenchmarkValidateHandshakeFields_BadSessionKey(b *testing.B) {
 
 func BenchmarkHandshakeTranscriptHash_HandshakeFieldsTypical(b *testing.B) {
 	// Model a typical handshake (inner pb.Handshake fields only):
-	// - req.Key: initiator HPKE public key bytes (small)
-	// - resp.Key: HPKE enc bytes (small/moderate)
+	// - req.Key: initiator MLKEM public key bytes (small)
+	// - resp.Key: KEM enc bytes (small/moderate)
 	// - salts: 16 bytes
 	// - session prefix/suffix: 10 chars each
 	//

@@ -12,16 +12,7 @@ import (
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
-)
-
-const (
-	// Domain separation labels for handshake message encryption.
-	handshakeC2SInfo = "kamune/handshake/client-to-server/v1"
-	handshakeS2CInfo = "kamune/handshake/server-to-client/v1"
-
-	// exportKeySize is the size of symmetric keys exported from the HPKE
-	// context for bidirectional transport encryption.
-	exportKeySize = 32
+	"github.com/kamune-org/kamune/pkg/exchange"
 )
 
 // HPKE ciphersuite components used for key establishment.
@@ -43,51 +34,45 @@ type handshakeOpts struct {
 // handshakeState tracks the state of an ongoing handshake for potential
 // resumption after connection reset.
 type handshakeState struct {
-	sessionID     string
-	sessionPrefix string
-	sessionSuffix string
-	localSalt     []byte
-	remoteSalt    []byte
-	sharedSecret  []byte
-	phase         SessionPhase
-	isInitiator   bool
+	mlkemPrivateKey *exchange.MLKEM
+	sessionID       string
+	sessionPrefix   string
+	sessionSuffix   string
+	localSalt       []byte
+	remoteSalt      []byte
+	sharedSecret    []byte
+	phase           SessionPhase
+	isInitiator     bool
 }
 
 // requestHandshake initiates a handshake as the client/initiator.
 //
 // Protocol flow (initiator perspective):
-//  1. Generate an HPKE keypair and send the public key to the responder.
+//  1. Generate an MLKEM keypair and send the public key to the responder.
 //  2. Receive the responder's encapsulated key (enc) and session info.
-//  3. Create an HPKE Recipient context using the enc value, which
-//     performs KEM decapsulation and derives the shared key schedule.
-//  4. Export two symmetric keys from the HPKE context — one for each
-//     direction (client-to-server and server-to-client).
-//  5. Create the encrypted transport using those keys.
-//  6. Perform a challenge-response to verify the shared secret.
+//  3. Perform KEM decapsulation and derive the shared key (secret).
+//  4. Create two bidirectional symmetric encrypted transports - one for each
+//     direction (client-to-server and server-to-client)
+//  5. Perform a challenge-response to verify the shared secret.
 func requestHandshake(
 	pt *underlyingTransport, opts handshakeOpts,
 ) (*Transport, error) {
-	// Bound the handshake to avoid indefinite blocking.
-	// SetDeadline is part of net.Conn, embedded in Conn.
-	_ = pt.conn.SetDeadline(time.Now().Add(opts.timeout))
-	defer func() { _ = pt.conn.SetDeadline(time.Time{}) }()
-
 	state := &handshakeState{
 		isInitiator: true,
 		phase:       PhaseIntroduction,
 	}
 
-	// Step 1: Generate HPKE keypair and send handshake request
-	privKey, err := hpkeKEM().GenerateKey()
+	// Step 1: Generate MLKEM keys and send handshake request
+	ml, err := exchange.NewMLKEM()
 	if err != nil {
-		return nil, fmt.Errorf("generating HPKE key: %w", err)
+		return nil, fmt.Errorf("creating MLKEM keys: %w", err)
 	}
-
+	state.mlkemPrivateKey = ml
 	state.localSalt = randomBytes(saltSize)
 	state.sessionPrefix = enigma.Text(sessionIDLength / 2)
 
 	req := &pb.Handshake{
-		Key:        privKey.PublicKey().Bytes(),
+		Key:        ml.PublicKey.Bytes(),
 		Salt:       state.localSalt,
 		SessionKey: state.sessionPrefix,
 	}
@@ -111,7 +96,6 @@ func requestHandshake(
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake response: %w", err)
 	}
-
 	var resp pb.Handshake
 	_, route, _, err := pt.deserialize(respBytes, &resp)
 	if err != nil {
@@ -138,52 +122,22 @@ func requestHandshake(
 	// (inner pb.Handshake fields only).
 	transcriptHash := handshakeTranscriptHash(req, &resp)
 
-	// Step 3: Create HPKE Recipient context — this performs KEM
-	// decapsulation and derives the shared key schedule in one step,
-	// replacing the previous manual Decapsulate + HKDF + NewEnigma chain.
-	kdf := hpkeKDF()
-	aead := hpkeAEAD()
-	recipient, err := hpke.NewRecipient(
-		resp.GetKey(), privKey, kdf, aead, []byte(state.sessionID),
-	)
+	// Step 3: Decapsulate shared secret
+	secret, err := ml.Decapsulate(resp.GetKey())
 	if err != nil {
-		return nil, fmt.Errorf("creating HPKE recipient context: %w", err)
+		return nil, fmt.Errorf("decapsulating secret: %w", err)
 	}
+	state.sharedSecret = secret
 
-	// Step 4: Export bidirectional symmetric keys from the HPKE context.
-	// The HPKE Export function derives independent keys using distinct
-	// exporter contexts, ensuring each direction has its own key material.
-	c2sKey, err := recipient.Export(
-		state.sessionID+handshakeC2SInfo, exportKeySize,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("exporting c2s key: %w", err)
-	}
-	s2cKey, err := recipient.Export(
-		state.sessionID+handshakeS2CInfo, exportKeySize,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("exporting s2c key: %w", err)
-	}
-
-	// Derive a shared secret for challenge verification and session
-	// resumption. This is a separate export with its own context.
-	sharedSecret, err := recipient.Export(state.sessionID+"-shared", exportKeySize)
-	if err != nil {
-		return nil, fmt.Errorf("exporting shared secret: %w", err)
-	}
-	state.sharedSecret = sharedSecret
-
-	// Step 5: Create transport with encryption using exported keys.
-	// The initiator encrypts with c2s and decrypts with s2c.
+	// Step 4: Create transport with encryption
 	encoder, err := enigma.NewEnigma(
-		c2sKey, state.localSalt, []byte(handshakeC2SInfo),
+		secret, state.localSalt, []byte(state.sessionID+handshakeC2SInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
 	decoder, err := enigma.NewEnigma(
-		s2cKey, state.remoteSalt, []byte(handshakeS2CInfo),
+		secret, state.remoteSalt, []byte(state.sessionID+handshakeS2CInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
@@ -191,13 +145,13 @@ func requestHandshake(
 
 	t := newTransport(pt, state.sessionID, encoder, decoder)
 	t.SetInitiator(true)
-	t.SetSecrets(sharedSecret, state.localSalt, state.remoteSalt)
+	t.SetSecrets(secret, state.localSalt, state.remoteSalt)
 	t.SetRemotePublicKey(pt.remote.Marshal())
 
-	// Step 6: Challenge exchange (bound to handshake transcript)
+	// Step 5: Challenge exchange (bound to handshake transcript)
 	err = sendChallenge(
 		t,
-		sharedSecret,
+		secret,
 		deriveChallengeInfo(state.sessionID, handshakeC2SInfo, transcriptHash),
 	)
 	if err != nil {
@@ -210,7 +164,7 @@ func requestHandshake(
 	}
 	t.SetPhase(PhaseChallengeVerified)
 
-	// Step 7: Session established
+	// Session established
 	t.SetPhase(PhaseEstablished)
 
 	return t, nil
@@ -219,31 +173,24 @@ func requestHandshake(
 // acceptHandshake accepts an incoming handshake as the server/responder.
 //
 // Protocol flow (responder perspective):
-//  1. Receive the initiator's HPKE public key.
-//  2. Create an HPKE Sender context, which performs KEM encapsulation and
-//     derives the shared key schedule. The enc value is sent back.
-//  3. Export bidirectional symmetric keys from the HPKE context.
-//  4. Create the encrypted transport and perform challenge-response.
+//  1. Receive the initiator's MLKEM public key.
+//  2. Perform KEM encapsulation and derive the shared key (secret). The
+//     ciphertext value is sent back.
+//  3. Create two bidirectional symetric encrypted transports
+//  4. Perform challenge-response.
 func acceptHandshake(
 	pt *underlyingTransport, opts handshakeOpts,
 ) (*Transport, error) {
-	// Bound the handshake to avoid indefinite blocking.
-	_ = pt.conn.SetDeadline(time.Now().Add(opts.timeout))
-	defer func() { _ = pt.conn.SetDeadline(time.Time{}) }()
-
 	state := &handshakeState{
 		isInitiator: false,
 		phase:       PhaseIntroduction,
 	}
 
-	kem := hpkeKEM()
-
-	// Step 1: Receive handshake request with the initiator's public key
+	// Step 1: Receive handshake request
 	reqBytes, err := pt.conn.ReadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake request: %w", err)
 	}
-
 	var req pb.Handshake
 	_, route, _, err := pt.deserialize(reqBytes, &req)
 	if err != nil {
@@ -262,33 +209,22 @@ func acceptHandshake(
 		return nil, fmt.Errorf("invalid remote handshake fields: %w", err)
 	}
 
-	// Step 2: Parse the initiator's public key and create an HPKE Sender
-	// context. This performs KEM encapsulation and derives the shared key
-	// schedule, replacing the previous EncapsulateMLKEM call.
-	remotePubKey, err := kem.NewPublicKey(req.GetKey())
+	// Step 2: Encapsulate secret and prepare response
+	secret, ct, err := exchange.EncapsulateMLKEM(req.GetKey())
 	if err != nil {
-		return nil, fmt.Errorf("parsing remote HPKE public key: %w", err)
+		return nil, fmt.Errorf("encapsulating key: %w", err)
 	}
 
-	kdf := hpkeKDF()
-	aead := hpkeAEAD()
-
+	state.sharedSecret = secret
 	state.remoteSalt = req.GetSalt()
 	state.sessionSuffix = enigma.Text(sessionIDLength / 2)
 	state.sessionPrefix = req.GetSessionKey()
 	state.sessionID = state.sessionPrefix + state.sessionSuffix
 	state.localSalt = randomBytes(saltSize)
 
-	enc, sender, err := hpke.NewSender(
-		remotePubKey, kdf, aead, []byte(state.sessionID),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("creating HPKE sender context: %w", err)
-	}
-
-	// Send the encapsulated key (enc) and session info back to the initiator
+	// Send the encapsulated key (ct) and session info back to the initiator
 	resp := &pb.Handshake{
-		Key:        enc,
+		Key:        ct,
 		Salt:       state.localSalt,
 		SessionKey: state.sessionSuffix,
 	}
@@ -311,47 +247,28 @@ func acceptHandshake(
 	// (inner pb.Handshake fields only).
 	transcriptHash := handshakeTranscriptHash(&req, resp)
 
-	// Step 3: Export bidirectional symmetric keys from the HPKE context.
-	// Both sides derive the same keys because the HPKE key schedule is
-	// deterministic given the same shared secret and info.
-	c2sKey, err := sender.Export(state.sessionID+handshakeC2SInfo, exportKeySize)
-	if err != nil {
-		return nil, fmt.Errorf("exporting c2s key: %w", err)
-	}
-	s2cKey, err := sender.Export(state.sessionID+handshakeS2CInfo, exportKeySize)
-	if err != nil {
-		return nil, fmt.Errorf("exporting s2c key: %w", err)
-	}
-
-	// Derive a shared secret for challenge verification and resumption.
-	sharedSecret, err := sender.Export(state.sessionID+"-shared", exportKeySize)
-	if err != nil {
-		return nil, fmt.Errorf("exporting shared secret: %w", err)
-	}
-	state.sharedSecret = sharedSecret
-
-	// Step 4: Create transport with encryption using exported keys.
-	// The responder encrypts with s2c and decrypts with c2s.
+	// Step 3: Create transport with encryption
 	encoder, err := enigma.NewEnigma(
-		s2cKey, state.localSalt, []byte(handshakeS2CInfo),
+		secret, state.localSalt, []byte(state.sessionID+handshakeS2CInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
 	decoder, err := enigma.NewEnigma(
-		c2sKey, state.remoteSalt, []byte(handshakeC2SInfo),
+		secret, state.remoteSalt, []byte(state.sessionID+handshakeC2SInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
+	state.sharedSecret = secret
 
 	t := newTransport(pt, state.sessionID, encoder, decoder)
 	t.SetInitiator(false)
-	t.SetSecrets(sharedSecret, state.localSalt, state.remoteSalt)
+	t.SetSecrets(secret, state.localSalt, state.remoteSalt)
 	t.SetRemotePublicKey(pt.remote.Marshal())
 
-	// Step 5: Challenge exchange (bound to handshake transcript).
-	// Responder accepts initiator's challenge, then sends its own and verifies echo.
+	// Step 4: Challenge exchange (bound to handshake transcript). Responder
+	// accepts initiator's challenge, then sends its own and verifies echo.
 	if err := acceptChallenge(t, RouteSendChallenge); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
@@ -359,14 +276,14 @@ func acceptHandshake(
 
 	if err := sendChallenge(
 		t,
-		sharedSecret,
+		secret,
 		deriveChallengeInfo(state.sessionID, handshakeS2CInfo, transcriptHash),
 	); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
 	t.SetPhase(PhaseChallengeSent)
 
-	// Step 6: Session established
+	// Session established
 	t.SetPhase(PhaseEstablished)
 
 	return t, nil
@@ -445,8 +362,8 @@ func validateHandshakeFields(salt []byte, sessionKey string) error {
 // padding/metadata) and instead bind to the inner pb.Handshake fields that
 // influence session establishment:
 //
-//   - initiator: HPKE public key, salt, session prefix
-//   - responder: HPKE enc, salt, session suffix
+//   - initiator: MLKEM public key, salt, session prefix
+//   - responder: KEM enc, salt, session suffix
 //
 // It returns a fixed-size array to avoid returning a heap slice.
 func handshakeTranscriptHash(req *pb.Handshake, resp *pb.Handshake) [32]byte {

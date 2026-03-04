@@ -12,7 +12,15 @@ import (
 )
 
 const (
-	// must be less than or equal to 65535 ([math.MaxUint16])
+	// Domain separation labels for handshake message encryption.
+	handshakeC2SInfo = "kamune/handshake/client-to-server/v1"
+	handshakeS2CInfo = "kamune/handshake/server-to-client/v1"
+
+	// Domain separation labels for reconnect message encryption.
+	reconnectC2SInfo = "kamune/reconnect/c2s/v1"
+	reconnectS2CInfo = "kamune/reconnect/s2c/v1"
+
+	// Must be less than or equal to 65535 ([math.MaxUint16]).
 	maxTransportSize = 50 * 1024
 
 	saltSize        = 16

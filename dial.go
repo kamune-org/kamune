@@ -183,7 +183,12 @@ func (d *Dialer) handshake() (*Transport, error) {
 		}
 	}()
 
-	// Step 0
+	// Bound the handshake to avoid indefinite blocking.
+	_ = d.conn.SetDeadline(time.Now().Add(d.handshakeOpts.timeout))
+	defer func() { _ = d.conn.SetDeadline(time.Time{}) }()
+
+	// Step 0: Exchange HPKE keys to derive an encrypted connection for the
+	// handshake
 	ec, err := initiateExchange(d.conn)
 	if err != nil {
 		return nil, fmt.Errorf("initating exchange: %w", err)
@@ -212,7 +217,6 @@ func (d *Dialer) handshake() (*Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("receive introduction: %w", err)
 	}
-
 	if err := d.handshakeOpts.remoteVerifier(d.storage, peer); err != nil {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}

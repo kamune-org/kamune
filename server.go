@@ -138,7 +138,8 @@ func (s *Server) serve(cn Conn) error {
 		}
 	}()
 
-	// Step 0
+	// Step 0: Exchange HPKE keys to derive an encrypted connection for the
+	// handshake
 	ec, err := acceptExchange(cn)
 	if err != nil {
 		return fmt.Errorf("accepting exchange: %w", err)
@@ -210,6 +211,10 @@ func acceptExchange(c Conn) (*encryptedConn, error) {
 func (s *Server) handleNewConnection(
 	cn Conn, ec *encryptedConn, st *pb.SignedTransport,
 ) error {
+	// Bound the handshake to avoid indefinite blocking.
+	_ = cn.SetDeadline(time.Now().Add(s.handshakeOpts.timeout))
+	defer func() { _ = cn.SetDeadline(time.Time{}) }()
+
 	peer, err := receiveIntroduction(st)
 	if err != nil {
 		return fmt.Errorf("receiving introduction: %w", err)
