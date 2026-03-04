@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	bolt "go.etcd.io/bbolt"
+	boltErrors "go.etcd.io/bbolt/errors"
 )
 
 func (c *Command) AddPlain(bucket, key, value []byte) error {
@@ -42,7 +42,7 @@ func (c *Command) DeleteBucket(name []byte) error {
 		return ErrMissingBucket
 	}
 	if err := c.tx.DeleteBucket(name); err != nil {
-		if errors.Is(err, bolt.ErrBucketNotFound) {
+		if errors.Is(err, boltErrors.ErrBucketNotFound) {
 			return fmt.Errorf("delete bucket %q: %w", name, ErrMissingBucket)
 		}
 		return fmt.Errorf("delete bucket %q: %w", name, err)

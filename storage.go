@@ -243,10 +243,10 @@ func (s *Storage) SessionTimestamps(sessionID string) (
 	err = s.store.Query(func(q store.Query) error {
 		firstKey := q.FirstKey(bucket)
 		lastKey := q.LastKey(bucket)
-		if firstKey != nil && len(firstKey) >= 8 {
+		if l := len(firstKey); l != 0 && l >= 8 {
 			first = time.Unix(0, int64(binary.BigEndian.Uint64(firstKey[:8])))
 		}
-		if lastKey != nil && len(lastKey) >= 8 {
+		if l := len(lastKey); l != 0 && l >= 8 {
 			last = time.Unix(0, int64(binary.BigEndian.Uint64(lastKey[:8])))
 		}
 		// Use BoltDB bucket stats for an efficient key count (no iteration).
