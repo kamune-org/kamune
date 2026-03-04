@@ -81,8 +81,12 @@ func handshakePair(t *testing.T, e *testEnv) (*Transport, *Transport) {
 	conn2, err := newConn(c2)
 	require.NoError(t, err)
 
-	pt1 := newPlainTransport(conn1, e.attB.PublicKey(), e.attA, e.storageA)
-	pt2 := newPlainTransport(conn2, e.attA.PublicKey(), e.attB, e.storageB)
+	ut1 := newUnderlyingTransport(
+		conn1, conn1, e.attB.PublicKey(), e.attA, e.storageA,
+	)
+	ut2 := newUnderlyingTransport(
+		conn2, conn2, e.attA.PublicKey(), e.attB, e.storageB,
+	)
 
 	opts := handshakeOpts{
 		remoteVerifier: func(_ *Storage, _ *Peer) error { return nil },
@@ -94,10 +98,10 @@ func handshakePair(t *testing.T, e *testEnv) (*Transport, *Transport) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		tA, hsErr = requestHandshake(pt1, opts)
+		tA, hsErr = requestHandshake(ut1, opts)
 	}()
 
-	tB, err := acceptHandshake(pt2, opts)
+	tB, err := acceptHandshake(ut2, opts)
 	require.NoError(t, err)
 	<-done
 	require.NoError(t, hsErr)

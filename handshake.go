@@ -65,7 +65,7 @@ type handshakeState struct {
 //  5. Create the encrypted transport using those keys.
 //  6. Perform a challenge-response to verify the shared secret.
 func requestHandshake(
-	pt *plainTransport, opts handshakeOpts,
+	pt *underlyingTransport, opts handshakeOpts,
 ) (*Transport, error) {
 	// Bound the handshake to avoid indefinite blocking.
 	// SetDeadline is part of net.Conn, embedded in Conn.
@@ -225,7 +225,7 @@ func requestHandshake(
 //  3. Export bidirectional symmetric keys from the HPKE context.
 //  4. Create the encrypted transport and perform challenge-response.
 func acceptHandshake(
-	pt *plainTransport, opts handshakeOpts,
+	pt *underlyingTransport, opts handshakeOpts,
 ) (*Transport, error) {
 	// Bound the handshake to avoid indefinite blocking.
 	_ = pt.conn.SetDeadline(time.Now().Add(opts.timeout))

@@ -28,103 +28,24 @@ var (
 	ErrSessionExpired     = errors.New("session has expired")
 )
 
-// SessionPhase represents the current phase of a session.
-type SessionPhase int
-
-const (
-	PhaseInvalid SessionPhase = iota
-	PhaseIntroduction
-	PhaseHandshakeRequested
-	PhaseHandshakeAccepted
-	PhaseChallengeSent
-	PhaseChallengeVerified
-	PhaseEstablished
-	PhaseClosed
-)
-
-// String returns the string representation of the session phase.
-func (p SessionPhase) String() string {
-	switch p {
-	case PhaseIntroduction:
-		return "Introduction"
-	case PhaseHandshakeRequested:
-		return "HandshakeRequested"
-	case PhaseHandshakeAccepted:
-		return "HandshakeAccepted"
-	case PhaseChallengeSent:
-		return "ChallengeSent"
-	case PhaseChallengeVerified:
-		return "ChallengeVerified"
-	case PhaseEstablished:
-		return "Established"
-	case PhaseClosed:
-		return "Closed"
-	default:
-		return "Invalid"
-	}
-}
-
-// ToProto converts the SessionPhase to its protobuf enum representation.
-func (p SessionPhase) ToProto() pb.SessionPhase {
-	switch p {
-	case PhaseIntroduction:
-		return pb.SessionPhase_PHASE_INTRODUCTION
-	case PhaseHandshakeRequested:
-		return pb.SessionPhase_PHASE_HANDSHAKE_REQUESTED
-	case PhaseHandshakeAccepted:
-		return pb.SessionPhase_PHASE_HANDSHAKE_ACCEPTED
-	case PhaseChallengeSent:
-		return pb.SessionPhase_PHASE_CHALLENGE_SENT
-	case PhaseChallengeVerified:
-		return pb.SessionPhase_PHASE_CHALLENGE_VERIFIED
-	case PhaseEstablished:
-		return pb.SessionPhase_PHASE_ESTABLISHED
-	case PhaseClosed:
-		return pb.SessionPhase_PHASE_CLOSED
-	default:
-		return pb.SessionPhase_PHASE_INVALID
-	}
-}
-
-// PhaseFromProto converts a protobuf SessionPhase enum to the local type.
-func PhaseFromProto(p pb.SessionPhase) SessionPhase {
-	switch p {
-	case pb.SessionPhase_PHASE_INTRODUCTION:
-		return PhaseIntroduction
-	case pb.SessionPhase_PHASE_HANDSHAKE_REQUESTED:
-		return PhaseHandshakeRequested
-	case pb.SessionPhase_PHASE_HANDSHAKE_ACCEPTED:
-		return PhaseHandshakeAccepted
-	case pb.SessionPhase_PHASE_CHALLENGE_SENT:
-		return PhaseChallengeSent
-	case pb.SessionPhase_PHASE_CHALLENGE_VERIFIED:
-		return PhaseChallengeVerified
-	case pb.SessionPhase_PHASE_ESTABLISHED:
-		return PhaseEstablished
-	case pb.SessionPhase_PHASE_CLOSED:
-		return PhaseClosed
-	default:
-		return PhaseInvalid
-	}
-}
-
-// plainTransport handles unencrypted message serialization and deserialization.
-type plainTransport struct {
+type underlyingTransport struct {
 	conn    Conn
+	encConn Conn
 	attest  attest.Attester
 	remote  attest.PublicKey
 	id      attest.Identifier
 	storage *Storage
 }
 
-func newPlainTransport(
-	conn Conn,
+func newUnderlyingTransport(
+	conn, encConn Conn,
 	remote attest.PublicKey,
 	attest attest.Attester,
 	storage *Storage,
-) *plainTransport {
-	return &plainTransport{
+) *underlyingTransport {
+	return &underlyingTransport{
 		conn:    conn,
+		encConn: encConn,
 		remote:  remote,
 		attest:  attest,
 		storage: storage,
@@ -132,14 +53,14 @@ func newPlainTransport(
 	}
 }
 
-func (pt *plainTransport) serialize(
+func (ut *underlyingTransport) serialize(
 	msg Transferable, route Route, sequence uint64,
 ) ([]byte, *Metadata, error) {
 	message, err := proto.Marshal(msg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshalling message: %w", err)
 	}
-	sig, err := pt.attest.Sign(message)
+	sig, err := ut.attest.Sign(message)
 	if err != nil {
 		return nil, nil, fmt.Errorf("signing: %w", err)
 	}
@@ -164,7 +85,7 @@ func (pt *plainTransport) serialize(
 	return payload, &Metadata{md, route}, nil
 }
 
-func (pt *plainTransport) deserialize(
+func (ut *underlyingTransport) deserialize(
 	payload []byte, dst Transferable,
 ) (*Metadata, Route, uint64, error) {
 	var st pb.SignedTransport
@@ -173,7 +94,7 @@ func (pt *plainTransport) deserialize(
 	}
 
 	msg := st.GetData()
-	if ok := pt.id.Verify(pt.remote, msg, st.Signature); !ok {
+	if ok := ut.id.Verify(ut.remote, msg, st.Signature); !ok {
 		return nil, RouteInvalid, 0, ErrInvalidSignature
 	}
 	if err := proto.Unmarshal(msg, dst); err != nil {
@@ -202,7 +123,7 @@ type SessionState struct {
 
 // Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
-	*plainTransport
+	*underlyingTransport
 	encoder         *enigma.Enigma
 	decoder         *enigma.Enigma
 	mu              *sync.Mutex
@@ -218,17 +139,17 @@ type Transport struct {
 }
 
 func newTransport(
-	pt *plainTransport,
+	ut *underlyingTransport,
 	sessionID string,
 	encoder, decoder *enigma.Enigma,
 ) *Transport {
 	return &Transport{
-		mu:             &sync.Mutex{},
-		phase:          PhaseHandshakeAccepted,
-		encoder:        encoder,
-		decoder:        decoder,
-		sessionID:      sessionID,
-		plainTransport: pt,
+		mu:                  &sync.Mutex{},
+		phase:               PhaseHandshakeAccepted,
+		encoder:             encoder,
+		decoder:             decoder,
+		sessionID:           sessionID,
+		underlyingTransport: ut,
 	}
 }
 

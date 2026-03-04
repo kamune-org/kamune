@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"crypto/hpke"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -137,8 +138,14 @@ func (s *Server) serve(cn Conn) error {
 		}
 	}()
 
+	// Step 0
+	ec, err := acceptExchange(cn)
+	if err != nil {
+		return fmt.Errorf("accepting exchange: %w", err)
+	}
+
 	// Step 1: Receive introduction with route validation
-	st, route, err := readSignedTransport(cn)
+	st, route, err := readSignedTransport(ec)
 	if err != nil {
 		return fmt.Errorf("reading transport: %w", err)
 	}
@@ -146,7 +153,7 @@ func (s *Server) serve(cn Conn) error {
 	// Handle different routes at this stage
 	switch route {
 	case RouteIdentity:
-		return s.handleNewConnection(cn, st)
+		return s.handleNewConnection(cn, ec, st)
 	case RouteReconnect:
 		return s.handleReconnection(cn, st)
 	default:
@@ -160,7 +167,49 @@ func (s *Server) serve(cn Conn) error {
 	}
 }
 
-func (s *Server) handleNewConnection(cn Conn, st *pb.SignedTransport) error {
+func acceptExchange(c Conn) (*encryptedConn, error) {
+	kem := hpkeKEM()
+	kdf := hpkeKDF()
+	aead := hpkeAEAD()
+
+	remotePubBytes, err := c.ReadBytes()
+	if err != nil {
+		return nil, fmt.Errorf("reading remote public key: %w", err)
+	}
+	remotePub, err := kem.NewPublicKey(remotePubBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parsing remote public key: %w", err)
+	}
+	enc, sender, err := hpke.NewSender(remotePub, kdf, aead, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating sender: %w", err)
+	}
+	if err := c.WriteBytes(enc); err != nil {
+		return nil, fmt.Errorf("writing ciphertext: %w", err)
+	}
+
+	privateKey, err := kem.GenerateKey()
+	if err != nil {
+		return nil, fmt.Errorf("generating kem key: %w", err)
+	}
+	if err := c.WriteBytes(privateKey.PublicKey().Bytes()); err != nil {
+		return nil, fmt.Errorf("writing hpke public key: %w", err)
+	}
+	remoteEnc, err := c.ReadBytes()
+	if err != nil {
+		return nil, fmt.Errorf("reading remote ciphertext: %w", err)
+	}
+	recipient, err := hpke.NewRecipient(remoteEnc, privateKey, kdf, aead, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating recipient: %w", err)
+	}
+
+	return newEncryptedConn(c, sender, recipient), nil
+}
+
+func (s *Server) handleNewConnection(
+	cn Conn, ec *encryptedConn, st *pb.SignedTransport,
+) error {
 	peer, err := receiveIntroduction(st)
 	if err != nil {
 		return fmt.Errorf("receiving introduction: %w", err)
@@ -170,12 +219,12 @@ func (s *Server) handleNewConnection(cn Conn, st *pb.SignedTransport) error {
 		return fmt.Errorf("verify remote: %w", err)
 	}
 
-	err = sendIntroduction(cn, s.serverName, s.attester, s.algorithm)
+	err = sendIntroduction(ec, s.serverName, s.attester, s.algorithm)
 	if err != nil {
 		return fmt.Errorf("sending introduction: %w", err)
 	}
 
-	pt := newPlainTransport(cn, peer.PublicKey, s.attester, s.storage)
+	pt := newUnderlyingTransport(cn, ec, peer.PublicKey, s.attester, s.storage)
 	t, err := acceptHandshake(pt, s.handshakeOpts)
 	if err != nil {
 		return fmt.Errorf("accepting handshake: %w", err)

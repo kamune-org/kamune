@@ -616,8 +616,9 @@ func (sr *SessionResumer) restoreTransport(
 	}
 
 	// Create plain transport
-	pt := newPlainTransport(
+	pt := newUnderlyingTransport(
 		&connWrapper{Conn: conn},
+		nil,
 		remoteKey,
 		sr.attester,
 		sr.storage,

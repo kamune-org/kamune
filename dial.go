@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"crypto/hpke"
 	"fmt"
 	"log/slog"
 	"net"
@@ -182,14 +183,20 @@ func (d *Dialer) handshake() (*Transport, error) {
 		}
 	}()
 
+	// Step 0
+	ec, err := initiateExchange(d.conn)
+	if err != nil {
+		return nil, fmt.Errorf("initating exchange: %w", err)
+	}
+
 	// Step 1: Send our introduction
-	err := sendIntroduction(d.conn, d.clientName, d.attester, d.algorithm)
+	err = sendIntroduction(ec, d.clientName, d.attester, d.algorithm)
 	if err != nil {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
 
 	// Step 2: Receive peer's introduction with route validation
-	st, route, err := readSignedTransport(d.conn)
+	st, route, err := readSignedTransport(ec)
 	if err != nil {
 		return nil, fmt.Errorf("read transport: %w", err)
 	}
@@ -211,7 +218,7 @@ func (d *Dialer) handshake() (*Transport, error) {
 	}
 
 	// Step 3: Proceed with the handshake
-	pt := newPlainTransport(d.conn, peer.PublicKey, d.attester, d.storage)
+	pt := newUnderlyingTransport(d.conn, ec, peer.PublicKey, d.attester, d.storage)
 	t, err := requestHandshake(pt, d.handshakeOpts)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
@@ -224,6 +231,46 @@ func (d *Dialer) handshake() (*Transport, error) {
 	)
 
 	return t, nil
+}
+
+func initiateExchange(c Conn) (*encryptedConn, error) {
+	kem := hpkeKEM()
+	kdf := hpkeKDF()
+	aead := hpkeAEAD()
+
+	privateKey, err := kem.GenerateKey()
+	if err != nil {
+		return nil, fmt.Errorf("generating kem key: %w", err)
+	}
+	if err := c.WriteBytes(privateKey.PublicKey().Bytes()); err != nil {
+		return nil, fmt.Errorf("writing hpke public key: %w", err)
+	}
+	remoteEnc, err := c.ReadBytes()
+	if err != nil {
+		return nil, fmt.Errorf("reading remote ciphertext: %w", err)
+	}
+	recipient, err := hpke.NewRecipient(remoteEnc, privateKey, kdf, aead, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating recipient: %w", err)
+	}
+
+	remotePublicBytes, err := c.ReadBytes()
+	if err != nil {
+		return nil, fmt.Errorf("reading remote public key: %w", err)
+	}
+	remotePublic, err := kem.NewPublicKey(remotePublicBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parsing remote public key: %w", err)
+	}
+	enc, sender, err := hpke.NewSender(remotePublic, kdf, aead, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating sender: %w", err)
+	}
+	if err := c.WriteBytes(enc); err != nil {
+		return nil, fmt.Errorf("writing ciphertext: %w", err)
+	}
+
+	return newEncryptedConn(c, sender, recipient), nil
 }
 
 func (d *Dialer) attemptResumption(state *SessionState) (*Transport, error) {

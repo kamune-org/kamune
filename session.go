@@ -27,6 +27,86 @@ var (
 	indexBucket     = []byte(store.DefaultBucket + "_pubkey_index")
 )
 
+// SessionPhase represents the current phase of a session.
+type SessionPhase int
+
+const (
+	PhaseInvalid SessionPhase = iota
+	PhaseIntroduction
+	PhaseHandshakeRequested
+	PhaseHandshakeAccepted
+	PhaseChallengeSent
+	PhaseChallengeVerified
+	PhaseEstablished
+	PhaseClosed
+)
+
+// String returns the string representation of the session phase.
+func (p SessionPhase) String() string {
+	switch p {
+	case PhaseIntroduction:
+		return "Introduction"
+	case PhaseHandshakeRequested:
+		return "HandshakeRequested"
+	case PhaseHandshakeAccepted:
+		return "HandshakeAccepted"
+	case PhaseChallengeSent:
+		return "ChallengeSent"
+	case PhaseChallengeVerified:
+		return "ChallengeVerified"
+	case PhaseEstablished:
+		return "Established"
+	case PhaseClosed:
+		return "Closed"
+	default:
+		return "Invalid"
+	}
+}
+
+// ToProto converts the SessionPhase to its protobuf enum representation.
+func (p SessionPhase) ToProto() pb.SessionPhase {
+	switch p {
+	case PhaseIntroduction:
+		return pb.SessionPhase_PHASE_INTRODUCTION
+	case PhaseHandshakeRequested:
+		return pb.SessionPhase_PHASE_HANDSHAKE_REQUESTED
+	case PhaseHandshakeAccepted:
+		return pb.SessionPhase_PHASE_HANDSHAKE_ACCEPTED
+	case PhaseChallengeSent:
+		return pb.SessionPhase_PHASE_CHALLENGE_SENT
+	case PhaseChallengeVerified:
+		return pb.SessionPhase_PHASE_CHALLENGE_VERIFIED
+	case PhaseEstablished:
+		return pb.SessionPhase_PHASE_ESTABLISHED
+	case PhaseClosed:
+		return pb.SessionPhase_PHASE_CLOSED
+	default:
+		return pb.SessionPhase_PHASE_INVALID
+	}
+}
+
+// PhaseFromProto converts a protobuf SessionPhase enum to the local type.
+func PhaseFromProto(p pb.SessionPhase) SessionPhase {
+	switch p {
+	case pb.SessionPhase_PHASE_INTRODUCTION:
+		return PhaseIntroduction
+	case pb.SessionPhase_PHASE_HANDSHAKE_REQUESTED:
+		return PhaseHandshakeRequested
+	case pb.SessionPhase_PHASE_HANDSHAKE_ACCEPTED:
+		return PhaseHandshakeAccepted
+	case pb.SessionPhase_PHASE_CHALLENGE_SENT:
+		return PhaseChallengeSent
+	case pb.SessionPhase_PHASE_CHALLENGE_VERIFIED:
+		return PhaseChallengeVerified
+	case pb.SessionPhase_PHASE_ESTABLISHED:
+		return PhaseEstablished
+	case pb.SessionPhase_PHASE_CLOSED:
+		return PhaseClosed
+	default:
+		return PhaseInvalid
+	}
+}
+
 // HandshakeState tracks an in-progress handshake identified by the remote
 // peer's public key.
 type HandshakeState struct {

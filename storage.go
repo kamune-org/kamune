@@ -30,17 +30,17 @@ var (
 // timestamps, as read from the database. It is returned by
 // ListSessionsByRecent so callers don't need to load full chat histories.
 type SessionSummary struct {
-	ID           string
 	FirstMessage time.Time
 	LastMessage  time.Time
-	MessageCount int
+	ID           string
 	Name         string
+	MessageCount int
 }
 
 type Sender uint16
 
 const (
-	SenderLocal Sender = 0 + iota
+	SenderLocal Sender = iota
 	SenderPeer
 )
 
@@ -236,7 +236,9 @@ func (s *Storage) ListSessions() ([]string, error) {
 // This is an O(1) operation per session (two cursor seeks) and avoids loading
 // every entry. If the bucket is empty or does not exist both timestamps are
 // zero-valued.
-func (s *Storage) SessionTimestamps(sessionID string) (first, last time.Time, count int, err error) {
+func (s *Storage) SessionTimestamps(sessionID string) (
+	first, last time.Time, count int, err error,
+) {
 	bucket := []byte("chat_" + sessionID)
 	err = s.store.Query(func(q store.Query) error {
 		firstKey := q.FirstKey(bucket)
@@ -251,10 +253,7 @@ func (s *Storage) SessionTimestamps(sessionID string) (first, last time.Time, co
 		count = q.BucketKeyCount(bucket)
 		return nil
 	})
-	if err != nil {
-		return time.Time{}, time.Time{}, 0, fmt.Errorf("session timestamps for %s: %w", sessionID, err)
-	}
-	return first, last, count, nil
+	return
 }
 
 // ListSessionsByRecent returns summaries for every stored session, sorted by
@@ -271,8 +270,10 @@ func (s *Storage) ListSessionsByRecent() ([]SessionSummary, error) {
 	for _, id := range ids {
 		first, last, count, err := s.SessionTimestamps(id)
 		if err != nil {
-			slog.Warn("skipping session with unreadable timestamps",
-				slog.String("session_id", id), slog.Any("error", err))
+			slog.Warn(
+				"skipping session with unreadable timestamps",
+				slog.String("session_id", id), slog.Any("error", err),
+			)
 			continue
 		}
 		name, _ := s.GetSessionName(id)

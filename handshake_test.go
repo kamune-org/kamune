@@ -40,8 +40,12 @@ func TestHandshake(t *testing.T) {
 	attester2, err := attest.NewAttester(store.algorithm)
 	a.NoError(err)
 
-	pt1 := newPlainTransport(conn1, attester2.PublicKey(), attester1, store)
-	pt2 := newPlainTransport(conn2, attester1.PublicKey(), attester2, store)
+	pt1 := newUnderlyingTransport(
+		conn1, conn1, attester2.PublicKey(), attester1, store,
+	)
+	pt2 := newUnderlyingTransport(
+		conn2, conn2, attester1.PublicKey(), attester2, store,
+	)
 
 	hndshkeOpts := handshakeOpts{
 		remoteVerifier: defaultRemoteVerifier,

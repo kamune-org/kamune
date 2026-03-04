@@ -255,8 +255,8 @@ func TestSaveSessionForResumption(t *testing.T) {
 	defer func() { a.NoError(conn2.Close()) }()
 
 	// Create plain transports
-	pt1 := newPlainTransport(conn1, attester2.PublicKey(), attester1, storage)
-	pt2 := newPlainTransport(conn2, attester1.PublicKey(), attester2, storage)
+	pt1 := newUnderlyingTransport(conn1, conn1, attester2.PublicKey(), attester1, storage)
+	pt2 := newUnderlyingTransport(conn2, conn2, attester1.PublicKey(), attester2, storage)
 
 	handshakeOpts := handshakeOpts{
 		remoteVerifier: func(store *Storage, peer *Peer) error { return nil },
