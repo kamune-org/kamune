@@ -1,5 +1,6 @@
 // Package main implements a daemon wrapper for the kamune library.
-// It exposes a JSON-over-stdio protocol for integration with external applications.
+// It exposes a JSON-over-stdio protocol for integration with external
+// applications.
 package main
 
 import (
@@ -39,6 +40,13 @@ const (
 	EvtMessageSent     = "message_sent"
 	EvtError           = "error"
 	EvtResponse        = "response"
+)
+
+const maxScanTokenSize = 1024 * 1024 // 1MB
+
+type (
+	MapA = map[string]any
+	MapS = map[string]string
 )
 
 // Command represents an incoming command from stdin
@@ -140,7 +148,7 @@ func (d *Daemon) emit(evt string, correlationID string, data any) {
 
 // emitError sends an error event
 func (d *Daemon) emitError(correlationID string, errMsg string) {
-	d.emit(EvtError, correlationID, map[string]string{"error": errMsg})
+	d.emit(EvtError, correlationID, MapS{"error": errMsg})
 }
 
 // Run starts the daemon's main loop
@@ -159,15 +167,13 @@ func (d *Daemon) Run() {
 	}()
 
 	// Emit ready event
-	d.emit(EvtReady, "", map[string]string{
-		"version": "1.0.0",
-		"pid":     fmt.Sprintf("%d", os.Getpid()),
+	d.emit(EvtReady, "", MapS{
+		"version": "1.0.0", "pid": fmt.Sprintf("%d", os.Getpid()),
 	})
 
 	// Read commands from stdin
 	scanner := bufio.NewScanner(os.Stdin)
 	// Increase buffer size for larger messages
-	const maxScanTokenSize = 1024 * 1024 // 1MB
 	buf := make([]byte, maxScanTokenSize)
 	scanner.Buffer(buf, maxScanTokenSize)
 
@@ -265,7 +271,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		d.server = srv
 		d.mu.Unlock()
 
-		d.emit(EvtServerStarted, cmd.ID, map[string]string{
+		d.emit(EvtServerStarted, cmd.ID, MapS{
 			"addr":       params.Addr,
 			"public_key": base64.StdEncoding.EncodeToString(srv.PublicKey().Marshal()),
 		})
@@ -297,9 +303,8 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	d.sessions[sessionID] = session
 	d.mu.Unlock()
 
-	d.emit(EvtSessionStarted, "", map[string]any{
-		"session_id": sessionID,
-		"is_server":  true,
+	d.emit(EvtSessionStarted, "", MapA{
+		"session_id": sessionID, "is_server": true,
 	})
 
 	// Start receiving messages
@@ -310,9 +315,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	delete(d.sessions, sessionID)
 	d.mu.Unlock()
 
-	d.emit(EvtSessionClosed, "", map[string]string{
-		"session_id": sessionID,
-	})
+	d.emit(EvtSessionClosed, "", MapS{"session_id": sessionID})
 
 	return nil
 }
@@ -364,7 +367,7 @@ func (d *Daemon) handleDial(cmd Command) {
 		d.sessions[sessionID] = session
 		d.mu.Unlock()
 
-		d.emit(EvtSessionStarted, cmd.ID, map[string]any{
+		d.emit(EvtSessionStarted, cmd.ID, MapA{
 			"session_id":  sessionID,
 			"is_server":   false,
 			"remote_addr": params.Addr,
@@ -379,14 +382,14 @@ func (d *Daemon) handleDial(cmd Command) {
 		delete(d.sessions, sessionID)
 		d.mu.Unlock()
 
-		d.emit(EvtSessionClosed, "", map[string]string{
-			"session_id": sessionID,
-		})
+		d.emit(EvtSessionClosed, "", MapS{"session_id": sessionID})
 	}()
 }
 
 // receiveLoop continuously receives messages from a transport
-func (d *Daemon) receiveLoop(ctx context.Context, sessionID string, t *kamune.Transport) {
+func (d *Daemon) receiveLoop(
+	ctx context.Context, sessionID string, t *kamune.Transport,
+) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -400,11 +403,13 @@ func (d *Daemon) receiveLoop(ctx context.Context, sessionID string, t *kamune.Tr
 			if errors.Is(err, kamune.ErrConnClosed) {
 				return
 			}
-			d.emitError("", fmt.Sprintf("receive error on session %s: %v", sessionID, err))
+			d.emitError(
+				"", fmt.Sprintf("receive error on session %s: %v", sessionID, err),
+			)
 			return
 		}
 
-		d.emit(EvtMessageReceived, "", map[string]any{
+		d.emit(EvtMessageReceived, "", MapA{
 			"session_id":  sessionID,
 			"data_base64": base64.StdEncoding.EncodeToString(b.GetValue()),
 			"timestamp":   metadata.Timestamp().Format(time.RFC3339Nano),
@@ -425,7 +430,9 @@ func (d *Daemon) handleSendMessage(cmd Command) {
 	d.mu.RUnlock()
 
 	if !ok {
-		d.emitError(cmd.ID, fmt.Sprintf("session not found: %s", params.SessionID))
+		d.emitError(
+			cmd.ID, fmt.Sprintf("session not found: %s", params.SessionID),
+		)
 		return
 	}
 
@@ -435,13 +442,15 @@ func (d *Daemon) handleSendMessage(cmd Command) {
 		return
 	}
 
-	metadata, err := session.Transport.Send(kamune.Bytes(data), kamune.RouteExchangeMessages)
+	metadata, err := session.Transport.Send(
+		kamune.Bytes(data), kamune.RouteExchangeMessages,
+	)
 	if err != nil {
 		d.emitError(cmd.ID, fmt.Sprintf("failed to send message: %v", err))
 		return
 	}
 
-	d.emit(EvtMessageSent, cmd.ID, map[string]any{
+	d.emit(EvtMessageSent, cmd.ID, MapA{
 		"session_id": params.SessionID,
 		"timestamp":  metadata.Timestamp().Format(time.RFC3339Nano),
 	})
@@ -462,9 +471,7 @@ func (d *Daemon) handleListSessions(cmd Command) {
 		})
 	}
 
-	d.emit(EvtResponse, cmd.ID, map[string]any{
-		"sessions": sessions,
-	})
+	d.emit(EvtResponse, cmd.ID, MapA{"sessions": sessions})
 }
 
 // handleCloseSession closes a specific session
@@ -479,7 +486,9 @@ func (d *Daemon) handleCloseSession(cmd Command) {
 	session, ok := d.sessions[params.SessionID]
 	if !ok {
 		d.mu.Unlock()
-		d.emitError(cmd.ID, fmt.Sprintf("session not found: %s", params.SessionID))
+		d.emitError(
+			cmd.ID, fmt.Sprintf("session not found: %s", params.SessionID),
+		)
 		return
 	}
 	delete(d.sessions, params.SessionID)
@@ -490,9 +499,8 @@ func (d *Daemon) handleCloseSession(cmd Command) {
 		slog.Warn("error closing transport", slog.Any("error", err))
 	}
 
-	d.emit(EvtResponse, cmd.ID, map[string]string{
-		"status":     "closed",
-		"session_id": params.SessionID,
+	d.emit(EvtResponse, cmd.ID, MapS{
+		"status": "closed", "session_id": params.SessionID,
 	})
 }
 
@@ -507,14 +515,16 @@ func (d *Daemon) Shutdown() {
 	for id, session := range d.sessions {
 		session.cancelFunc()
 		if err := session.Transport.Close(); err != nil {
-			slog.Warn("error closing session", slog.String("session_id", id), slog.Any("error", err))
+			slog.Warn(
+				"error closing session",
+				slog.String("session_id", id),
+				slog.Any("error", err),
+			)
 		}
 	}
 	d.sessions = make(map[string]*Session)
 
-	d.emit(EvtResponse, "", map[string]string{
-		"status": "shutdown",
-	})
+	d.emit(EvtResponse, "", MapS{"status": "shutdown"})
 
 	os.Exit(0)
 }

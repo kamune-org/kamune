@@ -1,6 +1,9 @@
 # Kamune Daemon
 
-A JSON-over-stdio daemon wrapper for the kamune secure messaging library. This daemon enables external applications (like Tauri, Electron, or any other runtime) to leverage kamune's end-to-end encrypted communication through a simple line-delimited JSON protocol.
+A JSON-over-stdio daemon wrapper for the kamune secure messaging library. This
+daemon enables external applications (like Tauri, Electron, or any other runtime)
+to leverage kamune's end-to-end encrypted communication through a simple
+line-delimited JSON protocol.
 
 ## Building
 
@@ -17,7 +20,8 @@ GOOS=windows GOARCH=amd64 go build -o dist/daemon-windows-amd64.exe ./cmd/daemon
 
 ## Running
 
-The daemon reads commands from stdin and emits events to stdout. Logs are written to stderr in JSON format.
+The daemon reads commands from stdin and emits events to stdout. Logs are
+written to stderr in JSON format.
 
 ```bash
 ./daemon
@@ -25,7 +29,8 @@ The daemon reads commands from stdin and emits events to stdout. Logs are writte
 
 ## Protocol Specification
 
-The protocol uses line-delimited JSON (newline-delimited JSON, NDJSON). Each message is a single line of valid JSON followed by a newline character (`\n`).
+The protocol uses line-delimited JSON (newline-delimited JSON, NDJSON). Each
+message is a single line of valid JSON followed by a newline character (`\n`).
 
 ### Message Types
 
@@ -88,13 +93,30 @@ Start a kamune server listening for incoming connections.
 **Example:**
 
 ```json
-{"type":"cmd","cmd":"start_server","id":"abc-123","params":{"addr":"127.0.0.1:9000","storage_path":"./server.db","db_no_passphrase":true}}
+{
+  "type":"cmd",
+  "cmd":"start_server",
+  "id":"abc-123",
+  "params":{
+    "addr":"127.0.0.1:9000",
+    "storage_path":"./server.db",
+    "db_no_passphrase":true
+  }
+}
 ```
 
 **Response Event:** `server_started`
 
 ```json
-{"type":"evt","evt":"server_started","id":"abc-123","data":{"addr":"127.0.0.1:9000","public_key":"base64-encoded-key"}}
+{
+  "type":"evt",
+  "evt":"server_started",
+  "id":"abc-123",
+  "data":{
+    "addr":"127.0.0.1:9000",
+    "public_key":"base64-encoded-key"
+  }
+}
 ```
 
 ---
@@ -114,13 +136,32 @@ Connect to a remote kamune server.
 **Example:**
 
 ```json
-{"type":"cmd","cmd":"dial","id":"def-456","params":{"addr":"127.0.0.1:9000","storage_path":"./client.db","db_no_passphrase":true}}
+{
+  "type":"cmd",
+  "cmd":"dial",
+  "id":"def-456",
+  "params":{
+    "addr":"127.0.0.1:9000",
+    "storage_path":"./client.db",
+    "db_no_passphrase":true
+  }
+}
 ```
 
 **Response Event:** `session_started`
 
 ```json
-{"type":"evt","evt":"session_started","id":"def-456","data":{"session_id":"xyz789","is_server":false,"remote_addr":"127.0.0.1:9000","public_key":"base64-encoded-key"}}
+{
+  "type":"evt",
+  "evt":"session_started",
+  "id":"def-456",
+  "data":{
+    "session_id":"xyz789",
+    "is_server":false,
+    "remote_addr":"127.0.0.1:9000",
+    "public_key":"base64-encoded-key"
+  }
+}
 ```
 
 ---
@@ -139,13 +180,29 @@ Send a message on an established session.
 **Example:**
 
 ```json
-{"type":"cmd","cmd":"send_message","id":"ghi-789","params":{"session_id":"xyz789","data_base64":"SGVsbG8gV29ybGQh"}}
+{
+  "type":"cmd",
+  "cmd":"send_message",
+  "id":"ghi-789",
+  "params":{
+    "session_id":"xyz789",
+    "data_base64":"SGVsbG8gV29ybGQh"
+  }
+}
 ```
 
 **Response Event:** `message_sent`
 
 ```json
-{"type":"evt","evt":"message_sent","id":"ghi-789","data":{"session_id":"xyz789","timestamp":"2024-01-15T10:30:00.000Z"}}
+{
+  "type":"evt",
+  "evt":"message_sent",
+  "id":"ghi-789",
+  "data":{
+    "session_id":"xyz789",
+    "timestamp":"2024-01-15T10:30:00.000Z"
+  }
+}
 ```
 
 ---
@@ -159,13 +216,32 @@ List all active sessions.
 **Example:**
 
 ```json
-{"type":"cmd","cmd":"list_sessions","id":"jkl-012","params":{}}
+{
+  "type":"cmd",
+  "cmd":"list_sessions",
+  "id":"jkl-012",
+  "params":{}
+}
 ```
 
 **Response Event:** `response`
 
 ```json
-{"type":"evt","evt":"response","id":"jkl-012","data":{"sessions":[{"session_id":"xyz789","remote_addr":"127.0.0.1:9000","is_server":false,"created_at":"2024-01-15T10:25:00Z"}]}}
+{
+  "type":"evt",
+  "evt":"response",
+  "id":"jkl-012",
+  "data":{
+    "sessions":[
+      {
+        "session_id":"xyz789",
+        "remote_addr":"127.0.0.1:9000",
+        "is_server":false,
+        "created_at":"2024-01-15T10:25:00Z"
+      }
+    ]
+  }
+}
 ```
 
 ---
@@ -183,13 +259,28 @@ Close a specific session.
 **Example:**
 
 ```json
-{"type":"cmd","cmd":"close_session","id":"mno-345","params":{"session_id":"xyz789"}}
+{
+  "type":"cmd",
+  "cmd":"close_session",
+  "id":"mno-345",
+  "params":{
+    "session_id":"xyz789"
+  },
+}
 ```
 
 **Response Event:** `response`
 
 ```json
-{"type":"evt","evt":"response","id":"mno-345","data":{"status":"closed","session_id":"xyz789"}}
+{
+  "type":"evt",
+  "evt":"response",
+  "id":"mno-345",
+  "data":{
+    "status":"closed",
+    "session_id":"xyz789"
+  }
+}
 ```
 
 ---
@@ -203,7 +294,12 @@ Gracefully shut down the daemon.
 **Example:**
 
 ```json
-{"type":"cmd","cmd":"shutdown","id":"pqr-678","params":{}}
+{
+  "type":"cmd",
+  "cmd":"shutdown",
+  "id":"pqr-678",
+  "params":{}
+}
 ```
 
 ---
@@ -215,7 +311,14 @@ Gracefully shut down the daemon.
 Emitted when the daemon starts and is ready to accept commands.
 
 ```json
-{"type":"evt","evt":"ready","data":{"version":"1.0.0","pid":"12345"}}
+{
+  "type":"evt",
+  "evt":"ready",
+  "data":{
+    "version":"1.0.0",
+    "pid":"12345"
+  }
+}
 ```
 
 ### `server_started`
@@ -223,7 +326,15 @@ Emitted when the daemon starts and is ready to accept commands.
 Emitted when a server successfully starts listening.
 
 ```json
-{"type":"evt","evt":"server_started","id":"<correlation_id>","data":{"addr":"127.0.0.1:9000","public_key":"base64-encoded-key"}}
+{
+  "type":"evt",
+  "evt":"server_started",
+  "id":"<correlation_id>",
+  "data":{
+    "addr":"127.0.0.1:9000",
+    "public_key":"base64-encoded-key"
+  }
+}
 ```
 
 ### `session_started`
@@ -231,7 +342,17 @@ Emitted when a server successfully starts listening.
 Emitted when a new session is established (either incoming server connection or successful dial).
 
 ```json
-{"type":"evt","evt":"session_started","id":"<correlation_id>","data":{"session_id":"...", "is_server":true|false, "remote_addr":"...", "public_key":"..."}}
+{
+  "type":"evt",
+  "evt":"session_started",
+  "id":"<correlation_id>",
+  "data":{
+    "session_id":"...",
+    "is_server":true|false,
+    "remote_addr":"...",
+    "public_key":"..."
+  }
+}
 ```
 
 ### `session_closed`
@@ -239,7 +360,13 @@ Emitted when a new session is established (either incoming server connection or 
 Emitted when a session is closed (either locally or by remote peer).
 
 ```json
-{"type":"evt","evt":"session_closed","data":{"session_id":"..."}}
+{
+  "type":"evt",
+  "evt":"session_closed",
+  "data":{
+    "session_id":"..."
+  }
+}
 ```
 
 ### `message_received`
@@ -247,7 +374,15 @@ Emitted when a session is closed (either locally or by remote peer).
 Emitted when a message is received from a remote peer.
 
 ```json
-{"type":"evt","evt":"message_received","data":{"session_id":"...","data_base64":"...","timestamp":"2024-01-15T10:30:00.000Z"}}
+{
+  "type":"evt",
+  "evt":"message_received",
+  "data":{
+    "session_id":"...",
+    "data_base64":"...",
+    "timestamp":"2024-01-15T10:30:00.000Z"
+  }
+}
 ```
 
 ### `message_sent`
@@ -255,7 +390,15 @@ Emitted when a message is received from a remote peer.
 Emitted when a message is successfully sent.
 
 ```json
-{"type":"evt","evt":"message_sent","id":"<correlation_id>","data":{"session_id":"...","timestamp":"..."}}
+{
+  "type":"evt",
+  "evt":"message_sent",
+  "id":"<correlation_id>",
+  "data":{
+    "session_id":"...",
+    "timestamp":"..."
+  }
+}
 ```
 
 ### `error`
@@ -263,7 +406,14 @@ Emitted when a message is successfully sent.
 Emitted when an error occurs.
 
 ```json
-{"type":"evt","evt":"error","id":"<correlation_id>","data":{"error":"error message"}}
+{
+  "type":"evt",
+  "evt":"error",
+  "id":"<correlation_id>",
+  "data":{
+    "error":"error message"
+  }
+}
 ```
 
 ### `response`
@@ -271,7 +421,12 @@ Emitted when an error occurs.
 Generic response event for commands that don't have a specific event type.
 
 ```json
-{"type":"evt","evt":"response","id":"<correlation_id>","data":{...}}
+{
+  "type":"evt",
+  "evt":"response",
+  "id":"<correlation_id>",
+  "data":{...}
+}
 ```
 
 ---
