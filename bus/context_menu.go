@@ -14,7 +14,9 @@ type ContextMenuItem struct {
 }
 
 // ShowContextMenu displays a context menu at the given position.
-func ShowContextMenu(window fyne.Window, items []ContextMenuItem, pos fyne.Position) {
+func ShowContextMenu(
+	window fyne.Window, items []ContextMenuItem, pos fyne.Position,
+) {
 	menu := fyne.NewMenu("")
 	for _, item := range items {
 		if item.Label == "---" {
@@ -33,7 +35,12 @@ func ShowContextMenu(window fyne.Window, items []ContextMenuItem, pos fyne.Posit
 }
 
 // CreateSessionContextMenu creates context menu items for a session.
-func CreateSessionContextMenu(app fyne.App, window fyne.Window, sessionID string, onDisconnect, onInfo, onRename func()) []ContextMenuItem {
+func CreateSessionContextMenu(
+	app fyne.App,
+	window fyne.Window,
+	sessionID string,
+	onDisconnect, onInfo, onRename func(),
+) []ContextMenuItem {
 	return []ContextMenuItem{
 		{
 			Label: "Copy Session ID",
@@ -63,7 +70,12 @@ func CreateSessionContextMenu(app fyne.App, window fyne.Window, sessionID string
 }
 
 // CreateHistoryContextMenu creates context menu items for a history session.
-func CreateHistoryContextMenu(app fyne.App, window fyne.Window, sessionID string, onInfo, onRename, onDelete func()) []ContextMenuItem {
+func CreateHistoryContextMenu(
+	app fyne.App,
+	window fyne.Window,
+	sessionID string,
+	onInfo, onRename, onDelete func(),
+) []ContextMenuItem {
 	return []ContextMenuItem{
 		{
 			Label: "Copy Session ID",
@@ -93,7 +105,9 @@ func CreateHistoryContextMenu(app fyne.App, window fyne.Window, sessionID string
 }
 
 // CreateMessageContextMenu creates context menu items for a message.
-func CreateMessageContextMenu(app fyne.App, messageText string) []ContextMenuItem {
+func CreateMessageContextMenu(
+	app fyne.App, messageText string,
+) []ContextMenuItem {
 	return []ContextMenuItem{
 		{
 			Label: "Copy Message",

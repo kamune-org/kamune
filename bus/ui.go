@@ -387,7 +387,12 @@ func (c *ChatApp) showDBPathDialog() {
 
 // newCustomConfirm is a small wrapper that avoids importing dialog in this file
 // for common cases. Callers who need dialog directly can still use it.
-func newCustomConfirm(title, confirm, dismiss string, content fyne.CanvasObject, callback func(bool), parent fyne.Window) *widget.PopUp {
+func newCustomConfirm(
+	title, confirm, dismiss string,
+	content fyne.CanvasObject,
+	callback func(bool),
+	parent fyne.Window,
+) *widget.PopUp {
 	// We build a lightweight confirm inline since this file avoids heavy dialog usage.
 	// However, since we do need the dialog package elsewhere, just use it.
 	// This is implemented via a small custom popup approach.
@@ -574,7 +579,9 @@ func NewHistorySessionItem() *HistorySessionItem {
 }
 
 // Update updates the history session item.
-func (h *HistorySessionItem) Update(sessionID string, messageCount int, lastMessage time.Time, isActive bool) {
+func (h *HistorySessionItem) Update(
+	sessionID string, messageCount int, lastMessage time.Time, isActive bool,
+) {
 	h.sessionID = sessionID
 	h.messageCount = messageCount
 	h.lastMessage = lastMessage
@@ -586,7 +593,9 @@ func (h *HistorySessionItem) Update(sessionID string, messageCount int, lastMess
 }
 
 // UpdateWithName updates the history session item including the display name.
-func (h *HistorySessionItem) UpdateWithName(sessionID, name string, messageCount int, lastMessage time.Time, isActive bool) {
+func (h *HistorySessionItem) UpdateWithName(
+	sessionID, name string, messageCount int, lastMessage time.Time, isActive bool,
+) {
 	h.sessionID = sessionID
 	h.name = name
 	h.messageCount = messageCount

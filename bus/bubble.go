@@ -18,7 +18,9 @@ type StyledMessageBubble struct {
 }
 
 // NewStyledMessageBubble creates a new styled message bubble.
-func NewStyledMessageBubble(text string, timestamp time.Time, isLocal bool) *StyledMessageBubble {
+func NewStyledMessageBubble(
+	text string, timestamp time.Time, isLocal bool,
+) *StyledMessageBubble {
 	m := &StyledMessageBubble{
 		text:      text,
 		timestamp: timestamp,
@@ -29,7 +31,9 @@ func NewStyledMessageBubble(text string, timestamp time.Time, isLocal bool) *Sty
 }
 
 // Update updates the message content.
-func (m *StyledMessageBubble) Update(text string, timestamp time.Time, isLocal bool) {
+func (m *StyledMessageBubble) Update(
+	text string, timestamp time.Time, isLocal bool,
+) {
 	m.text = text
 	m.timestamp = timestamp
 	m.isLocal = isLocal

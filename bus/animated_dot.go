@@ -28,12 +28,10 @@ func NewAnimatedDot(c color.Color) *AnimatedDot {
 // SetColor sets the dot color.
 func (d *AnimatedDot) SetColor(c color.Color) {
 	d.color = c
-	fyne.Do(func() {
-		d.Refresh()
-	})
+	fyne.Do(func() { d.Refresh() })
 }
 
-// CreateRenderer implements fyne.Widget.
+// CreateRenderer implements [fyne.Widget].
 func (d *AnimatedDot) CreateRenderer() fyne.WidgetRenderer {
 	circle := canvas.NewCircle(d.color)
 

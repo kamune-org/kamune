@@ -49,7 +49,7 @@ bus/
 
 ### Prerequisites
 
-- Go 1.24 or later
+- Go 1.26 or later
 - Fyne dependencies (see [Fyne Getting Started](https://docs.fyne.io/started/))
 
 On macOS:

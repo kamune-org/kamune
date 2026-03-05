@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +20,10 @@ import (
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 )
 
-// getDefaultDBDir returns the default database path, checking KAMUNE_DB_PATH env var first.
+const appVersion = "2.0.0"
+
+// getDefaultDBDir returns the default database path, checking KAMUNE_DB_PATH
+// env var first.
 func getDefaultDBDir() string {
 	if envPath := os.Getenv("KAMUNE_DB_PATH"); envPath != "" {
 		return filepath.Join(envPath, "db")
@@ -35,8 +40,6 @@ type notificationConfig struct {
 	enabled     bool
 	soundOnRecv bool
 }
-
-const appVersion = "2.0.0"
 
 // ChatMessage represents a single message in the conversation.
 type ChatMessage struct {
@@ -196,7 +199,7 @@ func (c *ChatApp) BuildUI() fyne.CanvasObject {
 func (c *ChatApp) initFromStorage() {
 	dbPath := c.DBPath()
 
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+	if _, err := os.Stat(dbPath); errors.Is(err, fs.ErrNotExist) {
 		return
 	}
 
@@ -481,8 +484,12 @@ func (c *ChatApp) deleteHistorySession(hs *HistorySession) {
 		return
 	}
 
-	dialog.ShowConfirm("Delete Session History",
-		fmt.Sprintf("Permanently delete history for session %s?\n\nThis cannot be undone.", truncateSessionID(hs.ID)),
+	dialog.ShowConfirm(
+		"Delete Session History",
+		fmt.Sprintf(
+			"Permanently delete history for session %s?\n\nThis cannot be undone.",
+			truncateSessionID(hs.ID),
+		),
 		func(confirmed bool) {
 			if !confirmed {
 				return

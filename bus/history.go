@@ -43,7 +43,9 @@ type HistoryViewer struct {
 
 // NewHistoryViewer creates a new history viewer.
 // dbPathFn is called each time the viewer needs the current database path.
-func NewHistoryViewer(app fyne.App, parent fyne.Window, dbPathFn func() string) *HistoryViewer {
+func NewHistoryViewer(
+	app fyne.App, parent fyne.Window, dbPathFn func() string,
+) *HistoryViewer {
 	return &HistoryViewer{
 		app:      app,
 		parent:   parent,
@@ -395,7 +397,9 @@ func NewHistoryMessageItem() *HistoryMessageItem {
 }
 
 // Update updates the history message item content
-func (h *HistoryMessageItem) Update(timestamp time.Time, sender, message string, isLocal bool) {
+func (h *HistoryMessageItem) Update(
+	timestamp time.Time, sender, message string, isLocal bool,
+) {
 	h.timestamp = timestamp
 	h.sender = sender
 	h.message = message

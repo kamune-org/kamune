@@ -21,7 +21,9 @@ type SessionItem struct {
 }
 
 // NewSessionItem creates a new session item widget.
-func NewSessionItem(sessionID string, isActive bool, msgCount int, lastActive time.Time) *SessionItem {
+func NewSessionItem(
+	sessionID string, isActive bool, msgCount int, lastActive time.Time,
+) *SessionItem {
 	s := &SessionItem{
 		sessionID:  sessionID,
 		isActive:   isActive,
@@ -33,7 +35,9 @@ func NewSessionItem(sessionID string, isActive bool, msgCount int, lastActive ti
 }
 
 // Update updates the session item.
-func (s *SessionItem) Update(sessionID string, isActive bool, msgCount int, lastActive time.Time) {
+func (s *SessionItem) Update(
+	sessionID string, isActive bool, msgCount int, lastActive time.Time,
+) {
 	s.sessionID = sessionID
 	s.isActive = isActive
 	s.msgCount = msgCount
@@ -41,7 +45,9 @@ func (s *SessionItem) Update(sessionID string, isActive bool, msgCount int, last
 }
 
 // UpdateWithName updates the session item including the peer display name.
-func (s *SessionItem) UpdateWithName(sessionID, peerName string, isActive bool, msgCount int, lastActive time.Time) {
+func (s *SessionItem) UpdateWithName(
+	sessionID, peerName string, isActive bool, msgCount int, lastActive time.Time,
+) {
 	s.sessionID = sessionID
 	s.peerName = peerName
 	s.isActive = isActive

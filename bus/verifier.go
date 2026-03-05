@@ -57,8 +57,10 @@ func (v *GUIVerifier) CreateRemoteVerifier() kamune.RemoteVerifier {
 			isPeerNew = true
 			firstSeenText = "New peer - not previously seen"
 		} else {
-			firstSeenText = fmt.Sprintf("Known peer - first seen: %s",
-				existingPeer.FirstSeen.Local().Format("2006-01-02 15:04:05"))
+			firstSeenText = fmt.Sprintf(
+				"Known peer - first seen: %s",
+				existingPeer.FirstSeen.Local().Format("2006-01-02 15:04:05"),
+			)
 		}
 
 		// Show verification dialog on the main thread
@@ -269,8 +271,10 @@ func (v *GUIVerifier) CreateQuickVerifier() kamune.RemoteVerifier {
 		_, err := store.FindPeer(key)
 		if err == nil {
 			// Known peer - auto-accept
-			v.app.SendNotification(fyne.NewNotification("Peer Connected",
-				fmt.Sprintf("Known peer %s connected", peer.Name)))
+			v.app.SendNotification(fyne.NewNotification(
+				"Peer Connected",
+				fmt.Sprintf("Known peer %s connected", peer.Name)),
+			)
 			return nil
 		}
 
@@ -291,8 +295,10 @@ func (v *GUIVerifier) CreateAutoAcceptVerifier() kamune.RemoteVerifier {
 			// Store new peer
 			peer.FirstSeen = time.Now()
 			if storeErr := store.StorePeer(peer); storeErr != nil {
-				v.app.SendNotification(fyne.NewNotification("Warning",
-					fmt.Sprintf("Failed to save peer: %s", storeErr)))
+				v.app.SendNotification(fyne.NewNotification(
+					"Warning",
+					fmt.Sprintf("Failed to save peer: %s", storeErr)),
+				)
 			}
 		}
 
