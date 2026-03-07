@@ -10,7 +10,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // HistoryEntry represents a single chat history entry for display
@@ -34,7 +34,7 @@ type HistoryViewer struct {
 	window   fyne.Window
 	parent   fyne.Window
 	app      fyne.App
-	storage  *kamune.Storage
+	storage  *storage.Storage
 	entries  []HistoryEntry
 	list     *widget.List
 	dbPath   string
@@ -183,18 +183,18 @@ func (h *HistoryViewer) ShowHistoryDialog() {
 // sorted by most recent activity first. It delegates to Storage.ListSessionsByRecent
 // which uses cursor seeks and BoltDB bucket stats — no chat payloads are decrypted.
 func (h *HistoryViewer) ListSessionsWithInfo(dbPath string) ([]SessionInfo, error) {
-	storage, err := kamune.OpenStorage(
-		kamune.StorageWithDBPath(dbPath),
-		kamune.StorageWithNoPassphrase(),
+	store, err := storage.OpenStorage(
+		storage.StorageWithDBPath(dbPath),
+		storage.StorageWithNoPassphrase(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
 	defer func() {
-		_ = storage.Close()
+		_ = store.Close()
 	}()
 
-	summaries, err := storage.ListSessionsByRecent()
+	summaries, err := store.ListSessionsByRecent()
 	if err != nil {
 		return nil, fmt.Errorf("listing sessions: %w", err)
 	}
@@ -220,21 +220,21 @@ func (h *HistoryViewer) ListSessionsWithInfo(dbPath string) ([]SessionInfo, erro
 func (h *HistoryViewer) loadAndShowHistory(dbPath, sessionID string) {
 	h.dbPath = dbPath
 
-	// Open storage
-	storage, err := kamune.OpenStorage(
-		kamune.StorageWithDBPath(dbPath),
-		kamune.StorageWithNoPassphrase(),
+	// Open store
+	store, err := storage.OpenStorage(
+		storage.StorageWithDBPath(dbPath),
+		storage.StorageWithNoPassphrase(),
 	)
 	if err != nil {
 		dialog.ShowError(fmt.Errorf("failed to open database: %w", err), h.parent)
 		return
 	}
-	h.storage = storage
+	h.storage = store
 
 	// Load chat history
-	chatEntries, err := storage.GetChatHistory(sessionID)
+	chatEntries, err := store.GetChatHistory(sessionID)
 	if err != nil {
-		if closeErr := storage.Close(); closeErr != nil {
+		if closeErr := store.Close(); closeErr != nil {
 			dialog.ShowError(fmt.Errorf("failed to close database after history load failure: %w", closeErr), h.parent)
 		}
 		dialog.ShowError(fmt.Errorf("failed to load history: %w", err), h.parent)
@@ -242,7 +242,7 @@ func (h *HistoryViewer) loadAndShowHistory(dbPath, sessionID string) {
 	}
 
 	if len(chatEntries) == 0 {
-		if closeErr := storage.Close(); closeErr != nil {
+		if closeErr := store.Close(); closeErr != nil {
 			dialog.ShowError(fmt.Errorf("failed to close database after empty history: %w", closeErr), h.parent)
 		}
 		dialog.ShowInformation("No History", fmt.Sprintf("No chat entries found for session: %s", sessionID), h.parent)
@@ -254,7 +254,7 @@ func (h *HistoryViewer) loadAndShowHistory(dbPath, sessionID string) {
 	for i, entry := range chatEntries {
 		sender := "Peer"
 		isLocal := false
-		if entry.Sender == kamune.SenderLocal {
+		if entry.Sender == storage.SenderLocal {
 			sender = "You"
 			isLocal = true
 		}

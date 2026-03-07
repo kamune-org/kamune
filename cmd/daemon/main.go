@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // Command types
@@ -246,12 +247,12 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	d.mu.Unlock()
 
 	go func() {
-		var opts []kamune.StorageOption
+		var opts []storage.StorageOption
 		if params.StoragePath != "" {
-			opts = append(opts, kamune.StorageWithDBPath(params.StoragePath))
+			opts = append(opts, storage.StorageWithDBPath(params.StoragePath))
 		}
 		if params.DBNoPassphrase {
-			opts = append(opts, kamune.StorageWithNoPassphrase())
+			opts = append(opts, storage.StorageWithNoPassphrase())
 		}
 
 		srv, err := kamune.NewServer(
@@ -329,12 +330,12 @@ func (d *Daemon) handleDial(cmd Command) {
 	}
 
 	go func() {
-		var opts []kamune.StorageOption
+		var opts []storage.StorageOption
 		if params.StoragePath != "" {
-			opts = append(opts, kamune.StorageWithDBPath(params.StoragePath))
+			opts = append(opts, storage.StorageWithDBPath(params.StoragePath))
 		}
 		if params.DBNoPassphrase {
-			opts = append(opts, kamune.StorageWithNoPassphrase())
+			opts = append(opts, storage.StorageWithNoPassphrase())
 		}
 
 		dialer, err := kamune.NewDialer(

@@ -15,6 +15,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // PeerVerificationResult represents the outcome of peer verification
@@ -40,7 +41,7 @@ func NewGUIVerifier(app fyne.App, window fyne.Window) *GUIVerifier {
 // CreateRemoteVerifier returns a RemoteVerifier function that uses GUI dialogs
 // This function can be passed to kamune.DialWithRemoteVerifier or kamune.ServeWithRemoteVerifier
 func (v *GUIVerifier) CreateRemoteVerifier() kamune.RemoteVerifier {
-	return func(store *kamune.Storage, peer *kamune.Peer) error {
+	return func(store *storage.Storage, peer *storage.Peer) error {
 		// Use a channel to synchronize between the GUI and the handshake goroutine
 		resultChan := make(chan PeerVerificationResult, 1)
 
@@ -264,7 +265,7 @@ func (v *GUIVerifier) buildVerificationContent(
 // QuickVerifier creates a simple verifier that auto-accepts known peers
 // and shows a dialog only for new peers
 func (v *GUIVerifier) CreateQuickVerifier() kamune.RemoteVerifier {
-	return func(store *kamune.Storage, peer *kamune.Peer) error {
+	return func(store *storage.Storage, peer *storage.Peer) error {
 		key := peer.PublicKey.Marshal()
 
 		// Check if peer is known
@@ -286,7 +287,7 @@ func (v *GUIVerifier) CreateQuickVerifier() kamune.RemoteVerifier {
 // CreateAutoAcceptVerifier creates a verifier that accepts all connections
 // Warning: This should only be used for testing or trusted networks
 func (v *GUIVerifier) CreateAutoAcceptVerifier() kamune.RemoteVerifier {
-	return func(store *kamune.Storage, peer *kamune.Peer) error {
+	return func(store *storage.Storage, peer *storage.Peer) error {
 		key := peer.PublicKey.Marshal()
 
 		// Check if peer is new

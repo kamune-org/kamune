@@ -10,6 +10,7 @@ import (
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/bus/logger"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // ---------------------------------------------------------------------------
@@ -23,10 +24,10 @@ func (c *ChatApp) startServer(addr, dbPath string) {
 	logger.Infof("Starting server on %s", addr)
 
 	go func() {
-		var opts []kamune.StorageOption
+		var opts []storage.StorageOption
 		opts = append(opts,
-			kamune.StorageWithDBPath(dbPath),
-			kamune.StorageWithNoPassphrase(),
+			storage.StorageWithDBPath(dbPath),
+			storage.StorageWithNoPassphrase(),
 		)
 
 		// Get the appropriate verifier based on current mode
@@ -205,10 +206,10 @@ func (c *ChatApp) connectToServer(addr, dbPath string) {
 	logger.Infof("Connecting to server at %s", addr)
 
 	go func() {
-		var dialOpts []kamune.StorageOption
+		var dialOpts []storage.StorageOption
 		dialOpts = append(dialOpts,
-			kamune.StorageWithDBPath(dbPath),
-			kamune.StorageWithNoPassphrase(),
+			storage.StorageWithDBPath(dbPath),
+			storage.StorageWithNoPassphrase(),
 		)
 
 		// Get the appropriate verifier based on current mode

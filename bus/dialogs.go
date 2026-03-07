@@ -10,9 +10,9 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/bus/logger"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // ---------------------------------------------------------------------------
@@ -280,17 +280,17 @@ func (c *ChatApp) showRenameHistorySessionDialog(hs *HistorySession) {
 
 		go func() {
 			dbPath := c.DBPath()
-			storage, err := kamune.OpenStorage(
-				kamune.StorageWithDBPath(dbPath),
-				kamune.StorageWithNoPassphrase(),
+			store, err := storage.OpenStorage(
+				storage.StorageWithDBPath(dbPath),
+				storage.StorageWithNoPassphrase(),
 			)
 			if err != nil {
 				c.showError(fmt.Errorf("opening database: %w", err))
 				return
 			}
-			defer func() { _ = storage.Close() }()
+			defer func() { _ = store.Close() }()
 
-			if err := storage.SetSessionName(hs.ID, newName); err != nil {
+			if err := store.SetSessionName(hs.ID, newName); err != nil {
 				c.showError(fmt.Errorf("saving session name: %w", err))
 				return
 			}

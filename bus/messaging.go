@@ -10,6 +10,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/bus/logger"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // ---------------------------------------------------------------------------
@@ -57,7 +58,7 @@ func (c *ChatApp) receiveMessagesBlocking(session *Session) {
 				session.ID,
 				data,
 				ts,
-				kamune.SenderPeer,
+				storage.SenderPeer,
 			); err != nil {
 				logger.Errorf("failed to persist peer chat entry for session %s: %v", session.ID, err)
 			}
@@ -136,7 +137,7 @@ func (c *ChatApp) sendMessage() {
 			session.ID,
 			[]byte(text),
 			metadata.Timestamp(),
-			kamune.SenderLocal,
+			storage.SenderLocal,
 		); err != nil {
 			logger.Errorf("failed to persist local chat entry for session %s: %v", session.ID, err)
 		}

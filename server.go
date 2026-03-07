@@ -16,6 +16,7 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // Server handles incoming connections and manages the handshake process.
@@ -24,11 +25,11 @@ type Server struct {
 	listener      net.Listener
 	handshakeOpts handshakeOpts
 	handlerFunc   HandlerFunc
-	storage       *Storage
+	storage       *storage.Storage
 	addr          string
 	serverName    string
 	connOpts      []ConnOption
-	storageOpts   []StorageOption
+	storageOpts   []storage.StorageOption
 	algorithm     attest.Algorithm
 	connType      connType
 	mu            sync.Mutex
@@ -295,12 +296,12 @@ func NewServer(
 		o(s)
 	}
 
-	storage, err := OpenStorage(s.storageOpts...)
+	storage, err := storage.OpenStorage(s.storageOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("opening storage: %w", err)
 	}
 
-	at, err := storage.attester()
+	at, err := storage.Attester()
 	if err != nil {
 		return nil, fmt.Errorf("loading attester: %w", err)
 	}
@@ -341,6 +342,6 @@ func ServeWithUDP(opts ...ConnOption) ServerOptions {
 }
 
 // ServeWithStorageOpts sets storage options.
-func ServeWithStorageOpts(opts ...StorageOption) ServerOptions {
+func ServeWithStorageOpts(opts ...storage.StorageOption) ServerOptions {
 	return func(s *Server) { s.storageOpts = opts }
 }

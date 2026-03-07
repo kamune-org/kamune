@@ -18,6 +18,7 @@ import (
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/bus/logger"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 const appVersion = "2.0.0"
@@ -203,18 +204,18 @@ func (c *ChatApp) initFromStorage() {
 		return
 	}
 
-	storage, err := kamune.OpenStorage(
-		kamune.StorageWithDBPath(dbPath),
-		kamune.StorageWithNoPassphrase(),
+	store, err := storage.OpenStorage(
+		storage.StorageWithDBPath(dbPath),
+		storage.StorageWithNoPassphrase(),
 	)
 	if err != nil {
 		logger.Debugf("No existing storage to load from: %v", err)
 		return
 	}
-	defer func() { _ = storage.Close() }()
+	defer func() { _ = store.Close() }()
 
 	// ── Fingerprint ──
-	pubKey, err := storage.PublicKey()
+	pubKey, err := store.PublicKey()
 	if err != nil {
 		logger.Debugf("No identity key found in storage: %v", err)
 	} else {
@@ -236,7 +237,7 @@ func (c *ChatApp) initFromStorage() {
 	}
 
 	// ── History sessions ──
-	c.loadHistoryFromStorage(storage)
+	c.loadHistoryFromStorage(store)
 }
 
 // DBPath returns the current database path.
@@ -259,24 +260,24 @@ func (c *ChatApp) SetDBPath(path string) {
 // loadHistorySessions opens the database and loads history sessions.
 // Use loadHistoryFromStorage when you already have an open *Storage.
 func (c *ChatApp) loadHistorySessions(dbPath string) {
-	storage, err := kamune.OpenStorage(
-		kamune.StorageWithDBPath(dbPath),
-		kamune.StorageWithNoPassphrase(),
+	store, err := storage.OpenStorage(
+		storage.StorageWithDBPath(dbPath),
+		storage.StorageWithNoPassphrase(),
 	)
 	if err != nil {
 		logger.Errorf("failed to open history database: %v", err)
 		return
 	}
-	defer func() { _ = storage.Close() }()
+	defer func() { _ = store.Close() }()
 
-	c.loadHistoryFromStorage(storage)
+	c.loadHistoryFromStorage(store)
 }
 
 // loadHistoryFromStorage loads past sessions from an already-open storage
 // into the sidebar. It uses ListSessionsByRecent which obtains timestamps via
 // cursor seeks and key counts from BoltDB stats — no chat payloads are
 // decrypted.
-func (c *ChatApp) loadHistoryFromStorage(storage *kamune.Storage) {
+func (c *ChatApp) loadHistoryFromStorage(storage *storage.Storage) {
 	summaries, err := storage.ListSessionsByRecent()
 	if err != nil {
 		logger.Errorf("failed to list history sessions: %v", err)
@@ -323,16 +324,16 @@ func (c *ChatApp) loadHistoryMessages(hs *HistorySession) error {
 
 	dbPath := c.DBPath()
 
-	storage, err := kamune.OpenStorage(
-		kamune.StorageWithDBPath(dbPath),
-		kamune.StorageWithNoPassphrase(),
+	store, err := storage.OpenStorage(
+		storage.StorageWithDBPath(dbPath),
+		storage.StorageWithNoPassphrase(),
 	)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
-	defer func() { _ = storage.Close() }()
+	defer func() { _ = store.Close() }()
 
-	entries, err := storage.GetChatHistory(hs.ID)
+	entries, err := store.GetChatHistory(hs.ID)
 	if err != nil {
 		return fmt.Errorf("loading history: %w", err)
 	}
@@ -342,7 +343,7 @@ func (c *ChatApp) loadHistoryMessages(hs *HistorySession) error {
 		msgs = append(msgs, ChatMessage{
 			Text:      string(entry.Data),
 			Timestamp: entry.Timestamp,
-			IsLocal:   entry.Sender == kamune.SenderLocal,
+			IsLocal:   entry.Sender == storage.SenderLocal,
 		})
 	}
 
@@ -489,17 +490,17 @@ func (c *ChatApp) deleteHistorySession(hs *HistorySession) {
 			go func() {
 				dbPath := c.DBPath()
 
-				storage, err := kamune.OpenStorage(
-					kamune.StorageWithDBPath(dbPath),
-					kamune.StorageWithNoPassphrase(),
+				store, err := storage.OpenStorage(
+					storage.StorageWithDBPath(dbPath),
+					storage.StorageWithNoPassphrase(),
 				)
 				if err != nil {
 					c.showError(fmt.Errorf("opening database: %w", err))
 					return
 				}
-				defer func() { _ = storage.Close() }()
+				defer func() { _ = store.Close() }()
 
-				if err := storage.DeleteSession(hs.ID); err != nil {
+				if err := store.DeleteSession(hs.ID); err != nil {
 					c.showError(fmt.Errorf("deleting session: %w", err))
 					return
 				}

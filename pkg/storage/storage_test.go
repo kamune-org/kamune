@@ -1,4 +1,4 @@
-package kamune
+package storage
 
 import (
 	"os"

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/bus/logger"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // loadChatHistory loads persisted chat entries from the database into the
@@ -33,7 +33,7 @@ func (c *ChatApp) loadChatHistory(session *Session) {
 		msgs = append(msgs, ChatMessage{
 			Text:      string(entry.Data),
 			Timestamp: entry.Timestamp,
-			IsLocal:   entry.Sender == kamune.SenderLocal,
+			IsLocal:   entry.Sender == storage.SenderLocal,
 		})
 	}
 

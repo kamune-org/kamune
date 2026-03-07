@@ -1,4 +1,4 @@
-package kamune
+package storage
 
 import (
 	"bytes"
@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/kamune-org/kamune/internal/store"
 	"github.com/kamune-org/kamune/pkg/attest"
-	"github.com/kamune-org/kamune/pkg/store"
 )
 
 var (
@@ -129,14 +129,18 @@ func (s *Storage) Close() error {
 // PublicKey returns the marshalled public key from the stored identity.
 // It returns an error if no identity has been created yet.
 func (s *Storage) PublicKey() ([]byte, error) {
-	at, err := s.attester()
+	at, err := s.Attester()
 	if err != nil {
 		return nil, fmt.Errorf("loading attester: %w", err)
 	}
 	return at.PublicKey().Marshal(), nil
 }
 
-func (s *Storage) attester() (attest.Attester, error) {
+func (s *Storage) Algorithm() attest.Algorithm {
+	return s.algorithm
+}
+
+func (s *Storage) Attester() (attest.Attester, error) {
 	key := []byte(s.algorithm.String())
 	var id []byte
 	err := s.store.Query(func(q store.Query) error {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -587,8 +587,8 @@ func TestSenderTypeConstants(t *testing.T) {
 	a := assert.New(t)
 
 	// Verify the expected sender types exist and are usable
-	localSender := kamune.SenderLocal
-	peerSender := kamune.SenderPeer
+	localSender := storage.SenderLocal
+	peerSender := storage.SenderPeer
 
 	a.NotEqual(localSender, peerSender, "SenderLocal and SenderPeer should be different values")
 }

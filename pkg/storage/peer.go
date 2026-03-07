@@ -1,4 +1,4 @@
-package kamune
+package storage
 
 import (
 	"crypto/sha3"
@@ -11,14 +11,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
+	"github.com/kamune-org/kamune/internal/store"
 	"github.com/kamune-org/kamune/pkg/attest"
-	"github.com/kamune-org/kamune/pkg/store"
 )
 
 type Peer struct {
 	FirstSeen time.Time
 	LastSeen  time.Time
-	PublicKey PublicKey
+	PublicKey attest.PublicKey
 	Name      string
 	Algorithm attest.Algorithm
 }

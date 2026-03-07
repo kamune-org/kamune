@@ -9,6 +9,7 @@ import (
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 const (
@@ -33,7 +34,7 @@ var _ uint16 = maxTransportSize
 
 type (
 	PublicKey      = attest.PublicKey
-	RemoteVerifier func(store *Storage, peer *Peer) (err error)
+	RemoteVerifier func(store *storage.Storage, peer *storage.Peer) error
 	HandlerFunc    func(t *Transport) error
 )
 

@@ -12,9 +12,10 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-func defaultRemoteVerifier(store *Storage, peer *Peer) error {
+func defaultRemoteVerifier(store *storage.Storage, peer *storage.Peer) error {
 	key := peer.PublicKey.Marshal()
 	fmt.Printf("Received a connection request from %q.\n", peer.Name)
 	fmt.Printf(
@@ -97,7 +98,7 @@ func sendIntroduction(
 
 // receiveIntroduction parses an introduction message from a signed transport.
 // It validates the signature and extracts the peer's identity information.
-func receiveIntroduction(st *pb.SignedTransport) (*Peer, error) {
+func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, error) {
 	// Validate route
 	route := RouteFromProto(st.GetRoute())
 	if route != RouteIdentity {
@@ -129,5 +130,5 @@ func receiveIntroduction(st *pb.SignedTransport) (*Peer, error) {
 		return nil, ErrInvalidSignature
 	}
 
-	return &Peer{Name: introduce.Name, Algorithm: a, PublicKey: remote}, nil
+	return &storage.Peer{Name: introduce.Name, Algorithm: a, PublicKey: remote}, nil
 }

@@ -12,17 +12,18 @@ import (
 
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // Dialer handles outgoing connections and initiates handshakes.
 type Dialer struct {
 	attester      attest.Attester
 	conn          Conn
-	storage       *Storage
+	storage       *storage.Storage
 	clientName    string
 	address       string
 	handshakeOpts handshakeOpts
-	storageOpts   []StorageOption
+	storageOpts   []storage.StorageOption
 	connOpts      []ConnOption
 	connType      connType
 	writeTimeout  time.Duration
@@ -213,12 +214,12 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 		opt(d)
 	}
 
-	storage, err := OpenStorage(d.storageOpts...)
+	storage, err := storage.OpenStorage(d.storageOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("opening storage: %w", err)
 	}
 
-	at, err := storage.attester()
+	at, err := storage.Attester()
 	if err != nil {
 		return nil, fmt.Errorf("loading attester: %w", err)
 	}
@@ -279,6 +280,6 @@ func DialWithClientName(name string) DialOption {
 }
 
 // DialWithStorageOpts sets storage options.
-func DialWithStorageOpts(opts ...StorageOption) DialOption {
+func DialWithStorageOpts(opts ...storage.StorageOption) DialOption {
 	return func(d *Dialer) { d.storageOpts = opts }
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 func TestHandshake(t *testing.T) {
@@ -20,10 +21,10 @@ func TestHandshake(t *testing.T) {
 	a.NoError(err)
 	a.NoError(f.Close())
 	defer a.NoError(os.Remove(f.Name()))
-	store, err := OpenStorage(
-		StorageWithDBPath(f.Name()),
-		StorageWithAlgorithm(attest.Ed25519Algorithm),
-		StorageWithNoPassphrase(),
+	store, err := storage.OpenStorage(
+		storage.StorageWithDBPath(f.Name()),
+		storage.StorageWithAlgorithm(attest.Ed25519Algorithm),
+		storage.StorageWithNoPassphrase(),
 	)
 	a.NoError(err)
 	c1, c2 := net.Pipe()
@@ -35,9 +36,9 @@ func TestHandshake(t *testing.T) {
 		a.NoError(conn1.Close())
 		a.NoError(conn2.Close())
 	}()
-	attester1, err := attest.NewAttester(store.algorithm)
+	attester1, err := attest.NewAttester(store.Algorithm())
 	a.NoError(err)
-	attester2, err := attest.NewAttester(store.algorithm)
+	attester2, err := attest.NewAttester(store.Algorithm())
 	a.NoError(err)
 
 	pt1 := newUnderlyingTransport(

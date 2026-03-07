@@ -13,6 +13,7 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 var (
@@ -31,14 +32,14 @@ type underlyingTransport struct {
 	attest  attest.Attester
 	remote  attest.PublicKey
 	id      attest.Identifier
-	storage *Storage
+	storage *storage.Storage
 }
 
 func newUnderlyingTransport(
 	conn, encConn Conn,
 	remote attest.PublicKey,
 	attest attest.Attester,
-	storage *Storage,
+	storage *storage.Storage,
 ) *underlyingTransport {
 	return &underlyingTransport{
 		conn:    conn,
@@ -46,7 +47,7 @@ func newUnderlyingTransport(
 		remote:  remote,
 		attest:  attest,
 		storage: storage,
-		id:      storage.algorithm.Identitfier(),
+		id:      storage.Algorithm().Identitfier(),
 	}
 }
 
@@ -240,7 +241,7 @@ func (t *Transport) Close() error {
 }
 
 // Store returns the storage associated with this transport.
-func (t *Transport) Store() *Storage { return t.storage }
+func (t *Transport) Store() *storage.Storage { return t.storage }
 
 // RemotePublicKey returns the remote peer's public key.
 func (t *Transport) RemotePublicKey() []byte {
