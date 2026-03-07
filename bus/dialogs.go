@@ -334,13 +334,6 @@ func (c *ChatApp) disconnectActiveSession() {
 			if confirmed {
 				logger.Infof("Ending session: %s", session.ID)
 
-				if session.Transport != nil {
-					c.saveSessionState(session)
-					if err := session.Transport.Close(); err != nil {
-						logger.Errorf("failed to close transport for session %s: %v", session.ID, err)
-					}
-				}
-
 				// Close the tab for this session
 				c.tabManager.CloseTab(session.ID)
 

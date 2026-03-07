@@ -1,6 +1,8 @@
 package kamune
 
-import "github.com/kamune-org/kamune/internal/box/pb"
+import (
+	"github.com/kamune-org/kamune/internal/box/pb"
+)
 
 // Route represents a communication route identifier used for message dispatch.
 type Route int32
@@ -15,7 +17,6 @@ const (
 	RouteVerifyChallenge
 	RouteExchangeMessages
 	RouteCloseTransport
-	RouteReconnect
 )
 
 // String returns the string representation of the route.
@@ -37,8 +38,6 @@ func (r Route) String() string {
 		return "ExchangeMessages"
 	case RouteCloseTransport:
 		return "CloseTransport"
-	case RouteReconnect:
-		return "Reconnect"
 	default:
 		return "Invalid"
 	}
@@ -46,7 +45,7 @@ func (r Route) String() string {
 
 // IsValid returns true if the route is a valid, non-invalid route.
 func (r Route) IsValid() bool {
-	return r > RouteInvalid && r <= RouteReconnect
+	return r > RouteInvalid && r <= RouteCloseTransport
 }
 
 // IsHandshakeRoute returns true if the route is part of the handshake process.
@@ -67,9 +66,7 @@ func (r Route) IsHandshakeRoute() bool {
 // IsSessionRoute returns true if the route is part of an established session.
 func (r Route) IsSessionRoute() bool {
 	switch r {
-	case RouteExchangeMessages,
-		RouteCloseTransport,
-		RouteReconnect:
+	case RouteExchangeMessages, RouteCloseTransport:
 		return true
 	default:
 		return false
@@ -95,8 +92,6 @@ func (r Route) ToProto() pb.Route {
 		return pb.Route_ROUTE_EXCHANGE_MESSAGES
 	case RouteCloseTransport:
 		return pb.Route_ROUTE_CLOSE_TRANSPORT
-	case RouteReconnect:
-		return pb.Route_ROUTE_RECONNECT
 	default:
 		return pb.Route_ROUTE_INVALID
 	}
@@ -121,8 +116,6 @@ func RouteFromProto(r pb.Route) Route {
 		return RouteExchangeMessages
 	case pb.Route_ROUTE_CLOSE_TRANSPORT:
 		return RouteCloseTransport
-	case pb.Route_ROUTE_RECONNECT:
-		return RouteReconnect
 	default:
 		return RouteInvalid
 	}

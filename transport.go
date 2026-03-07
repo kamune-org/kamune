@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -24,8 +23,6 @@ var (
 	ErrOutOfSync          = errors.New("peers are out of sync")
 	ErrUnexpectedRoute    = errors.New("unexpected route received")
 	ErrInvalidRoute       = errors.New("invalid route")
-	ErrSessionNotFound    = errors.New("session not found")
-	ErrSessionExpired     = errors.New("session has expired")
 )
 
 type underlyingTransport struct {
@@ -106,21 +103,6 @@ func (ut *underlyingTransport) deserialize(
 	return &Metadata{st.GetMetadata(), route}, route, seq, nil
 }
 
-// SessionState holds the current state of a session for potential resumption.
-type SessionState struct {
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	SessionID       string
-	SharedSecret    []byte
-	LocalSalt       []byte
-	RemoteSalt      []byte
-	RemotePublicKey []byte
-	Phase           SessionPhase
-	SendSequence    uint64
-	RecvSequence    uint64
-	IsInitiator     bool
-}
-
 // Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
 	*underlyingTransport
@@ -132,7 +114,6 @@ type Transport struct {
 	remotePublicKey []byte
 	remoteSalt      []byte
 	localSalt       []byte
-	phase           SessionPhase
 	recvSequence    uint64
 	sendSequence    uint64
 	isInitiator     bool
@@ -145,7 +126,6 @@ func newTransport(
 ) *Transport {
 	return &Transport{
 		mu:                  &sync.Mutex{},
-		phase:               PhaseHandshakeAccepted,
 		encoder:             encoder,
 		decoder:             decoder,
 		sessionID:           sessionID,
@@ -254,51 +234,13 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 // SessionID returns the unique identifier for this session.
 func (t *Transport) SessionID() string { return t.sessionID }
 
-// Phase returns the current session phase.
-func (t *Transport) Phase() SessionPhase {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.phase
-}
-
-// SetPhase updates the session phase.
-func (t *Transport) SetPhase(phase SessionPhase) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.phase = phase
-}
-
-// IsEstablished returns true if the session is fully established.
-func (t *Transport) IsEstablished() bool {
-	return t.Phase() == PhaseEstablished
-}
-
 // Close closes the transport connection.
 func (t *Transport) Close() error {
-	t.SetPhase(PhaseClosed)
 	return t.conn.Close()
 }
 
 // Store returns the storage associated with this transport.
 func (t *Transport) Store() *Storage { return t.storage }
-
-// State returns the current session state for potential resumption.
-func (t *Transport) State() *SessionState {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	return &SessionState{
-		SessionID:       t.sessionID,
-		Phase:           t.phase,
-		IsInitiator:     t.isInitiator,
-		SendSequence:    t.sendSequence,
-		RecvSequence:    t.recvSequence,
-		SharedSecret:    t.sharedSecret,
-		LocalSalt:       t.localSalt,
-		RemoteSalt:      t.remoteSalt,
-		RemotePublicKey: t.remotePublicKey,
-	}
-}
 
 // RemotePublicKey returns the remote peer's public key.
 func (t *Transport) RemotePublicKey() []byte {

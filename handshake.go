@@ -31,20 +31,6 @@ type handshakeOpts struct {
 	timeout        time.Duration
 }
 
-// handshakeState tracks the state of an ongoing handshake for potential
-// resumption after connection reset.
-type handshakeState struct {
-	mlkemPrivateKey *exchange.MLKEM
-	sessionID       string
-	sessionPrefix   string
-	sessionSuffix   string
-	localSalt       []byte
-	remoteSalt      []byte
-	sharedSecret    []byte
-	phase           SessionPhase
-	isInitiator     bool
-}
-
 // requestHandshake initiates a handshake as the client/initiator.
 //
 // Protocol flow (initiator perspective):
@@ -57,24 +43,18 @@ type handshakeState struct {
 func requestHandshake(
 	pt *underlyingTransport, opts handshakeOpts,
 ) (*Transport, error) {
-	state := &handshakeState{
-		isInitiator: true,
-		phase:       PhaseIntroduction,
-	}
-
 	// Step 1: Generate MLKEM keys and send handshake request
 	ml, err := exchange.NewMLKEM()
 	if err != nil {
 		return nil, fmt.Errorf("creating MLKEM keys: %w", err)
 	}
-	state.mlkemPrivateKey = ml
-	state.localSalt = randomBytes(saltSize)
-	state.sessionPrefix = enigma.Text(sessionIDLength / 2)
+	localSalt := randomBytes(saltSize)
+	sessionPrefix := enigma.Text(sessionIDLength / 2)
 
 	req := &pb.Handshake{
 		Key:        ml.PublicKey.Bytes(),
-		Salt:       state.localSalt,
-		SessionKey: state.sessionPrefix,
+		Salt:       localSalt,
+		SessionKey: sessionPrefix,
 	}
 
 	// Validate our own outbound fields (defense-in-depth; keeps invariants).
@@ -89,7 +69,6 @@ func requestHandshake(
 	if err = pt.conn.WriteBytes(reqBytes); err != nil {
 		return nil, fmt.Errorf("writing handshake request: %w", err)
 	}
-	state.phase = PhaseHandshakeRequested
 
 	// Step 2: Receive handshake response containing the encapsulated key
 	respBytes, err := pt.conn.ReadBytes()
@@ -113,10 +92,9 @@ func requestHandshake(
 		return nil, fmt.Errorf("invalid remote handshake fields: %w", err)
 	}
 
-	state.remoteSalt = resp.GetSalt()
-	state.sessionSuffix = resp.GetSessionKey()
-	state.sessionID = state.sessionPrefix + state.sessionSuffix
-	state.phase = PhaseHandshakeAccepted
+	remoteSalt := resp.GetSalt()
+	sessionSuffix := resp.GetSessionKey()
+	sessionID := sessionPrefix + sessionSuffix
 
 	// Bind later challenge material to the semantic handshake transcript
 	// (inner pb.Handshake fields only).
@@ -127,45 +105,38 @@ func requestHandshake(
 	if err != nil {
 		return nil, fmt.Errorf("decapsulating secret: %w", err)
 	}
-	state.sharedSecret = secret
-
 	// Step 4: Create transport with encryption
 	encoder, err := enigma.NewEnigma(
-		secret, state.localSalt, []byte(state.sessionID+handshakeC2SInfo),
+		secret, localSalt, []byte(sessionID+handshakeC2SInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
 	decoder, err := enigma.NewEnigma(
-		secret, state.remoteSalt, []byte(state.sessionID+handshakeS2CInfo),
+		secret, remoteSalt, []byte(sessionID+handshakeS2CInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, state.sessionID, encoder, decoder)
+	t := newTransport(pt, sessionID, encoder, decoder)
 	t.SetInitiator(true)
-	t.SetSecrets(secret, state.localSalt, state.remoteSalt)
+	t.SetSecrets(secret, localSalt, remoteSalt)
 	t.SetRemotePublicKey(pt.remote.Marshal())
 
 	// Step 5: Challenge exchange (bound to handshake transcript)
 	err = sendChallenge(
 		t,
 		secret,
-		deriveChallengeInfo(state.sessionID, handshakeC2SInfo, transcriptHash),
+		deriveChallengeInfo(sessionID, handshakeC2SInfo, transcriptHash),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
-	t.SetPhase(PhaseChallengeSent)
 
 	if err := acceptChallenge(t, RouteSendChallenge); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
-	t.SetPhase(PhaseChallengeVerified)
-
-	// Session established
-	t.SetPhase(PhaseEstablished)
 
 	return t, nil
 }
@@ -181,11 +152,6 @@ func requestHandshake(
 func acceptHandshake(
 	pt *underlyingTransport, opts handshakeOpts,
 ) (*Transport, error) {
-	state := &handshakeState{
-		isInitiator: false,
-		phase:       PhaseIntroduction,
-	}
-
 	// Step 1: Receive handshake request
 	reqBytes, err := pt.conn.ReadBytes()
 	if err != nil {
@@ -202,7 +168,6 @@ func acceptHandshake(
 			ErrUnexpectedRoute, RouteRequestHandshake, route,
 		)
 	}
-	state.phase = PhaseHandshakeRequested
 
 	// Validate untrusted initiator-provided fields early.
 	if err := validateHandshakeFields(req.GetSalt(), req.GetSessionKey()); err != nil {
@@ -215,18 +180,17 @@ func acceptHandshake(
 		return nil, fmt.Errorf("encapsulating key: %w", err)
 	}
 
-	state.sharedSecret = secret
-	state.remoteSalt = req.GetSalt()
-	state.sessionSuffix = enigma.Text(sessionIDLength / 2)
-	state.sessionPrefix = req.GetSessionKey()
-	state.sessionID = state.sessionPrefix + state.sessionSuffix
-	state.localSalt = randomBytes(saltSize)
+	remoteSalt := req.GetSalt()
+	sessionSuffix := enigma.Text(sessionIDLength / 2)
+	sessionPrefix := req.GetSessionKey()
+	sessionID := sessionPrefix + sessionSuffix
+	localSalt := randomBytes(saltSize)
 
 	// Send the encapsulated key (ct) and session info back to the initiator
 	resp := &pb.Handshake{
 		Key:        ct,
-		Salt:       state.localSalt,
-		SessionKey: state.sessionSuffix,
+		Salt:       localSalt,
+		SessionKey: sessionSuffix,
 	}
 
 	// Validate our outbound fields (defense-in-depth; keeps invariants).
@@ -241,7 +205,6 @@ func acceptHandshake(
 	if err = pt.conn.WriteBytes(respBytes); err != nil {
 		return nil, fmt.Errorf("writing handshake response: %w", err)
 	}
-	state.phase = PhaseHandshakeAccepted
 
 	// Bind later challenge material to the semantic handshake transcript
 	// (inner pb.Handshake fields only).
@@ -249,22 +212,21 @@ func acceptHandshake(
 
 	// Step 3: Create transport with encryption
 	encoder, err := enigma.NewEnigma(
-		secret, state.localSalt, []byte(state.sessionID+handshakeS2CInfo),
+		secret, localSalt, []byte(sessionID+handshakeS2CInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
 	decoder, err := enigma.NewEnigma(
-		secret, state.remoteSalt, []byte(state.sessionID+handshakeC2SInfo),
+		secret, remoteSalt, []byte(sessionID+handshakeC2SInfo),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
-	state.sharedSecret = secret
 
-	t := newTransport(pt, state.sessionID, encoder, decoder)
+	t := newTransport(pt, sessionID, encoder, decoder)
 	t.SetInitiator(false)
-	t.SetSecrets(secret, state.localSalt, state.remoteSalt)
+	t.SetSecrets(secret, localSalt, remoteSalt)
 	t.SetRemotePublicKey(pt.remote.Marshal())
 
 	// Step 4: Challenge exchange (bound to handshake transcript). Responder
@@ -272,19 +234,14 @@ func acceptHandshake(
 	if err := acceptChallenge(t, RouteSendChallenge); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
-	t.SetPhase(PhaseChallengeVerified)
 
 	if err := sendChallenge(
 		t,
 		secret,
-		deriveChallengeInfo(state.sessionID, handshakeS2CInfo, transcriptHash),
+		deriveChallengeInfo(sessionID, handshakeS2CInfo, transcriptHash),
 	); err != nil {
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
-	t.SetPhase(PhaseChallengeSent)
-
-	// Session established
-	t.SetPhase(PhaseEstablished)
 
 	return t, nil
 }

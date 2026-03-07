@@ -13,23 +13,21 @@
 3. [Cipher Suite](#3-cipher-suite)
 4. [Wire Format](#4-wire-format)
 5. [Routes](#5-routes)
-6. [Session Phases](#6-session-phases)
-7. [Protocol Flow: New Session](#7-protocol-flow-new-session)
-   - 7.1 [Exchange](#72-exchange)
-   - 7.2 [Introduction](#71-introduction)
-   - 7.3 [Handshake](#72-handshake)
-   - 7.4 [Challenge Exchange](#73-challenge-exchange)
-   - 7.5 [Communication](#74-communication)
-8. [Protocol Flow: Session Resumption](#8-protocol-flow-session-resumption)
-9. [Encryption and Key Derivation](#9-encryption-and-key-derivation)
-10. [Message Integrity and Replay Protection](#10-message-integrity-and-replay-protection)
-11. [Transport Layer](#11-transport-layer)
-12. [Storage and Persistence](#12-storage-and-persistence)
-13. [Routing and Dispatch](#13-routing-and-dispatch)
-14. [Security Properties](#14-security-properties)
-15. [Protobuf Schema Reference](#15-protobuf-schema-reference)
-16. [Constants and Limits](#16-constants-and-limits)
-17. [Error Conditions](#17-error-conditions)
+6. [Protocol Flow: New Session](#7-protocol-flow-new-session)
+   - 6.1 [Exchange](#62-exchange)
+   - 6.2 [Introduction](#61-introduction)
+   - 6.3 [Handshake](#62-handshake)
+   - 6.4 [Challenge Exchange](#63-challenge-exchange)
+   - 6.5 [Communication](#64-communication)
+7. [Encryption and Key Derivation](#7-encryption-and-key-derivation)
+8. [Message Integrity and Replay Protection](#8-message-integrity-and-replay-protection)
+9. [Transport Layer](#9-transport-layer)
+10. [Storage and Persistence](#10-storage-and-persistence)
+11. [Routing and Dispatch](#11-routing-and-dispatch)
+12. [Security Properties](#12-security-properties)
+13. [Protobuf Schema Reference](#13-protobuf-schema-reference)
+14. [Constants and Limits](#14-constants-and-limits)
+15. [Error Conditions](#15-error-conditions)
 
 ---
 
@@ -67,7 +65,6 @@ supported for identity signing.
 | **Underlying Transport** | The encrypted connection used during Introduction and Handshake. |
 | **HPKE** | Hybrid Public Key Encryption (RFC 9180). Performs key encapsulation and key schedule derivation in a single operation during the Handshake phase. Configured with MLKEM768-X25519 KEM, HKDF-SHA512 KDF, and ChaCha20-Poly1305 AEAD. |
 | **Enigma** | The symmetric encryption/decryption engine wrapping XChaCha20-Poly1305. |
-| **Session** | A cryptographic context comprising shared secret, salts, session ID, sequence counters, and phase. |
 | **Route** | A typed tag on each message identifying its purpose and protocol phase. |
 | **Fingerprint** | A human-readable representation of a public key (emoji, hex, or base64). |
 
@@ -202,46 +199,19 @@ transitions.
 | `6` | `ROUTE_VERIFY_CHALLENGE` | Challenge | Bidirectional | Challenge response echo (encrypted). |
 | `7` | `ROUTE_EXCHANGE_MESSAGES` | Communication | Bidirectional | Application-layer messages. |
 | `8` | `ROUTE_CLOSE_TRANSPORT` | Communication | Bidirectional | Graceful session teardown. |
-| `9` | `ROUTE_RECONNECT` | Resumption | Bidirectional | Session resumption protocol. |
 
 ### 5.1 Route Validation Rules
 
 - Routes `1–6` are **handshake routes** and MUST only appear during session
   establishment.
 - Routes `7–9` are **session routes** and MUST only appear after a session is
-  fully established (or during resumption for route `9`).
+  fully established.
 - Any message with `ROUTE_INVALID` (`0`) or an unrecognized route value MUST
   be rejected.
 
 ---
 
-## 6. Session Phases
-
-<picture>
-  <img alt="Session Phase State Machine" src="assets/diagrams/session-phases.svg">
-</picture>
-
-A session progresses through the following phases in strict order:
-
-| Value | Phase | Description |
-|-------|-------|-------------|
-| `0` | `Invalid` | Uninitialized or error state. |
-| `1` | `Introduction` | Identity exchange in progress. |
-| `2` | `HandshakeRequested` | Initiator has sent KEM public key and parameters. |
-| `3` | `HandshakeAccepted` | Responder has encapsulated the shared secret and responded. |
-| `4` | `ChallengeSent` | One party has sent its challenge token. |
-| `5` | `ChallengeVerified` | Both challenges have been verified. |
-| `6` | `Established` | Session is fully established; encrypted communication may proceed. |
-| `7` | `Closed` | Session has been terminated. |
-
-Phase transitions are monotonically increasing (a session never regresses to a
-prior phase during normal operation). The only exception is session resumption,
-where an `Established` session may transition back to `Established` on a new
-connection.
-
----
-
-## 7. Protocol Flow: New Session
+## 6. Protocol Flow: New Session
 
 A new session establishment consists of three sub-protocols executed in
 sequence: Introduction, Handshake, and Challenge Exchange.
@@ -250,7 +220,7 @@ sequence: Introduction, Handshake, and Challenge Exchange.
   <img alt="Handshake Flow" src="assets/diagrams/handshake-flow.svg">
 </picture>
 
-### 7.1 Exchange
+### 6.1 Exchange
 
 The Exchange step ensures both parties can securely comunicate through the
 handshake process.
@@ -288,7 +258,7 @@ Initiator (Client)             Responder (Server)
    private key.
 7. Both parties now can communicate through their sender and recipient ciphers.
 
-### 7.2 Introduction
+### 6.2 Introduction
 
 The Introduction phase establishes mutual awareness of each peer's identity.
 
@@ -343,7 +313,7 @@ Initiator (Client)                          Responder (Server)
 After both introductions are verified and accepted, both sides hold each
 other's authenticated public key and proceed to the Handshake.
 
-### 7.3 Handshake
+### 6.3 Handshake
 
 The Handshake phase uses post-quantum MLKEM768 to establish a shared key and 
 derive session-specific symmetric encryption keys.
@@ -425,7 +395,7 @@ Initiator                                    Responder
 At this point, both parties hold the same keys and have established matching
 symmetric cipher pairs. The ephemeral MLKEM private key is discarded.
 
-### 7.4 Challenge Exchange
+### 6.4 Challenge Exchange
 
 The Challenge phase is a mutual proof-of-possession protocol that confirms both
 parties can correctly encrypt and decrypt using their derived session keys.
@@ -486,7 +456,7 @@ The challenge exchange proves that:
 - Both parties derived the same keys and exported identical keys.
 - The session ID is agreed upon.
 
-### 7.4 Communication
+### 6.4 Communication
 
 Once the session is `Established`, peers exchange application messages using
 the `Transport`:
@@ -525,131 +495,7 @@ the `Transport`:
 
 ---
 
-## 8. Protocol Flow: Session Resumption
-
-Session resumption allows peers to re-establish an encrypted channel without
-repeating the full Introduction and Handshake phases, using the shared secret
-from a previously established session.
-
-<picture>
-  <img alt="Session Resumption Flow" src="assets/diagrams/session-resumption.svg">
-</picture>
-
-### 8.1 Prerequisites
-
-- Both parties have a persisted `SessionState` from a prior `Established`
-  session.
-- The session state includes: `SessionID`, `SharedSecret`, `LocalSalt`, 
-  `RemoteSalt`, `RemotePublicKey`, `SendSequence`, `RecvSequence`, `IsInitiator`.
-- The session has not exceeded `MaxSessionAge` (default: 24 hours).
-
-### 8.2 Resumption Flow
-
-```
-Initiator                                      Responder
-    |                                              |
-    |  ---- SignedTransport[RECONNECT] -------->   |
-    |        ReconnectRequest {                    |
-    |          SessionId,                          |
-    |          LastPhase,                          |
-    |          LastSendSequence,                   |
-    |          LastRecvSequence,                   |
-    |          RemotePublicKey,                    |
-    |          ResumeChallenge (32 bytes)          |
-    |        }                                     |
-    |                                              |
-    |  <---- SignedTransport[RECONNECT] ---------  |
-    |         ReconnectResponse {                  |
-    |           Accepted: true,                    |
-    |           ChallengeResponse,                 |
-    |           ServerChallenge (32 bytes),        |
-    |           ServerSendSequence,                |
-    |           ServerRecvSequence                 |
-    |         }                                    |
-    |                                              |
-    |  ---- SignedTransport[RECONNECT] -------->   |
-    |        ReconnectVerify {                     |
-    |          ChallengeResponse,                  |
-    |          Verified: true                      |
-    |        }                                     |
-    |                                              |
-    |  <---- SignedTransport[RECONNECT] ---------  |
-    |         ReconnectComplete {                  |
-    |           Success: true,                     |
-    |           ResumeSendSequence,                |
-    |           ResumeRecvSequence                 |
-    |         }                                    |
-    |                                              |
-    |       [Both: Restore Transport,              |
-    |        Phase = Established]                  |
-```
-
-**Step-by-step:**
-
-1. **Initiator sends `ReconnectRequest`** (signed but **unencrypted**):
-   - Includes the session ID, last known phase, sequence numbers, the
-     initiator's public key for identification, and a 32-byte random challenge.
-   - The message is signed with the initiator's identity key.
-
-2. **Responder validates the request**:
-   - Verifies the signature using the claimed `RemotePublicKey`.
-   - Looks up the session by public key in the session manager's index.
-   - Validates that the session ID matches.
-   - Validates that the session phase is `Established`.
-   - If any check fails, sends a `ReconnectResponse` with `Accepted: false`
-     and an error message.
-
-3. **Responder sends `ReconnectResponse`**:
-   - `ChallengeResponse`: `HKDF-SHA512(SharedSecret, nil, ResumeChallenge, 32)` —
-     proves possession of the shared secret by deriving a deterministic response
-     from the initiator's challenge.
-   - `ServerChallenge`: 32 bytes of fresh random data.
-   - `ServerSendSequence` / `ServerRecvSequence`: The responder's last known
-     sequence numbers, used for reconciliation.
-
-4. **Initiator verifies the response**:
-   - Recomputes the expected `ChallengeResponse` and performs a constant-time
-     comparison. This proves the responder holds the correct shared secret.
-   - Computes its own response to `ServerChallenge`:
-     `HKDF-SHA512(SharedSecret, nil, ServerChallenge, 32)`.
-
-5. **Initiator sends `ReconnectVerify`**:
-   - `ChallengeResponse`: The initiator's response to the server's challenge.
-   - `Verified: true`.
-
-6. **Responder verifies the initiator's challenge response**:
-   - Recomputes and constant-time compares. This proves the initiator holds
-     the correct shared secret.
-   - If verification fails, sends `ReconnectComplete` with `Success: false`.
-
-7. **Sequence reconciliation**:
-   - Both parties reconcile sequence numbers:
-     - `sendSeq = max(localSend, remoteRecv)` — accounts for messages the
-       remote may have received that the local side is unsure about.
-     - `recvSeq = max(localRecv, remoteSend)` — accounts for messages the
-       remote may have sent that the local side hasn't received.
-
-8. **Responder sends `ReconnectComplete`**:
-   - `Success: true`, with the agreed-upon `ResumeSendSequence` and
-     `ResumeRecvSequence`.
-
-9. **Both parties restore the `Transport`**:
-   - Recreate `Enigma` encoder/decoder from the persisted `SharedSecret`,
-     salts, and session ID using the same HKDF-SHA512 derivation as the
-     original handshake.
-   - Restore sequence counters to the reconciled values.
-   - Set phase to `Established`.
-
-### 8.3 Fallback Behavior
-
-If resumption fails at any point (session not found, expired, challenge
-verification failure), the initiator SHOULD fall back to a full
-Introduction + Handshake flow by closing the current connection and
-establishing a new one.
-
----
-
-## 9. Encryption and Key Derivation
+## 7. Encryption and Key Derivation
 
 <picture>
   <img alt="Key Derivation Schedule" src="assets/diagrams/key-derivation.svg">
@@ -659,9 +505,9 @@ TODO
 
 ---
 
-## 10. Message Integrity and Replay Protection
+## 8. Message Integrity and Replay Protection
 
-### 10.1 Digital Signatures
+### 8.1 Digital Signatures
 
 Every `SignedTransport` message includes a digital signature over the `Data`
 field. The signature is computed using the sender's long-term identity key
@@ -675,7 +521,7 @@ This provides:
   this is a peer-to-peer context, so non-repudiation is limited to the two
   parties).
 
-### 10.2 Sequence Numbers
+### 8.2 Sequence Numbers
 
 Each `Transport` maintains two monotonically increasing 64-bit unsigned
 counters:
@@ -695,14 +541,14 @@ counters:
 Sequence numbers provide ordering guarantees and replay protection within a
 session.
 
-### 10.3 AEAD Authentication
+### 8.3 AEAD Authentication
 
 The XChaCha20-Poly1305 AEAD cipher provides ciphertext authentication. Any
 tampering with the encrypted payload (including the nonce) will cause
 decryption to fail, ensuring that only the holder of the derived symmetric key
 can produce valid ciphertexts.
 
-### 10.4 Multi-Layer Integrity
+### 8.4 Multi-Layer Integrity
 
 Kamune employs defense-in-depth with three independent integrity mechanisms:
 
@@ -715,9 +561,9 @@ Kamune employs defense-in-depth with three independent integrity mechanisms:
 
 ---
 
-## 11. Transport Layer
+## 9. Transport Layer
 
-### 11.1 TCP
+### 9.1 TCP
 
 The default transport is TCP, providing reliable, ordered byte-stream delivery.
 Kamune's length-prefixed framing operates directly over the TCP stream.
@@ -726,7 +572,7 @@ Kamune's length-prefixed framing operates directly over the TCP stream.
 - **Read timeout**: 5 minutes (configurable; 0 disables).
 - **Write timeout**: 1 minute (configurable; 0 disables).
 
-### 11.2 UDP (via KCP)
+### 9.2 UDP (via KCP)
 
 Kamune supports UDP-based transport using the KCP protocol (`kcp-go/v5`), which
 provides reliable, ordered delivery over UDP. The same length-prefixed framing
@@ -737,7 +583,7 @@ KCP provides:
 - Reed-Solomon forward error correction.
 - Congestion control.
 
-### 11.3 Connection Interface
+### 9.3 Connection Interface
 
 Both transports implement the `Conn` interface:
 
@@ -756,19 +602,19 @@ transparently. The write path ensures the entire payload is written atomically
 
 ---
 
-## 12. Storage and Persistence
+## 10. Storage and Persistence
 
 <picture>
   <img alt="Storage Key Hierarchy" src="assets/diagrams/storage-hierarchy.svg">
 </picture>
 
-### 12.1 Database
+### 10.1 Database
 
 Kamune uses BoltDB (`bbolt`) as its embedded key-value store. The database file
 is located at `~/.config/kamune/db` by default (overridable via
 `KAMUNE_DB_PATH`).
 
-### 12.2 Database Encryption
+### 10.2 Database Encryption
 
 The database contents are encrypted at rest using a key hierarchy:
 
@@ -783,7 +629,7 @@ The four salts (`deriveSalt`, `wrappedSalt`, `secretSalt`, and the wrapped
 key) are stored in the default bucket as plaintext metadata. The passphrase
 itself is never stored.
 
-### 12.3 Stored Data
+### 10.3 Stored Data
 
 | Bucket | Key | Value | Encryption |
 |--------|-----|-------|------------|
@@ -795,7 +641,7 @@ itself is never stored.
 | `kamune-store_pubkey_index` | `SHA3-512(publicKey)` | Protobuf `PubKeySessionIndex` | Encrypted (DEK) |
 | `chat_<sessionID>` | 14-byte composite key | Chat message payload | Encrypted (DEK) |
 
-### 12.4 Chat History Key Format
+### 10.4 Chat History Key Format
 
 Chat entries use a 14-byte composite key:
 
@@ -810,7 +656,7 @@ Chat entries use a 14-byte composite key:
 - **Random suffix**: 4 bytes of cryptographic randomness to avoid collisions
   when two messages share the same nanosecond timestamp.
 
-### 12.5 Peer Expiration
+### 10.5 Peer Expiration
 
 Peers stored in the database have a configurable expiration duration (default:
 7 days). On lookup, if `FirstSeen + expiryDuration < now`, the peer is
@@ -819,9 +665,9 @@ are also pruned during `ListPeers()` iteration.
 
 ---
 
-## 13. Routing and Dispatch
+## 11. Routing and Dispatch
 
-### 13.1 Router
+### 11.1 Router
 
 The `Router` provides a message dispatch system for established sessions. It
 maps `Route` values to handler functions:
@@ -830,7 +676,7 @@ maps `Route` values to handler functions:
 RouteHandler func(t *Transport, msg Transferable, md *Metadata) error
 ```
 
-### 13.2 Middleware
+### 11.2 Middleware
 
 The router supports middleware — functions that wrap route handlers to provide
 cross-cutting concerns:
@@ -848,12 +694,12 @@ wrapper). Built-in middleware includes:
 - **SessionPhaseMiddleware**: Rejects messages if the session has not reached
   a required phase.
 
-### 13.3 Route Groups
+### 11.3 Route Groups
 
 Routes can be grouped with shared middleware via `RouteGroup`, allowing
 middleware to be scoped to a subset of handlers.
 
-### 13.4 Route Dispatcher
+### 11.4 Route Dispatcher
 
 The `RouteDispatcher` combines a `Transport` and a `Router` into a
 high-level API:
@@ -866,27 +712,27 @@ high-level API:
 
 ---
 
-## 14. Security Properties
+## 12. Security Properties
 
-### 14.1 Confidentiality
+### 12.1 Confidentiality
 
 All application messages are encrypted with ChaCha20-Poly1305X using
 session-specific keys established with the post-quantum MLKEM768 KEM. Only the
 two session participants can decrypt the messages.
 
-### 14.2 Integrity
+### 12.2 Integrity
 
 Messages are protected by three independent mechanisms: AEAD authentication
 tags, digital signatures, and sequence number validation.
 
-### 14.3 Authentication
+### 12.3 Authentication
 
 Both peers are authenticated during the Introduction phase via digital
 signatures over their identity messages. The Challenge Exchange confirms that
 both parties derived the same shared secret and can operate the symmetric
 ciphers.
 
-### 14.4 Forward Secrecy
+### 12.4 Forward Secrecy
 
 Each session uses an ephemeral MLKEM keypair. The shared key is derived from
 this ephemeral key encapsulation, not from the long-term identity keys.
@@ -896,7 +742,7 @@ Note: Within a single session, the same symmetric keys are used for all
 messages (no per-message ratcheting). Forward secrecy is per-session, not
 per-message.
 
-### 14.5 Post-Quantum Resistance
+### 12.5 Post-Quantum Resistance
 
 The MLKEM768 KEM provides resistance against quantum computer attacks on the key
 establishment. It ensures that the protocol remains secure as long as ML-KEM-768 
@@ -910,13 +756,13 @@ but the identity signatures are not. An attacker with a quantum computer could
 forge signatures but could not recover session keys from observed key
 encapsulations.
 
-### 14.6 Replay Protection
+### 12.6 Replay Protection
 
 Monotonically increasing sequence numbers prevent message replay, duplication,
 and reordering. AEAD nonces are randomly generated per encryption, preventing
 nonce reuse.
 
-### 14.7 Traffic Analysis Resistance
+### 12.7 Traffic Analysis Resistance
 
 Random padding (0–256 bytes) is added to every `SignedTransport` message to
 obscure actual message sizes. This provides limited protection against traffic
@@ -924,9 +770,9 @@ analysis.
 
 ---
 
-## 15. Protobuf Schema Reference
+## 13. Protobuf Schema Reference
 
-### 15.1 `model.proto` — Identity and Handshake Messages
+### 13.1 `model.proto` — Identity and Handshake Messages
 
 ```
 enum Algorithm {
@@ -956,7 +802,7 @@ message Peer {
 }
 ```
 
-### 15.2 `box.proto` — Transport and Session Messages
+### 13.2 `box.proto` — Transport and Session Messages
 
 ```
 enum Route {
@@ -969,18 +815,6 @@ enum Route {
   ROUTE_VERIFY_CHALLENGE   = 6;
   ROUTE_EXCHANGE_MESSAGES  = 7;
   ROUTE_CLOSE_TRANSPORT    = 8;
-  ROUTE_RECONNECT          = 9;
-}
-
-enum SessionPhase {
-  PHASE_INVALID              = 0;
-  PHASE_INTRODUCTION         = 1;
-  PHASE_HANDSHAKE_REQUESTED  = 2;
-  PHASE_HANDSHAKE_ACCEPTED   = 3;
-  PHASE_CHALLENGE_SENT       = 4;
-  PHASE_CHALLENGE_VERIFIED   = 5;
-  PHASE_ESTABLISHED          = 6;
-  PHASE_CLOSED               = 7;
 }
 
 message SignedTransport {
@@ -996,62 +830,11 @@ message Metadata {
   google.protobuf.Timestamp Timestamp = 2;
   uint64                    Sequence  = 3;
 }
-
-message SessionState {
-  string                    session_id        = 1;
-  SessionPhase              phase             = 2;
-  bytes                     shared_secret     = 3;
-  bytes                     local_salt        = 4;
-  bytes                     remote_salt       = 5;
-  bytes                     remote_public_key = 6;
-  google.protobuf.Timestamp created_at        = 7;
-  google.protobuf.Timestamp updated_at        = 8;
-  bool                      is_initiator      = 9;
-  uint64                    send_sequence     = 10;
-  uint64                    recv_sequence     = 11;
-  bytes                     local_public_key  = 12;
-}
-
-message ReconnectRequest {
-  string       session_id         = 1;
-  SessionPhase last_phase         = 2;
-  uint64       last_send_sequence = 3;
-  uint64       last_recv_sequence = 4;
-  bytes        remote_public_key  = 5;
-  bytes        resume_challenge   = 6;
-}
-
-message ReconnectResponse {
-  bool         accepted             = 1;
-  SessionPhase resume_from_phase    = 2;
-  string       error_message        = 3;
-  bytes        challenge_response   = 4;
-  bytes        server_challenge     = 5;
-  uint64       server_send_sequence = 6;
-  uint64       server_recv_sequence = 7;
-}
-
-message ReconnectVerify {
-  bytes challenge_response = 1;
-  bool  verified           = 2;
-}
-
-message ReconnectComplete {
-  bool   success               = 1;
-  string error_message         = 2;
-  uint64 resume_send_sequence  = 3;
-  uint64 resume_recv_sequence  = 4;
-}
-
-message PubKeySessionIndex {
-  string session_id        = 1;
-  bytes  remote_public_key = 2;
-}
 ```
 
 ---
 
-## 16. Constants and Limits
+## 14. Constants and Limits
 
 | Constant | Value | Description |
 |----------|-------|-------------|
@@ -1059,21 +842,18 @@ message PubKeySessionIndex {
 | `saltSize` | 16 bytes | Size of random salts for key derivation |
 | `sessionIDLength` | 20 characters | Total session ID length (10 prefix + 10 suffix) |
 | `challengeSize` | 32 bytes | Size of handshake challenge tokens |
-| `resumeChallengeSize` | 32 bytes | Size of resumption challenge tokens |
 | `maxPadding` | 256 bytes | Maximum random padding added to messages |
 | `nonceSize` | 24 bytes | XChaCha20-Poly1305 nonce size |
 | `keySize` | 32 bytes | ChaCha20-Poly1305 / HKDF output key size |
 | `defaultReadTimeout` | 5 minutes | Default TCP/KCP read deadline |
 | `defaultWriteTimeout` | 1 minute | Default TCP/KCP write deadline |
 | `defaultDialTimeout` | 10 seconds | Default connection establishment timeout |
-| `resumeTimeout` | 30 seconds | Timeout for session resumption protocol |
-| `defaultSessionAge` | 24 hours | Maximum age for resumable sessions |
 | `defaultPeerExpiry` | 7 days | Default peer identity expiration |
 | `lengthPrefixSize` | 2 bytes | Size of the big-endian message length header |
 
 ---
 
-## 17. Error Conditions
+## 15. Error Conditions
 
 | Error | Condition |
 |-------|-----------|
@@ -1084,11 +864,5 @@ message PubKeySessionIndex {
 | `ErrOutOfSync` | Sequence number mismatch (duplicate or missing messages). |
 | `ErrUnexpectedRoute` | Received a route that does not match the expected protocol state. |
 | `ErrInvalidRoute` | Route value is `0` (invalid) or unrecognized. |
-| `ErrSessionNotFound` | No persisted session exists for the given ID or public key. |
-| `ErrSessionExpired` | Session exceeds `MaxSessionAge` and cannot be resumed. |
-| `ErrSessionNotResumable` | Session is not in `Established` phase or lacks a shared secret. |
-| `ErrSessionMismatch` | Session ID in a reconnect request does not match the stored session. |
-| `ErrResumptionFailed` | Session resumption was rejected by the remote peer. |
-| `ErrChallengeVerifyFailed` | Resumption challenge-response verification failed. |
 | `ErrPeerExpired` | Peer's identity has exceeded the configured expiry duration. |
 | `ErrHandshakeInProgress` | A handshake is already in progress with the given peer. |

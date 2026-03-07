@@ -114,12 +114,6 @@ func (c *ChatApp) stopServer() {
 
 		// Save state and close all active sessions.
 		for _, session := range c.sessions {
-			if session.Transport != nil {
-				c.saveSessionState(session)
-				if err := session.Transport.Close(); err != nil {
-					logger.Errorf("failed to close session %s: %v", session.ID, err)
-				}
-			}
 			c.tabManager.CloseTab(session.ID)
 		}
 		c.sessions = make([]*Session, 0)
@@ -173,9 +167,6 @@ func (c *ChatApp) serverHandler(t *kamune.Transport) error {
 	// CRITICAL FIX: Block here receiving messages instead of spawning goroutine.
 	// The handler must stay alive to keep the connection open.
 	c.receiveMessagesBlocking(session)
-
-	// Save session state for potential resumption before cleaning up.
-	c.saveSessionState(session)
 
 	// Clean up session from list and close its tab when connection closes
 	c.tabManager.CloseTab(session.ID)
@@ -283,9 +274,6 @@ func (c *ChatApp) connectToServer(addr, dbPath string) {
 
 		logger.Infof("Connected successfully, session: %s", session.ID)
 		c.sendNotification("Connected", fmt.Sprintf("Session: %s", truncateSessionID(session.ID)))
-
-		// Refresh history to include any resumed session data.
-		go c.refreshHistorySessions()
 
 		// Start receiving messages in its own goroutine
 		go c.receiveMessages(session)

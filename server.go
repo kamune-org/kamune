@@ -20,20 +20,18 @@ import (
 
 // Server handles incoming connections and manages the handshake process.
 type Server struct {
-	attester         attest.Attester
-	listener         net.Listener
-	handshakeOpts    handshakeOpts
-	sessionManager   *SessionManager
-	handlerFunc      HandlerFunc
-	storage          *Storage
-	addr             string
-	serverName       string
-	connOpts         []ConnOption
-	storageOpts      []StorageOption
-	resumptionConfig ResumptionConfig
-	algorithm        attest.Algorithm
-	connType         connType
-	mu               sync.Mutex
+	attester      attest.Attester
+	listener      net.Listener
+	handshakeOpts handshakeOpts
+	handlerFunc   HandlerFunc
+	storage       *Storage
+	addr          string
+	serverName    string
+	connOpts      []ConnOption
+	storageOpts   []StorageOption
+	algorithm     attest.Algorithm
+	connType      connType
+	mu            sync.Mutex
 }
 
 // ListenAndServe starts the server and listens for incoming connections.
@@ -155,14 +153,11 @@ func (s *Server) serve(cn Conn) error {
 	switch route {
 	case RouteIdentity:
 		return s.handleNewConnection(cn, ec, st)
-	case RouteReconnect:
-		return s.handleReconnection(cn, st)
 	default:
 		return fmt.Errorf(
-			"%w: expected %s or %s, got %s",
+			"%w: expected %s, got %s",
 			ErrUnexpectedRoute,
 			RouteIdentity,
-			RouteReconnect,
 			route,
 		)
 	}
@@ -241,100 +236,11 @@ func (s *Server) handleNewConnection(
 		slog.String("peer", peer.Name),
 	)
 
-	// Save session for potential resumption
-	if s.resumptionConfig.Enabled && s.resumptionConfig.PersistSessions {
-		if err := SaveSessionForResumption(t, s.sessionManager); err != nil {
-			slog.Warn(
-				"failed to save session for resumption",
-				slog.Any("error", err),
-				slog.String("session_id", t.SessionID()),
-			)
-		}
-	}
-
 	if err := s.handlerFunc(t); err != nil {
 		return fmt.Errorf("handler: %w", err)
 	}
 
 	return nil
-}
-
-func (s *Server) handleReconnection(cn Conn, st *pb.SignedTransport) error {
-	if !s.resumptionConfig.Enabled {
-		slog.Warn("reconnection attempted but resumption is disabled")
-		return s.sendReconnectReject(cn, "resumption failed")
-	}
-
-	// Parse the reconnect request from the signed transport.
-	var req pb.ReconnectRequest
-	if err := proto.Unmarshal(st.Data, &req); err != nil {
-		return fmt.Errorf("unmarshaling reconnect request: %w", err)
-	}
-
-	// Verify the signature using the claimed public key before handing off
-	// to the resumer, which trusts the request is authentic.
-	remoteKey, err := s.algorithm.Identitfier().ParsePublicKey(
-		req.RemotePublicKey,
-	)
-	if err != nil {
-		return s.sendReconnectReject(cn, "resumption failed")
-	}
-
-	if !s.algorithm.Identitfier().Verify(remoteKey, st.Data, st.Signature) {
-		return s.sendReconnectReject(cn, "resumption failed")
-	}
-
-	slog.Info("reconnection request received",
-		slog.String("session_id", req.SessionId),
-	)
-
-	// Delegate the entire challenge-response protocol to SessionResumer.
-	resumer := NewSessionResumer(
-		s.storage,
-		s.sessionManager,
-		s.attester,
-		s.resumptionConfig.MaxSessionAge,
-	)
-
-	t, err := resumer.HandleResumption(cn, &req)
-	if err != nil {
-		return fmt.Errorf("handling resumption: %w", err)
-	}
-
-	slog.Info("session resumed",
-		slog.String("session_id", t.SessionID()),
-	)
-
-	// Update session state.
-	if s.resumptionConfig.PersistSessions {
-		if err := SaveSessionForResumption(t, s.sessionManager); err != nil {
-			slog.Warn("failed to update session after resumption",
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if err := s.handlerFunc(t); err != nil {
-		return fmt.Errorf("handler: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Server) sendReconnectReject(cn Conn, reason string) error {
-	// Always send a generic rejection reason on the wire to reduce information
-	// leakage / session enumeration. The provided `reason` is used only for logs.
-	resp := &pb.ReconnectResponse{
-		Accepted:     false,
-		ErrorMessage: "resumption failed",
-	}
-	if err := s.sendSignedMessage(cn, resp, RouteReconnect); err != nil {
-		return fmt.Errorf("sending reject: %w", err)
-	}
-
-	// Avoid returning an error that includes the specific rejection reason.
-	// Callers can log `reason` explicitly if needed.
-	return fmt.Errorf("reconnection rejected")
 }
 
 func (s *Server) sendSignedMessage(
@@ -370,21 +276,15 @@ func (s *Server) PublicKey() PublicKey {
 	return s.attester.PublicKey()
 }
 
-// SessionManager returns the server's session manager.
-func (s *Server) SessionManager() *SessionManager {
-	return s.sessionManager
-}
-
 // NewServer creates a new server with the given address and handler.
 func NewServer(
 	addr string, handler HandlerFunc, opts ...ServerOptions,
 ) (*Server, error) {
 	s := &Server{
-		addr:             addr,
-		connType:         tcp,
-		algorithm:        attest.Ed25519Algorithm,
-		handlerFunc:      handler,
-		resumptionConfig: DefaultResumptionConfig(),
+		addr:        addr,
+		connType:    tcp,
+		algorithm:   attest.Ed25519Algorithm,
+		handlerFunc: handler,
 		handshakeOpts: handshakeOpts{
 			remoteVerifier: defaultRemoteVerifier,
 			timeout:        30 * time.Second,
@@ -408,11 +308,6 @@ func NewServer(
 	s.storage = storage
 	s.attester = at
 	s.serverName = fingerprint.Sum(at.PublicKey().Marshal())
-
-	// Initialize session manager for resumption
-	s.sessionManager = NewSessionManager(
-		storage, s.resumptionConfig.MaxSessionAge,
-	)
 
 	return s, nil
 }
@@ -448,19 +343,4 @@ func ServeWithUDP(opts ...ConnOption) ServerOptions {
 // ServeWithStorageOpts sets storage options.
 func ServeWithStorageOpts(opts ...StorageOption) ServerOptions {
 	return func(s *Server) { s.storageOpts = opts }
-}
-
-// ServeWithResumption configures session resumption settings.
-func ServeWithResumption(config ResumptionConfig) ServerOptions {
-	return func(s *Server) { s.resumptionConfig = config }
-}
-
-// ServeWithResumptionEnabled enables or disables session resumption.
-func ServeWithResumptionEnabled(enabled bool) ServerOptions {
-	return func(s *Server) { s.resumptionConfig.Enabled = enabled }
-}
-
-// ServeWithSessionTimeout sets the maximum age for resumable sessions.
-func ServeWithSessionTimeout(timeout time.Duration) ServerOptions {
-	return func(s *Server) { s.resumptionConfig.MaxSessionAge = timeout }
 }

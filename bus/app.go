@@ -466,15 +466,6 @@ func (c *ChatApp) cleanup() {
 		c.server = nil
 	}
 
-	for _, session := range c.sessions {
-		if session.Transport != nil {
-			c.saveSessionState(session)
-			if err := session.Transport.Close(); err != nil {
-				logger.Errorf("failed to close transport for session %s: %v", session.ID, err)
-			}
-		}
-	}
-
 	logger.Info("Application cleanup complete")
 }
 

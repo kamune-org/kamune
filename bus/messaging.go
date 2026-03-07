@@ -23,9 +23,6 @@ func (c *ChatApp) receiveMessagesBlocking(session *Session) {
 		b := kamune.Bytes(nil)
 		metadata, err := session.Transport.Receive(b)
 		if err != nil {
-			// Save session state so it can be resumed later.
-			c.saveSessionState(session)
-
 			if errors.Is(err, kamune.ErrConnClosed) {
 				c.runOnMain(func() {
 					c.statusIndicator.SetStatus(StatusDisconnected, "Disconnected")

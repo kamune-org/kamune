@@ -263,21 +263,6 @@ func RecoveryMiddleware(onPanic func(r any)) Middleware {
 	}
 }
 
-// SessionPhaseMiddleware ensures the session is in the required phase.
-func SessionPhaseMiddleware(requiredPhase SessionPhase) Middleware {
-	return func(next RouteHandler) RouteHandler {
-		return func(t *Transport, msg Transferable, md *Metadata) error {
-			if t.Phase() < requiredPhase {
-				return fmt.Errorf(
-					"session phase %s does not meet required phase %s",
-					t.Phase(), requiredPhase,
-				)
-			}
-			return next(t, msg, md)
-		}
-	}
-}
-
 // RouteDispatcher provides a simple interface for handling route-based
 // communication.
 type RouteDispatcher struct {
