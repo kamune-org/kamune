@@ -6,9 +6,10 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/kamune-org/kamune/relay/internal/config"
 	"github.com/kamune-org/kamune/relay/internal/model"
-	"github.com/stretchr/testify/assert"
 )
 
 func openInMemoryStore(t *testing.T) *Store {

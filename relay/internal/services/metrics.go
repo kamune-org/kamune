@@ -236,7 +236,8 @@ func (m *Metrics) LogMetricsSummary() {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	slog.Info("metrics summary",
+	slog.Info(
+		"metrics summary",
 		slog.Int64("relayed", m.messagesRelayed),
 		slog.Int64("queued", m.messagesQueued),
 		slog.Int64("popped", m.messagesPopped),

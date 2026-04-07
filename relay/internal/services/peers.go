@@ -24,15 +24,16 @@ var (
 )
 
 func (s *Service) RegisterPeer(
-	pubKey []byte, identity attest.Algorithm, addr []string,
+	peer attest.Identity, addr []string,
 ) (*model.Peer, error) {
 	ttl := s.cfg.Storage.RegisterTTL
+	pubKey := peer.PublicKey.Marshal()
 	peerID := model.PeerID(uuid.New())
 	peerIDBytes, _ := peerID.MarshalBinary()
 	p := pb.Peer{
 		ID:           peerIDBytes,
 		PublicKey:    pubKey,
-		Identity:     pb.DSA(identity),
+		Identity:     pb.DSA(peer.Algorithm),
 		Address:      addr,
 		RegisteredAt: timestamppb.New(time.Now()),
 	}
@@ -107,8 +108,8 @@ func (s *Service) InquiryPeer(pubKey []byte) (*model.Peer, error) {
 	}, nil
 }
 
-func (s *Service) DeletePeer(pubKey []byte) error {
+func (s *Service) DeletePeer(id model.PeerID) error {
 	return s.store.Command(func(c model.Command) error {
-		return c.Delete(peersNS, pubKey)
+		return c.Delete(peersNS, id[:])
 	})
 }

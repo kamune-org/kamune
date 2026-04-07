@@ -28,7 +28,9 @@ type IdentityResponse struct {
 
 // PublicKey returns the relay's public key as a base64 raw-URL string.
 func (s *Service) PublicKey() string {
-	return base64.RawURLEncoding.EncodeToString(s.attester.PublicKey().Marshal())
+	return base64.RawURLEncoding.EncodeToString(
+		s.attester.PublicKey().Marshal(),
+	)
 }
 
 // Identity returns the relay's public key encoded in the requested format.

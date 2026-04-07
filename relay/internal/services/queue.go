@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"crypto/sha512"
 	"errors"
 	"fmt"
@@ -29,7 +30,12 @@ func (s *Service) PushQueue(
 ) error {
 	// Enforce per-message size limit if configured (0 means unlimited)
 	if s.cfg.Storage.MaxMessageSize > 0 && len(data) > s.cfg.Storage.MaxMessageSize {
-		return fmt.Errorf("%w: size %d exceeds max %d", ErrMessageTooLarge, len(data), s.cfg.Storage.MaxMessageSize)
+		return fmt.Errorf(
+			"%w: size %d exceeds max %d",
+			ErrMessageTooLarge,
+			len(data),
+			s.cfg.Storage.MaxMessageSize,
+		)
 	}
 
 	key, err := queueKey(sender, receiver, sessionID)
@@ -45,7 +51,12 @@ func (s *Service) PushQueue(
 				return fmt.Errorf("get queue length: %w", err)
 			}
 			if qlen >= s.cfg.Storage.MaxQueueSize {
-				return fmt.Errorf("%w: length %d >= max %d", ErrQueueFull, qlen, s.cfg.Storage.MaxQueueSize)
+				return fmt.Errorf(
+					"%w: length %d >= max %d",
+					ErrQueueFull,
+					qlen,
+					s.cfg.Storage.MaxQueueSize,
+				)
 			}
 		}
 
@@ -108,15 +119,18 @@ func (s *Service) QueueLen(
 	return length, nil
 }
 
-func queueKey(sender, receiver attest.PublicKey, sessionID string) ([]byte, error) {
+func queueKey(
+	sender, receiver attest.PublicKey, sessionID string,
+) ([]byte, error) {
 	sb := sender.Marshal()
 	rb := receiver.Marshal()
-	data := make([]byte, 0, len(sb)+len(rb)+len(sessionID))
-	data = append(data, sb...)
-	data = append(data, rb...)
-	data = append(data, []byte(sessionID)...)
+	data := bytes.Buffer{}
+	data.Grow(len(sb) + len(rb) + len(sessionID))
+	data.Write(sb)
+	data.Write(rb)
+	data.Write([]byte(sessionID))
 
-	r := hkdf.New(sha512.New, data, nil, nil)
+	r := hkdf.New(sha512.New, data.Bytes(), nil, nil)
 	key := make([]byte, queueKeySize)
 	if _, err := io.ReadFull(r, key); err != nil {
 		return nil, err

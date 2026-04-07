@@ -10,6 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/hossein1376/grape/slogger"
 
 	"github.com/kamune-org/kamune/pkg/attest"
 )
@@ -54,7 +55,9 @@ func peerKey(pk attest.PublicKey) string {
 // Register adds a WebSocket connection to the hub, associated with the given
 // public key. If a previous connection exists for the same key it is closed
 // before being replaced.
-func (h *Hub) Register(pk attest.PublicKey, conn *websocket.Conn, cancel context.CancelFunc) {
+func (h *Hub) Register(
+	pk attest.PublicKey, conn *websocket.Conn, cancel context.CancelFunc,
+) {
 	key := peerKey(pk)
 
 	h.mu.Lock()
@@ -94,7 +97,12 @@ func (h *Hub) Unregister(pk attest.PublicKey) {
 // Deliver attempts to send a message to the receiver over an active WebSocket
 // connection. Returns true if the message was delivered, false if the receiver
 // is not connected or the write failed.
-func (h *Hub) Deliver(ctx context.Context, sender, receiver attest.PublicKey, sessionID string, data []byte) bool {
+func (h *Hub) Deliver(
+	ctx context.Context,
+	sender, receiver attest.PublicKey,
+	sessionID string,
+	data []byte,
+) bool {
 	key := peerKey(receiver)
 
 	h.mu.RLock()
@@ -113,16 +121,17 @@ func (h *Hub) Deliver(ctx context.Context, sender, receiver attest.PublicKey, se
 	}
 
 	if err := wsjson.Write(ctx, wc.conn, msg); err != nil {
-		slog.Debug("ws_hub: delivery failed, removing peer",
+		slog.Debug(
+			"ws_hub: delivery failed, removing peer",
 			slog.String("peer", key),
-			slog.Any("err", err),
+			slogger.Err("err", err),
 		)
 		// Connection is broken; remove it.
 		h.Unregister(receiver)
 		return false
 	}
 
-	slog.Debug("ws_hub: message delivered via websocket", slog.String("peer", key))
+	slog.Debug("ws_hub: message delivered via WS", slog.String("peer", key))
 	return true
 }
 

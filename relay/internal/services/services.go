@@ -36,7 +36,15 @@ func New(store model.Store, cfg config.Config) (*Service, error) {
 	}
 	fp := strings.Join(fingerprint.Emoji(at.PublicKey().Marshal()), " • ")
 	slog.Info("loaded identity", slog.String("fingerprint", fp))
-	return &Service{store: store, attester: at, cfg: cfg, startedAt: time.Now(), hub: NewHub(), webhooks: NewWebhookRegistry(), metrics: NewMetrics()}, nil
+	return &Service{
+		store:     store,
+		attester:  at,
+		cfg:       cfg,
+		startedAt: time.Now(),
+		hub:       NewHub(),
+		webhooks:  NewWebhookRegistry(),
+		metrics:   NewMetrics(),
+	}, nil
 }
 
 // MaxMessageSize returns the configured maximum message size in bytes.

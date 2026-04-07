@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/hossein1376/grape/errs"
-
 	"github.com/kamune-org/kamune/pkg/attest"
+
 	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/storage"
 )
@@ -49,7 +49,7 @@ func (s *Service) BatchPopQueue(
 			data, err := c.QPop(key)
 			if err != nil {
 				if errors.Is(err, storage.ErrMissing) {
-					return errs.NotFound()
+					return errs.NotFound(errs.WithErr(storage.ErrMissing))
 				}
 				return fmt.Errorf("pop from queue: %w", err)
 			}

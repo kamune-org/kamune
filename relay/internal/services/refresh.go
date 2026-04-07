@@ -27,7 +27,7 @@ var (
 // Optionally, the caller may provide new addresses to replace the stored
 // ones. If newAddr is nil or empty the existing addresses are preserved.
 func (s *Service) RefreshPeer(
-	pubKey []byte, newAddr []string,
+	id model.PeerID, pubKey []byte, newAddr []string,
 ) (*model.Peer, error) {
 	ttl := s.cfg.Storage.RegisterTTL
 
@@ -45,6 +45,9 @@ func (s *Service) RefreshPeer(
 		if err := proto.Unmarshal(data, &p); err != nil {
 			return fmt.Errorf("unmarshalling peer: %w", err)
 		}
+		if model.PeerID(p.ID) != id {
+			return errs.NotFound(errs.WithErr(ErrPeerNotFound))
+		}
 
 		// Update addresses if new ones are provided.
 		if len(newAddr) > 0 {
@@ -53,6 +56,8 @@ func (s *Service) RefreshPeer(
 
 		// Update the registration timestamp to now.
 		p.RegisteredAt = timestamppb.New(time.Now())
+		newPeerID := model.NewPeerID()
+		p.ID = newPeerID[:]
 
 		updated, err := proto.Marshal(&p)
 		if err != nil {
@@ -64,13 +69,8 @@ func (s *Service) RefreshPeer(
 			return fmt.Errorf("refreshing peer TTL: %w", err)
 		}
 
-		var id model.PeerID
-		if err := id.UnmarshalBinary(p.ID); err != nil {
-			return fmt.Errorf("parsing peer ID: %w", err)
-		}
-
 		result = &model.Peer{
-			ID:           id,
+			ID:           newPeerID,
 			Identity:     attest.Algorithm(p.Identity),
 			Address:      p.Address,
 			RegisteredAt: p.RegisteredAt.AsTime(),

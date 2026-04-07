@@ -3,12 +3,15 @@ package handlers
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/hossein1376/grape"
+	"github.com/hossein1376/grape/errs"
+	"github.com/kamune-org/kamune/pkg/attest"
 
 	"github.com/kamune-org/kamune/relay/internal/services"
 )
@@ -34,13 +37,12 @@ import (
 //   - "error":          something went wrong processing a client message
 func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
+	q := r.URL.Query()
 	// --- Authenticate: extract & parse the peer's public key ----------------
-	pubKeyEncoded := r.URL.Query().Get("key")
+	pubKeyEncoded := q.Get("key")
 	if pubKeyEncoded == "" {
-		grape.Respond(ctx, w, http.StatusBadRequest, grape.Map{
-			"error": "key query parameter is required",
-		})
+		err := fmt.Errorf("key query parameter is required")
+		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
 	}
 
@@ -52,11 +54,17 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pk, err := h.service.ParsePublicKeyFor(pubKeyRaw)
+	var alg attest.Algorithm
+	if err := alg.UnmarshalText([]byte(q.Get("algorithm"))); err != nil {
+		err = fmt.Errorf("parse algorithm: %w", err)
+		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
+		return
+	}
+
+	pk, err := parsePublicKey(alg, pubKeyRaw)
 	if err != nil {
-		grape.Respond(ctx, w, http.StatusBadRequest, grape.Map{
-			"error": "invalid public key: " + err.Error(),
-		})
+		err = fmt.Errorf("parse public key: %w", err)
+		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
 	}
 
@@ -95,7 +103,8 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		Type: "connected",
 	})
 
-	slog.Info("ws: peer connected",
+	slog.Info(
+		"ws: peer connected",
 		slog.String("peer", pubKeyEncoded),
 		slog.String("remote", clientIP(r)),
 	)
@@ -120,7 +129,5 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		m.DecWSConnections()
 	}
 
-	slog.Info("ws: peer disconnected",
-		slog.String("peer", pubKeyEncoded),
-	)
+	slog.Info("ws: peer disconnected", slog.String("peer", pubKeyEncoded))
 }

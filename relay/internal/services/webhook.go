@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -112,10 +111,7 @@ func (wr *WebhookRegistry) Lookup(pk attest.PublicKey) string {
 // timeout. Delivery failures are logged but not returned — webhook delivery
 // is best-effort.
 func (wr *WebhookRegistry) Notify(
-	receiver attest.PublicKey,
-	sender attest.PublicKey,
-	sessionID string,
-	queueLen uint64,
+	receiver, sender attest.PublicKey, sessionID string, queueLen uint64,
 ) {
 	receiverKey := base64.RawURLEncoding.EncodeToString(receiver.Marshal())
 
@@ -201,8 +197,7 @@ func (s *Service) Webhooks() *WebhookRegistry {
 // registered. It fetches the current queue length for context and delegates
 // to the webhook registry. Safe to call even if no webhook is registered.
 func (s *Service) NotifyWebhook(
-	sender, receiver attest.PublicKey,
-	sessionID string,
+	sender, receiver attest.PublicKey, sessionID string,
 ) {
 	if s.webhooks == nil {
 		return
@@ -226,20 +221,11 @@ func (s *Service) NotifyWebhook(
 }
 
 // RegisterWebhook registers a webhook URL for the given public key.
-func (s *Service) RegisterWebhook(pubKey []byte, url string) error {
-	pk, err := s.ParsePublicKeyFor(pubKey)
-	if err != nil {
-		return fmt.Errorf("parsing public key: %w", err)
-	}
-	s.webhooks.Register(pk, url)
-	return nil
+func (s *Service) RegisterWebhook(pub attest.PublicKey, url string) {
+	s.webhooks.Register(pub, url)
 }
 
 // UnregisterWebhook removes a webhook registration for the given public key.
-func (s *Service) UnregisterWebhook(pubKey []byte) (bool, error) {
-	pk, err := s.ParsePublicKeyFor(pubKey)
-	if err != nil {
-		return false, fmt.Errorf("parsing public key: %w", err)
-	}
-	return s.webhooks.Unregister(pk), nil
+func (s *Service) UnregisterWebhook(pub attest.PublicKey) bool {
+	return s.webhooks.Unregister(pub)
 }

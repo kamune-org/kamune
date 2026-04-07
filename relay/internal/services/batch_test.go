@@ -1,14 +1,17 @@
 package services
 
 import (
+	"context"
 	"crypto/rand"
 	"testing"
 
 	"github.com/kamune-org/kamune/pkg/attest"
-	"github.com/kamune-org/kamune/relay/internal/config"
-	"github.com/kamune-org/kamune/relay/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kamune-org/kamune/relay/internal/config"
+	"github.com/kamune-org/kamune/relay/internal/model"
+	"github.com/kamune-org/kamune/relay/internal/storage"
 )
 
 func newTestService(t *testing.T) *Service {
@@ -192,7 +195,7 @@ func TestRefreshPeer_NotFound(t *testing.T) {
 	a.NoError(err)
 	pubKey := at.PublicKey().Marshal()
 
-	_, err = svc.RefreshPeer(pubKey, nil)
+	_, err = svc.RefreshPeer(model.EmptyPeerID(), pubKey, nil)
 	a.Error(err)
 }
 
@@ -205,11 +208,17 @@ func TestRefreshPeer_PreservesAddresses(t *testing.T) {
 	pubKey := at.PublicKey().Marshal()
 
 	originalAddr := []string{"1.2.3.4:8080", "5.6.7.8:9090"}
-	_, err = svc.RegisterPeer(pubKey, attest.Ed25519Algorithm, originalAddr)
+	peer, err := svc.RegisterPeer(
+		attest.Identity{
+			Algorithm: attest.Ed25519Algorithm,
+			PublicKey: at.PublicKey(),
+		},
+		originalAddr,
+	)
 	a.NoError(err)
 
 	// Refresh without providing new addresses.
-	refreshed, err := svc.RefreshPeer(pubKey, nil)
+	refreshed, err := svc.RefreshPeer(peer.ID, pubKey, nil)
 	a.NoError(err)
 	a.NotNil(refreshed)
 	a.Equal(originalAddr, refreshed.Address)
@@ -223,17 +232,22 @@ func TestRefreshPeer_UpdatesAddresses(t *testing.T) {
 	a.NoError(err)
 	pubKey := at.PublicKey().Marshal()
 
-	_, err = svc.RegisterPeer(pubKey, attest.Ed25519Algorithm, []string{"old:1234"})
+	peer, err := svc.RegisterPeer(
+		attest.Identity{
+			Algorithm: attest.Ed25519Algorithm,
+			PublicKey: at.PublicKey(),
+		}, []string{"old:1234"},
+	)
 	a.NoError(err)
 
 	newAddr := []string{"new:5678", "new:9012"}
-	refreshed, err := svc.RefreshPeer(pubKey, newAddr)
+	refreshed, err := svc.RefreshPeer(peer.ID, pubKey, newAddr)
 	a.NoError(err)
 	a.NotNil(refreshed)
 	a.Equal(newAddr, refreshed.Address)
 
 	// Verify the update persisted by inquiring.
-	peer, err := svc.InquiryPeer(pubKey)
+	peer, err = svc.InquiryPeer(pubKey)
 	a.NoError(err)
 	a.Equal(newAddr, peer.Address)
 }
@@ -246,10 +260,16 @@ func TestRefreshPeer_UpdatesRegisteredAt(t *testing.T) {
 	a.NoError(err)
 	pubKey := at.PublicKey().Marshal()
 
-	original, err := svc.RegisterPeer(pubKey, attest.Ed25519Algorithm, []string{"1.2.3.4:80"})
+	original, err := svc.RegisterPeer(
+		attest.Identity{
+			Algorithm: attest.Ed25519Algorithm,
+			PublicKey: at.PublicKey(),
+		},
+		[]string{"1.2.3.4:80"},
+	)
 	a.NoError(err)
 
-	refreshed, err := svc.RefreshPeer(pubKey, nil)
+	refreshed, err := svc.RefreshPeer(original.ID, pubKey, nil)
 	a.NoError(err)
 	// RegisteredAt should be updated (at least not before the original).
 	a.False(refreshed.RegisteredAt.Before(original.RegisteredAt))
@@ -331,10 +351,9 @@ func TestServiceRegisterWebhook(t *testing.T) {
 
 	at, err := attest.NewAttester(attest.Ed25519Algorithm)
 	a.NoError(err)
-	pubKey := at.PublicKey().Marshal()
+	pubKey := at.PublicKey()
 
-	err = svc.RegisterWebhook(pubKey, "https://example.com/hook")
-	a.NoError(err)
+	svc.RegisterWebhook(pubKey, "https://example.com/hook")
 
 	url := svc.Webhooks().Lookup(at.PublicKey())
 	a.Equal("https://example.com/hook", url)
@@ -346,17 +365,14 @@ func TestServiceUnregisterWebhook(t *testing.T) {
 
 	at, err := attest.NewAttester(attest.Ed25519Algorithm)
 	a.NoError(err)
-	pubKey := at.PublicKey().Marshal()
+	pubKey := at.PublicKey()
 
-	err = svc.RegisterWebhook(pubKey, "https://example.com/hook")
-	a.NoError(err)
+	svc.RegisterWebhook(pubKey, "https://example.com/hook")
 
-	removed, err := svc.UnregisterWebhook(pubKey)
-	a.NoError(err)
+	removed := svc.UnregisterWebhook(pubKey)
 	a.True(removed)
 
-	removed, err = svc.UnregisterWebhook(pubKey)
-	a.NoError(err)
+	removed = svc.UnregisterWebhook(pubKey)
 	a.False(removed)
 }
 
@@ -486,12 +502,15 @@ func TestHub_DeliverToDisconnected(t *testing.T) {
 
 func TestConveyWithWS_FallsBackToQueue(t *testing.T) {
 	a := assert.New(t)
+	ctx := context.Background()
 	svc := newTestService(t)
 	sender, receiver := newTestKeys(t)
 	sessionID := rand.Text()
 
 	// No WS connection for receiver, so it should fall back to queue.
-	delivered, err := svc.ConveyWithWS(sender, receiver, sessionID, []byte("test-msg"))
+	delivered, err := svc.ConveyWithWS(
+		ctx, sender, receiver, sessionID, []byte("test-msg"),
+	)
 	a.NoError(err)
 	a.False(delivered)
 

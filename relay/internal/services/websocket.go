@@ -8,7 +8,6 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-
 	"github.com/kamune-org/kamune/pkg/attest"
 )
 
@@ -26,13 +25,13 @@ func (s *Service) Hub() *Hub {
 //   - "ping": respond with a "pong" acknowledgement.
 func (s *Service) HandleWSMessage(
 	ctx context.Context,
-	senderPK attest.PublicKey,
+	sender attest.PublicKey,
 	conn *websocket.Conn,
 	msg WSMessage,
 ) error {
 	switch msg.Type {
 	case "message":
-		return s.handleWSRelay(ctx, senderPK, conn, msg)
+		return s.handleWSRelay(ctx, sender, conn, msg)
 	case "ping":
 		return wsjson.Write(ctx, conn, WSMessage{Type: "pong"})
 	default:
@@ -45,7 +44,7 @@ func (s *Service) HandleWSMessage(
 // back to the queue.
 func (s *Service) handleWSRelay(
 	ctx context.Context,
-	senderPK attest.PublicKey,
+	sender attest.PublicKey,
 	conn *websocket.Conn,
 	msg WSMessage,
 ) error {
@@ -58,9 +57,9 @@ func (s *Service) handleWSRelay(
 	if err != nil {
 		return fmt.Errorf("decoding receiver key: %w", err)
 	}
-	receiverPK, err := s.ParsePublicKeyFor(receiverRaw)
+	receiver, err := attest.Identity{}.Parse(string(receiverRaw))
 	if err != nil {
-		return fmt.Errorf("parsing receiver key: %w", err)
+		return fmt.Errorf("parsing receiver: %w", err)
 	}
 
 	// Decode payload.
@@ -70,7 +69,9 @@ func (s *Service) handleWSRelay(
 	}
 
 	// Try WebSocket delivery first.
-	if s.hub != nil && s.hub.Deliver(ctx, senderPK, receiverPK, msg.SessionID, dataRaw) {
+	if s.hub != nil && s.hub.Deliver(
+		ctx, sender, receiver.PublicKey, msg.SessionID, dataRaw,
+	) {
 		slog.Debug("ws: delivered via hub",
 			slog.String("receiver", msg.Receiver),
 		)
@@ -81,7 +82,7 @@ func (s *Service) handleWSRelay(
 	}
 
 	// Try HTTP direct delivery to registered addresses, then fall back to queue.
-	delivered, err := s.Convey(senderPK, receiverPK, msg.SessionID, dataRaw)
+	delivered, err := s.Convey(sender, receiver.PublicKey, msg.SessionID, dataRaw)
 	if err != nil {
 		return fmt.Errorf("convey: %w", err)
 	}
@@ -100,12 +101,13 @@ func (s *Service) handleWSRelay(
 // delivery through the hub before falling back to HTTP direct delivery and
 // queueing. This is used by the HTTP /convey endpoint when a hub is available.
 func (s *Service) ConveyWithWS(
+	ctx context.Context,
 	sender, receiver attest.PublicKey,
 	sessionID string,
 	data []byte,
 ) (bool, error) {
 	// Try WebSocket delivery first if hub is available.
-	if s.hub != nil && s.hub.Deliver(context.Background(), sender, receiver, sessionID, data) {
+	if s.hub != nil && s.hub.Deliver(ctx, sender, receiver, sessionID, data) {
 		slog.Info("delivered message via websocket hub")
 		return true, nil
 	}

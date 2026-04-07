@@ -1,13 +1,7 @@
 package handlers
 
 import (
-	"encoding/base64"
 	"errors"
-	"fmt"
-	"net/http"
-	"net/url"
-
-	"github.com/hossein1376/grape"
 
 	"github.com/kamune-org/kamune/pkg/attest"
 )
@@ -17,40 +11,39 @@ var (
 )
 
 type registerPeerRequest struct {
-	PublicKey string           `json:"public_key"`
-	Identity  attest.Algorithm `json:"algorithm"`
-	Addr      []string         `json:"address"`
-
-	publicKey []byte
+	Identity attest.Identity `json:"identity"`
+	Addr     []string        `json:"address"`
 }
 
-func registerPeerBinder(
-	w http.ResponseWriter, r *http.Request,
-) (*registerPeerRequest, error) {
-	req, err := grape.ReadJSON[registerPeerRequest](w, r)
-	if err != nil {
-		return nil, fmt.Errorf("reading json: %w", err)
-	}
-	pubKey := make([]byte, base64.RawURLEncoding.DecodedLen(len(req.PublicKey)))
-	n, err := base64.RawURLEncoding.Decode(pubKey, []byte(req.PublicKey))
-	if err != nil {
-		return req, fmt.Errorf("decoding public key: %w", err)
-	}
-
-	req.publicKey = pubKey[:n]
-	return req, nil
+type conveyRequest struct {
+	Sender    attest.Identity `json:"sender"`
+	Receiver  attest.Identity `json:"receiver"`
+	SessionID string          `json:"session_id"`
+	Data      string          `json:"data"`
 }
 
-func readKeyFromQuery(q url.Values) ([]byte, error) {
-	pubKeyEncoded := []byte(q.Get("key"))
-	if len(pubKeyEncoded) == 0 {
-		return nil, ErrMissingPubKey
+func (req conveyRequest) Validate() error {
+	if req.SessionID == "" {
+		return errors.New("empty session id")
 	}
-	pubKey := make([]byte, base64.RawURLEncoding.DecodedLen(len(pubKeyEncoded)))
-	n, err := base64.RawURLEncoding.Decode(pubKey, pubKeyEncoded)
-	if err != nil {
-		return nil, fmt.Errorf("decoding public key: %w", err)
+	if req.Data == "" {
+		return errors.New("empty data")
 	}
+	return nil
+}
 
-	return pubKey[:n], nil
+type refreshRequest struct {
+	Addr []string `json:"address"`
+}
+
+type webhookRequest struct {
+	Peer attest.Identity `json:"peer"`
+	URL  string          `json:"url"`
+}
+
+func (req webhookRequest) Validate() error {
+	if req.URL == "" {
+		return errors.New("empty url")
+	}
+	return nil
 }

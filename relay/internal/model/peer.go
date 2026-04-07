@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
 	"github.com/kamune-org/kamune/pkg/attest"
+
 	"github.com/kamune-org/kamune/relay/pkg/span"
 )
 

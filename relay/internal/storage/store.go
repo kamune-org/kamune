@@ -26,7 +26,7 @@ func Open(cfg config.Storage) (*Store, error) {
 	if cfg.InMemory {
 		logger.Warningf("Serving from an in-memory storage")
 		logger.Warningf("This is NOT RECOMMENDED!")
-		logger.Warningf("It may cause high RAM usage, and data will be lost on shutdown.")
+		logger.Warningf("It may cause high RAM usage, and **data will be lost** on shutdown.")
 		opts.Dir = ""
 		opts.ValueDir = ""
 		opts = opts.WithInMemory(true)

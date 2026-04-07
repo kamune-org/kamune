@@ -1,6 +1,6 @@
 module github.com/kamune-org/kamune/relay
 
-go 1.25
+go 1.26
 
 replace github.com/kamune-org/kamune => ../
 
@@ -9,7 +9,7 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/dgraph-io/badger/v4 v4.8.0
 	github.com/google/uuid v1.6.0
-	github.com/hossein1376/grape v0.5.1-0.20260202182435-694f288e8883
+	github.com/hossein1376/grape v0.5.1-0.20260405035420-11460f971ef2
 	github.com/kamune-org/kamune v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.45.0
