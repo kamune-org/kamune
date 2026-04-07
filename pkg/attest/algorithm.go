@@ -35,9 +35,13 @@ func (a Algorithm) Identitfier() Identifier {
 	}
 }
 
+func (a Algorithm) MarshalText() ([]byte, error) {
+	return []byte(a.String()), nil
+}
+
 func (a *Algorithm) UnmarshalText(text []byte) error {
 	var err error
-	switch strings.ToLower(string(text)) {
+	switch strings.TrimSpace(strings.ToLower(string(text))) {
 	case "ed25519":
 		*a = Ed25519Algorithm
 	case "mldsa":
