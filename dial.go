@@ -17,7 +17,7 @@ import (
 
 // Dialer handles outgoing connections and initiates handshakes.
 type Dialer struct {
-	attester      attest.Attester
+	attest        *attest.Attest
 	conn          Conn
 	storage       *storage.Storage
 	clientName    string
@@ -29,7 +29,6 @@ type Dialer struct {
 	writeTimeout  time.Duration
 	dialTimeout   time.Duration
 	readTimeout   time.Duration
-	algorithm     attest.Algorithm
 }
 
 // Dial establishes a connection and performs the handshake.
@@ -100,7 +99,7 @@ func (d *Dialer) handshake() (*Transport, error) {
 	}
 
 	// Step 1: Send our introduction
-	err = sendIntroduction(ec, d.clientName, d.attester, d.algorithm)
+	err = sendIntroduction(ec, d.clientName, d.attest)
 	if err != nil {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
@@ -127,7 +126,7 @@ func (d *Dialer) handshake() (*Transport, error) {
 	}
 
 	// Step 3: Proceed with the handshake
-	pt := newUnderlyingTransport(d.conn, ec, peer.PublicKey, d.attester, d.storage)
+	pt := newUnderlyingTransport(d.conn, ec, peer.PublicKey, d.attest, d.storage)
 	t, err := requestHandshake(pt, d.handshakeOpts)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
@@ -183,8 +182,8 @@ func initiateExchange(c Conn) (*encryptedConn, error) {
 }
 
 // PublicKey returns the dialer's public key.
-func (d *Dialer) PublicKey() PublicKey {
-	return d.attester.PublicKey()
+func (d *Dialer) PublicKey() []byte {
+	return d.attest.MarshalPublicKey()
 }
 
 // Close closes the dialer's storage.
@@ -200,7 +199,6 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 	d := &Dialer{
 		address:      addr,
 		connType:     tcp,
-		algorithm:    attest.Ed25519Algorithm,
 		readTimeout:  5 * time.Minute,
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
@@ -225,8 +223,8 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 	}
 
 	d.storage = storage
-	d.attester = at
-	d.clientName = fingerprint.Sum(at.PublicKey().Marshal())
+	d.attest = at
+	d.clientName = fingerprint.Sum(at.MarshalPublicKey())
 
 	return d, nil
 }
@@ -257,11 +255,6 @@ func DialWithWriteTimeout(timeout time.Duration) DialOption {
 // DialWithDialTimeout sets the timeout for establishing connections.
 func DialWithDialTimeout(timeout time.Duration) DialOption {
 	return func(d *Dialer) { d.dialTimeout = timeout }
-}
-
-// DialWithAlgorithm sets the cryptographic algorithm for identity.
-func DialWithAlgorithm(a attest.Algorithm) DialOption {
-	return func(d *Dialer) { d.algorithm = a }
 }
 
 // DialWithTCPConn configures the dialer to use TCP connections.

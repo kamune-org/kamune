@@ -281,8 +281,7 @@ func (c *ChatApp) showRenameHistorySessionDialog(hs *HistorySession) {
 		go func() {
 			dbPath := c.DBPath()
 			store, err := storage.OpenStorage(
-				storage.StorageWithDBPath(dbPath),
-				storage.StorageWithNoPassphrase(),
+				storage.WithDBPath(dbPath), storage.WithNoPassphrase(),
 			)
 			if err != nil {
 				c.showError(fmt.Errorf("opening database: %w", err))

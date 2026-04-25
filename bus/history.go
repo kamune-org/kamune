@@ -184,8 +184,7 @@ func (h *HistoryViewer) ShowHistoryDialog() {
 // which uses cursor seeks and BoltDB bucket stats — no chat payloads are decrypted.
 func (h *HistoryViewer) ListSessionsWithInfo(dbPath string) ([]SessionInfo, error) {
 	store, err := storage.OpenStorage(
-		storage.StorageWithDBPath(dbPath),
-		storage.StorageWithNoPassphrase(),
+		storage.WithDBPath(dbPath), storage.WithNoPassphrase(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
@@ -222,8 +221,7 @@ func (h *HistoryViewer) loadAndShowHistory(dbPath, sessionID string) {
 
 	// Open store
 	store, err := storage.OpenStorage(
-		storage.StorageWithDBPath(dbPath),
-		storage.StorageWithNoPassphrase(),
+		storage.WithDBPath(dbPath), storage.WithNoPassphrase(),
 	)
 	if err != nil {
 		dialog.ShowError(fmt.Errorf("failed to open database: %w", err), h.parent)

@@ -26,8 +26,7 @@ func (c *ChatApp) startServer(addr, dbPath string) {
 	go func() {
 		var opts []storage.StorageOption
 		opts = append(opts,
-			storage.StorageWithDBPath(dbPath),
-			storage.StorageWithNoPassphrase(),
+			storage.WithDBPath(dbPath), storage.WithNoPassphrase(),
 		)
 
 		// Get the appropriate verifier based on current mode
@@ -51,7 +50,7 @@ func (c *ChatApp) startServer(addr, dbPath string) {
 		c.mu.Unlock()
 
 		// Update fingerprint & UI on main thread
-		pubKey := srv.PublicKey().Marshal()
+		pubKey := srv.PublicKey()
 		fp := strings.Join(fingerprint.Emoji(pubKey), " • ")
 		hexFp := fingerprint.Hex(pubKey)
 		c.emojiFingerprint = fp
@@ -208,8 +207,7 @@ func (c *ChatApp) connectToServer(addr, dbPath string) {
 	go func() {
 		var dialOpts []storage.StorageOption
 		dialOpts = append(dialOpts,
-			storage.StorageWithDBPath(dbPath),
-			storage.StorageWithNoPassphrase(),
+			storage.WithDBPath(dbPath), storage.WithNoPassphrase(),
 		)
 
 		// Get the appropriate verifier based on current mode
@@ -227,7 +225,7 @@ func (c *ChatApp) connectToServer(addr, dbPath string) {
 		}
 
 		// Update fingerprint display on main thread
-		pubKey := dialer.PublicKey().Marshal()
+		pubKey := dialer.PublicKey()
 		fp := strings.Join(fingerprint.Emoji(pubKey), " • ")
 		hexFp := fingerprint.Hex(pubKey)
 		c.emojiFingerprint = fp

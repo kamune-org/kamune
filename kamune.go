@@ -8,7 +8,6 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
-	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -16,10 +15,6 @@ const (
 	// Domain separation labels for handshake message encryption.
 	handshakeC2SInfo = "kamune/handshake/client-to-server/v1"
 	handshakeS2CInfo = "kamune/handshake/server-to-client/v1"
-
-	// Domain separation labels for reconnect message encryption.
-	reconnectC2SInfo = "kamune/reconnect/c2s/v1"
-	reconnectS2CInfo = "kamune/reconnect/s2c/v1"
 
 	// Must be less than or equal to 65535 ([math.MaxUint16]).
 	maxTransportSize = 50 * 1024
@@ -33,7 +28,6 @@ const (
 var _ uint16 = maxTransportSize
 
 type (
-	PublicKey      = attest.PublicKey
 	RemoteVerifier func(store *storage.Storage, peer *storage.Peer) error
 	HandlerFunc    func(t *Transport) error
 )
@@ -65,13 +59,3 @@ func (m Metadata) SequenceNum() uint64 { return m.pb.GetSequence() }
 
 // Route returns the route associated with this message.
 func (m Metadata) Route() Route { return m.route }
-
-// protoMarshal marshals a protobuf message to bytes.
-func protoMarshal(msg Transferable) ([]byte, error) {
-	return proto.Marshal(msg)
-}
-
-// protoUnmarshal unmarshals bytes into a protobuf message.
-func protoUnmarshal(data []byte, msg Transferable) error {
-	return proto.Unmarshal(data, msg)
-}

@@ -12,7 +12,6 @@ import (
 
 func TestIntroduce(t *testing.T) {
 	a := require.New(t)
-	alg := attest.MLDSAAlgorithm
 	c1, c2 := net.Pipe()
 	conn1, err := newConn(c1)
 	a.NoError(err)
@@ -22,16 +21,16 @@ func TestIntroduce(t *testing.T) {
 		a.NoError(conn1.Close())
 		a.NoError(conn2.Close())
 	}()
-	attester1, err := attest.NewAttester(alg)
+	attest1, err := attest.New()
 	a.NoError(err)
-	attester2, err := attest.NewAttester(alg)
+	attest2, err := attest.New()
 	a.NoError(err)
 
 	var sendErr1 error
 	done1 := make(chan struct{})
 	go func() {
 		defer close(done1)
-		sendErr1 = sendIntroduction(conn1, rand.Text(), attester1, alg)
+		sendErr1 = sendIntroduction(conn1, rand.Text(), attest1)
 	}()
 	st2, route2, err := readSignedTransport(conn2)
 	a.NoError(err)
@@ -40,13 +39,13 @@ func TestIntroduce(t *testing.T) {
 	a.Equal(route2, RouteIdentity)
 	peer, err := receiveIntroduction(st2)
 	a.NoError(err)
-	a.Equal(attester1.PublicKey(), peer.PublicKey)
+	a.Equal(attest1.MarshalPublicKey(), peer.PublicKey)
 
 	var sendErr2 error
 	done2 := make(chan struct{})
 	go func() {
 		defer close(done2)
-		sendErr2 = sendIntroduction(conn2, rand.Text(), attester2, alg)
+		sendErr2 = sendIntroduction(conn2, rand.Text(), attest2)
 	}()
 	st1, route1, err := readSignedTransport(conn1)
 	a.NoError(err)
@@ -55,5 +54,5 @@ func TestIntroduce(t *testing.T) {
 	a.True(route1 == RouteIdentity || route1 == RouteInvalid)
 	peer, err = receiveIntroduction(st1)
 	a.NoError(err)
-	a.Equal(attester2.PublicKey(), peer.PublicKey)
+	a.Equal(attest2.MarshalPublicKey(), peer.PublicKey)
 }

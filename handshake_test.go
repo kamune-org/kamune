@@ -22,9 +22,8 @@ func TestHandshake(t *testing.T) {
 	a.NoError(f.Close())
 	defer a.NoError(os.Remove(f.Name()))
 	store, err := storage.OpenStorage(
-		storage.StorageWithDBPath(f.Name()),
-		storage.StorageWithAlgorithm(attest.Ed25519Algorithm),
-		storage.StorageWithNoPassphrase(),
+		storage.WithDBPath(f.Name()),
+		storage.WithNoPassphrase(),
 	)
 	a.NoError(err)
 	c1, c2 := net.Pipe()
@@ -36,16 +35,16 @@ func TestHandshake(t *testing.T) {
 		a.NoError(conn1.Close())
 		a.NoError(conn2.Close())
 	}()
-	attester1, err := attest.NewAttester(store.Algorithm())
+	attest1, err := attest.New()
 	a.NoError(err)
-	attester2, err := attest.NewAttester(store.Algorithm())
+	attest2, err := attest.New()
 	a.NoError(err)
 
 	pt1 := newUnderlyingTransport(
-		conn1, conn1, attester2.PublicKey(), attester1, store,
+		conn1, conn1, attest2.MarshalPublicKey(), attest1, store,
 	)
 	pt2 := newUnderlyingTransport(
-		conn2, conn2, attester1.PublicKey(), attester2, store,
+		conn2, conn2, attest1.MarshalPublicKey(), attest2, store,
 	)
 
 	hndshkeOpts := handshakeOpts{
@@ -150,47 +149,18 @@ func BenchmarkHandshakeTranscriptHash_HandshakeFieldsTypical(b *testing.B) {
 	// Note: these sizes are representative; the benchmark is about per-call
 	// overhead rather than exact on-wire sizing.
 	req := &pb.Handshake{
-		Key:        make([]byte, 64),
+		Key:        make([]byte, 32),
 		Salt:       make([]byte, saltSize),
 		SessionKey: "AAAAAAAAAA",
 	}
 	resp := &pb.Handshake{
-		Key:        make([]byte, 128),
+		Key:        make([]byte, 32),
 		Salt:       make([]byte, saltSize),
 		SessionKey: "BBBBBBBBBB",
 	}
 
 	// Bytes processed by the hasher inside handshakeTranscriptHash:
 	// domain label + length prefixes + field bytes.
-	totalBytes :=
-		len("kamune/handshake/v1") +
-			4 + len(req.GetKey()) +
-			4 + len(req.GetSalt()) +
-			4 + len(req.GetSessionKey()) +
-			4 + len(resp.GetKey()) +
-			4 + len(resp.GetSalt()) +
-			4 + len(resp.GetSessionKey())
-
-	b.ReportAllocs()
-	b.SetBytes(int64(totalBytes))
-	for b.Loop() {
-		_ = handshakeTranscriptHash(req, resp)
-	}
-}
-
-func BenchmarkHandshakeTranscriptHash_LargeKeyMaterial(b *testing.B) {
-	// Stress case: larger KEM/enc blobs (still hashing only inner fields).
-	req := &pb.Handshake{
-		Key:        make([]byte, 2048),
-		Salt:       make([]byte, saltSize),
-		SessionKey: "AAAAAAAAAA",
-	}
-	resp := &pb.Handshake{
-		Key:        make([]byte, 2048),
-		Salt:       make([]byte, saltSize),
-		SessionKey: "BBBBBBBBBB",
-	}
-
 	totalBytes :=
 		len("kamune/handshake/v1") +
 			4 + len(req.GetKey()) +

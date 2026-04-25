@@ -205,8 +205,7 @@ func (c *ChatApp) initFromStorage() {
 	}
 
 	store, err := storage.OpenStorage(
-		storage.StorageWithDBPath(dbPath),
-		storage.StorageWithNoPassphrase(),
+		storage.WithDBPath(dbPath), storage.WithNoPassphrase(),
 	)
 	if err != nil {
 		logger.Debugf("No existing storage to load from: %v", err)
@@ -261,8 +260,7 @@ func (c *ChatApp) SetDBPath(path string) {
 // Use loadHistoryFromStorage when you already have an open *Storage.
 func (c *ChatApp) loadHistorySessions(dbPath string) {
 	store, err := storage.OpenStorage(
-		storage.StorageWithDBPath(dbPath),
-		storage.StorageWithNoPassphrase(),
+		storage.WithDBPath(dbPath), storage.WithNoPassphrase(),
 	)
 	if err != nil {
 		logger.Errorf("failed to open history database: %v", err)
@@ -325,8 +323,7 @@ func (c *ChatApp) loadHistoryMessages(hs *HistorySession) error {
 	dbPath := c.DBPath()
 
 	store, err := storage.OpenStorage(
-		storage.StorageWithDBPath(dbPath),
-		storage.StorageWithNoPassphrase(),
+		storage.WithDBPath(dbPath), storage.WithNoPassphrase(),
 	)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
@@ -491,8 +488,7 @@ func (c *ChatApp) deleteHistorySession(hs *HistorySession) {
 				dbPath := c.DBPath()
 
 				store, err := storage.OpenStorage(
-					storage.StorageWithDBPath(dbPath),
-					storage.StorageWithNoPassphrase(),
+					storage.WithDBPath(dbPath), storage.WithNoPassphrase(),
 				)
 				if err != nil {
 					c.showError(fmt.Errorf("opening database: %w", err))

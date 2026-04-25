@@ -3,7 +3,6 @@ module github.com/kamune-org/kamune
 go 1.26
 
 require (
-	github.com/cloudflare/circl v1.6.1
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/stretchr/testify v1.11.1
 	github.com/xtaci/kcp-go/v5 v5.6.40

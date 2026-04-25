@@ -16,6 +16,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 var errCh = make(chan error)
@@ -100,7 +101,7 @@ func serveHandler(t *kamune.Transport) error {
 			t.SessionID(),
 			b.GetValue(),
 			metadata.Timestamp(),
-			kamune.SenderPeer,
+			storage.SenderPeer,
 		); err != nil {
 			slog.Error("failed to persist received chat entry",
 				slog.String("session_id", t.SessionID()),
@@ -110,11 +111,9 @@ func serveHandler(t *kamune.Transport) error {
 }
 
 func server(addr string) {
-	var opts []kamune.StorageOption
+	var opts []storage.StorageOption
 	opts = append(
-		opts,
-		kamune.StorageWithDBPath("./server.db"),
-		kamune.StorageWithNoPassphrase(),
+		opts, storage.WithDBPath("./server.db"), storage.WithNoPassphrase(),
 	)
 
 	srv, err := kamune.NewServer(
@@ -126,18 +125,16 @@ func server(addr string) {
 		errCh <- fmt.Errorf("starting server: %w", err)
 		return
 	}
-	fp := strings.Join(fingerprint.Emoji(srv.PublicKey().Marshal()), " • ")
+	fp := strings.Join(fingerprint.Emoji(srv.PublicKey()), " • ")
 	fmt.Printf("Your emoji fingerprint: %s\n", fp)
 	fmt.Printf("Starting server on %s\n", addr)
 	errCh <- srv.ListenAndServe()
 }
 
 func client(addr string) {
-	var dialOpts []kamune.StorageOption
+	var dialOpts []storage.StorageOption
 	dialOpts = append(
-		dialOpts,
-		kamune.StorageWithDBPath("./client.db"),
-		kamune.StorageWithNoPassphrase(),
+		dialOpts, storage.WithDBPath("./client.db"), storage.WithNoPassphrase(),
 	)
 
 	dialer, err := kamune.NewDialer(
@@ -148,7 +145,7 @@ func client(addr string) {
 		errCh <- fmt.Errorf("create new dialer: %w", err)
 		return
 	}
-	fp := strings.Join(fingerprint.Emoji(dialer.PublicKey().Marshal()), " • ")
+	fp := strings.Join(fingerprint.Emoji(dialer.PublicKey()), " • ")
 	fmt.Printf("Your emoji fingerprint: %s\n", fp)
 
 	var t *kamune.Transport
@@ -192,7 +189,7 @@ func client(addr string) {
 			t.SessionID(),
 			b.GetValue(),
 			metadata.Timestamp(),
-			kamune.SenderPeer,
+			storage.SenderPeer,
 		); err != nil {
 			slog.Error("failed to persist received chat entry",
 				slog.String("session_id", t.SessionID()),
@@ -221,11 +218,10 @@ func printHistory(sessionID, dbPath string) error {
 		return fmt.Errorf("db path must be provided with -db flag")
 	}
 
-	var entries []kamune.ChatEntry
+	var entries []storage.ChatEntry
 	// Open kamune.Storage and get chat history.
-	s, err := kamune.OpenStorage(
-		kamune.StorageWithDBPath(dbPath),
-		kamune.StorageWithNoPassphrase(),
+	s, err := storage.OpenStorage(
+		storage.WithDBPath(dbPath), storage.WithNoPassphrase(),
 	)
 	if err != nil {
 		return fmt.Errorf("opening storage: %w", err)
@@ -244,7 +240,7 @@ func printHistory(sessionID, dbPath string) error {
 
 	for _, ent := range entries {
 		sender := "You"
-		if ent.Sender != kamune.SenderLocal {
+		if ent.Sender != storage.SenderLocal {
 			sender = "Peer"
 		}
 		fmt.Printf(

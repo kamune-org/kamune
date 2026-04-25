@@ -29,16 +29,15 @@ var (
 type underlyingTransport struct {
 	conn    Conn
 	encConn Conn
-	attest  attest.Attester
-	remote  attest.PublicKey
-	id      attest.Identifier
+	attest  *attest.Attest
 	storage *storage.Storage
+	remote  []byte
 }
 
 func newUnderlyingTransport(
 	conn, encConn Conn,
-	remote attest.PublicKey,
-	attest attest.Attester,
+	remote []byte,
+	attest *attest.Attest,
 	storage *storage.Storage,
 ) *underlyingTransport {
 	return &underlyingTransport{
@@ -47,7 +46,6 @@ func newUnderlyingTransport(
 		remote:  remote,
 		attest:  attest,
 		storage: storage,
-		id:      storage.Algorithm().Identitfier(),
 	}
 }
 
@@ -92,7 +90,7 @@ func (ut *underlyingTransport) deserialize(
 	}
 
 	msg := st.GetData()
-	if ok := ut.id.Verify(ut.remote, msg, st.Signature); !ok {
+	if ok := ut.attest.Verify(ut.remote, msg, st.Signature); !ok {
 		return nil, RouteInvalid, 0, ErrInvalidSignature
 	}
 	if err := proto.Unmarshal(msg, dst); err != nil {

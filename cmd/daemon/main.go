@@ -249,10 +249,10 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	go func() {
 		var opts []storage.StorageOption
 		if params.StoragePath != "" {
-			opts = append(opts, storage.StorageWithDBPath(params.StoragePath))
+			opts = append(opts, storage.WithDBPath(params.StoragePath))
 		}
 		if params.DBNoPassphrase {
-			opts = append(opts, storage.StorageWithNoPassphrase())
+			opts = append(opts, storage.WithNoPassphrase())
 		}
 
 		srv, err := kamune.NewServer(
@@ -274,7 +274,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 
 		d.emit(EvtServerStarted, cmd.ID, MapS{
 			"addr":       params.Addr,
-			"public_key": base64.StdEncoding.EncodeToString(srv.PublicKey().Marshal()),
+			"public_key": base64.StdEncoding.EncodeToString(srv.PublicKey()),
 		})
 
 		if err := srv.ListenAndServe(); err != nil {
@@ -332,10 +332,10 @@ func (d *Daemon) handleDial(cmd Command) {
 	go func() {
 		var opts []storage.StorageOption
 		if params.StoragePath != "" {
-			opts = append(opts, storage.StorageWithDBPath(params.StoragePath))
+			opts = append(opts, storage.WithDBPath(params.StoragePath))
 		}
 		if params.DBNoPassphrase {
-			opts = append(opts, storage.StorageWithNoPassphrase())
+			opts = append(opts, storage.WithNoPassphrase())
 		}
 
 		dialer, err := kamune.NewDialer(
@@ -372,7 +372,7 @@ func (d *Daemon) handleDial(cmd Command) {
 			"session_id":  sessionID,
 			"is_server":   false,
 			"remote_addr": params.Addr,
-			"public_key":  base64.StdEncoding.EncodeToString(dialer.PublicKey().Marshal()),
+			"public_key":  base64.StdEncoding.EncodeToString(dialer.PublicKey()),
 		})
 
 		// Start receiving messages

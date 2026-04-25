@@ -18,10 +18,9 @@ func newTestStorage(t *testing.T) (*Storage, func()) {
 	require.NoError(t, f.Close())
 
 	storage, err := OpenStorage(
-		StorageWithDBPath(f.Name()),
-		StorageWithAlgorithm(attest.Ed25519Algorithm),
-		StorageWithNoPassphrase(),
-		StorageWithExpiryDuration(24*time.Hour),
+		WithDBPath(f.Name()),
+		WithNoPassphrase(),
+		WithExpiryDuration(24*time.Hour),
 	)
 	require.NoError(t, err)
 
@@ -41,18 +40,17 @@ func TestStorePeerSetsTimestamps(t *testing.T) {
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	att, err := attest.NewAttester(attest.Ed25519Algorithm)
+	att, err := attest.New()
 	a.NoError(err)
 
 	peer := &Peer{
 		Name:      "alice",
-		PublicKey: att.PublicKey(),
-		Algorithm: attest.Ed25519Algorithm,
+		PublicKey: att.MarshalPublicKey(),
 		// FirstSeen and LastSeen left zero — StorePeer should fill them in.
 	}
 	a.NoError(storage.StorePeer(peer))
 
-	found, err := storage.FindPeer(att.PublicKey().Marshal())
+	found, err := storage.FindPeer(att.MarshalPublicKey())
 	a.NoError(err)
 	a.Equal("alice", found.Name)
 	a.False(found.FirstSeen.IsZero(), "FirstSeen should be set automatically")
@@ -64,20 +62,19 @@ func TestStorePeerPreservesExplicitTimestamps(t *testing.T) {
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	att, err := attest.NewAttester(attest.Ed25519Algorithm)
+	att, err := attest.New()
 	a.NoError(err)
 
 	explicit := time.Now().Add(-1 * time.Hour) // within the 24h expiry window
 	peer := &Peer{
 		Name:      "bob",
-		PublicKey: att.PublicKey(),
-		Algorithm: attest.Ed25519Algorithm,
+		PublicKey: att.MarshalPublicKey(),
 		FirstSeen: explicit,
 		LastSeen:  explicit,
 	}
 	a.NoError(storage.StorePeer(peer))
 
-	found, err := storage.FindPeer(att.PublicKey().Marshal())
+	found, err := storage.FindPeer(att.MarshalPublicKey())
 	a.NoError(err)
 	a.True(found.FirstSeen.Equal(explicit))
 	a.True(found.LastSeen.Equal(explicit))
@@ -88,23 +85,22 @@ func TestUpdatePeerLastSeen(t *testing.T) {
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	att, err := attest.NewAttester(attest.Ed25519Algorithm)
+	att, err := attest.New()
 	a.NoError(err)
 
 	firstSeen := time.Now().Add(-1 * time.Hour) // within the 24h expiry window
 	peer := &Peer{
 		Name:      "carol",
-		PublicKey: att.PublicKey(),
-		Algorithm: attest.Ed25519Algorithm,
+		PublicKey: att.MarshalPublicKey(),
 		FirstSeen: firstSeen,
 		LastSeen:  firstSeen,
 	}
 	a.NoError(storage.StorePeer(peer))
 
 	newLastSeen := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
-	a.NoError(storage.UpdatePeerLastSeen(att.PublicKey().Marshal(), newLastSeen))
+	a.NoError(storage.UpdatePeerLastSeen(att.MarshalPublicKey(), newLastSeen))
 
-	found, err := storage.FindPeer(att.PublicKey().Marshal())
+	found, err := storage.FindPeer(att.MarshalPublicKey())
 	a.NoError(err)
 	a.True(found.FirstSeen.Equal(firstSeen), "FirstSeen must not change")
 	a.True(found.LastSeen.Equal(newLastSeen), "LastSeen must be updated")
@@ -115,23 +111,22 @@ func TestUpdatePeerLastSeenZeroUsesNow(t *testing.T) {
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	att, err := attest.NewAttester(attest.Ed25519Algorithm)
+	att, err := attest.New()
 	a.NoError(err)
 
 	peer := &Peer{
 		Name:      "dave",
-		PublicKey: att.PublicKey(),
-		Algorithm: attest.Ed25519Algorithm,
+		PublicKey: att.MarshalPublicKey(),
 		FirstSeen: time.Now(),
 		LastSeen:  time.Now().Add(-1 * time.Hour),
 	}
 	a.NoError(storage.StorePeer(peer))
 
 	before := time.Now()
-	a.NoError(storage.UpdatePeerLastSeen(att.PublicKey().Marshal(), time.Time{}))
+	a.NoError(storage.UpdatePeerLastSeen(att.MarshalPublicKey(), time.Time{}))
 	after := time.Now()
 
-	found, err := storage.FindPeer(att.PublicKey().Marshal())
+	found, err := storage.FindPeer(att.MarshalPublicKey())
 	a.NoError(err)
 	a.False(found.LastSeen.Before(before))
 	a.False(found.LastSeen.After(after))
@@ -152,21 +147,19 @@ func TestListPeers(t *testing.T) {
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	att1, err := attest.NewAttester(attest.Ed25519Algorithm)
+	att1, err := attest.New()
 	a.NoError(err)
-	att2, err := attest.NewAttester(attest.Ed25519Algorithm)
+	att2, err := attest.New()
 	a.NoError(err)
 
 	a.NoError(storage.StorePeer(&Peer{
 		Name:      "peer-1",
-		PublicKey: att1.PublicKey(),
-		Algorithm: attest.Ed25519Algorithm,
+		PublicKey: att1.MarshalPublicKey(),
 		FirstSeen: time.Now(),
 	}))
 	a.NoError(storage.StorePeer(&Peer{
 		Name:      "peer-2",
-		PublicKey: att2.PublicKey(),
-		Algorithm: attest.Ed25519Algorithm,
+		PublicKey: att2.MarshalPublicKey(),
 		FirstSeen: time.Now(),
 	}))
 
@@ -191,31 +184,28 @@ func TestListPeersSkipsExpired(t *testing.T) {
 	defer func() { _ = os.Remove(f.Name()) }()
 
 	storage, err := OpenStorage(
-		StorageWithDBPath(f.Name()),
-		StorageWithAlgorithm(attest.Ed25519Algorithm),
-		StorageWithNoPassphrase(),
-		StorageWithExpiryDuration(1*time.Hour),
+		WithDBPath(f.Name()),
+		WithNoPassphrase(),
+		WithExpiryDuration(1*time.Hour),
 	)
 	a.NoError(err)
 	defer func() { _ = storage.Close() }()
 
-	att1, err := attest.NewAttester(attest.Ed25519Algorithm)
+	att1, err := attest.New()
 	a.NoError(err)
-	att2, err := attest.NewAttester(attest.Ed25519Algorithm)
+	att2, err := attest.New()
 	a.NoError(err)
 
 	// Peer 1 first seen long ago — should be expired.
 	a.NoError(storage.StorePeer(&Peer{
 		Name:      "old-peer",
-		PublicKey: att1.PublicKey(),
-		Algorithm: attest.Ed25519Algorithm,
+		PublicKey: att1.MarshalPublicKey(),
 		FirstSeen: time.Now().Add(-48 * time.Hour),
 	}))
 	// Peer 2 first seen recently — should survive.
 	a.NoError(storage.StorePeer(&Peer{
 		Name:      "recent-peer",
-		PublicKey: att2.PublicKey(),
-		Algorithm: attest.Ed25519Algorithm,
+		PublicKey: att2.MarshalPublicKey(),
 		FirstSeen: time.Now(),
 	}))
 
@@ -240,25 +230,24 @@ func TestDeletePeer(t *testing.T) {
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	att, err := attest.NewAttester(attest.Ed25519Algorithm)
+	att, err := attest.New()
 	a.NoError(err)
 
 	a.NoError(storage.StorePeer(&Peer{
 		Name:      "to-delete",
-		PublicKey: att.PublicKey(),
-		Algorithm: attest.Ed25519Algorithm,
+		PublicKey: att.MarshalPublicKey(),
 		FirstSeen: time.Now(),
 	}))
 
 	// Verify it exists.
-	found, err := storage.FindPeer(att.PublicKey().Marshal())
+	found, err := storage.FindPeer(att.MarshalPublicKey())
 	a.NoError(err)
 	a.Equal("to-delete", found.Name)
 
 	// Delete it.
-	a.NoError(storage.DeletePeer(att.PublicKey().Marshal()))
+	a.NoError(storage.DeletePeer(att.MarshalPublicKey()))
 
 	// Now FindPeer should fail.
-	_, err = storage.FindPeer(att.PublicKey().Marshal())
+	_, err = storage.FindPeer(att.MarshalPublicKey())
 	a.Error(err)
 }

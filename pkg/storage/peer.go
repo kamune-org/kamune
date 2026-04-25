@@ -12,15 +12,13 @@ import (
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/store"
-	"github.com/kamune-org/kamune/pkg/attest"
 )
 
 type Peer struct {
 	FirstSeen time.Time
 	LastSeen  time.Time
-	PublicKey attest.PublicKey
 	Name      string
-	Algorithm attest.Algorithm
+	PublicKey []byte
 }
 
 var (
@@ -69,15 +67,6 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 		return nil, ErrPeerExpired
 	}
 
-	var a attest.Algorithm
-	if err = a.UnmarshalText([]byte(p.Algorithm.String())); err != nil {
-		return nil, fmt.Errorf("parsing identity: %w", err)
-	}
-	pubKey, err := a.Identitfier().ParsePublicKey(p.PublicKey)
-	if err != nil {
-		return nil, fmt.Errorf("parsing public key: %w", err)
-	}
-
 	var lastSeen time.Time
 	if p.LastSeen != nil {
 		lastSeen = p.LastSeen.AsTime()
@@ -85,15 +74,14 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 
 	return &Peer{
 		Name:      p.Name,
-		PublicKey: pubKey,
-		Algorithm: a,
+		PublicKey: p.PublicKey,
 		FirstSeen: p.FirstSeen.AsTime(),
 		LastSeen:  lastSeen,
 	}, nil
 }
 
 func (s *Storage) StorePeer(peer *Peer) error {
-	pubKey := peer.PublicKey.Marshal()
+	pubKey := peer.PublicKey
 
 	now := time.Now()
 	firstSeen := peer.FirstSeen
@@ -107,7 +95,6 @@ func (s *Storage) StorePeer(peer *Peer) error {
 
 	p := &pb.Peer{
 		Name:      peer.Name,
-		Algorithm: pb.Algorithm(peer.Algorithm),
 		PublicKey: pubKey,
 		FirstSeen: timestamppb.New(firstSeen),
 		LastSeen:  timestamppb.New(lastSeen),
@@ -195,26 +182,6 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 				continue
 			}
 
-			var a attest.Algorithm
-			if err := a.UnmarshalText([]byte(p.Algorithm.String())); err != nil {
-				slog.Warn(
-					"skipping peer with unknown algorithm",
-					slog.String("peer_name", p.GetName()),
-					slog.Any("error", err),
-				)
-				continue
-			}
-
-			pubKey, err := a.Identitfier().ParsePublicKey(p.PublicKey)
-			if err != nil {
-				slog.Warn(
-					"skipping peer with unparseable public key",
-					slog.String("peer_name", p.GetName()),
-					slog.Any("error", err),
-				)
-				continue
-			}
-
 			var lastSeen time.Time
 			if p.LastSeen != nil {
 				lastSeen = p.LastSeen.AsTime()
@@ -222,8 +189,7 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 
 			peers = append(peers, &Peer{
 				Name:      p.Name,
-				PublicKey: pubKey,
-				Algorithm: a,
+				PublicKey: p.PublicKey,
 				FirstSeen: p.FirstSeen.AsTime(),
 				LastSeen:  lastSeen,
 			})

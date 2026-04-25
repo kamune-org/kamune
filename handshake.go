@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"bytes"
 	"crypto/hpke"
 	"crypto/rand"
 	"crypto/sha256"
@@ -122,7 +123,7 @@ func requestHandshake(
 	t := newTransport(pt, sessionID, encoder, decoder)
 	t.SetInitiator(true)
 	t.SetSecrets(secret, localSalt, remoteSalt)
-	t.SetRemotePublicKey(pt.remote.Marshal())
+	t.SetRemotePublicKey(pt.remote)
 
 	// Step 5: Challenge exchange (bound to handshake transcript)
 	err = sendChallenge(
@@ -227,7 +228,7 @@ func acceptHandshake(
 	t := newTransport(pt, sessionID, encoder, decoder)
 	t.SetInitiator(false)
 	t.SetSecrets(secret, localSalt, remoteSalt)
-	t.SetRemotePublicKey(pt.remote.Marshal())
+	t.SetRemotePublicKey(pt.remote)
 
 	// Step 4: Challenge exchange (bound to handshake transcript). Responder
 	// accepts initiator's challenge, then sends its own and verifies echo.
@@ -370,13 +371,14 @@ func deriveChallengeInfo(sessionID, direction string, transcriptHash [32]byte) [
 	// Keep it simple and deterministic.
 	// The transcript hash ensures the challenge is bound to the negotiated
 	// handshake bytes, not just the exported secret.
-	buf := make([]byte, 0, len(sessionID)+1+len(direction)+1+len(transcriptHash[:]))
-	buf = append(buf, sessionID...)
-	buf = append(buf, '|')
-	buf = append(buf, direction...)
-	buf = append(buf, '|')
-	buf = append(buf, transcriptHash[:]...)
-	return buf
+	buf := &bytes.Buffer{}
+	buf.Grow(len(sessionID) + 1 + len(direction) + 1 + len(transcriptHash[:]))
+	buf.WriteString(sessionID)
+	buf.WriteRune('|')
+	buf.WriteString(direction)
+	buf.WriteRune('|')
+	buf.Write(transcriptHash[:])
+	return buf.Bytes()
 }
 
 func randomBytes(l int) []byte {

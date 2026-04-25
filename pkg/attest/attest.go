@@ -1,6 +1,10 @@
 package attest
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
 )
@@ -9,41 +13,79 @@ var (
 	ErrInvalidKey = errors.New("invalid key type")
 )
 
-type Attester interface {
-	PublicKey() PublicKey
-	Sign(msg []byte) ([]byte, error)
-	Save() ([]byte, error)
+type Attest struct {
+	publicKey  ed25519.PublicKey
+	privateKey ed25519.PrivateKey
 }
 
-type Identifier interface {
-	fmt.Stringer
-	Verify(remote PublicKey, msg, sig []byte) bool
-	ParsePublicKey(key []byte) (PublicKey, error)
+func (e Attest) Sign(msg []byte) ([]byte, error) {
+	return ed25519.Sign(e.privateKey, msg), nil
 }
 
-type PublicKey interface {
-	Marshal() []byte
-	Equal(PublicKey) bool
+func (Attest) Verify(remote, msg, sig []byte) bool {
+	return Verify(remote, msg, sig)
 }
 
-func NewAttester(a Algorithm) (Attester, error) {
-	switch a {
-	case Ed25519Algorithm:
-		return newEd25519DSA()
-	case MLDSAAlgorithm:
-		return newMLDSA()
-	default:
-		return nil, fmt.Errorf("NewAttest: invalid identity: %v", a)
+func (e Attest) MarshalPublicKey() []byte {
+	b, err := x509.MarshalPKIXPublicKey(e.publicKey)
+	if err != nil {
+		panic(fmt.Errorf("marshalling public key: %w", err))
 	}
+	return b
 }
 
-func LoadAttester(a Algorithm, data []byte) (Attester, error) {
-	switch a {
-	case Ed25519Algorithm:
-		return loadEd25519(data)
-	case MLDSAAlgorithm:
-		return loadMLDSA(data)
-	default:
-		return nil, fmt.Errorf("invalid algorithm: %d", a)
+func (e Attest) EncodePublicKey() string {
+	return base64.RawURLEncoding.EncodeToString(e.MarshalPublicKey())
+}
+
+func (e Attest) Save() ([]byte, error) {
+	return x509.MarshalPKCS8PrivateKey(e.privateKey)
+}
+
+func New() (*Attest, error) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
 	}
+	return &Attest{privateKey: private, publicKey: public}, nil
+}
+
+func Load(data []byte) (*Attest, error) {
+	key, err := x509.ParsePKCS8PrivateKey(data)
+	if err != nil {
+		return nil, fmt.Errorf("parsing key: %w", err)
+	}
+	private, ok := key.(ed25519.PrivateKey)
+	if !ok {
+		return nil, ErrInvalidKey
+	}
+	return &Attest{
+		privateKey: private,
+		publicKey:  private.Public().(ed25519.PublicKey),
+	}, nil
+}
+
+func Verify(remote, msg, sig []byte) bool {
+	p, err := parsePublicKey(remote)
+	if err == nil {
+		return ed25519.Verify(p, msg, sig)
+	}
+	return false
+}
+
+func IsValidPublicKey(b []byte) bool {
+	_, err := parsePublicKey(b)
+	return err == nil
+}
+
+func parsePublicKey(key []byte) (ed25519.PublicKey, error) {
+	pk, err := x509.ParsePKIXPublicKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	edPub, ok := pk.(ed25519.PublicKey)
+	if !ok {
+		return nil, ErrInvalidKey
+	}
+	return edPub, nil
 }

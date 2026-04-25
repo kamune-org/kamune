@@ -74,13 +74,11 @@ type Storage struct {
 	passphraseHandler PassphraseHandler
 	store             *store.Store
 	dbPath            string
-	algorithm         attest.Algorithm
 	expiryDuration    time.Duration
 }
 
 func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	s := &Storage{
-		algorithm:         attest.Ed25519Algorithm,
 		passphraseHandler: defaultPassphraseHandler,
 		expiryDuration:    7 * 24 * time.Hour,
 	}
@@ -133,15 +131,11 @@ func (s *Storage) PublicKey() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading attester: %w", err)
 	}
-	return at.PublicKey().Marshal(), nil
+	return at.MarshalPublicKey(), nil
 }
 
-func (s *Storage) Algorithm() attest.Algorithm {
-	return s.algorithm
-}
-
-func (s *Storage) Attester() (attest.Attester, error) {
-	key := []byte(s.algorithm.String())
+func (s *Storage) Attester() (*attest.Attest, error) {
+	key := []byte("attest")
 	var id []byte
 	err := s.store.Query(func(q store.Query) error {
 		var err error
@@ -150,16 +144,16 @@ func (s *Storage) Attester() (attest.Attester, error) {
 	})
 	switch {
 	case err == nil:
-		return attest.LoadAttester(s.algorithm, id)
+		return attest.Load(id)
 	case errors.Is(err, store.ErrMissingItem):
 		// continue
 	default:
 		return nil, fmt.Errorf("getting identity: %w", err)
 	}
 
-	at, err := attest.NewAttester(s.algorithm)
+	at, err := attest.New()
 	if err != nil {
-		return nil, fmt.Errorf("new %s: %w", s.algorithm, err)
+		return nil, fmt.Errorf("new attest: %w", err)
 	}
 	data, err := at.Save()
 	if err != nil {
@@ -393,23 +387,19 @@ func (s *Storage) AddChatEntry(
 
 type StorageOption func(*Storage)
 
-func StorageWithDBPath(path string) StorageOption {
+func WithDBPath(path string) StorageOption {
 	return func(p *Storage) { p.dbPath = path }
 }
 
-func StorageWithPassphraseHandler(fn PassphraseHandler) StorageOption {
+func WithPassphraseHandler(fn PassphraseHandler) StorageOption {
 	return func(p *Storage) { p.passphraseHandler = fn }
 }
 
-func StorageWithAlgorithm(algorithm attest.Algorithm) StorageOption {
-	return func(p *Storage) { p.algorithm = algorithm }
-}
-
-func StorageWithExpiryDuration(duration time.Duration) StorageOption {
+func WithExpiryDuration(duration time.Duration) StorageOption {
 	return func(p *Storage) { p.expiryDuration = duration }
 }
 
-func StorageWithNoPassphrase() StorageOption {
+func WithNoPassphrase() StorageOption {
 	return func(p *Storage) {
 		p.passphraseHandler = func() ([]byte, error) { return []byte(""), nil }
 	}

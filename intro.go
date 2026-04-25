@@ -16,7 +16,7 @@ import (
 )
 
 func defaultRemoteVerifier(store *storage.Storage, peer *storage.Peer) error {
-	key := peer.PublicKey.Marshal()
+	key := peer.PublicKey
 	fmt.Printf("Received a connection request from %q.\n", peer.Name)
 	fmt.Printf(
 		"Their emoji fingerprint: %s\nHex fingerprint: %s\n",
@@ -61,12 +61,11 @@ func defaultRemoteVerifier(store *storage.Storage, peer *storage.Peer) error {
 // sendIntroduction sends an identity introduction message to the peer.
 // This is the first message exchanged in a new connection.
 func sendIntroduction(
-	conn Conn, name string, at attest.Attester, a attest.Algorithm,
+	conn Conn, name string, at *attest.Attest,
 ) error {
 	intro := &pb.Introduce{
 		Name:      name,
-		PublicKey: at.PublicKey().Marshal(),
-		Algorithm: pb.Algorithm(a),
+		PublicKey: at.MarshalPublicKey(),
 	}
 	message, err := proto.Marshal(intro)
 	if err != nil {
@@ -114,21 +113,11 @@ func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, error) {
 		return nil, fmt.Errorf("deserializing: %w", err)
 	}
 
-	var a attest.Algorithm
-	err = a.UnmarshalText([]byte(introduce.Algorithm.String()))
-	if err != nil {
-		return nil, fmt.Errorf("parsing identity: %w", err)
-	}
-	id := a.Identitfier()
-	remote, err := id.ParsePublicKey(introduce.GetPublicKey())
-	if err != nil {
-		return nil, fmt.Errorf("parsing advertised key: %w", err)
-	}
-
+	remote := introduce.GetPublicKey()
 	msg := st.GetData()
-	if !id.Verify(remote, msg, st.Signature) {
+	if !attest.Verify(remote, msg, st.Signature) {
 		return nil, ErrInvalidSignature
 	}
 
-	return &storage.Peer{Name: introduce.Name, Algorithm: a, PublicKey: remote}, nil
+	return &storage.Peer{Name: introduce.Name, PublicKey: remote}, nil
 }

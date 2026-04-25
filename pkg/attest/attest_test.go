@@ -8,33 +8,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	_ Attester   = MLDSA{}
-	_ Identifier = MLDSA{}
-	_ PublicKey  = MLDSAPublicKey{}
-)
-
-func TestMLDSA(t *testing.T) {
+func TestAttest(t *testing.T) {
 	a := require.New(t)
 	msg := []byte(rand.Text())
 
-	m, err := newMLDSA()
+	e, err := New()
 	a.NoError(err)
-	a.NotNil(m)
-	pub := m.PublicKey()
-	a.NotNil(pub)
-	sig, err := m.Sign(msg)
+	a.NotNil(e)
+	pub := e.MarshalPublicKey()
+	sig, err := e.Sign(msg)
 	a.NoError(err)
 	a.NotNil(sig)
 
-	id := MLDSA{}
+	id := Attest{}
 	t.Run("valid signature", func(t *testing.T) {
 		verified := id.Verify(pub, msg, sig)
 		a.True(verified)
 	})
 	t.Run("invalid signature", func(t *testing.T) {
 		sig := slices.Clone(sig)
-		sig[0] ^= 0xDD
+		sig[0] ^= 0xFF
 
 		verified := id.Verify(pub, msg, sig)
 		a.False(verified)
@@ -46,9 +39,9 @@ func TestMLDSA(t *testing.T) {
 		a.False(verified)
 	})
 	t.Run("invalid public key", func(t *testing.T) {
-		another, err := newMLDSA()
+		another, err := New()
 		a.NoError(err)
-		verified := id.Verify(another.PublicKey(), msg, sig)
+		verified := id.Verify(another.MarshalPublicKey(), msg, sig)
 		a.False(verified)
 	})
 }

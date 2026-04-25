@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 const gap = "\n\n"
@@ -98,7 +99,7 @@ func loadHistory(t *kamune.Transport, userPrefix, userText, peerPrefix, peerText
 			sender := "You"
 			prefixStyle := userPrefix
 			textStyle := userText
-			if ent.Sender != kamune.SenderLocal {
+			if ent.Sender != storage.SenderLocal {
 				sender = "Peer"
 				prefixStyle = peerPrefix
 				textStyle = peerText
@@ -176,7 +177,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transport.SessionID(),
 				[]byte(text),
 				metadata.Timestamp(),
-				kamune.SenderLocal,
+				storage.SenderLocal,
 			); err != nil {
 				slog.Error("failed to persist sent chat entry",
 					slog.String("session_id", m.transport.SessionID()),

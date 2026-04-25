@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/xtaci/kcp-go/v5"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
@@ -21,7 +20,7 @@ import (
 
 // Server handles incoming connections and manages the handshake process.
 type Server struct {
-	attester      attest.Attester
+	attest        *attest.Attest
 	listener      net.Listener
 	handshakeOpts handshakeOpts
 	handlerFunc   HandlerFunc
@@ -30,7 +29,6 @@ type Server struct {
 	serverName    string
 	connOpts      []ConnOption
 	storageOpts   []storage.StorageOption
-	algorithm     attest.Algorithm
 	connType      connType
 	mu            sync.Mutex
 }
@@ -220,12 +218,12 @@ func (s *Server) handleNewConnection(
 		return fmt.Errorf("verify remote: %w", err)
 	}
 
-	err = sendIntroduction(ec, s.serverName, s.attester, s.algorithm)
+	err = sendIntroduction(ec, s.serverName, s.attest)
 	if err != nil {
 		return fmt.Errorf("sending introduction: %w", err)
 	}
 
-	pt := newUnderlyingTransport(cn, ec, peer.PublicKey, s.attester, s.storage)
+	pt := newUnderlyingTransport(cn, ec, peer.PublicKey, s.attest, s.storage)
 	t, err := acceptHandshake(pt, s.handshakeOpts)
 	if err != nil {
 		return fmt.Errorf("accepting handshake: %w", err)
@@ -244,37 +242,9 @@ func (s *Server) handleNewConnection(
 	return nil
 }
 
-func (s *Server) sendSignedMessage(
-	cn Conn, msg Transferable, route Route,
-) error {
-	data, err := proto.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("marshaling message: %w", err)
-	}
-
-	sig, err := s.attester.Sign(data)
-	if err != nil {
-		return fmt.Errorf("signing message: %w", err)
-	}
-
-	st := &pb.SignedTransport{
-		Data:      data,
-		Signature: sig,
-		Padding:   padding(maxPadding),
-		Route:     route.ToProto(),
-	}
-
-	payload, err := proto.Marshal(st)
-	if err != nil {
-		return fmt.Errorf("marshaling transport: %w", err)
-	}
-
-	return cn.WriteBytes(payload)
-}
-
 // PublicKey returns the server's public key.
-func (s *Server) PublicKey() PublicKey {
-	return s.attester.PublicKey()
+func (s *Server) PublicKey() []byte {
+	return s.attest.MarshalPublicKey()
 }
 
 // NewServer creates a new server with the given address and handler.
@@ -284,7 +254,6 @@ func NewServer(
 	s := &Server{
 		addr:        addr,
 		connType:    tcp,
-		algorithm:   attest.Ed25519Algorithm,
 		handlerFunc: handler,
 		handshakeOpts: handshakeOpts{
 			remoteVerifier: defaultRemoteVerifier,
@@ -307,8 +276,8 @@ func NewServer(
 	}
 
 	s.storage = storage
-	s.attester = at
-	s.serverName = fingerprint.Sum(at.PublicKey().Marshal())
+	s.attest = at
+	s.serverName = fingerprint.Sum(at.MarshalPublicKey())
 
 	return s, nil
 }
@@ -329,11 +298,6 @@ func ServeWithTCP(opts ...ConnOption) ServerOptions {
 // ServeWithName sets the server's advertised name.
 func ServeWithName(name string) ServerOptions {
 	return func(s *Server) { s.serverName = name }
-}
-
-// ServeWithAlgorithm sets the cryptographic algorithm for identity.
-func ServeWithAlgorithm(a attest.Algorithm) ServerOptions {
-	return func(s *Server) { s.algorithm = a }
 }
 
 // ServeWithUDP configures the server to use UDP/KCP connections.

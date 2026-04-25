@@ -46,7 +46,7 @@ func (v *GUIVerifier) CreateRemoteVerifier() kamune.RemoteVerifier {
 		resultChan := make(chan PeerVerificationResult, 1)
 
 		// Get peer information
-		key := peer.PublicKey.Marshal()
+		key := peer.PublicKey
 		emojiFingerprint := strings.Join(fingerprint.Emoji(key), " • ")
 		hexFingerprint := fingerprint.Hex(key)
 
@@ -266,7 +266,7 @@ func (v *GUIVerifier) buildVerificationContent(
 // and shows a dialog only for new peers
 func (v *GUIVerifier) CreateQuickVerifier() kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
-		key := peer.PublicKey.Marshal()
+		key := peer.PublicKey
 
 		// Check if peer is known
 		_, err := store.FindPeer(key)
@@ -288,7 +288,7 @@ func (v *GUIVerifier) CreateQuickVerifier() kamune.RemoteVerifier {
 // Warning: This should only be used for testing or trusted networks
 func (v *GUIVerifier) CreateAutoAcceptVerifier() kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
-		key := peer.PublicKey.Marshal()
+		key := peer.PublicKey
 
 		// Check if peer is new
 		_, err := store.FindPeer(key)

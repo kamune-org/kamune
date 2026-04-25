@@ -3,7 +3,6 @@
 Communication over untrusted networks.
 
 Kamune provides `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X` security suite.
-Optionally, `ML-DSA` can be used for full quantum safety.
 
 ![demo](assets/demo.gif)
 
@@ -15,8 +14,7 @@ For a comprehensive technical specification, see [SPEC.md](SPEC.md).
 
 ## Features
 
-- Message signing and verification using **Ed25519**, with support for
-  quantum safe **ML-DSA-65**
+- Message signing and verification using **Ed25519**
 - Encrypted handhsake using **HPKE** ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180))
 - Ephemeral, quantum-resistant key encapsulation with **ML-KEM-768**, providing
   **Forward secrecy**.

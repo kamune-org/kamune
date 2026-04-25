@@ -1,7 +1,7 @@
 # Kamune Protocol Specification
 
-**Version:** 0.2.0  
-**Status:** Experimental  
+**Version:** 0.2.0
+**Status:** Experimental
 **Suite:** `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`
 
 ---
@@ -43,8 +43,6 @@ The protocol operates in four sequential stages — **Exchange**, **Introduction
 bidirectional channel between two peers without requiring an intermediary server.
 
 The default cipher suite is `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`.
-An alternative fully post-quantum suite substituting ML-DSA-65 for Ed25519 is
-supported for identity signing.
 
 <picture>
   <img alt="Protocol Overview" src="assets/diagrams/protocol-overview.svg">
@@ -60,7 +58,7 @@ supported for identity signing.
 | **Responder (Server)** | The party that accepts the connection and responds to protocol messages. |
 | **Attester** | The cryptographic identity holder; signs messages with its private key. |
 | **Identifier** | The verification counterpart of an Attester; verifies signatures with a public key. |
-| **Peer** | A remote party identified by its public key, name, algorithm, and timestamps. |
+| **Peer** | A remote party identified by its public key, name, and timestamps. |
 | **Transport** | The encrypted, session-aware communication channel between two peers. |
 | **Underlying Transport** | The encrypted connection used during Introduction and Handshake. |
 | **HPKE** | Hybrid Public Key Encryption (RFC 9180). Performs key encapsulation and key schedule derivation in a single operation during the Handshake phase. Configured with MLKEM768-X25519 KEM, HKDF-SHA512 KDF, and ChaCha20-Poly1305 AEAD. |
@@ -84,24 +82,6 @@ supported for identity signing.
 | **Key Establishment** | MLKEM768 | Performs key encapsulation and derives the shared key schedule in a single operation. Ephemeral keypairs are used per session. |
 | **HPKE** | MLKEM768-X25519, HKDF-SHA512, ChaCha20-Poly1305X | Encrypts the handshake communications |
 | **Transport Encryption** | ChaCha20-Poly1305X | Extended-nonce AEAD cipher for bidirectional message encryption and authentication during the Communication phase. |
-
-### 3.2 Alternative Suite: `MLDSA65_HPKE_MLKEM768_ChaCha20-Poly1305X`
-
-When the `MLDSA` algorithm is selected, ML-DSA-65 (CRYSTALS-Dilithium) replaces
-Ed25519 for identity signing, providing full post-quantum security for both
-key establishment and digital signatures.
-
-### 3.3 Algorithm Negotiation
-
-The signing algorithm is advertised during the Introduction phase via the
-`Algorithm` field in the `Introduce` message. Both peers MUST use the same
-algorithm family for signature verification. The algorithm enum is defined as:
-
-| Value | Algorithm |
-|-------|-----------|
-| `0` | Invalid |
-| `1` | Ed25519 |
-| `2` | ML-DSA-65 |
 
 ---
 
@@ -149,9 +129,9 @@ SignedTransport {
 **Fields:**
 
 - **Data**: The Protobuf-serialized inner message (e.g., `Introduce`,
-  `Handshake`, `ReconnectRequest`, or application data).
-- **Signature**: The Ed25519 (or ML-DSA-65) signature computed over the raw
-  `Data` bytes using the sender's private key.
+  `Handshake`, or application data).
+- **Signature**: The Ed25519 signature computed over the raw `Data` bytes using
+  the sender's private key.
 - **Metadata**: Contains a unique message ID (random text), a Protobuf
   `Timestamp`, and a monotonically increasing sequence number.
 - **Padding**: Random bytes of length `[0, 256)`, generated uniformly at
@@ -167,7 +147,7 @@ serialized `SignedTransport` payload is encrypted before transmission:
 ```
 Wire format for encrypted messages:
 +------------------+--------------------------------------+
-| Length (2 bytes)  | XChaCha20-Poly1305 Ciphertext        |
+| Length (2 bytes)  | XChaCha20-Poly1305 Ciphertext       |
 +------------------+--------------------------------------+
 
 Ciphertext layout:
@@ -239,7 +219,7 @@ Initiator (Client)             Responder (Server)
        |                            | 
        |  ------ RawBytes ------>   |
        |      Ciphertext (enc)      |
-       |                            |     
+       |                            |
 ```
 
 **Step-by-step:**
@@ -268,15 +248,13 @@ Initiator (Client)                          Responder (Server)
        |  ---- SignedTransport[IDENTITY] ------>   |
        |        Introduce {                        |
        |          Name,                            |
-       |          PublicKey,                       |
-       |          Algorithm                        |
+       |          PublicKey                        |
        |        }                                  |
        |                                           |
        |   <---- SignedTransport[IDENTITY] -----   |
        |         Introduce {                       |
        |           Name,                           |
-       |           PublicKey,                      |
-       |           Algorithm                       |
+       |           PublicKey                       |
        |         }                                 |
        |                                           |
 ```
@@ -286,15 +264,12 @@ Initiator (Client)                          Responder (Server)
 1. **Initiator sends `Introduce`** (route: `ROUTE_IDENTITY`):
    - `Name`: The initiator's human-readable name (defaults to a SHA-256
      fingerprint of their public key, base64-encoded).
-   - `PublicKey`: The initiator's identity public key (Ed25519 or ML-DSA-65),
-     serialized in PKIX/DER format (Ed25519) or raw binary (ML-DSA-65).
-   - `Algorithm`: The signing algorithm enum (`1` for Ed25519, `2` for
-     ML-DSA-65).
+   - `PublicKey`: The initiator's identity public key (Ed25519),
+     serialized in PKIX/DER format.
    - The `SignedTransport` envelope's `Signature` is computed over the
      serialized `Introduce` message using the initiator's private key.
 
 2. **Responder receives and validates**:
-   - Parses the `Algorithm` field to determine the signature scheme.
    - Parses the `PublicKey` using the appropriate algorithm's key parser.
    - Verifies the `Signature` over `Data` using the parsed public key.
    - If signature verification fails, the connection MUST be terminated.
@@ -511,7 +486,7 @@ TODO
 
 Every `SignedTransport` message includes a digital signature over the `Data`
 field. The signature is computed using the sender's long-term identity key
-(Ed25519 or ML-DSA-65). The receiver verifies the signature using the sender's
+(Ed25519). The receiver verifies the signature using the sender's
 public key obtained during the Introduction phase.
 
 This provides:
@@ -554,7 +529,7 @@ Kamune employs defense-in-depth with three independent integrity mechanisms:
 
 1. **AEAD tag** (Poly1305): Authenticates the ciphertext at the encryption
    layer.
-2. **Digital signature** (Ed25519/ML-DSA): Authenticates the plaintext message
+2. **Digital signature** (Ed25519): Authenticates the plaintext message
    at the signing layer.
 3. **Sequence number**: Provides ordering and replay protection at the session
    layer.
@@ -633,7 +608,6 @@ itself is never stored.
 
 | Bucket | Key | Value | Encryption |
 |--------|-----|-------|------------|
-| `kamune-store` | Algorithm name (e.g., `"ed25519"`) | Serialized identity private key | Plaintext (key material) |
 | `kamune-store` | Cipher metadata keys | Salts and wrapped key | Plaintext |
 | `peers` | `SHA3-512(publicKey)` | Protobuf `Peer` | Encrypted (DEK) |
 | `kamune-store_sessions` | `SHA3-512(sessionID)` | Protobuf `SessionState` | Encrypted (DEK) |
@@ -748,9 +722,6 @@ The MLKEM768 KEM provides resistance against quantum computer attacks on the key
 establishment. It ensures that the protocol remains secure as long as ML-KEM-768 
 remains unbroken, providing defense in depth against quantum adversaries.
 
-When ML-DSA-65 is used for identity signing, the entire protocol is
-post-quantum secure.
-
 With the default Ed25519 signing, the key establishment is quantum-resistant
 but the identity signatures are not. An attacker with a quantum computer could
 forge signatures but could not recover session keys from observed key
@@ -775,16 +746,9 @@ analysis.
 ### 13.1 `model.proto` — Identity and Handshake Messages
 
 ```
-enum Algorithm {
-  invalid = 0;
-  Ed25519 = 1;
-  MLDSA   = 2;
-}
-
 message Introduce {
   string    Name      = 1;  // Human-readable peer name
   bytes     PublicKey = 2;  // Identity public key (PKIX/DER or raw)
-  Algorithm Algorithm = 3;  // Signing algorithm
 }
 
 message Handshake {
@@ -796,9 +760,8 @@ message Handshake {
 message Peer {
   string                    Name      = 1;
   bytes                     PublicKey = 2;
-  Algorithm                 Algorithm = 3;
-  google.protobuf.Timestamp FirstSeen = 4;
-  google.protobuf.Timestamp LastSeen  = 5;
+  google.protobuf.Timestamp FirstSeen = 3;
+  google.protobuf.Timestamp LastSeen  = 4;
 }
 ```
 
