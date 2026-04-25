@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/hossein1376/grape/errs"
-	"github.com/kamune-org/kamune/pkg/attest"
 
 	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/storage"
@@ -29,7 +28,7 @@ const (
 // fewer messages available. An empty (but non-nil) slice is returned when
 // the queue is empty.
 func (s *Service) BatchPopQueue(
-	sender, receiver attest.PublicKey, sessionID string, limit int,
+	sender, receiver model.PublicKey, sessionID string, limit int,
 ) ([][]byte, error) {
 	if limit <= 0 {
 		limit = DefaultBatchSize

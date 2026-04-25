@@ -9,7 +9,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/relay/internal/box/pb"
 	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/storage"
@@ -27,9 +26,10 @@ var (
 // Optionally, the caller may provide new addresses to replace the stored
 // ones. If newAddr is nil or empty the existing addresses are preserved.
 func (s *Service) RefreshPeer(
-	id model.PeerID, pubKey []byte, newAddr []string,
+	id model.PeerID, key model.PublicKey, newAddr []string,
 ) (*model.Peer, error) {
 	ttl := s.cfg.Storage.RegisterTTL
+	pubKey := []byte(key)
 
 	var result *model.Peer
 	err := s.store.Command(func(c model.Command) error {
@@ -71,7 +71,6 @@ func (s *Service) RefreshPeer(
 
 		result = &model.Peer{
 			ID:           newPeerID,
-			Identity:     attest.Algorithm(p.Identity),
 			Address:      p.Address,
 			RegisteredAt: p.RegisteredAt.AsTime(),
 			ExpiresIn:    span.New(ttl),

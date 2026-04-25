@@ -1,7 +1,9 @@
 package model
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,11 +13,11 @@ import (
 )
 
 type Peer struct {
-	ID           PeerID           `json:"id,omitzero"`
-	Address      []string         `json:"address"`
-	Identity     attest.Algorithm `json:"identity"`
-	RegisteredAt time.Time        `json:"registered_at"`
-	ExpiresIn    span.Duration    `json:"expires_in,omitzero"`
+	ID           PeerID        `json:"id,omitzero"`
+	Address      []string      `json:"address"`
+	PublicKey    PublicKey     `json:"public_key"`
+	RegisteredAt time.Time     `json:"registered_at"`
+	ExpiresIn    span.Duration `json:"expires_in,omitzero"`
 }
 
 type PeerID uuid.UUID
@@ -61,4 +63,37 @@ func (p *PeerID) UnmarshalBinary(data []byte) error {
 	}
 	*p = PeerID(id)
 	return nil
+}
+
+type PublicKey string
+
+func (pk PublicKey) String() string {
+	return string(pk)
+}
+
+func (pk *PublicKey) UnmarshalText(b []byte) error {
+	if len(b) == 0 {
+		return errors.New("empty public key")
+	}
+
+	key := make([]byte, base64.RawURLEncoding.DecodedLen(len(b)))
+	n, err := base64.RawStdEncoding.Decode(key, b)
+	if err != nil {
+		return err
+	}
+	key = key[:n]
+	if ok := attest.IsValidPublicKey(key); !ok {
+		return errors.New("invalid key")
+	}
+
+	*pk = PublicKey(key)
+	return nil
+}
+
+func ParsePublicKey(s string) (PublicKey, error) {
+	var pk PublicKey
+	if err := pk.UnmarshalText([]byte(s)); err != nil {
+		return "", err
+	}
+	return pk, nil
 }

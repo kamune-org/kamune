@@ -8,7 +8,9 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/hossein1376/grape/slogger"
+
+	"github.com/kamune-org/kamune/relay/internal/model"
 )
 
 // Hub returns the service's WebSocket hub, or nil if WebSocket support
@@ -25,7 +27,7 @@ func (s *Service) Hub() *Hub {
 //   - "ping": respond with a "pong" acknowledgement.
 func (s *Service) HandleWSMessage(
 	ctx context.Context,
-	sender attest.PublicKey,
+	sender model.PublicKey,
 	conn *websocket.Conn,
 	msg WSMessage,
 ) error {
@@ -44,24 +46,13 @@ func (s *Service) HandleWSMessage(
 // back to the queue.
 func (s *Service) handleWSRelay(
 	ctx context.Context,
-	sender attest.PublicKey,
+	sender model.PublicKey,
 	conn *websocket.Conn,
 	msg WSMessage,
 ) error {
 	if msg.Receiver == "" || msg.SessionID == "" || msg.Data == "" {
 		return fmt.Errorf("receiver, session_id and data are required")
 	}
-
-	// Decode receiver public key.
-	receiverRaw, err := base64.RawURLEncoding.DecodeString(msg.Receiver)
-	if err != nil {
-		return fmt.Errorf("decoding receiver key: %w", err)
-	}
-	receiver, err := attest.Identity{}.Parse(string(receiverRaw))
-	if err != nil {
-		return fmt.Errorf("parsing receiver: %w", err)
-	}
-
 	// Decode payload.
 	dataRaw, err := base64.RawURLEncoding.DecodeString(msg.Data)
 	if err != nil {
@@ -70,10 +61,10 @@ func (s *Service) handleWSRelay(
 
 	// Try WebSocket delivery first.
 	if s.hub != nil && s.hub.Deliver(
-		ctx, sender, receiver.PublicKey, msg.SessionID, dataRaw,
+		ctx, sender, msg.Receiver, msg.SessionID, dataRaw,
 	) {
-		slog.Debug("ws: delivered via hub",
-			slog.String("receiver", msg.Receiver),
+		slog.Debug(
+			"ws: delivered via hub", slogger.String("receiver", msg.Receiver),
 		)
 		return wsjson.Write(ctx, conn, WSMessage{
 			Type:      "message_ack",
@@ -82,7 +73,7 @@ func (s *Service) handleWSRelay(
 	}
 
 	// Try HTTP direct delivery to registered addresses, then fall back to queue.
-	delivered, err := s.Convey(sender, receiver.PublicKey, msg.SessionID, dataRaw)
+	delivered, err := s.Convey(sender, msg.Receiver, msg.SessionID, dataRaw)
 	if err != nil {
 		return fmt.Errorf("convey: %w", err)
 	}
@@ -102,7 +93,7 @@ func (s *Service) handleWSRelay(
 // queueing. This is used by the HTTP /convey endpoint when a hub is available.
 func (s *Service) ConveyWithWS(
 	ctx context.Context,
-	sender, receiver attest.PublicKey,
+	sender, receiver model.PublicKey,
 	sessionID string,
 	data []byte,
 ) (bool, error) {

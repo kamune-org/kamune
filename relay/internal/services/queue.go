@@ -8,10 +8,10 @@ import (
 	"io"
 
 	"github.com/hossein1376/grape/errs"
-	"github.com/kamune-org/kamune/pkg/attest"
+	"golang.org/x/crypto/hkdf"
+
 	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/storage"
-	"golang.org/x/crypto/hkdf"
 )
 
 const queueKeySize = 16
@@ -26,7 +26,7 @@ var (
 )
 
 func (s *Service) PushQueue(
-	sender, receiver attest.PublicKey, sessionID string, data []byte,
+	sender, receiver model.PublicKey, sessionID string, data []byte,
 ) error {
 	// Enforce per-message size limit if configured (0 means unlimited)
 	if s.cfg.Storage.MaxMessageSize > 0 && len(data) > s.cfg.Storage.MaxMessageSize {
@@ -73,7 +73,7 @@ func (s *Service) PushQueue(
 }
 
 func (s *Service) PopQueue(
-	sender, receiver attest.PublicKey, sessionID string,
+	sender, receiver model.PublicKey, sessionID string,
 ) ([]byte, error) {
 	key, err := queueKey(sender, receiver, sessionID)
 	if err != nil {
@@ -99,7 +99,7 @@ func (s *Service) PopQueue(
 // QueueLen returns the number of pending messages in the queue for the given
 // sender/receiver/session tuple without consuming any of them.
 func (s *Service) QueueLen(
-	sender, receiver attest.PublicKey, sessionID string,
+	sender, receiver model.PublicKey, sessionID string,
 ) (uint64, error) {
 	key, err := queueKey(sender, receiver, sessionID)
 	if err != nil {
@@ -120,10 +120,10 @@ func (s *Service) QueueLen(
 }
 
 func queueKey(
-	sender, receiver attest.PublicKey, sessionID string,
+	sender, receiver model.PublicKey, sessionID string,
 ) ([]byte, error) {
-	sb := sender.Marshal()
-	rb := receiver.Marshal()
+	sb := []byte(sender)
+	rb := []byte(receiver)
 	data := bytes.Buffer{}
 	data.Grow(len(sb) + len(rb) + len(sessionID))
 	data.Write(sb)

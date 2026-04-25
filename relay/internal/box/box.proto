@@ -4,19 +4,12 @@ option go_package = "./pb";
 
 import "google/protobuf/timestamp.proto";
 
-enum DSA {
-  invalid = 0;
-  ed25519 = 1;
-  mldsa = 2;
-}
-
 message Peer {
   bytes ID = 1;
-  bytes PublicKey = 2;
+  string PublicKey = 2;
   repeated string Address = 3;
   string Title = 4;
-  DSA Identity = 5;
-  google.protobuf.Timestamp RegisteredAt = 6;
+  google.protobuf.Timestamp RegisteredAt = 5;
 }
 
 message Message {

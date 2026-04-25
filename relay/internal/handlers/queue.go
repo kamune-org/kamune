@@ -8,14 +8,14 @@ import (
 
 	"github.com/hossein1376/grape"
 	"github.com/hossein1376/grape/errs"
-	"github.com/kamune-org/kamune/pkg/attest"
 
+	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/services"
 )
 
 type pushQueueRequest struct {
-	Sender    attest.Identity `json:"sender"`
-	Receiver  attest.Identity `json:"receiver"`
+	Sender    model.PublicKey `json:"sender"`
+	Receiver  model.PublicKey `json:"receiver"`
 	SessionID string          `json:"session_id"`
 	Data      string          `json:"data"`
 }
@@ -39,9 +39,7 @@ func (h *Handler) NewQueueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// push to queue
-	err = h.service.PushQueue(
-		req.Sender.PublicKey, req.Receiver.PublicKey, req.SessionID, payload,
-	)
+	err = h.service.PushQueue(req.Sender, req.Receiver, req.SessionID, payload)
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrMessageTooLarge):
@@ -70,13 +68,13 @@ func (h *Handler) PopQueueHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
 
-	sender, err := grape.Query[attest.Identity](q, "sender", nil)
+	sender, err := grape.Query(q, "sender", model.ParsePublicKey)
 	if err != nil {
 		err = fmt.Errorf("parse sender: %w", err)
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
 	}
-	receiver, err := grape.Query[attest.Identity](q, "receiver", nil)
+	receiver, err := grape.Query(q, "receiver", model.ParsePublicKey)
 	if err != nil {
 		err = fmt.Errorf("parse receiver: %w", err)
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
@@ -84,9 +82,7 @@ func (h *Handler) PopQueueHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionID := q.Get("session")
 
-	data, err := h.service.PopQueue(
-		sender.PublicKey, receiver.PublicKey, sessionID,
-	)
+	data, err := h.service.PopQueue(sender, receiver, sessionID)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, fmt.Errorf("pop queue: %w", err))
 		return
@@ -117,13 +113,13 @@ func (h *Handler) QueueLenHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
 
-	sender, err := grape.Query[attest.Identity](q, "sender", nil)
+	sender, err := grape.Query(q, "sender", model.ParsePublicKey)
 	if err != nil {
 		err = fmt.Errorf("parse sender: %w", err)
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
 	}
-	receiver, err := grape.Query[attest.Identity](q, "receiver", nil)
+	receiver, err := grape.Query(q, "receiver", model.ParsePublicKey)
 	if err != nil {
 		err = fmt.Errorf("parse receiver: %w", err)
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
@@ -131,9 +127,7 @@ func (h *Handler) QueueLenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionID := q.Get("session")
 
-	length, err := h.service.QueueLen(
-		sender.PublicKey, receiver.PublicKey, sessionID,
-	)
+	length, err := h.service.QueueLen(sender, receiver, sessionID)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, fmt.Errorf("queue length: %w", err))
 		return
@@ -149,24 +143,24 @@ func (h *Handler) BatchPopQueueHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
 
-	sender, err := grape.Query[attest.Identity](q, "sender", nil)
+	sender, err := grape.Query(q, "sender", model.ParsePublicKey)
 	if err != nil {
 		err = fmt.Errorf("parse sender: %w", err)
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
 	}
-	receiver, err := grape.Query[attest.Identity](q, "receiver", nil)
+	receiver, err := grape.Query(q, "receiver", model.ParsePublicKey)
 	if err != nil {
 		err = fmt.Errorf("parse receiver: %w", err)
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
 	}
 	sessionID := q.Get("session")
-	limit := grape.QueryOrDefault(q, "limit", strconv.Atoi, services.DefaultBatchSize)
-
-	messages, err := h.service.BatchPopQueue(
-		sender.PublicKey, receiver.PublicKey, sessionID, limit,
+	limit := grape.QueryOrDefault(
+		q, "limit", strconv.Atoi, services.DefaultBatchSize,
 	)
+
+	messages, err := h.service.BatchPopQueue(sender, receiver, sessionID, limit)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, fmt.Errorf("batch pop queue: %w", err))
 		return

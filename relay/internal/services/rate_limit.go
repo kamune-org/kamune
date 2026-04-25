@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/hossein1376/grape/errs"
+
 	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/storage"
 )

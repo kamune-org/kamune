@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-
-	"github.com/kamune-org/kamune/pkg/attest"
 )
 
 type Config struct {
@@ -18,9 +16,8 @@ type Config struct {
 }
 
 type Server struct {
-	Address         string           `toml:"address"`
-	Identity        attest.Algorithm `toml:"identity"`
-	DeliveryTimeout time.Duration    `toml:"delivery_timeout"`
+	Address         string        `toml:"address"`
+	DeliveryTimeout time.Duration `toml:"delivery_timeout"`
 }
 
 type Storage struct {

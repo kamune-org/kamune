@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/hossein1376/grape/errs"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/relay/internal/box/pb"
 	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/storage"
@@ -24,16 +22,14 @@ var (
 )
 
 func (s *Service) RegisterPeer(
-	peer attest.Identity, addr []string,
+	pubKey model.PublicKey, addr []string,
 ) (*model.Peer, error) {
 	ttl := s.cfg.Storage.RegisterTTL
-	pubKey := peer.PublicKey.Marshal()
-	peerID := model.PeerID(uuid.New())
+	peerID := model.NewPeerID()
 	peerIDBytes, _ := peerID.MarshalBinary()
 	p := pb.Peer{
 		ID:           peerIDBytes,
-		PublicKey:    pubKey,
-		Identity:     pb.DSA(peer.Algorithm),
+		PublicKey:    pubKey.String(),
 		Address:      addr,
 		RegisteredAt: timestamppb.New(time.Now()),
 	}
@@ -41,8 +37,9 @@ func (s *Service) RegisterPeer(
 	if err != nil {
 		return nil, fmt.Errorf("marshalling peer: %w", err)
 	}
+	key := []byte(pubKey)
 	err = s.store.Command(func(c model.Command) error {
-		data, err := c.Get(peersNS, pubKey)
+		data, err := c.Get(peersNS, key)
 		switch {
 		case err == nil:
 			if err := proto.Unmarshal(data, &p); err != nil {
@@ -55,7 +52,7 @@ func (s *Service) RegisterPeer(
 		default:
 			return fmt.Errorf("checking peer's exists: %w", err)
 		}
-		err = c.SetTTL(peersNS, pubKey, peerBytes, ttl)
+		err = c.SetTTL(peersNS, key, peerBytes, ttl)
 		if err != nil {
 			return fmt.Errorf("inserting peer to storage: %w", err)
 		}
@@ -64,15 +61,15 @@ func (s *Service) RegisterPeer(
 	return &model.Peer{
 		ID:           model.PeerID(p.ID),
 		Address:      p.Address,
-		Identity:     attest.Algorithm(p.Identity),
 		RegisteredAt: p.RegisteredAt.AsTime(),
 		ExpiresIn:    span.New(ttl),
 	}, err
 }
 
-func (s *Service) InquiryPeer(pubKey []byte) (*model.Peer, error) {
+func (s *Service) InquiryPeer(key model.PublicKey) (*model.Peer, error) {
 	var p pb.Peer
 	var ttl time.Duration
+	pubKey := []byte(key)
 	err := s.store.Query(func(c model.Query) error {
 		peerData, err := c.Get(peersNS, pubKey)
 		if err != nil {
@@ -101,7 +98,6 @@ func (s *Service) InquiryPeer(pubKey []byte) (*model.Peer, error) {
 	}
 	return &model.Peer{
 		ID:           id,
-		Identity:     attest.Algorithm(p.Identity),
 		Address:      p.Address,
 		RegisteredAt: p.RegisteredAt.AsTime(),
 		ExpiresIn:    span.New(ttl),

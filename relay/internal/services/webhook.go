@@ -3,38 +3,38 @@ package services
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/hossein1376/grape/slogger"
+
+	"github.com/kamune-org/kamune/relay/internal/model"
 )
 
 // WebhookEvent represents the JSON payload sent to a registered webhook URL
 // when a message arrives for a peer.
 type WebhookEvent struct {
-	Event     string `json:"event"`
-	Sender    string `json:"sender"`
-	Receiver  string `json:"receiver"`
-	SessionID string `json:"session_id"`
-	QueueLen  uint64 `json:"queue_len"`
-	Timestamp string `json:"timestamp"`
+	Event     string          `json:"event"`
+	Sender    model.PublicKey `json:"sender"`
+	Receiver  model.PublicKey `json:"receiver"`
+	SessionID string          `json:"session_id"`
+	QueueLen  uint64          `json:"queue_len"`
+	Timestamp string          `json:"timestamp"`
 }
 
 // webhookEntry holds a registered webhook URL and its associated public key.
 type webhookEntry struct {
-	url       string
-	publicKey attest.PublicKey
+	url string
 }
 
 // WebhookRegistry manages webhook callback registrations keyed by the
 // base64-encoded marshalled public key of each peer.
 type WebhookRegistry struct {
 	mu      sync.RWMutex
-	hooks   map[string]*webhookEntry // base64(pubkey) -> entry
+	hooks   map[model.PublicKey]*webhookEntry // base64(pubkey) -> entry
 	client  *http.Client
 	timeout time.Duration
 }
@@ -46,7 +46,7 @@ const (
 // NewWebhookRegistry creates a new webhook registry with sensible defaults.
 func NewWebhookRegistry() *WebhookRegistry {
 	return &WebhookRegistry{
-		hooks:   make(map[string]*webhookEntry),
+		hooks:   make(map[model.PublicKey]*webhookEntry),
 		timeout: defaultWebhookTimeout,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -59,34 +59,30 @@ func NewWebhookRegistry() *WebhookRegistry {
 }
 
 // Register adds or replaces a webhook URL for the given public key.
-func (wr *WebhookRegistry) Register(pk attest.PublicKey, url string) {
-	key := base64.RawURLEncoding.EncodeToString(pk.Marshal())
-
+func (wr *WebhookRegistry) Register(key model.PublicKey, url string) {
 	wr.mu.Lock()
 	defer wr.mu.Unlock()
 
 	wr.hooks[key] = &webhookEntry{
-		url:       url,
-		publicKey: pk,
+		url: url,
 	}
 
-	slog.Info("webhook: registered",
-		slog.String("peer", key),
+	slog.Info(
+		"webhook: registered",
+		slogger.String("peer", key),
 		slog.String("url", url),
 	)
 }
 
 // Unregister removes a webhook registration for the given public key.
 // It returns true if a registration was found and removed.
-func (wr *WebhookRegistry) Unregister(pk attest.PublicKey) bool {
-	key := base64.RawURLEncoding.EncodeToString(pk.Marshal())
-
+func (wr *WebhookRegistry) Unregister(key model.PublicKey) bool {
 	wr.mu.Lock()
 	defer wr.mu.Unlock()
 
 	if _, ok := wr.hooks[key]; ok {
 		delete(wr.hooks, key)
-		slog.Info("webhook: unregistered", slog.String("peer", key))
+		slog.Info("webhook: unregistered", slogger.String("peer", key))
 		return true
 	}
 	return false
@@ -94,9 +90,7 @@ func (wr *WebhookRegistry) Unregister(pk attest.PublicKey) bool {
 
 // Lookup returns the webhook URL registered for the given public key, or
 // empty string if none is registered.
-func (wr *WebhookRegistry) Lookup(pk attest.PublicKey) string {
-	key := base64.RawURLEncoding.EncodeToString(pk.Marshal())
-
+func (wr *WebhookRegistry) Lookup(key model.PublicKey) string {
 	wr.mu.RLock()
 	defer wr.mu.RUnlock()
 
@@ -111,23 +105,20 @@ func (wr *WebhookRegistry) Lookup(pk attest.PublicKey) string {
 // timeout. Delivery failures are logged but not returned — webhook delivery
 // is best-effort.
 func (wr *WebhookRegistry) Notify(
-	receiver, sender attest.PublicKey, sessionID string, queueLen uint64,
+	receiver, sender model.PublicKey, sessionID string, queueLen uint64,
 ) {
-	receiverKey := base64.RawURLEncoding.EncodeToString(receiver.Marshal())
-
 	wr.mu.RLock()
-	entry, ok := wr.hooks[receiverKey]
+	entry, ok := wr.hooks[receiver]
 	wr.mu.RUnlock()
 
 	if !ok {
 		return
 	}
 
-	senderKey := base64.RawURLEncoding.EncodeToString(sender.Marshal())
 	event := WebhookEvent{
 		Event:     "message_arrived",
-		Sender:    senderKey,
-		Receiver:  receiverKey,
+		Sender:    sender,
+		Receiver:  receiver,
 		SessionID: sessionID,
 		QueueLen:  queueLen,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -135,29 +126,35 @@ func (wr *WebhookRegistry) Notify(
 
 	body, err := json.Marshal(event)
 	if err != nil {
-		slog.Error("webhook: failed to marshal event",
-			slog.String("peer", receiverKey),
-			slog.Any("err", err),
+		slog.Error(
+			"webhook: failed to marshal event",
+			slogger.String("peer", receiver),
+			slogger.Err("error", err),
 		)
 		return
 	}
 
 	// Fire asynchronously so we never block the caller.
-	go wr.fire(entry.url, receiverKey, body)
+	go wr.fire(entry.url, receiver, body)
 }
 
 // fire performs the actual HTTP POST to the webhook URL. It is intended to
 // be called in a goroutine.
-func (wr *WebhookRegistry) fire(url, peerKey string, body []byte) {
+func (wr *WebhookRegistry) fire(
+	url string, peer model.PublicKey, body []byte,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), wr.timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, url, bytes.NewReader(body),
+	)
 	if err != nil {
-		slog.Error("webhook: failed to create request",
-			slog.String("peer", peerKey),
+		slog.Error(
+			"webhook: failed to create request",
+			slogger.String("peer", peer),
 			slog.String("url", url),
-			slog.Any("err", err),
+			slogger.Err("error", err),
 		)
 		return
 	}
@@ -165,23 +162,26 @@ func (wr *WebhookRegistry) fire(url, peerKey string, body []byte) {
 
 	resp, err := wr.client.Do(req)
 	if err != nil {
-		slog.Warn("webhook: delivery failed",
-			slog.String("peer", peerKey),
+		slog.Warn(
+			"webhook: delivery failed",
+			slogger.String("peer", peer),
 			slog.String("url", url),
-			slog.Any("err", err),
+			slogger.Err("error", err),
 		)
 		return
 	}
 	_ = resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		slog.Debug("webhook: delivered",
-			slog.String("peer", peerKey),
+		slog.Debug(
+			"webhook: delivered",
+			slogger.String("peer", peer),
 			slog.Int("status", resp.StatusCode),
 		)
 	} else {
-		slog.Warn("webhook: non-success status",
-			slog.String("peer", peerKey),
+		slog.Warn(
+			"webhook: non-success status",
+			slogger.String("peer", peer),
 			slog.String("url", url),
 			slog.Int("status", resp.StatusCode),
 		)
@@ -197,7 +197,7 @@ func (s *Service) Webhooks() *WebhookRegistry {
 // registered. It fetches the current queue length for context and delegates
 // to the webhook registry. Safe to call even if no webhook is registered.
 func (s *Service) NotifyWebhook(
-	sender, receiver attest.PublicKey, sessionID string,
+	sender, receiver model.PublicKey, sessionID string,
 ) {
 	if s.webhooks == nil {
 		return
@@ -211,8 +211,9 @@ func (s *Service) NotifyWebhook(
 	// Best-effort queue length lookup for the notification payload.
 	queueLen, err := s.QueueLen(sender, receiver, sessionID)
 	if err != nil {
-		slog.Debug("webhook: failed to get queue length for notification",
-			slog.Any("err", err),
+		slog.Debug(
+			"webhook: failed to get queue length for notification",
+			slogger.Err("error", err),
 		)
 		queueLen = 0
 	}
@@ -221,11 +222,11 @@ func (s *Service) NotifyWebhook(
 }
 
 // RegisterWebhook registers a webhook URL for the given public key.
-func (s *Service) RegisterWebhook(pub attest.PublicKey, url string) {
+func (s *Service) RegisterWebhook(pub model.PublicKey, url string) {
 	s.webhooks.Register(pub, url)
 }
 
 // UnregisterWebhook removes a webhook registration for the given public key.
-func (s *Service) UnregisterWebhook(pub attest.PublicKey) bool {
+func (s *Service) UnregisterWebhook(pub model.PublicKey) bool {
 	return s.webhooks.Unregister(pub)
 }

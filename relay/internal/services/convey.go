@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"github.com/hossein1376/grape/slogger"
-	"github.com/kamune-org/kamune/pkg/attest"
+
+	"github.com/kamune-org/kamune/relay/internal/model"
 )
 
 const defaultDeliveryTimeout = 5 * time.Second
@@ -33,12 +34,12 @@ var deliveryClient = &http.Client{
 // via PushQueue and Convey returns (false, nil) on successful enqueue or
 // (false, err) if enqueueing itself fails.
 func (s *Service) Convey(
-	sender, receiver attest.PublicKey, sessionID string, data []byte,
+	sender, receiver model.PublicKey, sessionID string, data []byte,
 ) (bool, error) {
 	// Try to obtain peer addresses. Non-fatal: if inquiry fails we fall back to
 	// queueing.
 	var addresses []string
-	if peer, err := s.InquiryPeer(receiver.Marshal()); err == nil && peer != nil {
+	if peer, err := s.InquiryPeer(receiver); err == nil && peer != nil {
 		addresses = peer.Address
 	} else if err != nil {
 		slog.Debug(
@@ -69,7 +70,7 @@ func (s *Service) Convey(
 				cancel()
 				slog.Debug(
 					"failed to create request",
-					slog.String("url", targetURL.String()),
+					slogger.String("url", targetURL),
 					slogger.Err("err", err),
 				)
 				continue
@@ -81,7 +82,7 @@ func (s *Service) Convey(
 			if err != nil {
 				slog.Debug(
 					"delivery attempt failed",
-					slog.String("url", targetURL.String()),
+					slogger.String("url", targetURL),
 					slogger.Err("err", err),
 				)
 				continue
@@ -91,7 +92,7 @@ func (s *Service) Convey(
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				slog.Info(
 					"delivered message to peer",
-					slog.String("url", targetURL.String()),
+					slogger.String("url", targetURL),
 					slog.Int("status", resp.StatusCode),
 				)
 				return true, nil
@@ -99,7 +100,7 @@ func (s *Service) Convey(
 
 			slog.Debug(
 				"delivery returned non-success status",
-				slog.String("url", targetURL.String()),
+				slogger.String("url", targetURL),
 				slog.Int("status", resp.StatusCode),
 			)
 		}

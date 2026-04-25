@@ -141,8 +141,6 @@ func TestHealth_OK(t *testing.T) {
 	// StartedAt should be a readable timestamp (not RFC3339Nano).
 	a.NotEmpty(status.StartedAt)
 	a.NotContains(status.StartedAt, "T") // not RFC3339 format with T separator
-	// Identity should be set.
-	a.NotEmpty(status.Identity)
 }
 
 func TestHealth_TimeFieldsAreReadable(t *testing.T) {
@@ -177,7 +175,6 @@ func TestIdentity_DefaultFormat(t *testing.T) {
 	resp := svc.Identity("")
 	a.Equal("base64", resp.Format)
 	a.NotEmpty(resp.Key)
-	a.NotEmpty(resp.Algorithm)
 
 	// Should match PublicKey() output.
 	a.Equal(svc.PublicKey(), resp.Key)
@@ -264,16 +261,6 @@ func TestIdentity_FormatWithWhitespace(t *testing.T) {
 	resp := svc.Identity("  emoji  ")
 	a.Equal("emoji", resp.Format)
 	a.Contains(resp.Key, " • ")
-}
-
-func TestIdentity_AlgorithmFieldIsSet(t *testing.T) {
-	a := assert.New(t)
-	svc := newTestService(t)
-
-	for _, format := range []string{"base64", "hex", "emoji", "fingerprint"} {
-		resp := svc.Identity(format)
-		a.NotEmpty(resp.Algorithm, "algorithm should be set for format %q", format)
-	}
 }
 
 func TestIdentity_ConsistentAcrossCalls(t *testing.T) {

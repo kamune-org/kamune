@@ -68,8 +68,7 @@ Response:
 {
   "identity": {
     "key": "MCowBQYDK2VwAyEA...",
-    "format": "base64",
-    "algorithm": "ed25519"
+    "format": "base64"
   }
 }
 ```

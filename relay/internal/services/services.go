@@ -9,6 +9,7 @@ import (
 
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+
 	"github.com/kamune-org/kamune/relay/internal/config"
 	"github.com/kamune-org/kamune/relay/internal/model"
 	"github.com/kamune-org/kamune/relay/internal/storage"
@@ -21,7 +22,7 @@ var (
 
 type Service struct {
 	store     model.Store
-	attester  attest.Attester
+	attest    *attest.Attest
 	cfg       config.Config
 	startedAt time.Time
 	hub       *Hub
@@ -30,15 +31,15 @@ type Service struct {
 }
 
 func New(store model.Store, cfg config.Config) (*Service, error) {
-	at, err := loadAttest(store, cfg.Server.Identity)
+	at, err := loadAttest(store)
 	if err != nil {
 		return nil, fmt.Errorf("loading attester: %w", err)
 	}
-	fp := strings.Join(fingerprint.Emoji(at.PublicKey().Marshal()), " • ")
+	fp := strings.Join(fingerprint.Emoji(at.MarshalPublicKey()), " • ")
 	slog.Info("loaded identity", slog.String("fingerprint", fp))
 	return &Service{
 		store:     store,
-		attester:  at,
+		attest:    at,
 		cfg:       cfg,
 		startedAt: time.Now(),
 		hub:       NewHub(),
@@ -53,16 +54,14 @@ func (s *Service) MaxMessageSize() int {
 	return s.cfg.Storage.MaxMessageSize
 }
 
-func loadAttest(
-	store model.Store, algorithm attest.Algorithm,
-) (attest.Attester, error) {
-	var at attest.Attester
+func loadAttest(store model.Store) (*attest.Attest, error) {
+	var at *attest.Attest
 	err := store.Command(func(c model.Command) error {
 		attestBytes, err := c.Get(identityNS, attestationKey)
 		if err != nil {
 			return fmt.Errorf("getting data from storage: %w", err)
 		}
-		at, err = attest.LoadAttester(algorithm, attestBytes)
+		at, err = attest.Load(attestBytes)
 		if err != nil {
 			return fmt.Errorf("parsing data: %w", err)
 		}
@@ -78,7 +77,7 @@ func loadAttest(
 		return nil, fmt.Errorf("command: %w", err)
 	}
 
-	at, err = attest.NewAttester(algorithm)
+	at, err = attest.New()
 	if err != nil {
 		return nil, fmt.Errorf("creating new attester: %w", err)
 	}

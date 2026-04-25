@@ -3,7 +3,7 @@ package handlers
 import (
 	"errors"
 
-	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/relay/internal/model"
 )
 
 var (
@@ -11,13 +11,13 @@ var (
 )
 
 type registerPeerRequest struct {
-	Identity attest.Identity `json:"identity"`
-	Addr     []string        `json:"address"`
+	PublicKey model.PublicKey `json:"public_key"`
+	Addr      []string        `json:"address"`
 }
 
 type conveyRequest struct {
-	Sender    attest.Identity `json:"sender"`
-	Receiver  attest.Identity `json:"receiver"`
+	Sender    model.PublicKey `json:"sender"`
+	Receiver  model.PublicKey `json:"receiver"`
 	SessionID string          `json:"session_id"`
 	Data      string          `json:"data"`
 }
@@ -37,8 +37,8 @@ type refreshRequest struct {
 }
 
 type webhookRequest struct {
-	Peer attest.Identity `json:"peer"`
-	URL  string          `json:"url"`
+	PublicKey model.PublicKey `json:"public_key"`
+	URL       string          `json:"url"`
 }
 
 func (req webhookRequest) Validate() error {

@@ -12,7 +12,6 @@ type HealthStatus struct {
 	Status    string `json:"status"`
 	Storage   string `json:"storage"`
 	Latency   string `json:"latency"`
-	Identity  string `json:"identity"`
 	Uptime    string `json:"uptime"`
 	StartedAt string `json:"started_at"`
 }
@@ -64,7 +63,6 @@ func (s *Service) Health() (*HealthStatus, error) {
 			Status:    "degraded",
 			Storage:   storageStatus,
 			Latency:   formatDuration(latency),
-			Identity:  fmt.Sprintf("%v", s.cfg.Server.Identity),
 			Uptime:    formatDuration(time.Since(s.startedAt)),
 			StartedAt: s.startedAt.Format("2006-01-02 15:04:05 MST"),
 		}, fmt.Errorf("storage health check failed: %w", err)
@@ -74,7 +72,6 @@ func (s *Service) Health() (*HealthStatus, error) {
 		Status:    "ok",
 		Storage:   storageStatus,
 		Latency:   formatDuration(latency),
-		Identity:  fmt.Sprintf("%v", s.cfg.Server.Identity),
 		Uptime:    formatDuration(time.Since(s.startedAt)),
 		StartedAt: s.startedAt.Format("2006-01-02 15:04:05 MST"),
 	}, nil

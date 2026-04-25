@@ -70,7 +70,7 @@ func Run() error {
 	case err := <-errCh:
 		return fmt.Errorf("starting server: %w", err)
 	case sig := <-exitCh:
-		slogger.Info(ctx, "received signal, shutting down", slog.String("signal", sig.String()))
+		slogger.Info(ctx, "received signal, shutting down", slogger.String("signal", sig))
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := server.Shutdown(ctx); err != nil {

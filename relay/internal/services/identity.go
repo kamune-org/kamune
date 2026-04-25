@@ -1,7 +1,6 @@
 package services
 
 import (
-	"encoding/base64"
 	"strings"
 
 	"github.com/kamune-org/kamune/pkg/fingerprint"
@@ -21,16 +20,13 @@ const (
 // IdentityResponse holds the relay server's public key encoded in the
 // requested format along with metadata about the encoding used.
 type IdentityResponse struct {
-	Key       string `json:"key"`
-	Format    string `json:"format"`
-	Algorithm string `json:"algorithm"`
+	Key    string `json:"key"`
+	Format string `json:"format"`
 }
 
 // PublicKey returns the relay's public key as a base64 raw-URL string.
 func (s *Service) PublicKey() string {
-	return base64.RawURLEncoding.EncodeToString(
-		s.attester.PublicKey().Marshal(),
-	)
+	return s.attest.EncodePublicKey()
 }
 
 // Identity returns the relay's public key encoded in the requested format.
@@ -42,33 +38,28 @@ func (s *Service) PublicKey() string {
 //
 // An unrecognised format string silently falls back to "base64".
 func (s *Service) Identity(format string) IdentityResponse {
-	raw := s.attester.PublicKey().Marshal()
-	alg := s.cfg.Server.Identity.String()
+	raw := s.attest.MarshalPublicKey()
 
 	switch IdentityFormat(strings.ToLower(strings.TrimSpace(format))) {
 	case FormatHex:
 		return IdentityResponse{
-			Key:       fingerprint.Hex(raw),
-			Format:    string(FormatHex),
-			Algorithm: alg,
+			Key:    fingerprint.Hex(raw),
+			Format: string(FormatHex),
 		}
 	case FormatEmoji:
 		return IdentityResponse{
-			Key:       strings.Join(fingerprint.Emoji(raw), " • "),
-			Format:    string(FormatEmoji),
-			Algorithm: alg,
+			Key:    strings.Join(fingerprint.Emoji(raw), " • "),
+			Format: string(FormatEmoji),
 		}
 	case FormatFingerprint:
 		return IdentityResponse{
-			Key:       fingerprint.Sum(raw),
-			Format:    string(FormatFingerprint),
-			Algorithm: alg,
+			Key:    fingerprint.Sum(raw),
+			Format: string(FormatFingerprint),
 		}
 	default:
 		return IdentityResponse{
-			Key:       fingerprint.Base64(raw),
-			Format:    string(FormatBase64),
-			Algorithm: alg,
+			Key:    fingerprint.Base64(raw),
+			Format: string(FormatBase64),
 		}
 	}
 }

@@ -24,9 +24,6 @@ func newTestService(t *testing.T) *Service {
 	t.Cleanup(func() { _ = store.Close() })
 
 	cfg := config.Config{
-		Server: config.Server{
-			Identity: attest.Ed25519Algorithm,
-		},
 		Storage: config.Storage{
 			RegisterTTL:    30 * 60 * 1e9, // 30m as time.Duration
 			MaxMessageSize: 10240,
@@ -38,13 +35,13 @@ func newTestService(t *testing.T) *Service {
 	return svc
 }
 
-func newTestKeys(t *testing.T) (attest.PublicKey, attest.PublicKey) {
+func newTestKeys(t *testing.T) (model.PublicKey, model.PublicKey) {
 	t.Helper()
-	s, err := attest.NewAttester(attest.Ed25519Algorithm)
+	s, err := attest.New()
 	require.NoError(t, err)
-	r, err := attest.NewAttester(attest.Ed25519Algorithm)
+	r, err := attest.New()
 	require.NoError(t, err)
-	return s.PublicKey(), r.PublicKey()
+	return model.PublicKey(s.EncodePublicKey()), model.PublicKey(r.EncodePublicKey())
 }
 
 // ---------------------------------------------------------------------------
@@ -191,9 +188,9 @@ func TestRefreshPeer_NotFound(t *testing.T) {
 	a := assert.New(t)
 	svc := newTestService(t)
 
-	at, err := attest.NewAttester(attest.Ed25519Algorithm)
+	at, err := attest.New()
 	a.NoError(err)
-	pubKey := at.PublicKey().Marshal()
+	pubKey := model.PublicKey(at.EncodePublicKey())
 
 	_, err = svc.RefreshPeer(model.EmptyPeerID(), pubKey, nil)
 	a.Error(err)
@@ -203,18 +200,12 @@ func TestRefreshPeer_PreservesAddresses(t *testing.T) {
 	a := assert.New(t)
 	svc := newTestService(t)
 
-	at, err := attest.NewAttester(attest.Ed25519Algorithm)
+	at, err := attest.New()
 	a.NoError(err)
-	pubKey := at.PublicKey().Marshal()
+	pubKey := model.PublicKey(at.EncodePublicKey())
 
 	originalAddr := []string{"1.2.3.4:8080", "5.6.7.8:9090"}
-	peer, err := svc.RegisterPeer(
-		attest.Identity{
-			Algorithm: attest.Ed25519Algorithm,
-			PublicKey: at.PublicKey(),
-		},
-		originalAddr,
-	)
+	peer, err := svc.RegisterPeer(pubKey, originalAddr)
 	a.NoError(err)
 
 	// Refresh without providing new addresses.
@@ -228,16 +219,11 @@ func TestRefreshPeer_UpdatesAddresses(t *testing.T) {
 	a := assert.New(t)
 	svc := newTestService(t)
 
-	at, err := attest.NewAttester(attest.Ed25519Algorithm)
+	at, err := attest.New()
 	a.NoError(err)
-	pubKey := at.PublicKey().Marshal()
+	pubKey := model.PublicKey(at.EncodePublicKey())
 
-	peer, err := svc.RegisterPeer(
-		attest.Identity{
-			Algorithm: attest.Ed25519Algorithm,
-			PublicKey: at.PublicKey(),
-		}, []string{"old:1234"},
-	)
+	peer, err := svc.RegisterPeer(pubKey, []string{"old:1234"})
 	a.NoError(err)
 
 	newAddr := []string{"new:5678", "new:9012"}
@@ -256,17 +242,11 @@ func TestRefreshPeer_UpdatesRegisteredAt(t *testing.T) {
 	a := assert.New(t)
 	svc := newTestService(t)
 
-	at, err := attest.NewAttester(attest.Ed25519Algorithm)
+	at, err := attest.New()
 	a.NoError(err)
-	pubKey := at.PublicKey().Marshal()
+	pubKey := model.PublicKey(at.EncodePublicKey())
 
-	original, err := svc.RegisterPeer(
-		attest.Identity{
-			Algorithm: attest.Ed25519Algorithm,
-			PublicKey: at.PublicKey(),
-		},
-		[]string{"1.2.3.4:80"},
-	)
+	original, err := svc.RegisterPeer(pubKey, []string{"1.2.3.4:80"})
 	a.NoError(err)
 
 	refreshed, err := svc.RefreshPeer(original.ID, pubKey, nil)
@@ -283,9 +263,9 @@ func TestWebhookRegistry_RegisterAndLookup(t *testing.T) {
 	a := assert.New(t)
 	wr := NewWebhookRegistry()
 
-	at, err := attest.NewAttester(attest.Ed25519Algorithm)
+	at, err := attest.New()
 	a.NoError(err)
-	pk := at.PublicKey()
+	pk := model.PublicKey(at.EncodePublicKey())
 
 	a.Equal("", wr.Lookup(pk))
 
@@ -297,9 +277,9 @@ func TestWebhookRegistry_ReplaceRegistration(t *testing.T) {
 	a := assert.New(t)
 	wr := NewWebhookRegistry()
 
-	at, err := attest.NewAttester(attest.Ed25519Algorithm)
+	at, err := attest.New()
 	a.NoError(err)
-	pk := at.PublicKey()
+	pk := model.PublicKey(at.EncodePublicKey())
 
 	wr.Register(pk, "https://example.com/old")
 	wr.Register(pk, "https://example.com/new")
@@ -310,9 +290,9 @@ func TestWebhookRegistry_Unregister(t *testing.T) {
 	a := assert.New(t)
 	wr := NewWebhookRegistry()
 
-	at, err := attest.NewAttester(attest.Ed25519Algorithm)
+	at, err := attest.New()
 	a.NoError(err)
-	pk := at.PublicKey()
+	pk := model.PublicKey(at.EncodePublicKey())
 
 	// Unregistering a non-existent key should return false.
 	a.False(wr.Unregister(pk))
@@ -329,33 +309,33 @@ func TestWebhookRegistry_IndependentPeers(t *testing.T) {
 	a := assert.New(t)
 	wr := NewWebhookRegistry()
 
-	a1, err := attest.NewAttester(attest.Ed25519Algorithm)
+	a1, err := attest.New()
 	a.NoError(err)
-	a2, err := attest.NewAttester(attest.Ed25519Algorithm)
+	a2, err := attest.New()
 	a.NoError(err)
 
-	wr.Register(a1.PublicKey(), "https://peer1.example.com")
-	wr.Register(a2.PublicKey(), "https://peer2.example.com")
+	wr.Register(model.PublicKey(a1.EncodePublicKey()), "https://peer1.example.com")
+	wr.Register(model.PublicKey(a2.EncodePublicKey()), "https://peer2.example.com")
 
-	a.Equal("https://peer1.example.com", wr.Lookup(a1.PublicKey()))
-	a.Equal("https://peer2.example.com", wr.Lookup(a2.PublicKey()))
+	a.Equal("https://peer1.example.com", wr.Lookup(model.PublicKey(a1.EncodePublicKey())))
+	a.Equal("https://peer2.example.com", wr.Lookup(model.PublicKey(a2.EncodePublicKey())))
 
-	wr.Unregister(a1.PublicKey())
-	a.Equal("", wr.Lookup(a1.PublicKey()))
-	a.Equal("https://peer2.example.com", wr.Lookup(a2.PublicKey()))
+	wr.Unregister(model.PublicKey(a1.EncodePublicKey()))
+	a.Equal("", wr.Lookup(model.PublicKey(a1.EncodePublicKey())))
+	a.Equal("https://peer2.example.com", wr.Lookup(model.PublicKey(a2.EncodePublicKey())))
 }
 
 func TestServiceRegisterWebhook(t *testing.T) {
 	a := assert.New(t)
 	svc := newTestService(t)
 
-	at, err := attest.NewAttester(attest.Ed25519Algorithm)
+	at, err := attest.New()
 	a.NoError(err)
-	pubKey := at.PublicKey()
+	pubKey := model.PublicKey(at.EncodePublicKey())
 
 	svc.RegisterWebhook(pubKey, "https://example.com/hook")
 
-	url := svc.Webhooks().Lookup(at.PublicKey())
+	url := svc.Webhooks().Lookup(model.PublicKey(at.EncodePublicKey()))
 	a.Equal("https://example.com/hook", url)
 }
 
@@ -363,9 +343,9 @@ func TestServiceUnregisterWebhook(t *testing.T) {
 	a := assert.New(t)
 	svc := newTestService(t)
 
-	at, err := attest.NewAttester(attest.Ed25519Algorithm)
+	at, err := attest.New()
 	a.NoError(err)
-	pubKey := at.PublicKey()
+	pubKey := model.PublicKey(at.EncodePublicKey())
 
 	svc.RegisterWebhook(pubKey, "https://example.com/hook")
 
@@ -481,10 +461,10 @@ func TestHub_IsConnected_WhenEmpty(t *testing.T) {
 	a := assert.New(t)
 	hub := NewHub()
 
-	at, err := attest.NewAttester(attest.Ed25519Algorithm)
+	at, err := attest.New()
 	a.NoError(err)
 
-	a.False(hub.IsConnected(at.PublicKey()))
+	a.False(hub.IsConnected(model.PublicKey(at.EncodePublicKey())))
 }
 
 func TestHub_DeliverToDisconnected(t *testing.T) {

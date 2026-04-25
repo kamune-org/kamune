@@ -4,6 +4,11 @@ go 1.26
 
 replace github.com/kamune-org/kamune => ../
 
+// TODO(h.yazdani): Remove this line. Currently, I cannot push to github. Hence,
+// I cannot update the grape repository as well. For the time being, I have to
+// directly use the local repo.
+replace github.com/hossein1376/grape => ../../grape/
+
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/coder/websocket v1.8.14
@@ -18,7 +23,6 @@ require (
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.2.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect

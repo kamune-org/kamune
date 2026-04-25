@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/hossein1376/grape"
 	"github.com/hossein1376/grape/errs"
-	"github.com/kamune-org/kamune/pkg/attest"
 
 	"github.com/kamune-org/kamune/relay/internal/config"
 	"github.com/kamune-org/kamune/relay/internal/model"
@@ -51,7 +50,7 @@ func (h *Handler) EchoIPHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ConveyHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	req, err := grape.ReadJSON[conveyRequest](w, r)
+	req, err := grape.ReadValidateJSON[conveyRequest](w, r)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
@@ -66,7 +65,7 @@ func (h *Handler) ConveyHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Attempt convey with WebSocket delivery first, then HTTP, then queue.
 	delivered, err := h.service.ConveyWithWS(
-		ctx, req.Sender.PublicKey, req.Receiver.PublicKey, req.SessionID, dataRaw,
+		ctx, req.Sender, req.Receiver, req.SessionID, dataRaw,
 	)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, err)
@@ -104,7 +103,7 @@ func (h *Handler) RegisterPeerHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	peer, err := h.service.RegisterPeer(req.Identity, addr)
+	peer, err := h.service.RegisterPeer(req.PublicKey, addr)
 	if err != nil {
 		if errors.Is(err, services.ErrExistingPeer) {
 			peer.ID = model.EmptyPeerID()
@@ -124,12 +123,12 @@ func (h *Handler) RegisterPeerHandler(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) InquiryPeerHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	key, err := grape.Query[attest.Identity](r.URL.Query(), "key", nil)
+	key, err := grape.Query(r.URL.Query(), "key", model.ParsePublicKey)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErr(err)))
 		return
 	}
-	peer, err := h.service.InquiryPeer(key.PublicKey.Marshal())
+	peer, err := h.service.InquiryPeer(key)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, err)
 		return
@@ -166,7 +165,7 @@ func (h *Handler) RefreshPeerHandler(w http.ResponseWriter, r *http.Request) {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
 	}
-	key, err := grape.Query[attest.Identity](r.URL.Query(), "key", nil)
+	key, err := grape.Query(r.URL.Query(), "key", model.ParsePublicKey)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
@@ -185,9 +184,7 @@ func (h *Handler) RefreshPeerHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	peer, err := h.service.RefreshPeer(
-		model.PeerID(id), key.PublicKey.Marshal(), newAddr,
-	)
+	peer, err := h.service.RefreshPeer(model.PeerID(id), key, newAddr)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, err)
 		return
@@ -206,26 +203,26 @@ func (h *Handler) RefreshPeerHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RegisterWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	req, err := grape.ReadJSON[webhookRequest](w, r)
+	req, err := grape.ReadValidateJSON[webhookRequest](w, r)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
 	}
 
-	h.service.RegisterWebhook(req.Peer.PublicKey, req.URL)
+	h.service.RegisterWebhook(req.PublicKey, req.URL)
 	grape.Respond(ctx, w, http.StatusNoContent, nil)
 }
 
 // UnregisterWebhookHandler removes a webhook registration for a peer.
 func (h *Handler) UnregisterWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	peer, err := grape.Query[attest.Identity](r.URL.Query(), "key", nil)
+	peer, err := grape.Query(r.URL.Query(), "key", model.ParsePublicKey)
 	if err != nil {
 		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
 		return
 	}
 
-	if removed := h.service.UnregisterWebhook(peer.PublicKey); !removed {
+	if removed := h.service.UnregisterWebhook(peer); !removed {
 		err = errors.New("no webhook registered for this key")
 		grape.ExtractFromErr(ctx, w, errs.NotFound(errs.WithErrMsg(err)))
 		return

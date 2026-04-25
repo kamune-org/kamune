@@ -12,24 +12,23 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/hossein1376/grape/slogger"
 
-	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/relay/internal/model"
 )
 
 // WSMessage represents a JSON message sent over a WebSocket connection.
 type WSMessage struct {
-	Type      string `json:"type"`
-	Sender    string `json:"sender,omitempty"`
-	Receiver  string `json:"receiver,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	Data      string `json:"data,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Type      string          `json:"type"`
+	Sender    model.PublicKey `json:"sender,omitempty"`
+	Receiver  model.PublicKey `json:"receiver,omitempty"`
+	SessionID string          `json:"session_id,omitempty"`
+	Data      string          `json:"data,omitempty"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // wsConn wraps a WebSocket connection with its associated public key.
 type wsConn struct {
-	conn      *websocket.Conn
-	publicKey attest.PublicKey
-	cancel    context.CancelFunc
+	conn   *websocket.Conn
+	cancel context.CancelFunc
 }
 
 // Hub manages active WebSocket connections keyed by the base64-encoded
@@ -37,52 +36,44 @@ type wsConn struct {
 // to connected peers.
 type Hub struct {
 	mu    sync.RWMutex
-	conns map[string]*wsConn // base64(pubkey) -> connection
+	conns map[model.PublicKey]*wsConn // base64(pubkey) -> connection
 }
 
 // NewHub creates a new WebSocket hub.
 func NewHub() *Hub {
 	return &Hub{
-		conns: make(map[string]*wsConn),
+		conns: make(map[model.PublicKey]*wsConn),
 	}
-}
-
-// peerKey returns the canonical map key for a public key.
-func peerKey(pk attest.PublicKey) string {
-	return base64.RawURLEncoding.EncodeToString(pk.Marshal())
 }
 
 // Register adds a WebSocket connection to the hub, associated with the given
 // public key. If a previous connection exists for the same key it is closed
 // before being replaced.
 func (h *Hub) Register(
-	pk attest.PublicKey, conn *websocket.Conn, cancel context.CancelFunc,
+	key model.PublicKey, conn *websocket.Conn, cancel context.CancelFunc,
 ) {
-	key := peerKey(pk)
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	// Close previous connection if it exists.
 	if old, ok := h.conns[key]; ok {
-		slog.Debug("ws_hub: replacing existing connection", slog.String("peer", key))
+		slog.Debug(
+			"ws_hub: replacing existing connection", slogger.String("peer", key),
+		)
 		old.cancel()
 		_ = old.conn.Close(websocket.StatusGoingAway, "replaced by new connection")
 	}
 
 	h.conns[key] = &wsConn{
-		conn:      conn,
-		publicKey: pk,
-		cancel:    cancel,
+		conn:   conn,
+		cancel: cancel,
 	}
 
-	slog.Info("ws_hub: peer connected", slog.String("peer", key))
+	slog.Info("ws_hub: peer connected", slogger.String("peer", key))
 }
 
 // Unregister removes a WebSocket connection from the hub.
-func (h *Hub) Unregister(pk attest.PublicKey) {
-	key := peerKey(pk)
-
+func (h *Hub) Unregister(key model.PublicKey) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -90,7 +81,7 @@ func (h *Hub) Unregister(pk attest.PublicKey) {
 		wc.cancel()
 		_ = wc.conn.Close(websocket.StatusNormalClosure, "unregistered")
 		delete(h.conns, key)
-		slog.Info("ws_hub: peer disconnected", slog.String("peer", key))
+		slog.Info("ws_hub: peer disconnected", slogger.String("peer", key))
 	}
 }
 
@@ -99,14 +90,12 @@ func (h *Hub) Unregister(pk attest.PublicKey) {
 // is not connected or the write failed.
 func (h *Hub) Deliver(
 	ctx context.Context,
-	sender, receiver attest.PublicKey,
+	sender, receiver model.PublicKey,
 	sessionID string,
 	data []byte,
 ) bool {
-	key := peerKey(receiver)
-
 	h.mu.RLock()
-	wc, ok := h.conns[key]
+	wc, ok := h.conns[receiver]
 	h.mu.RUnlock()
 
 	if !ok {
@@ -115,7 +104,7 @@ func (h *Hub) Deliver(
 
 	msg := WSMessage{
 		Type:      "message",
-		Sender:    peerKey(sender),
+		Sender:    sender,
 		SessionID: sessionID,
 		Data:      base64.RawURLEncoding.EncodeToString(data),
 	}
@@ -123,7 +112,7 @@ func (h *Hub) Deliver(
 	if err := wsjson.Write(ctx, wc.conn, msg); err != nil {
 		slog.Debug(
 			"ws_hub: delivery failed, removing peer",
-			slog.String("peer", key),
+			slogger.String("peer", sender),
 			slogger.Err("err", err),
 		)
 		// Connection is broken; remove it.
@@ -131,18 +120,18 @@ func (h *Hub) Deliver(
 		return false
 	}
 
-	slog.Debug("ws_hub: message delivered via WS", slog.String("peer", key))
+	slog.Debug(
+		"ws_hub: message delivered via WS", slogger.String("peer", receiver),
+	)
 	return true
 }
 
 // IsConnected returns whether a peer with the given public key has an active
 // WebSocket connection.
-func (h *Hub) IsConnected(pk attest.PublicKey) bool {
-	key := peerKey(pk)
-
+func (h *Hub) IsConnected(key model.PublicKey) bool {
 	h.mu.RLock()
+	defer h.mu.RUnlock()
 	_, ok := h.conns[key]
-	h.mu.RUnlock()
 
 	return ok
 }
@@ -157,17 +146,25 @@ func (h *Hub) ConnectedCount() int {
 // ReadPump reads messages from a WebSocket connection and processes them.
 // It blocks until the connection is closed or the context is cancelled.
 // The provided handler is called for each incoming message.
-func (h *Hub) ReadPump(ctx context.Context, pk attest.PublicKey, conn *websocket.Conn, handler func(ctx context.Context, msg WSMessage) error) {
-	key := peerKey(pk)
+func (h *Hub) ReadPump(
+	ctx context.Context,
+	key model.PublicKey,
+	conn *websocket.Conn,
+	handler func(ctx context.Context, msg WSMessage) error,
+) {
 	for {
 		_, raw, err := conn.Read(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				slog.Debug("ws_hub: read pump context cancelled", slog.String("peer", key))
+				slog.Debug(
+					"ws_hub: read pump context cancelled",
+					slogger.String("peer", key),
+				)
 			} else {
-				slog.Debug("ws_hub: read pump error",
-					slog.String("peer", key),
-					slog.Any("err", err),
+				slog.Debug(
+					"ws_hub: read pump error",
+					slogger.String("peer", key),
+					slogger.Err("err", err),
 				)
 			}
 			return
@@ -175,9 +172,10 @@ func (h *Hub) ReadPump(ctx context.Context, pk attest.PublicKey, conn *websocket
 
 		var msg WSMessage
 		if err := json.Unmarshal(raw, &msg); err != nil {
-			slog.Debug("ws_hub: invalid message from peer",
-				slog.String("peer", key),
-				slog.Any("err", err),
+			slog.Debug(
+				"ws_hub: invalid message from peer",
+				slogger.String("peer", key),
+				slogger.Err("err", err),
 			)
 			errMsg := WSMessage{
 				Type:  "error",
@@ -188,10 +186,11 @@ func (h *Hub) ReadPump(ctx context.Context, pk attest.PublicKey, conn *websocket
 		}
 
 		if err := handler(ctx, msg); err != nil {
-			slog.Debug("ws_hub: handler error",
-				slog.String("peer", key),
+			slog.Debug(
+				"ws_hub: handler error",
+				slogger.String("peer", key),
 				slog.String("type", msg.Type),
-				slog.Any("err", err),
+				slogger.Err("err", err),
 			)
 			errMsg := WSMessage{
 				Type:  "error",
