@@ -1,4 +1,51 @@
+## v0.3.0
 
+### Cleanup
+
+- Perform code and feature cleanup, aiming to increase the code quality and
+  maintainability.
+- Removed `ML-DSA`, in favor of `ED25519`.
+- Removed incomplete `Session`, `Session Manager`, and `Session Resumption`
+  implementations.
+- Removed `Double Ratchet`, as it was not correctly implemented.
+
+### Specs
+
+- Added `SPEC.md` file for a concrete protocol definition.
+- Added SVGs illustrations to visual the flow and design.
+
+### HPKE (Hyprid Public Key Encryption)
+
+- Restore `MLKEM` usage in the handshake step.
+- Implemented HPKE to provide encryption in the introduction and handshake phases.
+- Introduced a new step, `Exchange`, to be called immediately at start.
+- Created `encryptedConn` abstraction to conveniently use HPKE. 
+
+### Bus
+
+- Split the `widgets.go` into smaller, more focused files.
+- Improve design and aesthetics of the application.
+- Introduced history tab.
+
+### Relay
+
+- Implememnt all features.
+- First release.
+
+### Improvements
+
+- Refactor new `storage` package for cleaner API.
+- Improve formatting and address lint issues.
+- Add and enhance tests.
+- Define better constants.
+- Include handshake timeout.
+- Write more storage query functions.
+- Add message sequence numbering.
+- Use `HKDF-SHA512` instead of `HKDF-SHA256` for key derivation.
+- Move `store` package to the internal directory, only exposing the `storage`
+  to the clients.
+- Reformat `daemon` package.
+- Update dependencies.
 
 ## v0.2.0
 
