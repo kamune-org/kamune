@@ -124,8 +124,7 @@
   <rect x="322" y="118" width="110" height="4" rx="2" fill="url(#gOrange)"/>
   <text x="377" y="143" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="700">3</text>
   <text x="377" y="158" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Sign</text>
-  <text x="377" y="173" text-anchor="middle" fill="#8b949e" font-size="8">Ed25519 /</text>
-  <text x="377" y="184" text-anchor="middle" fill="#8b949e" font-size="8">ML-DSA-65</text>
+  <text x="377" y="173" text-anchor="middle" fill="#8b949e" font-size="8">Ed25519</text>
 
   <!-- Arrow 3→4 -->
   <line x1="434" y1="154" x2="454" y2="154" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowRightOrange)"/>

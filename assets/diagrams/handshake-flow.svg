@@ -1,265 +1,1042 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 880" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:i="http://ns.adobe.com/AdobeIllustrator/10.0/" version="1.1" viewBox="0 0 900 1090">
+  <!-- Generator: Adobe Illustrator 30.0.0, SVG Export Plug-In . SVG Version: 2.1.1 Build 123)  -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
-    </linearGradient>
-    <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#58a6ff"/>
-      <stop offset="100%" stop-color="#1f6feb"/>
-    </linearGradient>
-    <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#d2a8ff"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
-    </linearGradient>
-    <linearGradient id="gPink" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f778ba"/>
-      <stop offset="100%" stop-color="#db61a2"/>
-    </linearGradient>
-    <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#7ee787"/>
-      <stop offset="100%" stop-color="#238636"/>
-    </linearGradient>
-    <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f0883e"/>
-      <stop offset="100%" stop-color="#da6d25"/>
+    <style>
+      .st0, .st1, .st2, .st3, .st4, .st5 {
+        fill: #8b949e;
+      }
+
+      .st6, .st7, .st8, .st9, .st10, .st11, .st12, .st13, .st14, .st15, .st16, .st17, .st18, .st19, .st20 {
+        fill: none;
+      }
+
+      .st7, .st21, .st22 {
+        stroke: #8b5cf6;
+      }
+
+      .st7, .st9, .st10, .st17 {
+        stroke-width: 1.2px;
+      }
+
+      .st23, .st24, .st25, .st26, .st27, .st28, .st29, .st30, .st31, .st32, .st33, .st34, .st35, .st36, .st37 {
+        font-family: Helvetica-Bold, Helvetica;
+        font-weight: 700;
+      }
+
+      .st23, .st24, .st34, .st38, .st36 {
+        fill: #58a6ff;
+      }
+
+      .st23, .st25, .st26, .st27, .st34 {
+        font-size: 8px;
+      }
+
+      .st21, .st39, .st40, .st22, .st41, .st42, .st43 {
+        stroke-width: .8px;
+      }
+
+      .st21, .st39, .st40, .st44, .st41 {
+        fill: #0d1117;
+      }
+
+      .st24 {
+        font-size: 9.25px;
+      }
+
+      .st45, .st8, .st46, .st12, .st13, .st19 {
+        stroke-width: 3px;
+      }
+
+      .st45, .st8, .st46, .st13, .st19 {
+        stroke-miterlimit: 10;
+      }
+
+      .st45, .st46 {
+        fill: #606060;
+      }
+
+      .st45, .st13 {
+        stroke: #d2a8ff;
+      }
+
+      .st47 {
+        fill: url(#linear-gradient2);
+      }
+
+      .st48 {
+        fill: url(#linear-gradient1);
+      }
+
+      .st49 {
+        fill: url(#linear-gradient8);
+      }
+
+      .st50 {
+        fill: url(#linear-gradient5);
+      }
+
+      .st51 {
+        filter: url(#glow12);
+        opacity: .25;
+      }
+
+      .st51, .st1, .st25, .st52, .st26, .st27, .st28, .st2, .st29, .st30, .st3, .st53, .st54, .st31, .st32, .st33, .st4, .st34, .st55, .st56, .st57, .st58, .st59, .st5, .st60, .st61, .st35, .st62, .st63, .st64, .st65, .st66, .st36, .st67, .st37 {
+        isolation: isolate;
+      }
+
+      .st68 {
+        letter-spacing: 0em;
+      }
+
+      .st68, .st69, .st1, .st70, .st71, .st72, .st73, .st74, .st3, .st75, .st76, .st4 {
+        font-family: MyriadPro-Regular, 'Myriad Pro';
+      }
+
+      .st69 {
+        letter-spacing: 0em;
+      }
+
+      .st77 {
+        fill: url(#linear-gradient16);
+      }
+
+      .st78 {
+        fill: url(#linear-gradient11);
+      }
+
+      .st79 {
+        fill: url(#linear-gradient17);
+      }
+
+      .st80 {
+        font-family: AppleBraille-Outline6Dot, 'Apple Braille';
+      }
+
+      .st1 {
+        font-size: 5px;
+      }
+
+      .st25, .st81, .st29 {
+        fill: #7ee787;
+      }
+
+      .st82, .st31, .st32, .st35 {
+        fill: #d2a8ff;
+      }
+
+      .st52, .st53, .st61 {
+        fill: #6e7681;
+      }
+
+      .st52, .st4 {
+        font-size: 7.5px;
+      }
+
+      .st83 {
+        fill: #dfe9ef;
+      }
+
+      .st39, .st10 {
+        stroke: #da6d25;
+      }
+
+      .st70 {
+        letter-spacing: 0em;
+      }
+
+      .st26, .st30, .st84 {
+        fill: #f778ba;
+      }
+
+      .st27, .st85, .st37 {
+        fill: #f0883e;
+      }
+
+      .st40, .st9 {
+        stroke: #1f6feb;
+      }
+
+      .st71 {
+        letter-spacing: 0em;
+      }
+
+      .st72 {
+        letter-spacing: 0em;
+      }
+
+      .st86 {
+        fill: url(#linear-gradient);
+      }
+
+      .st73 {
+        letter-spacing: 0em;
+      }
+
+      .st28 {
+        font-size: 20px;
+        letter-spacing: .03em;
+      }
+
+      .st28, .st33 {
+        fill: #e6edf3;
+      }
+
+      .st74 {
+        letter-spacing: 0em;
+      }
+
+      .st87 {
+        filter: url(#shadow5);
+      }
+
+      .st88 {
+        filter: url(#shadow1);
+      }
+
+      .st89 {
+        filter: url(#shadow4);
+      }
+
+      .st90 {
+        filter: url(#shadow2);
+      }
+
+      .st91 {
+        filter: url(#shadow6);
+      }
+
+      .st92 {
+        filter: url(#shadow3);
+      }
+
+      .st22, .st93, .st42, .st94, .st43 {
+        fill: #21262d;
+      }
+
+      .st2, .st3 {
+        font-size: 10px;
+      }
+
+      .st95 {
+        fill: #ff8736;
+      }
+
+      .st96 {
+        filter: url(#glow);
+      }
+
+      .st29 {
+        font-size: 15px;
+        letter-spacing: .07em;
+      }
+
+      .st30, .st35, .st36, .st37 {
+        font-size: 12px;
+        letter-spacing: .07em;
+      }
+
+      .st53 {
+        font-size: 7px;
+      }
+
+      .st97 {
+        fill: #3e4347;
+      }
+
+      .st75 {
+        letter-spacing: 0em;
+      }
+
+      .st98 {
+        fill: #b0bdc6;
+      }
+
+      .st8 {
+        stroke: #f778ba;
+      }
+
+      .st31 {
+        font-size: 8.5px;
+      }
+
+      .st32, .st60, .st61 {
+        font-size: 9px;
+      }
+
+      .st11 {
+        stroke-dasharray: 6 4;
+      }
+
+      .st11, .st14 {
+        stroke: #30363d;
+      }
+
+      .st11, .st15, .st18 {
+        stroke-width: 1.5px;
+      }
+
+      .st33 {
+        font-size: 14px;
+      }
+
+      .st99 {
+        filter: url(#glow1);
+      }
+
+      .st100 {
+        filter: url(#glow7);
+      }
+
+      .st101 {
+        filter: url(#glow9);
+      }
+
+      .st102 {
+        filter: url(#glow6);
+      }
+
+      .st103 {
+        filter: url(#glow3);
+      }
+
+      .st104 {
+        filter: url(#glow8);
+      }
+
+      .st105 {
+        filter: url(#glow5);
+      }
+
+      .st106 {
+        filter: url(#glow2);
+      }
+
+      .st107 {
+        filter: url(#glow4);
+      }
+
+      .st55 {
+        fill: url(#linear-gradient14);
+      }
+
+      .st55, .st56, .st57, .st62, .st63, .st64, .st65, .st66 {
+        opacity: .12;
+      }
+
+      .st56 {
+        fill: url(#linear-gradient10);
+      }
+
+      .st57 {
+        fill: url(#linear-gradient15);
+      }
+
+      .st58 {
+        fill: url(#linear-gradient12);
+      }
+
+      .st58, .st59 {
+        opacity: .2;
+      }
+
+      .st59 {
+        fill: url(#linear-gradient13);
+      }
+
+      .st46, .st15 {
+        stroke: #58a6ff;
+      }
+
+      .st108 {
+        fill: #ffce31;
+      }
+
+      .st12, .st42, .st19 {
+        stroke: #f0883e;
+      }
+
+      .st5, .st67 {
+        font-size: 11px;
+      }
+
+      .st60 {
+        fill: #484f58;
+      }
+
+      .st61 {
+        font-family: Helvetica-Oblique, Helvetica;
+        font-style: oblique;
+      }
+
+      .st41, .st17, .st43 {
+        stroke: #db61a2;
+      }
+
+      .st16, .st18, .st20 {
+        stroke: #7ee787;
+      }
+
+      .st94 {
+        stroke: #484f58;
+        stroke-width: .6px;
+      }
+
+      .st62 {
+        fill: url(#linear-gradient4);
+      }
+
+      .st63 {
+        fill: url(#linear-gradient3);
+      }
+
+      .st64 {
+        fill: url(#linear-gradient7);
+      }
+
+      .st65 {
+        fill: url(#linear-gradient6);
+      }
+
+      .st66 {
+        fill: url(#linear-gradient9);
+      }
+
+      .st109, .st67 {
+        fill: #c9d1d9;
+      }
+
+      .st20 {
+        stroke-width: 2px;
+      }
+
+      .st110 {
+        filter: url(#glow10);
+      }
+
+      .st111 {
+        filter: url(#glow11);
+      }
+
+      .st112 {
+        filter: url(#shadow);
+      }
+    </style>
+    <linearGradient id="linear-gradient" x1="-507.93" y1="1085" x2="-507.93" y2="1084" gradientTransform="translate(457591 1182655) scale(900 -1090)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#161b22"/>
     </linearGradient>
     <filter id="shadow">
-      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.5"/>
+      <feDropShadow dx="0" dy="2" flood-color="#000" flood-opacity="0.5" stdDeviation="4"/>
     </filter>
+    <linearGradient id="linear-gradient1" x1="-505.82" y1="1086.25" x2="-504.82" y2="1085.25" gradientTransform="translate(81001 4423) scale(160 -4)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#58a6ff"/>
+      <stop offset="1" stop-color="#1f6feb"/>
+    </linearGradient>
+    <filter id="shadow1" data-name="shadow">
+      <feDropShadow dx="0" dy="2" flood-color="#000" flood-opacity="0.5" stdDeviation="4"/>
+    </filter>
+    <linearGradient id="linear-gradient2" x1="-505.82" y1="1086.25" x2="-504.82" y2="1085.25" gradientTransform="translate(81601 4423) scale(160 -4)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#58a6ff"/>
+      <stop offset="1" stop-color="#1f6feb"/>
+    </linearGradient>
+    <filter id="shadow2" data-name="shadow">
+      <feDropShadow dx="0" dy="2" flood-color="#000" flood-opacity="0.5" stdDeviation="4"/>
+    </filter>
+    <linearGradient id="linear-gradient3" x1="-508.38" y1="1085.18" x2="-507.38" y2="1084.18" gradientTransform="translate(416911 30525) scale(820 -28)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0883e"/>
+      <stop offset="1" stop-color="#da6d25"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient4" x1="-508.38" y1="1085.5" x2="-507.38" y2="1084.5" gradientTransform="translate(416911 11013) scale(820 -10)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0883e"/>
+      <stop offset="1" stop-color="#da6d25"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient5" x1="-458.1" y1="1085.5" x2="-457.1" y2="1084.5" gradientTransform="translate(4636 11004) scale(10 -10)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0883e"/>
+      <stop offset="1" stop-color="#da6d25"/>
+    </linearGradient>
     <filter id="glow">
-      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feGaussianBlur result="blur" stdDeviation="3"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
-    <marker id="arrowBlue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#58a6ff"/>
-    </marker>
-    <marker id="arrowBlueL" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="10 0, 0 3.5, 10 7" fill="#58a6ff"/>
-    </marker>
-    <marker id="arrowPurple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#d2a8ff"/>
-    </marker>
-    <marker id="arrowPurpleL" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="10 0, 0 3.5, 10 7" fill="#d2a8ff"/>
-    </marker>
-    <marker id="arrowPink" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#f778ba"/>
-    </marker>
-    <marker id="arrowPinkL" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="10 0, 0 3.5, 10 7" fill="#f778ba"/>
-    </marker>
-    <marker id="arrowGreen" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#7ee787"/>
-    </marker>
-    <marker id="arrowOrange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#f0883e"/>
-    </marker>
-    <marker id="arrowOrangeL" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="10 0, 0 3.5, 10 7" fill="#f0883e"/>
-    </marker>
+    <filter id="glow1" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glow2" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glow3" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="shadow3" data-name="shadow">
+      <feDropShadow dx="0" dy="2" flood-color="#000" flood-opacity="0.5" stdDeviation="4"/>
+    </filter>
+    <linearGradient id="linear-gradient6" x1="-508.38" y1="1085" x2="-507.38" y2="1084" gradientTransform="translate(416911 30730) scale(820 -28)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#58a6ff"/>
+      <stop offset="1" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient7" x1="-508.38" y1="1085.5" x2="-507.38" y2="1084.5" gradientTransform="translate(416911 11218) scale(820 -10)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#58a6ff"/>
+      <stop offset="1" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient8" x1="-458.1" y1="1085.5" x2="-457.1" y2="1084.5" gradientTransform="translate(4636 11209) scale(10 -10)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#58a6ff"/>
+      <stop offset="1" stop-color="#1f6feb"/>
+    </linearGradient>
+    <filter id="glow4" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glow5" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="shadow4" data-name="shadow">
+      <feDropShadow dx="0" dy="2" flood-color="#000" flood-opacity="0.5" stdDeviation="4"/>
+    </filter>
+    <linearGradient id="linear-gradient9" x1="-508.38" y1="1085.18" x2="-507.38" y2="1084.18" gradientTransform="translate(416911 30885) scale(820 -28)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d2a8ff"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient10" x1="-508.38" y1="1085.5" x2="-507.38" y2="1084.5" gradientTransform="translate(416911 11373) scale(820 -10)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d2a8ff"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient11" x1="-458.1" y1="1085.5" x2="-457.1" y2="1084.5" gradientTransform="translate(4636 11364) scale(10 -10)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d2a8ff"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <filter id="glow6" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glow7" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <linearGradient id="linear-gradient12" x1="-254.5" y1="1085.03" x2="-253.5" y2="1084.03" gradientTransform="translate(564 190427) scale(2 -175)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d2a8ff"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient13" x1="-254.5" y1="1085.03" x2="-253.5" y2="1084.03" gradientTransform="translate(1352 185002) scale(2 -170)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d2a8ff"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <filter id="shadow5" data-name="shadow">
+      <feDropShadow dx="0" dy="2" flood-color="#000" flood-opacity="0.5" stdDeviation="4"/>
+    </filter>
+    <linearGradient id="linear-gradient14" x1="-508.38" y1="1085.18" x2="-507.38" y2="1084.18" gradientTransform="translate(416911 31123) scale(820 -28)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f778ba"/>
+      <stop offset="1" stop-color="#db61a2"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient15" x1="-508.38" y1="1085.5" x2="-507.38" y2="1084.5" gradientTransform="translate(416911 11611) scale(820 -10)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f778ba"/>
+      <stop offset="1" stop-color="#db61a2"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient16" x1="-458.1" y1="1085.5" x2="-457.1" y2="1084.5" gradientTransform="translate(4636 11602) scale(10 -10)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f778ba"/>
+      <stop offset="1" stop-color="#db61a2"/>
+    </linearGradient>
+    <filter id="glow8" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glow9" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glow10" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glow11" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="shadow6" data-name="shadow">
+      <feDropShadow dx="0" dy="2" flood-color="#000" flood-opacity="0.5" stdDeviation="4"/>
+    </filter>
+    <filter id="glow12" data-name="glow">
+      <feGaussianBlur result="blur" stdDeviation="3"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <linearGradient id="linear-gradient17" x1="-507.73" y1="1086.25" x2="-506.73" y2="1085.25" gradientTransform="translate(203341 5355) scale(400 -4)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7ee787"/>
+      <stop offset="1" stop-color="#238636"/>
+    </linearGradient>
   </defs>
-
-  <!-- Background -->
-  <rect width="900" height="880" rx="12" fill="url(#bg)"/>
-  <rect x="1" y="1" width="898" height="878" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
-
-  <!-- Title -->
-  <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.5">Handshake Flow</text>
-  <text x="450" y="60" text-anchor="middle" fill="#8b949e" font-size="11">Full session establishment: Introduction → Key Exchange → Challenge → Established</text>
-
-  <!-- ══════════ Peer Headers ══════════ -->
-  <!-- Initiator header -->
-  <rect x="70" y="78" width="160" height="44" rx="10" fill="#21262d" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
-  <rect x="70" y="78" width="160" height="4" rx="2" fill="url(#gBlue)"/>
-  <text x="150" y="101" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Initiator</text>
-  <text x="150" y="116" text-anchor="middle" fill="#8b949e" font-size="10">(Client)</text>
-
-  <!-- Responder header -->
-  <rect x="670" y="78" width="160" height="44" rx="10" fill="#21262d" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
-  <rect x="670" y="78" width="160" height="4" rx="2" fill="url(#gBlue)"/>
-  <text x="750" y="101" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Responder</text>
-  <text x="750" y="116" text-anchor="middle" fill="#8b949e" font-size="10">(Server)</text>
-
-  <!-- Vertical lifelines -->
-  <line x1="150" y1="128" x2="150" y2="840" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6,4"/>
-  <line x1="750" y1="128" x2="750" y2="840" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6,4"/>
-
-  <!-- ══════════════════════════════════════════════════════════════ -->
-  <!-- SECTION 1: INTRODUCTION                                       -->
-  <!-- ══════════════════════════════════════════════════════════════ -->
-  <rect x="40" y="140" width="820" height="145" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.2" filter="url(#shadow)"/>
-  <!-- Header bar -->
-  <rect x="40" y="140" width="820" height="28" rx="10" fill="url(#gBlue)" opacity="0.12"/>
-  <rect x="40" y="158" width="820" height="10" fill="url(#gBlue)" opacity="0.12"/>
-  <circle cx="60" cy="154" r="5" fill="url(#gBlue)"/>
-  <text x="75" y="159" fill="#58a6ff" font-size="12" font-weight="700" letter-spacing="0.8">INTRODUCTION</text>
-  <text x="845" y="159" text-anchor="end" fill="#8b949e" font-size="10">Route: IDENTITY</text>
-
-  <!-- Step 1: Initiator action -->
-  <rect x="55" y="178" width="85" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
-  <text x="97" y="191" text-anchor="middle" fill="#8b949e" font-size="8" font-weight="600">Generate Key</text>
-
-  <!-- Arrow 1: Initiator → Responder (Introduce) -->
-  <line x1="170" y1="202" x2="730" y2="202" stroke="#58a6ff" stroke-width="1.8" marker-end="url(#arrowBlue)" filter="url(#glow)"/>
-  <rect x="315" y="190" width="270" height="22" rx="5" fill="#0d1117" stroke="#1f6feb" stroke-width="0.8"/>
-  <text x="450" y="205" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">Introduce { Name, PublicKey, Algorithm }</text>
-
-  <!-- Step 2: Responder action -->
-  <rect x="755" y="210" width="95" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
-  <text x="802" y="223" text-anchor="middle" fill="#58a6ff" font-size="8" font-weight="600">✓ Verify Sig</text>
-
-  <!-- Arrow 2: Responder → Initiator (Introduce) -->
-  <line x1="730" y1="240" x2="170" y2="240" stroke="#58a6ff" stroke-width="1.8" marker-end="url(#arrowBlueL)" filter="url(#glow)"/>
-  <rect x="315" y="228" width="270" height="22" rx="5" fill="#0d1117" stroke="#1f6feb" stroke-width="0.8"/>
-  <text x="450" y="243" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">Introduce { Name, PublicKey, Algorithm }</text>
-
-  <!-- Step 3: Initiator verify -->
-  <rect x="55" y="248" width="85" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
-  <text x="97" y="261" text-anchor="middle" fill="#58a6ff" font-size="8" font-weight="600">✓ Verify Sig</text>
-
-  <!-- Both have peer's PubKey note -->
-  <text x="450" y="278" text-anchor="middle" fill="#6e7681" font-size="9" font-style="italic">Both peers now hold each other's authenticated public key</text>
-
-  <!-- ══════════════════════════════════════════════════════════════ -->
-  <!-- SECTION 2: KEY EXCHANGE (ML-KEM-768)                          -->
-  <!-- ══════════════════════════════════════════════════════════════ -->
-  <rect x="40" y="298" width="820" height="228" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.2" filter="url(#shadow)"/>
-  <!-- Header bar -->
-  <rect x="40" y="298" width="820" height="28" rx="10" fill="url(#gPurple)" opacity="0.12"/>
-  <rect x="40" y="316" width="820" height="10" fill="url(#gPurple)" opacity="0.12"/>
-  <circle cx="60" cy="312" r="5" fill="url(#gPurple)"/>
-  <text x="75" y="317" fill="#d2a8ff" font-size="12" font-weight="700" letter-spacing="0.8">KEY EXCHANGE</text>
-  <text x="845" y="317" text-anchor="end" fill="#8b949e" font-size="10">ML-KEM-768 · Ephemeral</text>
-
-  <!-- Initiator generates KEM keypair -->
-  <rect x="55" y="336" width="120" height="32" rx="6" fill="#21262d" stroke="#8b5cf6" stroke-width="0.8"/>
-  <text x="115" y="350" text-anchor="middle" fill="#d2a8ff" font-size="8.5" font-weight="600">Gen ML-KEM-768</text>
-  <text x="115" y="362" text-anchor="middle" fill="#6e7681" font-size="7.5">pk_kem, sk_kem</text>
-
-  <!-- Initiator generates salt + prefix -->
-  <rect x="55" y="372" width="120" height="32" rx="6" fill="#21262d" stroke="#8b5cf6" stroke-width="0.8"/>
-  <text x="115" y="386" text-anchor="middle" fill="#d2a8ff" font-size="8.5" font-weight="600">Gen Parameters</text>
-  <text x="115" y="398" text-anchor="middle" fill="#6e7681" font-size="7.5">salt (16B) + prefix (10ch)</text>
-
-  <!-- Arrow 3: Initiator → Responder (Handshake Request) -->
-  <line x1="170" y1="417" x2="730" y2="417" stroke="#d2a8ff" stroke-width="1.8" marker-end="url(#arrowPurple)" filter="url(#glow)"/>
-  <rect x="275" y="405" width="350" height="22" rx="5" fill="#0d1117" stroke="#8b5cf6" stroke-width="0.8"/>
-  <text x="450" y="420" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">Handshake { pk_kem, Salt, SessionPrefix }</text>
-  <!-- Route label -->
-  <text x="715" y="413" text-anchor="end" fill="#8b949e" font-size="7.5">REQUEST_HANDSHAKE</text>
-
-  <!-- Responder encapsulates -->
-  <rect x="725" y="427" width="120" height="46" rx="6" fill="#21262d" stroke="#8b5cf6" stroke-width="0.8"/>
-  <text x="785" y="441" text-anchor="middle" fill="#d2a8ff" font-size="8.5" font-weight="600">Encapsulate(pk_kem)</text>
-  <text x="785" y="454" text-anchor="middle" fill="#6e7681" font-size="7.5">→ secret (32B), ct</text>
-  <text x="785" y="466" text-anchor="middle" fill="#6e7681" font-size="7.5">+ gen salt, suffix</text>
-
-  <!-- Arrow 4: Responder → Initiator (Handshake Accept) -->
-  <line x1="730" y1="485" x2="170" y2="485" stroke="#d2a8ff" stroke-width="1.8" marker-end="url(#arrowPurpleL)" filter="url(#glow)"/>
-  <rect x="280" y="473" width="340" height="22" rx="5" fill="#0d1117" stroke="#8b5cf6" stroke-width="0.8"/>
-  <text x="450" y="488" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">Handshake { Ciphertext, Salt, SessionSuffix }</text>
-  <text x="715" y="481" text-anchor="end" fill="#8b949e" font-size="7.5">ACCEPT_HANDSHAKE</text>
-
-  <!-- Initiator decapsulates -->
-  <rect x="55" y="493" width="120" height="22" rx="6" fill="#21262d" stroke="#8b5cf6" stroke-width="0.8"/>
-  <text x="115" y="508" text-anchor="middle" fill="#d2a8ff" font-size="8.5" font-weight="600">Decapsulate(ct)</text>
-
-  <!-- Both derive same shared secret -->
-  <!-- Initiator key derivation -->
-  <rect x="55" y="345" width="2" height="175" rx="1" fill="url(#gPurple)" opacity="0.2"/>
-
-  <!-- Responder key derivation -->
-  <rect x="843" y="345" width="2" height="170" rx="1" fill="url(#gPurple)" opacity="0.2"/>
-
-  <!-- Shared secret note -->
-  <text x="450" y="520" text-anchor="middle" fill="#d2a8ff" font-size="9" font-weight="600">Both derive: secret = 32-byte shared secret</text>
-
-  <!-- ══════════════════════════════════════════════════════════════ -->
-  <!-- SECTION 3: CHALLENGE EXCHANGE                                 -->
-  <!-- ══════════════════════════════════════════════════════════════ -->
-  <rect x="40" y="538" width="820" height="260" rx="10" fill="#0d1117" stroke="#db61a2" stroke-width="1.2" filter="url(#shadow)"/>
-  <!-- Header bar -->
-  <rect x="40" y="538" width="820" height="28" rx="10" fill="url(#gPink)" opacity="0.12"/>
-  <rect x="40" y="556" width="820" height="10" fill="url(#gPink)" opacity="0.12"/>
-  <circle cx="60" cy="552" r="5" fill="url(#gPink)"/>
-  <text x="75" y="557" fill="#f778ba" font-size="12" font-weight="700" letter-spacing="0.8">CHALLENGE EXCHANGE</text>
-  <text x="845" y="557" text-anchor="end" fill="#8b949e" font-size="10">🔒 Encrypted · Mutual Verification</text>
-
-  <!-- Both create ciphers note -->
-  <rect x="55" y="574" width="115" height="32" rx="6" fill="#21262d" stroke="#db61a2" stroke-width="0.8"/>
-  <text x="112" y="588" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Create Ciphers</text>
-  <text x="112" y="600" text-anchor="middle" fill="#6e7681" font-size="7">HKDF → XChaCha20</text>
-
-  <rect x="730" y="574" width="115" height="32" rx="6" fill="#21262d" stroke="#db61a2" stroke-width="0.8"/>
-  <text x="787" y="588" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Create Ciphers</text>
-  <text x="787" y="600" text-anchor="middle" fill="#6e7681" font-size="7">HKDF → XChaCha20</text>
-
-  <!-- Derive challenge_c label -->
-  <rect x="55" y="612" width="115" height="22" rx="6" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
-  <text x="112" y="627" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Derive challenge_c</text>
-
-  <!-- Arrow 5: Initiator → Responder (challenge_c encrypted) -->
-  <line x1="170" y1="644" x2="730" y2="644" stroke="#f778ba" stroke-width="1.8" marker-end="url(#arrowPink)" filter="url(#glow)"/>
-  <rect x="340" y="632" width="220" height="22" rx="5" fill="#0d1117" stroke="#db61a2" stroke-width="0.8"/>
-  <text x="450" y="647" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">🔒 Encrypt(challenge_c)</text>
-  <text x="715" y="640" text-anchor="end" fill="#8b949e" font-size="7.5">SEND_CHALLENGE</text>
-
-  <!-- Responder decrypts and echoes -->
-  <rect x="755" y="652" width="85" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
-  <text x="797" y="665" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Decrypt + Echo</text>
-
-  <!-- Arrow 6: Responder → Initiator (echo challenge_c) -->
-  <line x1="730" y1="680" x2="170" y2="680" stroke="#f778ba" stroke-width="1.8" marker-end="url(#arrowPinkL)" filter="url(#glow)"/>
-  <rect x="340" y="668" width="220" height="22" rx="5" fill="#0d1117" stroke="#db61a2" stroke-width="0.8"/>
-  <text x="450" y="683" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">🔒 Encrypt(challenge_c)</text>
-  <text x="715" y="676" text-anchor="end" fill="#8b949e" font-size="7.5">VERIFY_CHALLENGE</text>
-
-  <!-- Initiator verifies -->
-  <rect x="55" y="688" width="115" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
-  <text x="112" y="701" text-anchor="middle" fill="#7ee787" font-size="8" font-weight="600">✓ ConstantTimeCompare</text>
-
-  <!-- Responder derives challenge_s -->
-  <rect x="730" y="700" width="115" height="22" rx="6" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
-  <text x="787" y="715" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Derive challenge_s</text>
-
-  <!-- Arrow 7: Responder → Initiator (challenge_s encrypted) -->
-  <line x1="730" y1="732" x2="170" y2="732" stroke="#f778ba" stroke-width="1.8" marker-end="url(#arrowPinkL)" filter="url(#glow)"/>
-  <rect x="340" y="720" width="220" height="22" rx="5" fill="#0d1117" stroke="#db61a2" stroke-width="0.8"/>
-  <text x="450" y="735" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">🔒 Encrypt(challenge_s)</text>
-  <text x="185" y="728" fill="#8b949e" font-size="7.5">SEND_CHALLENGE</text>
-
-  <!-- Initiator decrypts and echoes -->
-  <rect x="55" y="740" width="85" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
-  <text x="97" y="753" text-anchor="middle" fill="#f778ba" font-size="8" font-weight="600">Decrypt + Echo</text>
-
-  <!-- Arrow 8: Initiator → Responder (echo challenge_s) -->
-  <line x1="170" y1="768" x2="730" y2="768" stroke="#f778ba" stroke-width="1.8" marker-end="url(#arrowPink)" filter="url(#glow)"/>
-  <rect x="340" y="756" width="220" height="22" rx="5" fill="#0d1117" stroke="#db61a2" stroke-width="0.8"/>
-  <text x="450" y="771" text-anchor="middle" fill="#c9d1d9" font-size="11" font-weight="500">🔒 Encrypt(challenge_s)</text>
-  <text x="715" y="764" text-anchor="end" fill="#8b949e" font-size="7.5">VERIFY_CHALLENGE</text>
-
-  <!-- Responder verifies -->
-  <rect x="730" y="778" width="115" height="18" rx="4" fill="#21262d" stroke="#484f58" stroke-width="0.6"/>
-  <text x="787" y="791" text-anchor="middle" fill="#7ee787" font-size="8" font-weight="600">✓ ConstantTimeCompare</text>
-
-  <!-- ══════════════════════════════════════════════════════════════ -->
-  <!-- ESTABLISHED BANNER                                            -->
-  <!-- ══════════════════════════════════════════════════════════════ -->
-  <rect x="250" y="816" width="400" height="42" rx="10" fill="#0d1117" stroke="#7ee787" stroke-width="2" filter="url(#shadow)"/>
-  <rect x="248" y="814" width="404" height="46" rx="12" fill="none" stroke="#7ee787" stroke-width="1" opacity="0.25" filter="url(#glow)"/>
-  <rect x="250" y="816" width="400" height="4" rx="2" fill="url(#gGreen)"/>
-  <text x="450" y="843" text-anchor="middle" fill="#7ee787" font-size="15" font-weight="700" letter-spacing="1">✓ SESSION ESTABLISHED</text>
-
-  <!-- Connection lines to established -->
-  <line x1="150" y1="800" x2="150" y2="837" stroke="#7ee787" stroke-width="1.5"/>
-  <circle cx="150" cy="837" r="4" fill="#7ee787"/>
-  <line x1="750" y1="800" x2="750" y2="837" stroke="#7ee787" stroke-width="1.5"/>
-  <circle cx="750" cy="837" r="4" fill="#7ee787"/>
-
-  <!-- Footer legend -->
-  <text x="450" y="873" text-anchor="middle" fill="#484f58" font-size="9">Forward secrecy via ephemeral ML-KEM-768 · Key binding via HKDF-SHA512(secret, salt, sessionID||direction)</text>
+  <rect class="st86" x=".78" y="1" width="900" height="1090" rx="12" ry="12"/>
+  <rect class="st14" x="1" y="1" width="898" height="1088" rx="11" ry="11"/>
+  <text class="st28" transform="translate(308.47 38)"><tspan x="0" y="0">Session Establishment Flow</tspan></text>
+  <text class="st5" transform="translate(223.05 60)"><tspan class="st76" x="0" y="0">Full</tspan><tspan class="st80" x="16.61" y="0"> </tspan><tspan class="st76" x="20.37" y="0">session</tspan><tspan class="st80" x="53.67" y="0"> </tspan><tspan class="st69" x="57.43" y="0">establishment:</tspan><tspan class="st80" x="124.83" y="0"> </tspan><tspan class="st74" x="128.59" y="0">Exchange</tspan><tspan class="st80" x="173.2" y="0"> </tspan><tspan class="st76" x="176.96" y="0">-&gt;</tspan><tspan class="st80" x="186.89" y="0"> </tspan><tspan class="st76" x="190.65" y="0">Introduction</tspan><tspan class="st80" x="248.21" y="0"> </tspan><tspan class="st74" x="251.97" y="0">-&gt;</tspan><tspan class="st80" x="261.9" y="0"> </tspan><tspan class="st76" x="265.66" y="0">Key</tspan><tspan class="st80" x="282.32" y="0"> </tspan><tspan class="st74" x="286.08" y="0">Exchange</tspan><tspan class="st80" x="330.68" y="0"> </tspan><tspan class="st76" x="334.44" y="0">-&gt;</tspan><tspan class="st80" x="344.37" y="0"> </tspan><tspan class="st76" x="348.13" y="0">Challenge</tspan><tspan class="st80" x="394.39" y="0"> </tspan><tspan class="st76" x="398.15" y="0">-&gt;</tspan><tspan class="st80" x="408.08" y="0"> </tspan><tspan class="st74" x="411.84" y="0">Established</tspan></text>
+  <g class="st112">
+    <rect class="st93" x="70" y="78" width="160" height="44" rx="10" ry="10"/>
+    <rect class="st15" x="70" y="78" width="160" height="44" rx="10" ry="10"/>
+  </g>
+  <path class="st48" d="M72,78h156c1.1,0,2,.9,2,2h0c0,1.1-.9,2-2,2H72c-1.1,0-2-.9-2-2h0c0-1.1.9-2,2-2Z"/>
+  <text class="st33" transform="translate(124.33 101)"><tspan x="0" y="0">Initiator</tspan></text>
+  <text class="st3" transform="translate(136.33 116)"><tspan x="0" y="0">(Client)</tspan></text>
+  <g class="st88">
+    <rect class="st93" x="670" y="78" width="160" height="44" rx="10" ry="10"/>
+    <rect class="st15" x="670" y="78" width="160" height="44" rx="10" ry="10"/>
+  </g>
+  <path class="st47" d="M672,78h156c1.1,0,2,.9,2,2h0c0,1.1-.9,2-2,2h-156c-1.1,0-2-.9-2-2h0c0-1.1.9-2,2-2Z"/>
+  <text class="st33" transform="translate(713.44 101)"><tspan x="0" y="0">Responder</tspan></text>
+  <text class="st3" transform="translate(736.33 116)"><tspan x="0" y="0">(Server)</tspan></text>
+  <line class="st11" x1="150" y1="128" x2="150" y2="1045"/>
+  <line class="st11" x1="750" y1="128" x2="750" y2="1045"/>
+  <g class="st90">
+    <rect class="st44" x="40" y="140" width="820" height="210" rx="10" ry="10"/>
+    <rect class="st10" x="40" y="140" width="820" height="210" rx="10" ry="10"/>
+  </g>
+  <rect class="st63" x="40" y="140" width="820" height="28" rx="10" ry="10"/>
+  <rect class="st62" x="40" y="158" width="820" height="10"/>
+  <circle class="st50" cx="60" cy="154" r="5"/>
+  <text class="st37" transform="translate(75 159)"><tspan x="0" y="0">EXCHANGE</tspan></text>
+  <text class="st2" transform="translate(781.73 155)"><tspan class="st76" x="0" y="0">RawBytes</tspan><tspan class="st80" x="39.97" y="0"> </tspan><tspan class="st76" x="43.39" y="0">·</tspan><tspan class="st80" x="45.46" y="0"> </tspan><tspan class="st72" x="48.88" y="0">HPKE</tspan></text>
+  <g>
+    <rect class="st42" x="55" y="181.7" width="130" height="28" rx="6" ry="6"/>
+    <text class="st27" transform="translate(62.65 195.7)"><tspan x="0" y="0">Gen Ephemeral HPKE Keypair</tspan></text>
+    <text class="st53" transform="translate(96.47 204.7)"><tspan class="st76" x="0" y="0">pk_hpke₁,</tspan><tspan class="st80" x="28.58" y="0"> </tspan><tspan class="st76" x="30.97" y="0">sk_hpke₁</tspan></text>
+  </g>
+  <path class="st6" d=""/>
+  <polygon class="st85" points="688.74 188.05 706.74 194.35 688.74 200.65 688.74 188.05"/>
+  <g class="st96" marker-end="url(#arrowOrange)">
+    <path class="st85" d="M730,212"/>
+  </g>
+  <g>
+    <rect class="st39" x="340" y="183" width="220" height="22" rx="5" ry="5"/>
+    <text class="st67" transform="translate(421.8 198)"><tspan class="st76" x="0" y="0">HPKE</tspan><tspan class="st80" x="24.4" y="0"> </tspan><tspan class="st76" x="28.16" y="0">Public</tspan><tspan class="st80" x="56.43" y="0"> </tspan><tspan class="st76" x="60.19" y="0">Key</tspan></text>
+  </g>
+  <g>
+    <rect class="st42" x="715" y="181" width="130" height="28" rx="6" ry="6"/>
+    <text class="st27" transform="translate(733.98 195)"><tspan x="0" y="0">Receive, Gen Ciphertext</tspan></text>
+    <text class="st53" transform="translate(750.09 204)"><tspan class="st76" x="0" y="0">ciphertext₁,</tspan><tspan class="st80" x="32.98" y="0"> </tspan><tspan class="st76" x="35.37" y="0">sender</tspan><tspan class="st80" x="55.28" y="0"> </tspan><tspan class="st71" x="57.67" y="0">ctx</tspan></text>
+  </g>
+  <path class="st6" d=""/>
+  <polygon class="st85" points="275.26 228.85 257.26 235.15 275.26 241.45 275.26 228.85"/>
+  <g class="st99" marker-end="url(#arrowOrangeL)">
+    <path class="st85" d="M170,258"/>
+  </g>
+  <g>
+    <rect class="st39" x="340" y="224" width="220" height="22" rx="5" ry="5"/>
+    <text class="st67" transform="translate(419.92 239)"><tspan class="st76" x="0" y="0">Ciphertext</tspan><tspan class="st80" x="48.31" y="0"> </tspan><tspan class="st76" x="52.07" y="0">(enc)</tspan></text>
+  </g>
+  <g>
+    <rect class="st42" x="715" y="263" width="130" height="28" rx="6" ry="6"/>
+    <text class="st27" transform="translate(722.65 277)"><tspan x="0" y="0">Gen Ephemeral HPKE Keypair</tspan></text>
+    <text class="st53" transform="translate(756.47 286)"><tspan class="st76" x="0" y="0">pk_hpke₂,</tspan><tspan class="st80" x="29.05" y="0"> </tspan><tspan class="st76" x="31.44" y="0">sk_hpke₂</tspan></text>
+  </g>
+  <path class="st6" d=""/>
+  <polygon class="st85" points="212.26 270.7 194.26 277 212.26 283.3 212.26 270.7"/>
+  <g class="st106" marker-end="url(#arrowOrangeL)">
+    <path class="st85" d="M170,304"/>
+  </g>
+  <g>
+    <rect class="st39" x="340" y="266" width="220" height="22" rx="5" ry="5"/>
+    <text class="st67" transform="translate(421.8 281)"><tspan class="st76" x="0" y="0">HPKE</tspan><tspan class="st80" x="24.4" y="0"> </tspan><tspan class="st76" x="28.16" y="0">Public</tspan><tspan class="st80" x="56.43" y="0"> </tspan><tspan class="st76" x="60.19" y="0">Key</tspan></text>
+  </g>
+  <g>
+    <rect class="st42" x="55.26" y="260.75" width="130" height="28" rx="6" ry="6"/>
+    <text class="st27" transform="translate(74.24 274.75)"><tspan x="0" y="0">Receive, Gen Ciphertext</tspan></text>
+    <text class="st53" transform="translate(90.35 284.75)"><tspan class="st76" x="0" y="0">ciphertext₂,</tspan><tspan class="st80" x="33.45" y="0"> </tspan><tspan class="st76" x="35.84" y="0">sender</tspan><tspan class="st80" x="55.75" y="0"> </tspan><tspan class="st76" x="58.14" y="0">ctx</tspan></text>
+  </g>
+  <path class="st6" d=""/>
+  <polygon class="st85" points="630.74 308.19 648.74 314.49 630.74 320.79 630.74 308.19"/>
+  <g class="st103" marker-end="url(#arrowOrange)">
+    <path class="st85" d="M730,350"/>
+  </g>
+  <g>
+    <rect class="st39" x="340" y="304" width="220" height="22" rx="5" ry="5"/>
+    <text class="st67" transform="translate(419.92 319)"><tspan class="st76" x="0" y="0">Ciphertext</tspan><tspan class="st80" x="48.31" y="0"> </tspan><tspan class="st76" x="52.07" y="0">(enc)</tspan></text>
+  </g>
+  <text class="st61" transform="translate(293.67 343)"><tspan x="0" y="0">Both peers create sender &amp; recipient HPKE contexts for secure communication</tspan></text>
+  <g class="st92">
+    <rect class="st44" x="40" y="350" width="820" height="141" rx="10" ry="10"/>
+    <rect class="st9" x="40" y="350" width="820" height="141" rx="10" ry="10"/>
+  </g>
+  <rect class="st65" x="40" y="350" width="820" height="28" rx="10" ry="10"/>
+  <rect class="st64" x="40" y="363" width="820" height="10"/>
+  <circle class="st49" cx="60" cy="359" r="5"/>
+  <text class="st36" transform="translate(75 364)"><tspan x="0" y="0">INTRODUCTION</tspan></text>
+  <text class="st2" transform="translate(739.55 364)"><tspan class="st76" x="0" y="0">Route:</tspan><tspan class="st80" x="26.77" y="0"> </tspan><tspan class="st76" x="30.19" y="0">IDENTITY</tspan><tspan class="st80" x="68.48" y="0"> </tspan><tspan class="st76" x="71.9" y="0">·</tspan><tspan class="st80" x="73.96" y="0"> </tspan><tspan class="st76" x="77.38" y="0">Ed25519</tspan></text>
+  <g>
+    <rect class="st94" x="55" y="397" width="85" height="18" rx="4" ry="4"/>
+    <text class="st23" transform="translate(74.21 408)"><tspan x="0" y="0">Identity Key</tspan></text>
+  </g>
+  <path class="st6" d=""/>
+  <polygon class="st38" points="718.8 400.7 736.8 407 718.8 413.3 718.8 400.7"/>
+  <g class="st107" marker-end="url(#arrowBlue)">
+    <path class="st38" d="M730,407"/>
+  </g>
+  <g>
+    <rect class="st40" x="315" y="395" width="270" height="22" rx="5" ry="5"/>
+    <text class="st67" transform="translate(395.48 410)"><tspan class="st76" x="0" y="0">Introduce</tspan><tspan class="st80" x="44.71" y="0"> </tspan><tspan class="st76" x="48.47" y="0">{</tspan><tspan class="st80" x="51.6" y="0"> </tspan><tspan class="st76" x="55.36" y="0">Name,</tspan><tspan class="st80" x="84.86" y="0"> </tspan><tspan class="st76" x="88.62" y="0">PublicKey</tspan><tspan class="st80" x="133.54" y="0"> </tspan><tspan class="st76" x="137.3" y="0">}</tspan></text>
+  </g>
+  <g>
+    <rect class="st94" x="756" y="397" width="95" height="18" rx="4" ry="4"/>
+    <text class="st34" transform="translate(784.77 409)"><tspan x="0" y="0">Verify Sig</tspan></text>
+  </g>
+  <path class="st6" d=""/>
+  <polygon class="st38" points="176.8 444.7 158.8 451 176.8 457.3 176.8 444.7"/>
+  <g class="st105" marker-end="url(#arrowBlueL)">
+    <path class="st38" d="M170,445"/>
+  </g>
+  <g>
+    <rect class="st40" x="315" y="439" width="270" height="22" rx="5" ry="5"/>
+    <text class="st67" transform="translate(395.48 454)"><tspan class="st76" x="0" y="0">Introduce</tspan><tspan class="st80" x="44.71" y="0"> </tspan><tspan class="st76" x="48.47" y="0">{</tspan><tspan class="st80" x="51.6" y="0"> </tspan><tspan class="st76" x="55.36" y="0">Name,</tspan><tspan class="st80" x="84.86" y="0"> </tspan><tspan class="st76" x="88.62" y="0">PublicKey</tspan><tspan class="st80" x="133.54" y="0"> </tspan><tspan class="st76" x="137.3" y="0">}</tspan></text>
+  </g>
+  <g>
+    <rect class="st94" x="55" y="442" width="85" height="18" rx="4" ry="4"/>
+    <text class="st34" transform="translate(79.77 454)"><tspan x="0" y="0">Verify Sig</tspan></text>
+  </g>
+  <text class="st61" transform="translate(314.55 482)"><tspan x="0" y="0">Both peers now hold each other&apos;s authenticated Ed25519 public key</tspan></text>
+  <g class="st89">
+    <rect class="st44" x="40" y="500" width="820" height="228" rx="10" ry="10"/>
+    <rect class="st7" x="40" y="500" width="820" height="228" rx="10" ry="10"/>
+  </g>
+  <rect class="st66" x="40" y="500" width="820" height="28" rx="10" ry="10"/>
+  <rect class="st56" x="40" y="518" width="820" height="10"/>
+  <circle class="st78" cx="60" cy="514" r="5"/>
+  <text class="st35" transform="translate(75 519)"><tspan x="0" y="0">KEY EXCHANGE</tspan></text>
+  <text class="st2" transform="translate(744.8 515)"><tspan class="st76" x="0" y="0">ML-KEM-768</tspan><tspan class="st80" x="52.67" y="0"> </tspan><tspan class="st76" x="56.09" y="0">·</tspan><tspan class="st80" x="58.16" y="0"> </tspan><tspan class="st76" x="61.57" y="0">Ephemeral</tspan></text>
+  <rect class="st22" x="55" y="538" width="120" height="32" rx="6" ry="6"/>
+  <text class="st31" transform="translate(80.05 552)"><tspan x="0" y="0">Gen ML-KEM-768</tspan></text>
+  <text class="st52" transform="translate(97.06 564)"><tspan class="st76" x="0" y="0">pk_kem,</tspan><tspan class="st80" x="26.62" y="0"> </tspan><tspan class="st76" x="29.18" y="0">sk_kem</tspan></text>
+  <rect class="st22" x="55" y="574" width="120" height="32" rx="6" ry="6"/>
+  <text class="st31" transform="translate(82.4 588)"><tspan x="0" y="0">Gen Parameters</tspan></text>
+  <text class="st52" transform="translate(81.67 600)"><tspan class="st76" x="0" y="0">salt</tspan><tspan class="st80" x="10.84" y="0"> </tspan><tspan class="st76" x="13.4" y="0">(16B)</tspan><tspan class="st80" x="29.42" y="0"> </tspan><tspan class="st70" x="31.98" y="0">+</tspan><tspan class="st80" x="36.45" y="0"> </tspan><tspan class="st75" x="39.02" y="0">prefix</tspan><tspan class="st80" x="56.89" y="0"> </tspan><tspan class="st76" x="59.45" y="0">(10ch)</tspan></text>
+  <path class="st6" d=""/>
+  <polygon class="st82" points="713.8 610.7 731.8 617 713.8 623.3 713.8 610.7"/>
+  <g class="st102" marker-end="url(#arrowPurple)">
+    <path class="st82" d="M730,619"/>
+  </g>
+  <rect class="st21" x="275" y="607" width="350" height="22" rx="5" ry="5"/>
+  <text class="st67" transform="translate(372.92 622)"><tspan class="st76" x="0" y="0">Handshake</tspan><tspan class="st80" x="51.22" y="0"> </tspan><tspan class="st76" x="54.98" y="0">{</tspan><tspan class="st80" x="58.1" y="0"> </tspan><tspan class="st76" x="61.86" y="0">pk_kem,</tspan><tspan class="st80" x="100.9" y="0"> </tspan><tspan class="st76" x="104.66" y="0">Salt,</tspan><tspan class="st80" x="123.9" y="0"> </tspan><tspan class="st69" x="127.66" y="0">SessionPrefix</tspan><tspan class="st80" x="187.82" y="0"> </tspan><tspan class="st76" x="191.58" y="0">}</tspan></text>
+  <text class="st1" transform="translate(188.8 610.86)"><tspan x="0" y="0">REQUEST_HANDSHAKE</tspan></text>
+  <rect class="st22" x="725" y="629" width="120" height="46" rx="6" ry="6"/>
+  <text class="st31" transform="translate(741.3 643)"><tspan x="0" y="0">Encapsulate(pk_kem)</tspan></text>
+  <text class="st52" transform="translate(761.93 656)"><tspan class="st76" x="0" y="0">secret</tspan><tspan class="st80" x="18.78" y="0"> </tspan><tspan class="st76" x="21.34" y="0">(32B),</tspan><tspan class="st80" x="38.92" y="0"> </tspan><tspan class="st70" x="41.48" y="0">ct</tspan></text>
+  <text class="st52" transform="translate(761.93 668)"><tspan class="st76" x="0" y="0">+</tspan><tspan class="st80" x="4.47" y="0"> </tspan><tspan class="st70" x="7.03" y="0">gen</tspan><tspan class="st80" x="19.15" y="0"> </tspan><tspan class="st70" x="21.71" y="0">salt,</tspan><tspan class="st80" x="34.1" y="0"> </tspan><tspan class="st75" x="36.66" y="0">suffix</tspan></text>
+  <path class="st6" d=""/>
+  <polygon class="st82" points="182.8 679.7 164.8 686 182.8 692.3 182.8 679.7"/>
+  <g class="st100" marker-end="url(#arrowPurpleL)">
+    <path class="st82" d="M170,687"/>
+  </g>
+  <rect class="st21" x="280" y="675" width="340" height="22" rx="5" ry="5"/>
+  <text class="st67" transform="translate(365.41 690)"><tspan class="st76" x="0" y="0">Handshake</tspan><tspan class="st80" x="51.22" y="0"> </tspan><tspan class="st76" x="54.98" y="0">{</tspan><tspan class="st80" x="58.1" y="0"> </tspan><tspan class="st76" x="61.86" y="0">Ciphertext,</tspan><tspan class="st80" x="112.45" y="0"> </tspan><tspan class="st76" x="116.21" y="0">Salt,</tspan><tspan class="st80" x="135.45" y="0"> </tspan><tspan class="st76" x="139.21" y="0">SessionSuffix</tspan><tspan class="st80" x="199.11" y="0"> </tspan><tspan class="st76" x="202.87" y="0">}</tspan></text>
+  <text class="st4" transform="translate(631.98 679)"><tspan x="0" y="0">ACCEPT_HANDSHAKE</tspan></text>
+  <rect class="st22" x="55" y="695" width="120" height="22" rx="6" ry="6"/>
+  <text class="st31" transform="translate(83.35 710)"><tspan x="0" y="0">Decapsulate(ct)</tspan></text>
+  <path class="st58" d="M56,547h0c.55,0,1,.45,1,1v173c0,.55-.45,1-1,1h0c-.55,0-1-.45-1-1v-173c0-.55.45-1,1-1Z"/>
+  <path class="st59" d="M844,547h0c.55,0,1,.45,1,1v168c0,.55-.45,1-1,1h0c-.55,0-1-.45-1-1v-168c0-.55.45-1,1-1Z"/>
+  <text class="st32" transform="translate(357.83 721)"><tspan x="0" y="0">Both derive: secret = 32-byte shared secret</tspan></text>
+  <g class="st87">
+    <rect class="st44" x="40" y="738" width="820" height="260" rx="10" ry="10"/>
+    <rect class="st17" x="40" y="738" width="820" height="260" rx="10" ry="10"/>
+  </g>
+  <rect class="st55" x="40" y="738" width="820" height="28" rx="10" ry="10"/>
+  <rect class="st57" x="40" y="756" width="820" height="10"/>
+  <circle class="st77" cx="60" cy="752" r="5"/>
+  <text class="st30" transform="translate(75 757)"><tspan x="0" y="0">CHALLENGE EXCHANGE</tspan></text>
+  <g class="st54">
+    <g>
+      <path class="st108" d="M705.52,751.92v4.91c0,.37.3.67.67.67h8.04c.37,0,.67-.3.67-.67v-4.91h-9.38Z"/>
+      <path class="st95" d="M714.89,751.24c0-.37-.3-.67-.67-.67h-8.04c-.37,0-.67.3-.67.67v.67h9.38v-.67Z"/>
+      <path class="st97" d="M707.14,750.79c.51,0,.92.18.92.39s-.41.39-.92.39-.93-.18-.93-.39.41-.39.93-.39Z"/>
+      <path class="st97" d="M713.27,750.79c.51,0,.93.18.93.39s-.41.39-.93.39-.92-.18-.92-.39.41-.39.92-.39Z"/>
+      <path class="st83" d="M710.21,747.5c-2.02,0-3.66,1.65-3.66,3.68,0,.12.25.22.59.22v-.22h0c.12-1.71,1.45-3.07,3.07-3.07s2.95,1.36,3.07,3.07h0v.22c.34,0,.59-.1.59-.22,0-2.03-1.64-3.68-3.66-3.68Z"/>
+      <path class="st98" d="M713.27,751.18c-.12-1.71-1.45-3.07-3.07-3.07s-2.95,1.36-3.07,3.07h0v.22c.34,0,.65-.1.65-.22,0-1.11.92-2.43,2.41-2.43s2.41,1.32,2.41,2.43c0,.12.31.22.65.22v-.22Z"/>
+      <path class="st97" d="M710.93,756.31l-.3-1.92c.18-.13.29-.34.29-.58,0-.4-.32-.72-.71-.72s-.71.32-.71.72c0,.24.11.45.29.58l-.3,1.92h1.44Z"/>
+    </g>
+    <path class="st0" d="M722.87,752.84h-2.62v2.43h2.92v.73h-3.79v-6.74h3.64v.73h-2.77v2.13h2.62v.72Z"/>
+    <path class="st0" d="M724.27,752.47c0-.5,0-.91-.04-1.31h.78l.05.8h.02c.24-.46.8-.91,1.6-.91.67,0,1.71.4,1.71,2.06v2.89h-.88v-2.79c0-.78-.29-1.43-1.12-1.43-.58,0-1.03.41-1.18.9-.04.11-.06.26-.06.41v2.91h-.88v-3.53Z"/>
+    <path class="st0" d="M733.27,755.82c-.23.12-.74.28-1.39.28-1.46,0-2.41-.99-2.41-2.47s1.02-2.57,2.6-2.57c.52,0,.98.13,1.22.25l-.2.68c-.21-.12-.54-.23-1.02-.23-1.11,0-1.71.82-1.71,1.83,0,1.12.72,1.81,1.68,1.81.5,0,.83-.13,1.08-.24l.15.66Z"/>
+    <path class="st0" d="M734.3,752.67c0-.57,0-1.06-.04-1.51h.77l.03.95h.04c.22-.65.75-1.06,1.34-1.06.1,0,.17,0,.25.03v.83c-.09-.02-.18-.03-.3-.03-.62,0-1.06.47-1.18,1.13-.02.12-.04.26-.04.41v2.58h-.87v-3.33Z"/>
+    <path class="st0" d="M738.14,751.16l1.06,2.86c.11.32.23.7.31.99h.02c.09-.29.19-.66.31-1.01l.96-2.84h.93l-1.32,3.45c-.63,1.66-1.06,2.51-1.66,3.03-.43.38-.86.53-1.08.57l-.22-.74c.22-.07.51-.21.77-.43.24-.19.54-.53.74-.98.04-.09.07-.16.07-.21s-.02-.12-.06-.23l-1.79-4.46h.96Z"/>
+    <path class="st0" d="M742.53,752.74c0-.62-.02-1.12-.04-1.58h.79l.04.83h.02c.36-.59.93-.94,1.72-.94,1.17,0,2.05.99,2.05,2.46,0,1.74-1.06,2.6-2.2,2.6-.64,0-1.2-.28-1.49-.76h-.02v2.63h-.87v-5.24ZM743.4,754.03c0,.13.02.25.04.36.16.61.69,1.03,1.32,1.03.93,0,1.47-.76,1.47-1.87,0-.97-.51-1.8-1.44-1.8-.6,0-1.16.43-1.33,1.09-.03.11-.06.24-.06.36v.83Z"/>
+    <path class="st0" d="M749.28,749.77v1.39h1.26v.67h-1.26v2.61c0,.6.17.94.66.94.23,0,.4-.03.51-.06l.04.66c-.17.07-.44.12-.78.12-.41,0-.74-.13-.95-.37-.25-.26-.34-.69-.34-1.26v-2.64h-.75v-.67h.75v-1.16l.86-.23Z"/>
+    <path class="st0" d="M751.96,753.74c.02,1.19.78,1.68,1.66,1.68.63,0,1.01-.11,1.34-.25l.15.63c-.31.14-.84.3-1.61.3-1.49,0-2.38-.98-2.38-2.44s.86-2.61,2.27-2.61c1.58,0,2,1.39,2,2.28,0,.18-.02.32-.03.41h-3.4ZM754.54,753.11c0-.56-.23-1.43-1.22-1.43-.89,0-1.28.82-1.35,1.43h2.57Z"/>
+    <path class="st0" d="M760.66,748.9v5.85c0,.43,0,.92.04,1.25h-.79l-.04-.84h-.02c-.27.54-.86.95-1.65.95-1.17,0-2.07-.99-2.07-2.46-.01-1.61.99-2.6,2.17-2.6.74,0,1.24.35,1.46.74h.02v-2.89h.88ZM759.78,753.13c0-.11-.01-.26-.04-.37-.13-.56-.61-1.02-1.27-1.02-.91,0-1.45.8-1.45,1.87,0,.98.48,1.79,1.43,1.79.59,0,1.13-.39,1.29-1.05.03-.12.04-.24.04-.38v-.84Z"/>
+    <path class="st0" d="M765.25,753.37c0-.36.25-.63.6-.63s.58.26.59.63c0,.36-.24.63-.6.63s-.6-.27-.59-.63Z"/>
+    <path class="st0" d="M776.74,753.04c-.05-.94-.11-2.07-.1-2.91h-.03c-.23.79-.51,1.63-.85,2.56l-1.19,3.27h-.66l-1.09-3.21c-.32-.95-.59-1.82-.78-2.62h-.02c-.02.84-.07,1.97-.13,2.98l-.18,2.89h-.83l.47-6.74h1.11l1.15,3.26c.28.83.51,1.57.68,2.27h.03c.17-.68.41-1.42.71-2.27l1.2-3.26h1.11l.42,6.74h-.85l-.17-2.96Z"/>
+    <path class="st0" d="M783.15,754.68c0,.5.01.94.04,1.32h-.78l-.05-.79h-.02c-.23.39-.74.9-1.6.9-.76,0-1.67-.42-1.67-2.12v-2.83h.88v2.68c0,.92.28,1.54,1.08,1.54.59,0,1-.41,1.16-.8.05-.13.08-.29.08-.45v-2.97h.88v3.52Z"/>
+    <path class="st0" d="M785.67,749.77v1.39h1.26v.67h-1.26v2.61c0,.6.17.94.66.94.23,0,.4-.03.51-.06l.04.66c-.17.07-.44.12-.78.12-.41,0-.74-.13-.95-.37-.25-.26-.34-.69-.34-1.26v-2.64h-.75v-.67h.75v-1.16l.86-.23Z"/>
+    <path class="st0" d="M791.97,754.68c0,.5.01.94.04,1.32h-.78l-.05-.79h-.02c-.23.39-.74.9-1.6.9-.76,0-1.67-.42-1.67-2.12v-2.83h.88v2.68c0,.92.28,1.54,1.08,1.54.59,0,1-.41,1.16-.8.05-.13.08-.29.08-.45v-2.97h.88v3.52Z"/>
+    <path class="st0" d="M796.11,756l-.07-.61h-.03c-.27.38-.79.72-1.48.72-.98,0-1.48-.69-1.48-1.39,0-1.17,1.04-1.81,2.91-1.8v-.1c0-.4-.11-1.12-1.1-1.12-.45,0-.92.14-1.26.36l-.2-.58c.4-.26.98-.43,1.59-.43,1.48,0,1.84,1.01,1.84,1.98v1.81c0,.42.02.83.08,1.16h-.8ZM795.98,753.53c-.96-.02-2.05.15-2.05,1.09,0,.57.38.84.83.84.63,0,1.03-.4,1.17-.81.03-.09.05-.19.05-.28v-.84Z"/>
+    <path class="st0" d="M798.25,748.9h.88v7.1h-.88v-7.1Z"/>
+    <path class="st0" d="M805.54,756l-2.2-6.74h.94l1.05,3.32c.29.91.54,1.73.72,2.52h.02c.19-.78.47-1.63.77-2.51l1.14-3.33h.93l-2.41,6.74h-.96Z"/>
+    <path class="st0" d="M809.77,753.74c.02,1.19.78,1.68,1.66,1.68.63,0,1.01-.11,1.34-.25l.15.63c-.31.14-.84.3-1.61.3-1.49,0-2.38-.98-2.38-2.44s.86-2.61,2.27-2.61c1.58,0,2,1.39,2,2.28,0,.18-.02.32-.03.41h-3.4ZM812.35,753.11c0-.56-.23-1.43-1.22-1.43-.89,0-1.28.82-1.35,1.43h2.57Z"/>
+    <path class="st0" d="M814.29,752.67c0-.57,0-1.06-.04-1.51h.77l.03.95h.04c.22-.65.75-1.06,1.34-1.06.1,0,.17,0,.25.03v.83c-.09-.02-.18-.03-.3-.03-.62,0-1.06.47-1.18,1.13-.02.12-.04.26-.04.41v2.58h-.87v-3.33Z"/>
+    <path class="st0" d="M818.58,749.8c.01.3-.21.54-.56.54-.31,0-.53-.24-.53-.54s.23-.55.55-.55.54.24.54.55ZM817.6,756v-4.84h.88v4.84h-.88Z"/>
+    <path class="st0" d="M820.03,756v-4.17h-.68v-.67h.68v-.26c0-1.28.75-2.11,2.11-2.11.45,0,.98.14,1.23.32l-.25.67c-.21-.15-.59-.28-1.02-.28-.93,0-1.2.65-1.2,1.42v.24h2.81v4.84h-.87v-4.17h-1.94v4.17h-.87Z"/>
+    <path class="st0" d="M828.62,755.82c-.23.12-.74.28-1.39.28-1.46,0-2.41-.99-2.41-2.47s1.02-2.57,2.6-2.57c.52,0,.98.13,1.22.25l-.2.68c-.21-.12-.54-.23-1.02-.23-1.11,0-1.71.82-1.71,1.83,0,1.12.72,1.81,1.68,1.81.5,0,.83-.13,1.08-.24l.15.66Z"/>
+    <path class="st0" d="M832.33,756l-.07-.61h-.03c-.27.38-.79.72-1.48.72-.98,0-1.48-.69-1.48-1.39,0-1.17,1.04-1.81,2.91-1.8v-.1c0-.4-.11-1.12-1.1-1.12-.45,0-.92.14-1.26.36l-.2-.58c.4-.26.98-.43,1.59-.43,1.48,0,1.84,1.01,1.84,1.98v1.81c0,.42.02.83.08,1.16h-.8ZM832.2,753.53c-.96-.02-2.05.15-2.05,1.09,0,.57.38.84.83.84.63,0,1.03-.4,1.17-.81.03-.09.05-.19.05-.28v-.84Z"/>
+    <path class="st0" d="M835.49,749.77v1.39h1.26v.67h-1.26v2.61c0,.6.17.94.66.94.23,0,.4-.03.51-.06l.04.66c-.17.07-.44.12-.78.12-.41,0-.74-.13-.95-.37-.25-.26-.34-.69-.34-1.26v-2.64h-.75v-.67h.75v-1.16l.86-.23Z"/>
+    <path class="st0" d="M838.72,749.8c0,.3-.21.54-.56.54-.31,0-.53-.24-.53-.54s.23-.55.55-.55.54.24.54.55ZM837.74,756v-4.84h.88v4.84h-.88Z"/>
+    <path class="st0" d="M844.46,753.54c0,1.79-1.24,2.57-2.41,2.57-1.31,0-2.32-.96-2.32-2.49,0-1.62,1.06-2.57,2.4-2.57s2.33,1.01,2.33,2.49ZM840.62,753.59c0,1.06.61,1.86,1.47,1.86s1.47-.79,1.47-1.88c0-.82-.41-1.86-1.45-1.86s-1.49.96-1.49,1.88Z"/>
+    <path class="st0" d="M845.57,752.47c0-.5,0-.91-.04-1.31h.78l.05.8h.02c.24-.46.8-.91,1.6-.91.67,0,1.71.4,1.71,2.06v2.89h-.88v-2.79c0-.78-.29-1.43-1.12-1.43-.58,0-1.03.41-1.18.9-.04.11-.06.26-.06.41v2.91h-.88v-3.53Z"/>
+  </g>
+  <rect class="st43" x="55" y="774" width="115" height="32" rx="6" ry="6"/>
+  <text class="st26" transform="translate(83.54 788)"><tspan x="0" y="0">Create Ciphers</tspan></text>
+  <text class="st53" transform="translate(82.86 799)"><tspan class="st76" x="0" y="0">HKDF</tspan><tspan class="st80" x="16.43" y="0"> </tspan><tspan class="st76" x="18.82" y="0">-</tspan><tspan class="st80" x="20.97" y="0"> </tspan><tspan class="st76" x="23.36" y="0">XChaCha20</tspan></text>
+  <rect class="st43" x="730" y="774" width="115" height="32" rx="6" ry="6"/>
+  <text class="st26" transform="translate(758.54 788)"><tspan x="0" y="0">Create Ciphers</tspan></text>
+  <text class="st53" transform="translate(759.86 799)"><tspan class="st76" x="0" y="0">HKDF</tspan><tspan class="st80" x="16.43" y="0"> </tspan><tspan class="st76" x="18.82" y="0">-</tspan><tspan class="st80" x="20.97" y="0"> </tspan><tspan class="st76" x="23.36" y="0">XChaCha20</tspan></text>
+  <g>
+    <rect class="st94" x="55" y="832" width="115" height="22" rx="6" ry="6"/>
+    <text class="st26" transform="translate(75.76 846)"><tspan x="0" y="0">Derive challenge_c</tspan></text>
+  </g>
+  <path class="st6" d=""/>
+  <polygon class="st84" points="716.8 837.7 734.8 844 716.8 850.3 716.8 837.7"/>
+  <g class="st104" marker-end="url(#arrowPink)">
+    <path class="st84" d="M730,844"/>
+  </g>
+  <rect class="st41" x="340" y="832" width="220" height="22" rx="5" ry="5"/>
+  <g class="st54">
+    <g>
+      <path class="st108" d="M408.99,842.51v5.4c0,.41.33.74.74.74h8.84c.41,0,.74-.33.74-.74v-5.4h-10.31Z"/>
+      <path class="st95" d="M419.3,841.77c0-.41-.33-.74-.74-.74h-8.84c-.41,0-.74.33-.74.74v.74h10.31v-.74Z"/>
+      <ellipse class="st97" cx="410.77" cy="841.69" rx="1.02" ry=".43"/>
+      <ellipse class="st97" cx="417.52" cy="841.69" rx="1.02" ry=".43"/>
+      <path class="st83" d="M414.14,837.65c-2.22,0-4.03,1.81-4.03,4.04,0,.13.27.24.65.24v-.24h0c.13-1.89,1.59-3.38,3.37-3.38s3.24,1.49,3.37,3.38h0v.24c.38,0,.65-.11.65-.24,0-2.23-1.81-4.04-4.03-4.04Z"/>
+      <path class="st98" d="M417.52,841.69c-.13-1.89-1.59-3.38-3.37-3.38s-3.24,1.49-3.37,3.38h0v.24c.38,0,.72-.11.72-.24,0-1.22,1.02-2.67,2.66-2.67s2.66,1.45,2.66,2.67c0,.13.34.24.72.24v-.24Z"/>
+      <path class="st97" d="M414.93,847.34l-.33-2.11c.19-.14.32-.37.32-.63,0-.44-.35-.79-.78-.79s-.78.35-.78.79c0,.26.13.49.32.63l-.33,2.11h1.58Z"/>
+    </g>
+    <path class="st109" d="M428.08,843.52h-2.88v2.67h3.21v.8h-4.17v-7.42h4v.8h-3.05v2.34h2.88v.79Z"/>
+    <path class="st109" d="M429.62,843.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88Z"/>
+    <path class="st109" d="M439.52,846.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73Z"/>
+    <path class="st109" d="M440.65,843.34c0-.63-.01-1.17-.04-1.66h.85l.03,1.05h.04c.24-.72.83-1.17,1.47-1.17.11,0,.19.01.28.03v.91c-.1-.02-.2-.03-.33-.03-.68,0-1.17.52-1.3,1.24-.02.13-.04.29-.04.45v2.84h-.96v-3.66Z"/>
+    <path class="st109" d="M444.87,841.67l1.17,3.15c.12.35.25.77.34,1.09h.02c.1-.32.21-.73.34-1.11l1.06-3.12h1.02l-1.45,3.8c-.69,1.83-1.17,2.76-1.83,3.33-.47.42-.95.58-1.19.63l-.24-.81c.24-.08.56-.23.85-.47.26-.21.59-.58.81-1.08.04-.1.08-.18.08-.23s-.02-.13-.07-.25l-1.97-4.91h1.06Z"/>
+    <path class="st109" d="M449.7,843.41c0-.68-.02-1.23-.04-1.74h.87l.04.91h.02c.4-.65,1.02-1.03,1.89-1.03,1.29,0,2.26,1.09,2.26,2.71,0,1.91-1.17,2.86-2.42,2.86-.7,0-1.32-.31-1.64-.84h-.02v2.89h-.96v-5.77ZM450.66,844.83c0,.14.02.27.04.4.18.67.76,1.13,1.45,1.13,1.02,0,1.62-.84,1.62-2.06,0-1.07-.56-1.98-1.58-1.98-.66,0-1.28.47-1.46,1.2-.03.12-.07.26-.07.4v.91Z"/>
+    <path class="st109" d="M457.13,840.15v1.53h1.39v.74h-1.39v2.87c0,.66.19,1.03.73,1.03.25,0,.44-.03.56-.07l.04.73c-.19.08-.48.13-.86.13-.45,0-.81-.14-1.05-.41-.27-.29-.37-.76-.37-1.39v-2.9h-.82v-.74h.82v-1.28l.95-.25Z"/>
+    <path class="st109" d="M461.7,839.37c-.8,1.08-1.39,2.51-1.39,4.5s.61,3.37,1.39,4.47h-.76c-.69-.91-1.44-2.32-1.44-4.47.01-2.17.75-3.58,1.44-4.5h.76Z"/>
+    <path class="st109" d="M466.52,846.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73Z"/>
+    <path class="st109" d="M467.65,839.19h.97v3.32h.02c.15-.28.4-.52.69-.68.29-.17.63-.27.99-.27.71,0,1.86.44,1.86,2.28v3.17h-.97v-3.06c0-.86-.32-1.58-1.23-1.58-.63,0-1.12.44-1.3.97-.06.13-.07.28-.07.46v3.21h-.97v-7.81Z"/>
+    <path class="st109" d="M476.71,847l-.08-.67h-.03c-.3.42-.87.79-1.63.79-1.08,0-1.63-.76-1.63-1.53,0-1.29,1.14-1.99,3.2-1.98v-.11c0-.44-.12-1.23-1.21-1.23-.5,0-1.01.15-1.39.4l-.22-.64c.44-.29,1.08-.47,1.75-.47,1.63,0,2.02,1.11,2.02,2.18v1.99c0,.46.02.91.09,1.28h-.88ZM476.56,844.28c-1.06-.02-2.25.17-2.25,1.2,0,.63.42.92.91.92.69,0,1.13-.44,1.29-.89.03-.1.05-.21.05-.31v-.92Z"/>
+    <path class="st109" d="M479.06,839.19h.97v7.81h-.97v-7.81Z"/>
+    <path class="st109" d="M481.66,839.19h.97v7.81h-.97v-7.81Z"/>
+    <path class="st109" d="M484.79,844.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.74ZM487.63,843.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.49,1.57h2.83Z"/>
+    <path class="st109" d="M489.76,843.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88Z"/>
+    <path class="st109" d="M500.46,841.67c-.02.39-.04.81-.04,1.46v3.09c0,1.22-.24,1.97-.76,2.43-.52.48-1.27.64-1.94.64s-1.34-.15-1.77-.44l.24-.74c.35.22.9.42,1.56.42.99,0,1.72-.52,1.72-1.86v-.59h-.02c-.3.5-.87.89-1.69.89-1.32,0-2.27-1.12-2.27-2.6,0-1.8,1.18-2.83,2.4-2.83.92,0,1.43.48,1.66.92h.02l.04-.8h.85ZM499.46,843.78c0-.17-.01-.31-.06-.44-.18-.56-.65-1.02-1.35-1.02-.92,0-1.58.78-1.58,2.01,0,1.05.53,1.92,1.57,1.92.59,0,1.13-.37,1.34-.99.05-.17.08-.35.08-.52v-.96Z"/>
+    <path class="st109" d="M502.56,844.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.74ZM505.4,843.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.48,1.57h2.83Z"/>
+    <path class="st109" d="M512.23,847.83v.55h-5.5v-.55h5.5Z"/>
+    <path class="st109" d="M516.82,846.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.16.73Z"/>
+  </g>
+  <text class="st4" transform="translate(221.37 837.99)"><tspan x="0" y="0">SEND_CHALLENGE</tspan></text>
+  <g>
+    <rect class="st94" x="757" y="843.58" width="85" height="29.36" rx="4" ry="4"/>
+    <text class="st26" transform="translate(769.77 862)"><tspan x="0" y="0">Decrypt + Echo</tspan></text>
+  </g>
+  <path class="st6" d=""/>
+  <polygon class="st84" points="199.8 873.7 181.8 880 199.8 886.3 199.8 873.7"/>
+  <g class="st101" marker-end="url(#arrowPinkL)">
+    <path class="st84" d="M170,880"/>
+  </g>
+  <rect class="st41" x="340" y="868" width="220" height="22" rx="5" ry="5"/>
+  <g class="st54">
+    <g>
+      <path class="st108" d="M408.99,878.51v5.4c0,.41.33.74.74.74h8.84c.41,0,.74-.33.74-.74v-5.4h-10.31Z"/>
+      <path class="st95" d="M419.3,877.77c0-.41-.33-.74-.74-.74h-8.84c-.41,0-.74.33-.74.74v.74h10.31v-.74Z"/>
+      <ellipse class="st97" cx="410.77" cy="877.69" rx="1.02" ry=".43"/>
+      <ellipse class="st97" cx="417.52" cy="877.69" rx="1.02" ry=".43"/>
+      <path class="st83" d="M414.14,873.65c-2.22,0-4.03,1.81-4.03,4.04,0,.13.27.24.65.24v-.24h0c.13-1.89,1.59-3.38,3.37-3.38s3.24,1.49,3.37,3.38h0v.24c.38,0,.65-.11.65-.24,0-2.23-1.81-4.04-4.03-4.04Z"/>
+      <path class="st98" d="M417.52,877.69c-.13-1.89-1.59-3.38-3.37-3.38s-3.24,1.49-3.37,3.38h0v.24c.38,0,.72-.11.72-.24,0-1.22,1.02-2.67,2.66-2.67s2.66,1.45,2.66,2.67c0,.13.34.24.72.24v-.24Z"/>
+      <path class="st97" d="M414.93,883.34l-.33-2.11c.19-.14.32-.37.32-.63,0-.44-.35-.79-.78-.79s-.78.35-.78.79c0,.26.13.49.32.63l-.33,2.11h1.58Z"/>
+    </g>
+    <path class="st109" d="M428.08,879.52h-2.88v2.67h3.21v.8h-4.17v-7.42h4v.8h-3.05v2.34h2.88v.79Z"/>
+    <path class="st109" d="M429.62,879.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88Z"/>
+    <path class="st109" d="M439.52,882.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73Z"/>
+    <path class="st109" d="M440.65,879.34c0-.63-.01-1.17-.04-1.66h.85l.03,1.05h.04c.24-.72.83-1.17,1.47-1.17.11,0,.19.01.28.03v.91c-.1-.02-.2-.03-.33-.03-.68,0-1.17.52-1.3,1.24-.02.13-.04.29-.04.45v2.84h-.96v-3.66Z"/>
+    <path class="st109" d="M444.87,877.67l1.17,3.15c.12.35.25.77.34,1.09h.02c.1-.32.21-.73.34-1.11l1.06-3.12h1.02l-1.45,3.8c-.69,1.83-1.17,2.76-1.83,3.33-.47.42-.95.58-1.19.63l-.24-.81c.24-.08.56-.23.85-.47.26-.21.59-.58.81-1.08.04-.1.08-.18.08-.23s-.02-.13-.07-.25l-1.97-4.91h1.06Z"/>
+    <path class="st109" d="M449.7,879.41c0-.68-.02-1.23-.04-1.74h.87l.04.91h.02c.4-.65,1.02-1.03,1.89-1.03,1.29,0,2.26,1.09,2.26,2.71,0,1.91-1.17,2.86-2.42,2.86-.7,0-1.32-.31-1.64-.84h-.02v2.89h-.96v-5.77ZM450.66,880.83c0,.14.02.27.04.4.18.67.76,1.13,1.45,1.13,1.02,0,1.62-.84,1.62-2.06,0-1.07-.56-1.98-1.58-1.98-.66,0-1.28.47-1.46,1.2-.03.12-.07.26-.07.4v.91Z"/>
+    <path class="st109" d="M457.13,876.15v1.53h1.39v.74h-1.39v2.87c0,.66.19,1.03.73,1.03.25,0,.44-.03.56-.07l.04.73c-.19.08-.48.13-.86.13-.45,0-.81-.14-1.05-.41-.27-.29-.37-.76-.37-1.39v-2.9h-.82v-.74h.82v-1.28l.95-.25Z"/>
+    <path class="st109" d="M461.7,875.37c-.8,1.08-1.39,2.51-1.39,4.5s.61,3.37,1.39,4.47h-.76c-.69-.91-1.44-2.32-1.44-4.47.01-2.17.75-3.58,1.44-4.5h.76Z"/>
+    <path class="st109" d="M466.52,882.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73Z"/>
+    <path class="st109" d="M467.65,875.19h.97v3.32h.02c.15-.28.4-.52.69-.68.29-.17.63-.27.99-.27.71,0,1.86.44,1.86,2.28v3.17h-.97v-3.06c0-.86-.32-1.58-1.23-1.58-.63,0-1.12.44-1.3.97-.06.13-.07.28-.07.46v3.21h-.97v-7.81Z"/>
+    <path class="st109" d="M476.71,883l-.08-.67h-.03c-.3.42-.87.79-1.63.79-1.08,0-1.63-.76-1.63-1.53,0-1.29,1.14-1.99,3.2-1.98v-.11c0-.44-.12-1.23-1.21-1.23-.5,0-1.01.15-1.39.4l-.22-.64c.44-.29,1.08-.47,1.75-.47,1.63,0,2.02,1.11,2.02,2.18v1.99c0,.46.02.91.09,1.28h-.88ZM476.56,880.28c-1.06-.02-2.25.17-2.25,1.2,0,.63.42.92.91.92.69,0,1.13-.44,1.29-.89.03-.1.05-.21.05-.31v-.92Z"/>
+    <path class="st109" d="M479.06,875.19h.97v7.81h-.97v-7.81Z"/>
+    <path class="st109" d="M481.66,875.19h.97v7.81h-.97v-7.81Z"/>
+    <path class="st109" d="M484.79,880.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.74ZM487.63,879.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.49,1.57h2.83Z"/>
+    <path class="st109" d="M489.76,879.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88Z"/>
+    <path class="st109" d="M500.46,877.67c-.02.39-.04.81-.04,1.46v3.09c0,1.22-.24,1.97-.76,2.43-.52.48-1.27.64-1.94.64s-1.34-.15-1.77-.44l.24-.74c.35.22.9.42,1.56.42.99,0,1.72-.52,1.72-1.86v-.59h-.02c-.3.5-.87.89-1.69.89-1.32,0-2.27-1.12-2.27-2.6,0-1.8,1.18-2.83,2.4-2.83.92,0,1.43.48,1.66.92h.02l.04-.8h.85ZM499.46,879.78c0-.17-.01-.31-.06-.44-.18-.56-.65-1.02-1.35-1.02-.92,0-1.58.78-1.58,2.01,0,1.05.53,1.92,1.57,1.92.59,0,1.13-.37,1.34-.99.05-.17.08-.35.08-.52v-.96Z"/>
+    <path class="st109" d="M502.56,880.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.74ZM505.4,879.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.48,1.57h2.83Z"/>
+    <path class="st109" d="M512.23,883.83v.55h-5.5v-.55h5.5Z"/>
+    <path class="st109" d="M516.82,882.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.16.73Z"/>
+  </g>
+  <text class="st4" transform="translate(612.98 872)"><tspan x="0" y="0">VERIFY_CHALLENGE</tspan></text>
+  <g>
+    <rect class="st94" x="54" y="870" width="115" height="18" rx="4" ry="4"/>
+    <text class="st25" transform="translate(67.06 881)"><tspan x="0" y="0">ConstantTimeCompare</tspan></text>
+  </g>
+  <g>
+    <rect class="st94" x="730" y="919" width="115" height="22" rx="6" ry="6"/>
+    <text class="st26" transform="translate(750.76 934)"><tspan x="0" y="0">Derive challenge_s</tspan></text>
+  </g>
+  <path class="st6" d=""/>
+  <polygon class="st84" points="182.8 926.7 164.8 933 182.8 939.3 182.8 926.7"/>
+  <g class="st110" marker-end="url(#arrowPinkL)">
+    <path class="st84" d="M170,932"/>
+  </g>
+  <rect class="st41" x="340" y="920" width="220" height="22" rx="5" ry="5"/>
+  <g class="st54">
+    <g>
+      <path class="st108" d="M408.99,930.51v5.4c0,.41.33.74.74.74h8.84c.41,0,.74-.33.74-.74v-5.4h-10.31Z"/>
+      <path class="st95" d="M419.3,929.77c0-.41-.33-.74-.74-.74h-8.84c-.41,0-.74.33-.74.74v.74h10.31v-.74Z"/>
+      <ellipse class="st97" cx="410.77" cy="929.69" rx="1.02" ry=".43"/>
+      <ellipse class="st97" cx="417.52" cy="929.69" rx="1.02" ry=".43"/>
+      <path class="st83" d="M414.14,925.65c-2.22,0-4.03,1.81-4.03,4.04,0,.13.27.24.65.24v-.24h0c.13-1.89,1.59-3.38,3.37-3.38s3.24,1.49,3.37,3.38h0v.24c.38,0,.65-.11.65-.24,0-2.23-1.81-4.04-4.03-4.04Z"/>
+      <path class="st98" d="M417.52,929.69c-.13-1.89-1.59-3.38-3.37-3.38s-3.24,1.49-3.37,3.38h0v.24c.38,0,.72-.11.72-.24,0-1.22,1.02-2.67,2.66-2.67s2.66,1.45,2.66,2.67c0,.13.34.24.72.24v-.24Z"/>
+      <path class="st97" d="M414.93,935.34l-.33-2.11c.19-.14.32-.37.32-.63,0-.44-.35-.79-.78-.79s-.78.35-.78.79c0,.26.13.49.32.63l-.33,2.11h1.58Z"/>
+    </g>
+    <path class="st109" d="M428.08,931.52h-2.88v2.67h3.21v.8h-4.17v-7.42h4v.8h-3.05v2.34h2.88v.79Z"/>
+    <path class="st109" d="M429.62,931.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88Z"/>
+    <path class="st109" d="M439.52,934.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73Z"/>
+    <path class="st109" d="M440.65,931.34c0-.63-.01-1.17-.04-1.66h.85l.03,1.05h.04c.24-.72.83-1.17,1.47-1.17.11,0,.19.01.28.03v.91c-.1-.02-.2-.03-.33-.03-.68,0-1.17.52-1.3,1.24-.02.13-.04.29-.04.45v2.84h-.96v-3.66Z"/>
+    <path class="st109" d="M444.87,929.67l1.17,3.15c.12.35.25.77.34,1.09h.02c.1-.32.21-.73.34-1.11l1.06-3.12h1.02l-1.45,3.8c-.69,1.83-1.17,2.76-1.83,3.33-.47.42-.95.58-1.19.63l-.24-.81c.24-.08.56-.23.85-.47.26-.21.59-.58.81-1.08.04-.1.08-.18.08-.23s-.02-.13-.07-.25l-1.97-4.91h1.06Z"/>
+    <path class="st109" d="M449.7,931.41c0-.68-.02-1.23-.04-1.74h.87l.04.91h.02c.4-.65,1.02-1.03,1.89-1.03,1.29,0,2.26,1.09,2.26,2.71,0,1.91-1.17,2.86-2.42,2.86-.7,0-1.32-.31-1.64-.84h-.02v2.89h-.96v-5.77ZM450.66,932.83c0,.14.02.27.04.4.18.67.76,1.13,1.45,1.13,1.02,0,1.62-.84,1.62-2.06,0-1.07-.56-1.98-1.58-1.98-.66,0-1.28.47-1.46,1.2-.03.12-.07.26-.07.4v.91Z"/>
+    <path class="st109" d="M457.13,928.15v1.53h1.39v.74h-1.39v2.87c0,.66.19,1.03.73,1.03.25,0,.44-.03.56-.07l.04.73c-.19.08-.48.13-.86.13-.45,0-.81-.14-1.05-.41-.27-.29-.37-.76-.37-1.39v-2.9h-.82v-.74h.82v-1.28l.95-.25Z"/>
+    <path class="st109" d="M461.7,927.37c-.8,1.08-1.39,2.51-1.39,4.5s.61,3.37,1.39,4.47h-.76c-.69-.91-1.44-2.32-1.44-4.47.01-2.17.75-3.58,1.44-4.5h.76Z"/>
+    <path class="st109" d="M466.52,934.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73Z"/>
+    <path class="st109" d="M467.65,927.19h.97v3.32h.02c.15-.28.4-.52.69-.68.29-.17.63-.27.99-.27.71,0,1.86.44,1.86,2.28v3.17h-.97v-3.06c0-.86-.32-1.58-1.23-1.58-.63,0-1.12.44-1.3.97-.06.13-.07.28-.07.46v3.21h-.97v-7.81Z"/>
+    <path class="st109" d="M476.71,935l-.08-.67h-.03c-.3.42-.87.79-1.63.79-1.08,0-1.63-.76-1.63-1.53,0-1.29,1.14-1.99,3.2-1.98v-.11c0-.44-.12-1.23-1.21-1.23-.5,0-1.01.15-1.39.4l-.22-.64c.44-.29,1.08-.47,1.75-.47,1.63,0,2.02,1.11,2.02,2.18v1.99c0,.46.02.91.09,1.28h-.88ZM476.56,932.28c-1.06-.02-2.25.17-2.25,1.2,0,.63.42.92.91.92.69,0,1.13-.44,1.29-.89.03-.1.05-.21.05-.31v-.92Z"/>
+    <path class="st109" d="M479.06,927.19h.97v7.81h-.97v-7.81Z"/>
+    <path class="st109" d="M481.66,927.19h.97v7.81h-.97v-7.81Z"/>
+    <path class="st109" d="M484.79,932.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.74ZM487.63,931.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.49,1.57h2.83Z"/>
+    <path class="st109" d="M489.76,931.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88Z"/>
+    <path class="st109" d="M500.46,929.67c-.02.39-.04.81-.04,1.46v3.09c0,1.22-.24,1.97-.76,2.43-.52.48-1.27.64-1.94.64s-1.34-.15-1.77-.44l.24-.74c.35.22.9.42,1.56.42.99,0,1.72-.52,1.72-1.86v-.59h-.02c-.3.5-.87.89-1.69.89-1.32,0-2.27-1.12-2.27-2.6,0-1.8,1.18-2.83,2.4-2.83.92,0,1.43.48,1.66.92h.02l.04-.8h.85ZM499.46,931.78c0-.17-.01-.31-.06-.44-.18-.56-.65-1.02-1.35-1.02-.92,0-1.58.78-1.58,2.01,0,1.05.53,1.92,1.57,1.92.59,0,1.13-.37,1.34-.99.05-.17.08-.35.08-.52v-.96Z"/>
+    <path class="st109" d="M502.56,932.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.74ZM505.4,931.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.48,1.57h2.83Z"/>
+    <path class="st109" d="M512.23,935.83v.55h-5.5v-.55h5.5Z"/>
+    <path class="st109" d="M512.9,934.01c.29.19.79.38,1.28.38.7,0,1.03-.35,1.03-.79s-.27-.71-.99-.98c-.96-.34-1.41-.87-1.41-1.51,0-.86.69-1.56,1.84-1.56.54,0,1.01.15,1.31.33l-.24.7c-.21-.13-.59-.31-1.09-.31-.57,0-.89.33-.89.73,0,.44.32.64,1.01.9.92.35,1.4.81,1.4,1.61,0,.94-.73,1.6-1.99,1.6-.58,0-1.12-.14-1.5-.36l.24-.74Z"/>
+  </g>
+  <text class="st4" transform="translate(614.38 925.99)"><tspan x="0" y="0">SEND_CHALLENGE</tspan></text>
+  <path class="st6" d=""/>
+  <polygon class="st84" points="699.8 960.7 717.8 967 699.8 973.3 699.8 960.7"/>
+  <g class="st111" marker-end="url(#arrowPink)">
+    <path class="st84" d="M730,968"/>
+  </g>
+  <rect class="st41" x="340" y="956" width="220" height="22" rx="5" ry="5"/>
+  <g class="st54">
+    <g>
+      <path class="st108" d="M408.99,966.51v5.4c0,.41.33.74.74.74h8.84c.41,0,.74-.33.74-.74v-5.4h-10.31Z"/>
+      <path class="st95" d="M419.3,965.77c0-.41-.33-.74-.74-.74h-8.84c-.41,0-.74.33-.74.74v.74h10.31v-.74Z"/>
+      <path class="st97" d="M410.77,965.26c.56,0,1.02.19,1.02.43s-.46.43-1.02.43-1.02-.19-1.02-.43.46-.43,1.02-.43Z"/>
+      <path class="st97" d="M417.52,965.26c.56,0,1.02.19,1.02.43s-.46.43-1.02.43-1.02-.19-1.02-.43.46-.43,1.02-.43Z"/>
+      <path class="st83" d="M414.14,961.65c-2.22,0-4.03,1.81-4.03,4.04,0,.13.27.24.65.24v-.24h0c.13-1.89,1.59-3.38,3.37-3.38s3.24,1.49,3.37,3.38h0v.24c.38,0,.65-.11.65-.24,0-2.23-1.81-4.04-4.03-4.04Z"/>
+      <path class="st98" d="M417.52,965.69c-.13-1.89-1.59-3.38-3.37-3.38s-3.24,1.49-3.37,3.38h0v.24c.38,0,.72-.11.72-.24,0-1.22,1.02-2.67,2.66-2.67s2.66,1.45,2.66,2.67c0,.13.34.24.72.24v-.24Z"/>
+      <path class="st97" d="M414.93,971.34l-.33-2.11c.19-.14.32-.37.32-.63,0-.44-.35-.79-.78-.79s-.78.35-.78.79c0,.26.13.49.32.63l-.33,2.11h1.58Z"/>
+    </g>
+    <path class="st109" d="M428.08,967.52h-2.88v2.67h3.21v.8h-4.17v-7.42h4v.8h-3.05v2.34h2.88v.79Z"/>
+    <path class="st109" d="M429.62,967.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88Z"/>
+    <path class="st109" d="M439.52,970.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73Z"/>
+    <path class="st109" d="M440.65,967.34c0-.63-.01-1.17-.04-1.66h.85l.03,1.05h.04c.24-.72.83-1.17,1.47-1.17.11,0,.19.01.28.03v.91c-.1-.02-.2-.03-.33-.03-.68,0-1.17.52-1.3,1.24-.02.13-.04.29-.04.45v2.84h-.96v-3.66Z"/>
+    <path class="st109" d="M444.87,965.67l1.17,3.15c.12.35.25.77.34,1.09h.02c.1-.32.21-.73.34-1.11l1.06-3.12h1.02l-1.45,3.8c-.69,1.83-1.17,2.76-1.83,3.33-.47.42-.95.58-1.19.63l-.24-.81c.24-.08.56-.23.85-.47.26-.21.59-.58.81-1.08.04-.1.08-.18.08-.23s-.02-.13-.07-.25l-1.97-4.91h1.06Z"/>
+    <path class="st109" d="M449.7,967.41c0-.68-.02-1.23-.04-1.74h.87l.04.91h.02c.4-.65,1.02-1.03,1.89-1.03,1.29,0,2.26,1.09,2.26,2.71,0,1.91-1.17,2.86-2.42,2.86-.7,0-1.32-.31-1.64-.84h-.02v2.89h-.96v-5.77ZM450.66,968.83c0,.14.02.27.04.4.18.67.76,1.13,1.45,1.13,1.02,0,1.62-.84,1.62-2.06,0-1.07-.56-1.98-1.58-1.98-.66,0-1.28.47-1.46,1.2-.03.12-.07.26-.07.4v.91Z"/>
+    <path class="st109" d="M457.13,964.15v1.53h1.39v.74h-1.39v2.87c0,.66.19,1.03.73,1.03.25,0,.44-.03.56-.07l.04.73c-.19.08-.48.13-.86.13-.45,0-.81-.14-1.05-.41-.27-.29-.37-.76-.37-1.39v-2.9h-.82v-.74h.82v-1.28l.95-.25Z"/>
+    <path class="st109" d="M461.7,963.37c-.8,1.08-1.39,2.51-1.39,4.5s.61,3.37,1.39,4.47h-.76c-.69-.91-1.44-2.32-1.44-4.47.01-2.17.75-3.58,1.44-4.5h.76Z"/>
+    <path class="st109" d="M466.52,970.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73Z"/>
+    <path class="st109" d="M467.65,963.19h.97v3.32h.02c.15-.28.4-.52.69-.68.29-.17.63-.27.99-.27.71,0,1.86.44,1.86,2.28v3.17h-.97v-3.06c0-.86-.32-1.58-1.23-1.58-.63,0-1.12.44-1.3.97-.06.13-.07.28-.07.46v3.21h-.97v-7.81Z"/>
+    <path class="st109" d="M476.71,971l-.08-.67h-.03c-.3.42-.87.79-1.63.79-1.08,0-1.63-.76-1.63-1.53,0-1.29,1.14-1.99,3.2-1.98v-.11c0-.44-.12-1.23-1.21-1.23-.5,0-1.01.15-1.39.4l-.22-.64c.44-.29,1.08-.47,1.75-.47,1.63,0,2.02,1.11,2.02,2.18v1.99c0,.46.02.91.09,1.28h-.88ZM476.56,968.28c-1.06-.02-2.25.17-2.25,1.2,0,.63.42.92.91.92.69,0,1.13-.44,1.29-.89.03-.1.05-.21.05-.31v-.92Z"/>
+    <path class="st109" d="M479.06,963.19h.97v7.81h-.97v-7.81Z"/>
+    <path class="st109" d="M481.66,963.19h.97v7.81h-.97v-7.81Z"/>
+    <path class="st109" d="M484.79,968.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.74ZM487.63,967.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.49,1.57h2.83Z"/>
+    <path class="st109" d="M489.76,967.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88Z"/>
+    <path class="st109" d="M500.46,965.67c-.02.39-.04.81-.04,1.46v3.09c0,1.22-.24,1.97-.76,2.43-.52.48-1.27.64-1.94.64s-1.34-.15-1.77-.44l.24-.74c.35.22.9.42,1.56.42.99,0,1.72-.52,1.72-1.86v-.59h-.02c-.3.5-.87.89-1.69.89-1.32,0-2.27-1.12-2.27-2.6,0-1.8,1.18-2.83,2.4-2.83.92,0,1.43.48,1.66.92h.02l.04-.8h.85ZM499.46,967.78c0-.17-.01-.31-.06-.44-.18-.56-.65-1.02-1.35-1.02-.92,0-1.58.78-1.58,2.01,0,1.05.53,1.92,1.57,1.92.59,0,1.13-.37,1.34-.99.05-.17.08-.35.08-.52v-.96Z"/>
+    <path class="st109" d="M502.56,968.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.74ZM505.4,967.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.48,1.57h2.83Z"/>
+    <path class="st109" d="M512.23,971.83v.55h-5.5v-.55h5.5Z"/>
+    <path class="st109" d="M512.9,970.01c.29.19.79.38,1.28.38.7,0,1.03-.35,1.03-.79s-.27-.71-.99-.98c-.96-.34-1.41-.87-1.41-1.51,0-.86.69-1.56,1.84-1.56.54,0,1.01.15,1.31.33l-.24.7c-.21-.13-.59-.31-1.09-.31-.57,0-.89.33-.89.73,0,.44.32.64,1.01.9.92.35,1.4.81,1.4,1.61,0,.94-.73,1.6-1.99,1.6-.58,0-1.12-.14-1.5-.36l.24-.74Z"/>
+  </g>
+  <text class="st4" transform="translate(219.08 960)"><tspan x="0" y="0">VERIFY_CHALLENGE</tspan></text>
+  <g>
+    <rect class="st94" x="730" y="955" width="115" height="18" rx="4" ry="4"/>
+    <text class="st25" transform="translate(744.06 968)"><tspan x="0" y="0">ConstantTimeCompare</tspan></text>
+  </g>
+  <g class="st91">
+    <rect class="st44" x="250" y="1010" width="400" height="42" rx="10" ry="10"/>
+    <rect class="st20" x="250" y="1010" width="400" height="42" rx="10" ry="10"/>
+  </g>
+  <g class="st51">
+    <rect class="st16" x="248" y="1008" width="404" height="46" rx="12" ry="12"/>
+  </g>
+  <path class="st79" d="M252,1010h396c1.1,0,2,.9,2,2h0c0,1.1-.9,2-2,2H252c-1.1,0-2-.9-2-2h0c0-1.1.9-2,2-2Z"/>
+  <text class="st29" transform="translate(354.2 1037)"><tspan x="0" y="0">SESSION ESTABLISHED</tspan></text>
+  <line class="st18" x1="150" y1="1000" x2="150" y2="1031"/>
+  <circle class="st81" cx="150" cy="1031" r="4"/>
+  <line class="st18" x1="750" y1="1000" x2="750" y2="1031"/>
+  <circle class="st81" cx="750" cy="1031" r="4"/>
+  <text class="st60" transform="translate(164.98 1069)"><tspan class="st76" x="0" y="0">HPKE</tspan><tspan class="st80" x="19.96" y="0"> </tspan><tspan class="st76" x="23.04" y="0">exchange</tspan><tspan class="st80" x="59.61" y="0"> </tspan><tspan class="st76" x="62.69" y="0">for</tspan><tspan class="st80" x="73.2" y="0"> </tspan><tspan class="st76" x="76.28" y="0">initial</tspan><tspan class="st80" x="97.03" y="0"> </tspan><tspan class="st76" x="100.11" y="0">encryption</tspan><tspan class="st80" x="140.97" y="0"> </tspan><tspan class="st76" x="144.04" y="0">·</tspan><tspan class="st80" x="145.91" y="0"> </tspan><tspan class="st68" x="148.98" y="0">Forward</tspan><tspan class="st80" x="180.23" y="0"> </tspan><tspan class="st76" x="183.31" y="0">secrecy</tspan><tspan class="st80" x="211.13" y="0"> </tspan><tspan class="st73" x="214.21" y="0">via</tspan><tspan class="st80" x="224.98" y="0"> </tspan><tspan class="st68" x="228.06" y="0">ephemeral</tspan><tspan class="st80" x="268.61" y="0"> </tspan><tspan class="st76" x="271.69" y="0">ML-KEM-768</tspan><tspan class="st80" x="319.09" y="0"> </tspan><tspan class="st76" x="322.17" y="0">·</tspan><tspan class="st80" x="324.03" y="0"> </tspan><tspan class="st76" x="327.11" y="0">Key</tspan><tspan class="st80" x="340.73" y="0"> </tspan><tspan class="st73" x="343.81" y="0">binding</tspan><tspan class="st80" x="373.24" y="0"> </tspan><tspan class="st76" x="376.31" y="0">via</tspan><tspan class="st80" x="387.09" y="0"> </tspan><tspan class="st73" x="390.16" y="0">HKDF-SHA512(secret,</tspan><tspan class="st80" x="470.67" y="0"> </tspan><tspan class="st76" x="473.74" y="0">salt,</tspan><tspan class="st80" x="488.61" y="0"> </tspan><tspan class="st76" x="491.69" y="0">sessionID||direction)</tspan></text>
+  <line class="st19" x1="194.26" y1="194.35" x2="340" y2="194.35"/>
+  <line class="st19" x1="560" y1="194.35" x2="689.92" y2="194.35"/>
+  <polyline class="st12" points="782.82 216.87 782.82 236.98 782.82 235.91 559.74 235.91"/>
+  <line class="st19" x1="269.72" y1="235.15" x2="340.26" y2="235.15"/>
+  <line class="st19" x1="560.74" y1="277" x2="707.74" y2="277"/>
+  <line class="st19" x1="207.75" y1="277" x2="340.26" y2="277"/>
+  <polyline class="st12" points="117.26 295.79 117.26 316.99 117.26 315.86 340.34 315.86"/>
+  <line class="st19" x1="560.11" y1="314.56" x2="637.24" y2="314.56"/>
+  <line class="st46" x1="153.8" y1="406.96" x2="314.04" y2="406.96"/>
+  <line class="st46" x1="585.46" y1="406.58" x2="730" y2="406.58"/>
+  <g>
+    <rect class="st94" x="756.95" y="439" width="94.05" height="20.81" rx="4" ry="4"/>
+    <text class="st24" transform="translate(778.2 451.71) scale(.96 1)"><tspan x="0" y="0">Identity Key</tspan></text>
+  </g>
+  <line class="st46" x1="584.83" y1="451.16" x2="744.1" y2="451.16"/>
+  <line class="st46" x1="166.08" y1="451.35" x2="314.39" y2="451.35"/>
+  <polyline class="st13" points="100.5 608.86 100.5 618.46 100.5 617.95 275 617.95"/>
+  <line class="st45" x1="625" y1="617.38" x2="713.8" y2="617.38"/>
+  <polyline class="st13" points="781.58 677.62 781.58 687.22 781.58 686.71 620.53 686.71"/>
+  <line class="st45" x1="179.03" y1="685.67" x2="279.36" y2="685.67"/>
+  <line class="st8" x1="177.8" y1="843.34" x2="339.95" y2="843.34"/>
+  <line class="st8" x1="560.37" y1="843.58" x2="719.82" y2="843.58"/>
+  <line class="st8" x1="559.53" y1="878.28" x2="741.36" y2="878.28"/>
+  <line class="st8" x1="188.75" y1="879.41" x2="340.7" y2="879.41"/>
+  <line class="st8" x1="560.52" y1="931.5" x2="725" y2="931.5"/>
+  <line class="st8" x1="179.03" y1="933.12" x2="340.36" y2="933.12"/>
+  <line class="st8" x1="154.71" y1="966.12" x2="339.56" y2="966.12"/>
+  <line class="st8" x1="561.06" y1="966.96" x2="706.8" y2="966.96"/>
+  <g>
+    <rect class="st94" x="58.22" y="934.72" width="85" height="29.36" rx="4" ry="4"/>
+    <text class="st26" transform="translate(70.99 953.14)"><tspan x="0" y="0">Decrypt + Echo</tspan></text>
+  </g>
 </svg>

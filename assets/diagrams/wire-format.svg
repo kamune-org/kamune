@@ -118,7 +118,7 @@
   <rect x="295" y="283" width="145" height="54" rx="6" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5"/>
   <rect x="295" y="283" width="145" height="4" rx="2" fill="url(#gSig)"/>
   <text x="367" y="306" text-anchor="middle" fill="#d2a8ff" font-size="12" font-weight="600">Signature</text>
-  <text x="367" y="320" text-anchor="middle" fill="#8b949e" font-size="8.5">Ed25519 or ML-DSA</text>
+  <text x="367" y="320" text-anchor="middle" fill="#8b949e" font-size="8.5">Ed25519</text>
   <text x="367" y="332" text-anchor="middle" fill="#6e7681" font-size="8">over Data bytes</text>
 
   <!-- Field: Metadata -->
