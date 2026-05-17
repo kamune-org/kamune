@@ -26,12 +26,10 @@ type Conn interface {
 }
 
 type conn struct {
-	conn     net.Conn
-	connType connType
-	mu       sync.Mutex
-
-	closed bool
-
+	conn          net.Conn
+	connType      connType
+	mu            sync.Mutex
+	closed        bool
 	readDeadline  time.Duration
 	writeDeadline time.Duration
 }

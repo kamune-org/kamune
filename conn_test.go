@@ -7,4 +7,5 @@ import (
 var (
 	_ net.Conn = new(conn)
 	_ Conn     = new(conn)
+	_ Conn     = new(encryptedConn)
 )

@@ -15,19 +15,19 @@ import (
 func TestRouteString(t *testing.T) {
 	a := assert.New(t)
 	tests := []struct {
-		route    Route
 		expected string
+		route    Route
 	}{
-		{RouteInvalid, "Invalid"},
-		{RouteIdentity, "Identity"},
-		{RouteRequestHandshake, "RequestHandshake"},
-		{RouteAcceptHandshake, "AcceptHandshake"},
-		{RouteFinalizeHandshake, "FinalizeHandshake"},
-		{RouteSendChallenge, "SendChallenge"},
-		{RouteVerifyChallenge, "VerifyChallenge"},
-		{RouteExchangeMessages, "ExchangeMessages"},
-		{RouteCloseTransport, "CloseTransport"},
-		{Route(999), "Invalid"},
+		{"Invalid", RouteInvalid},
+		{"Identity", RouteIdentity},
+		{"RequestHandshake", RouteRequestHandshake},
+		{"AcceptHandshake", RouteAcceptHandshake},
+		{"FinalizeHandshake", RouteFinalizeHandshake},
+		{"SendChallenge", RouteSendChallenge},
+		{"VerifyChallenge", RouteVerifyChallenge},
+		{"ExchangeMessages", RouteExchangeMessages},
+		{"CloseTransport", RouteCloseTransport},
+		{"Invalid", Route(999)},
 	}
 
 	for _, tt := range tests {
