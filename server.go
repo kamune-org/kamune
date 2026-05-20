@@ -1,7 +1,6 @@
 package kamune
 
 import (
-	"crypto/hpke"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -96,9 +95,9 @@ func (s *Server) Close() error {
 
 func (s *Server) listen() (net.Listener, error) {
 	switch s.connType {
-	case tcp:
+	case tcpConn:
 		return net.Listen("tcp", s.addr)
-	case udp:
+	case udpConn:
 		return kcp.Listen(s.addr)
 	default:
 		return nil, fmt.Errorf("unknown conn type: %v", s.connType)
@@ -106,13 +105,7 @@ func (s *Server) listen() (net.Listener, error) {
 }
 
 func (s *Server) handleConnection(c net.Conn) {
-	cn, err := newConn(c, s.connOpts...)
-	if err != nil {
-		slog.Error("new conn", slog.Any("error", err))
-		return
-	}
-
-	if err := s.serve(cn); err != nil {
+	if err := s.serve(newConn(c, s.connOpts...)); err != nil {
 		slog.Error(
 			"serve conn",
 			slog.Any("error", err),
@@ -125,7 +118,7 @@ func (s *Server) serve(cn Conn) error {
 	defer func() {
 		if msg := recover(); msg != nil {
 			slog.Error(
-				"serve panic",
+				"handshake serve panic",
 				slog.Any("message", msg),
 				slog.String("stack", string(debug.Stack())),
 			)
@@ -142,14 +135,14 @@ func (s *Server) serve(cn Conn) error {
 		return fmt.Errorf("accepting exchange: %w", err)
 	}
 
-	// Step 1: Receive introduction with route validation
-	st, route, err := readSignedTransport(ec)
+	// Step 1: Receive introduction
+	st, err := readSignedTransport(ec)
 	if err != nil {
 		return fmt.Errorf("reading transport: %w", err)
 	}
 
 	// Handle different routes at this stage
-	switch route {
+	switch route := RouteFromProto(st.GetMetadata().GetRoute()); route {
 	case RouteIdentity:
 		return s.handleNewConnection(cn, ec, st)
 	default:
@@ -160,46 +153,6 @@ func (s *Server) serve(cn Conn) error {
 			route,
 		)
 	}
-}
-
-func acceptExchange(c Conn) (*encryptedConn, error) {
-	kem := hpkeKEM()
-	kdf := hpkeKDF()
-	aead := hpkeAEAD()
-
-	remotePubBytes, err := c.ReadBytes()
-	if err != nil {
-		return nil, fmt.Errorf("reading remote public key: %w", err)
-	}
-	remotePub, err := kem.NewPublicKey(remotePubBytes)
-	if err != nil {
-		return nil, fmt.Errorf("parsing remote public key: %w", err)
-	}
-	enc, sender, err := hpke.NewSender(remotePub, kdf, aead, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating sender: %w", err)
-	}
-	if err := c.WriteBytes(enc); err != nil {
-		return nil, fmt.Errorf("writing ciphertext: %w", err)
-	}
-
-	privateKey, err := kem.GenerateKey()
-	if err != nil {
-		return nil, fmt.Errorf("generating kem key: %w", err)
-	}
-	if err := c.WriteBytes(privateKey.PublicKey().Bytes()); err != nil {
-		return nil, fmt.Errorf("writing hpke public key: %w", err)
-	}
-	remoteEnc, err := c.ReadBytes()
-	if err != nil {
-		return nil, fmt.Errorf("reading remote ciphertext: %w", err)
-	}
-	recipient, err := hpke.NewRecipient(remoteEnc, privateKey, kdf, aead, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating recipient: %w", err)
-	}
-
-	return newEncryptedConn(c, sender, recipient), nil
 }
 
 func (s *Server) handleNewConnection(
@@ -223,11 +176,15 @@ func (s *Server) handleNewConnection(
 		return fmt.Errorf("sending introduction: %w", err)
 	}
 
-	pt := newUnderlyingTransport(cn, ec, peer.PublicKey, s.attest, s.storage)
-	t, err := acceptHandshake(pt, s.handshakeOpts)
+	serde := newSignedSerde(peer.PublicKey, s.attest)
+	t, err := acceptHandshake(ec, serde, s.handshakeOpts)
 	if err != nil {
 		return fmt.Errorf("accepting handshake: %w", err)
 	}
+	// Since from now on all communications are encrypted via the newly ciphers
+	// derived from the handshake, we can switch to the plain connection.
+	t.conn = cn
+	t.store = s.storage
 
 	slog.Info(
 		"session established",
@@ -253,7 +210,7 @@ func NewServer(
 ) (*Server, error) {
 	s := &Server{
 		addr:        addr,
-		connType:    tcp,
+		connType:    tcpConn,
 		handlerFunc: handler,
 		handshakeOpts: handshakeOpts{
 			remoteVerifier: defaultRemoteVerifier,
@@ -292,7 +249,7 @@ func ServeWithRemoteVerifier(remote RemoteVerifier) ServerOptions {
 
 // ServeWithTCP configures the server to use TCP connections.
 func ServeWithTCP(opts ...ConnOption) ServerOptions {
-	return func(s *Server) { s.connType = tcp; s.connOpts = opts }
+	return func(s *Server) { s.connType = tcpConn; s.connOpts = opts }
 }
 
 // ServeWithName sets the server's advertised name.
@@ -302,7 +259,7 @@ func ServeWithName(name string) ServerOptions {
 
 // ServeWithUDP configures the server to use UDP/KCP connections.
 func ServeWithUDP(opts ...ConnOption) ServerOptions {
-	return func(s *Server) { s.connType = udp; s.connOpts = opts }
+	return func(s *Server) { s.connType = udpConn; s.connOpts = opts }
 }
 
 // ServeWithStorageOpts sets storage options.

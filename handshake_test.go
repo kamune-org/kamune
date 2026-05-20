@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"net"
-	"os"
 	"testing"
 	"time"
 
@@ -12,25 +11,14 @@ import (
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
-	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 func TestHandshake(t *testing.T) {
 	a := require.New(t)
-	f, err := os.CreateTemp("", "kamune")
-	a.NoError(err)
-	a.NoError(f.Close())
-	defer a.NoError(os.Remove(f.Name()))
-	store, err := storage.OpenStorage(
-		storage.WithDBPath(f.Name()),
-		storage.WithNoPassphrase(),
-	)
-	a.NoError(err)
+
 	c1, c2 := net.Pipe()
-	conn1, err := newConn(c1)
-	a.NoError(err)
-	conn2, err := newConn(c2)
-	a.NoError(err)
+	conn1 := newConn(c1)
+	conn2 := newConn(c2)
 	defer func() {
 		a.NoError(conn1.Close())
 		a.NoError(conn2.Close())
@@ -40,12 +28,8 @@ func TestHandshake(t *testing.T) {
 	attest2, err := attest.New()
 	a.NoError(err)
 
-	pt1 := newUnderlyingTransport(
-		conn1, conn1, attest2.MarshalPublicKey(), attest1, store,
-	)
-	pt2 := newUnderlyingTransport(
-		conn2, conn2, attest1.MarshalPublicKey(), attest2, store,
-	)
+	serde1 := newSignedSerde(attest2.MarshalPublicKey(), attest1)
+	serde2 := newSignedSerde(attest1.MarshalPublicKey(), attest2)
 
 	hndshkeOpts := handshakeOpts{
 		remoteVerifier: defaultRemoteVerifier,
@@ -57,9 +41,9 @@ func TestHandshake(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		t1, handshakeErr = requestHandshake(pt1, hndshkeOpts)
+		t1, handshakeErr = requestHandshake(conn1, serde1, hndshkeOpts)
 	}()
-	t2, err := acceptHandshake(pt2, hndshkeOpts)
+	t2, err := acceptHandshake(conn2, serde2, hndshkeOpts)
 	a.NoError(err)
 	<-done
 	a.NoError(handshakeErr)

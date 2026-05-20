@@ -2,7 +2,6 @@ package kamune
 
 import (
 	"bytes"
-	"crypto/hpke"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -16,17 +15,6 @@ import (
 	"github.com/kamune-org/kamune/pkg/exchange"
 )
 
-// HPKE ciphersuite components used for key establishment.
-// MLKEM768-X25519 provides hybrid post-quantum + classical security.
-// HKDF-SHA512 is the KDF and ChaCha20Poly1305 is the AEAD (used only
-// within the HPKE key schedule; actual transport encryption uses the
-// exported keys with XChaCha20-Poly1305 via enigma).
-var (
-	hpkeKEM  = hpke.MLKEM768X25519
-	hpkeKDF  = hpke.HKDFSHA512
-	hpkeAEAD = hpke.ChaCha20Poly1305
-)
-
 type handshakeOpts struct {
 	remoteVerifier RemoteVerifier
 	timeout        time.Duration
@@ -35,14 +23,14 @@ type handshakeOpts struct {
 // requestHandshake initiates a handshake as the client/initiator.
 //
 // Protocol flow (initiator perspective):
-//  1. Generate an MLKEM keypair and send the public key to the responder.
+//  1. Generate an MLKEM key pair and send the public key to the responder.
 //  2. Receive the responder's encapsulated key (enc) and session info.
 //  3. Perform KEM decapsulation and derive the shared key (secret).
 //  4. Create two bidirectional symmetric encrypted transports - one for each
 //     direction (client-to-server and server-to-client)
 //  5. Perform a challenge-response to verify the shared secret.
 func requestHandshake(
-	pt *underlyingTransport, opts handshakeOpts,
+	conn Conn, serde *signedSerde, opts handshakeOpts,
 ) (*Transport, error) {
 	// Step 1: Generate MLKEM keys and send handshake request
 	ml, err := exchange.NewMLKEM()
@@ -59,29 +47,30 @@ func requestHandshake(
 	}
 
 	// Validate our own outbound fields (defense-in-depth; keeps invariants).
-	if err := validateHandshakeFields(req.GetSalt(), req.GetSessionKey()); err != nil {
+	err = validateHandshakeFields(req.GetSalt(), req.GetSessionKey())
+	if err != nil {
 		return nil, fmt.Errorf("invalid local handshake fields: %w", err)
 	}
 
-	reqBytes, _, err := pt.serialize(req, RouteRequestHandshake, 0)
+	reqBytes, _, err := serde.serialize(req, RouteRequestHandshake, 0)
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake request: %w", err)
 	}
-	if err = pt.conn.WriteBytes(reqBytes); err != nil {
+	if err = conn.WriteBytes(reqBytes); err != nil {
 		return nil, fmt.Errorf("writing handshake request: %w", err)
 	}
 
 	// Step 2: Receive handshake response containing the encapsulated key
-	respBytes, err := pt.conn.ReadBytes()
+	respBytes, err := conn.ReadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake response: %w", err)
 	}
 	var resp pb.Handshake
-	_, route, _, err := pt.deserialize(respBytes, &resp)
+	md, err := serde.deserialize(respBytes, &resp)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing handshake response: %w", err)
 	}
-	if route != RouteAcceptHandshake {
+	if route := md.Route(); route != RouteAcceptHandshake {
 		return nil, fmt.Errorf(
 			"%w: expected %s, got %s",
 			ErrUnexpectedRoute, RouteAcceptHandshake, route,
@@ -89,7 +78,8 @@ func requestHandshake(
 	}
 
 	// Validate untrusted responder-provided fields.
-	if err := validateHandshakeFields(resp.GetSalt(), resp.GetSessionKey()); err != nil {
+	err = validateHandshakeFields(resp.GetSalt(), resp.GetSessionKey())
+	if err != nil {
 		return nil, fmt.Errorf("invalid remote handshake fields: %w", err)
 	}
 
@@ -120,10 +110,7 @@ func requestHandshake(
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, sessionID, encoder, decoder)
-	t.SetInitiator(true)
-	t.SetSecrets(secret, localSalt, remoteSalt)
-	t.SetRemotePublicKey(pt.remote)
+	t := newTransport(conn, serde, sessionID, encoder, decoder)
 
 	// Step 5: Challenge exchange (bound to handshake transcript)
 	err = sendChallenge(
@@ -148,22 +135,22 @@ func requestHandshake(
 //  1. Receive the initiator's MLKEM public key.
 //  2. Perform KEM encapsulation and derive the shared key (secret). The
 //     ciphertext value is sent back.
-//  3. Create two bidirectional symetric encrypted transports
+//  3. Create two bidirectional symmetric encrypted transports
 //  4. Perform challenge-response.
 func acceptHandshake(
-	pt *underlyingTransport, opts handshakeOpts,
+	conn Conn, ut *signedSerde, opts handshakeOpts,
 ) (*Transport, error) {
 	// Step 1: Receive handshake request
-	reqBytes, err := pt.conn.ReadBytes()
+	reqBytes, err := conn.ReadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("reading handshake request: %w", err)
 	}
 	var req pb.Handshake
-	_, route, _, err := pt.deserialize(reqBytes, &req)
+	md, err := ut.deserialize(reqBytes, &req)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing handshake request: %w", err)
 	}
-	if route != RouteRequestHandshake {
+	if route := md.Route(); route != RouteRequestHandshake {
 		return nil, fmt.Errorf(
 			"%w: expected %s, got %s",
 			ErrUnexpectedRoute, RouteRequestHandshake, route,
@@ -171,7 +158,8 @@ func acceptHandshake(
 	}
 
 	// Validate untrusted initiator-provided fields early.
-	if err := validateHandshakeFields(req.GetSalt(), req.GetSessionKey()); err != nil {
+	err = validateHandshakeFields(req.GetSalt(), req.GetSessionKey())
+	if err != nil {
 		return nil, fmt.Errorf("invalid remote handshake fields: %w", err)
 	}
 
@@ -195,15 +183,16 @@ func acceptHandshake(
 	}
 
 	// Validate our outbound fields (defense-in-depth; keeps invariants).
-	if err := validateHandshakeFields(resp.GetSalt(), resp.GetSessionKey()); err != nil {
+	err = validateHandshakeFields(resp.GetSalt(), resp.GetSessionKey())
+	if err != nil {
 		return nil, fmt.Errorf("invalid local handshake fields: %w", err)
 	}
 
-	respBytes, _, err := pt.serialize(resp, RouteAcceptHandshake, 0)
+	respBytes, _, err := ut.serialize(resp, RouteAcceptHandshake, 0)
 	if err != nil {
 		return nil, fmt.Errorf("serializing handshake response: %w", err)
 	}
-	if err = pt.conn.WriteBytes(respBytes); err != nil {
+	if err = conn.WriteBytes(respBytes); err != nil {
 		return nil, fmt.Errorf("writing handshake response: %w", err)
 	}
 
@@ -225,10 +214,7 @@ func acceptHandshake(
 		return nil, fmt.Errorf("creating decrypter: %w", err)
 	}
 
-	t := newTransport(pt, sessionID, encoder, decoder)
-	t.SetInitiator(false)
-	t.SetSecrets(secret, localSalt, remoteSalt)
-	t.SetRemotePublicKey(pt.remote)
+	t := newTransport(conn, ut, sessionID, encoder, decoder)
 
 	// Step 4: Challenge exchange (bound to handshake transcript). Responder
 	// accepts initiator's challenge, then sends its own and verifies echo.
@@ -260,11 +246,11 @@ func sendChallenge(t *Transport, secret, info []byte) error {
 	}
 
 	r := Bytes(nil)
-	_, route, err := t.ReceiveWithRoute(r)
+	md, err := t.Receive(r)
 	if err != nil {
 		return fmt.Errorf("receiving: %w", err)
 	}
-	if route != RouteVerifyChallenge {
+	if route := md.Route(); route != RouteVerifyChallenge {
 		return fmt.Errorf(
 			"%w: expected %s, got %s",
 			ErrUnexpectedRoute, RouteVerifyChallenge, route,
@@ -280,14 +266,13 @@ func sendChallenge(t *Transport, secret, info []byte) error {
 // acceptChallenge receives a challenge and echoes it back for verification.
 func acceptChallenge(t *Transport, expectedRoute Route) error {
 	r := Bytes(nil)
-	_, route, err := t.ReceiveWithRoute(r)
+	md, err := t.Receive(r)
 	if err != nil {
 		return fmt.Errorf("receiving: %w", err)
 	}
-	if route != expectedRoute {
+	if route := md.Route(); route != expectedRoute {
 		return fmt.Errorf(
-			"%w: expected %s, got %s",
-			ErrUnexpectedRoute, expectedRoute, route,
+			"%w: expected %s, got %s", ErrUnexpectedRoute, expectedRoute, route,
 		)
 	}
 
@@ -302,7 +287,9 @@ func acceptChallenge(t *Transport, expectedRoute Route) error {
 // inputs to prevent malformed session IDs, message bloat, and weird HPKE inputs.
 func validateHandshakeFields(salt []byte, sessionKey string) error {
 	if len(salt) != saltSize {
-		return fmt.Errorf("invalid salt length: got %d, want %d", len(salt), saltSize)
+		return fmt.Errorf(
+			"invalid salt length: got %d, want %d", len(salt), saltSize,
+		)
 	}
 	if len(sessionKey) != sessionIDLength/2 {
 		return fmt.Errorf(
@@ -329,7 +316,7 @@ func handshakeTranscriptHash(req *pb.Handshake, resp *pb.Handshake) [32]byte {
 	var b [4]byte
 
 	// Domain separation label to avoid cross-protocol collisions.
-	_, _ = h.Write([]byte("kamune/handshake/v1"))
+	_, _ = h.Write([]byte(handshakeInfo))
 
 	// Initiator fields
 	binary.BigEndian.PutUint32(b[:], uint32(len(req.GetKey())))
@@ -367,26 +354,33 @@ func handshakeTranscriptHash(req *pb.Handshake, resp *pb.Handshake) [32]byte {
 // deriveChallengeInfo returns challenge "info" bound to session, direction, and
 // the handshake transcript hash (prevents replay across different handshakes
 // even if a shared secret were ever reused).
-func deriveChallengeInfo(sessionID, direction string, transcriptHash [32]byte) []byte {
+func deriveChallengeInfo(sessionID, direction string, hash [32]byte) []byte {
 	// Keep it simple and deterministic.
 	// The transcript hash ensures the challenge is bound to the negotiated
 	// handshake bytes, not just the exported secret.
 	buf := &bytes.Buffer{}
-	buf.Grow(len(sessionID) + 1 + len(direction) + 1 + len(transcriptHash[:]))
+	buf.Grow(len(sessionID) + 1 + len(direction) + 1 + len(hash[:]))
 	buf.WriteString(sessionID)
 	buf.WriteRune('|')
 	buf.WriteString(direction)
 	buf.WriteRune('|')
-	buf.Write(transcriptHash[:])
+	buf.Write(hash[:])
 	return buf.Bytes()
 }
 
+// randomBytes generates a cryptographically secure byte slice with the given
+// length.
 func randomBytes(l int) []byte {
 	buf := make([]byte, l)
 	_, _ = rand.Read(buf)
 	return buf
 }
 
+// padding calls [randomBytes], with at most maxSize len. Note that for length,
+// a pseudo-random generator is used. Since the generated value determines the
+// padding's length, at worst case scenario, attacker can determine the size of
+// each message (data, metadata, signature, etc). The message itself will stay
+// unharmed and secure.
 func padding(maxSize int) []byte {
 	return randomBytes(mathrand.IntN(maxSize))
 }

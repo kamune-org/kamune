@@ -37,7 +37,7 @@ type Store struct {
 	cipher *enigma.Enigma
 }
 
-func New(passphrase []byte, path string) (*Store, error) {
+func New(path string, passphrase []byte) (*Store, error) {
 	db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -48,11 +48,12 @@ func New(passphrase []byte, path string) (*Store, error) {
 		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("creating bucket: %w", err)
+		return nil, fmt.Errorf("creating default bucket: %w", err)
 	}
 
 	cipher, err := extractCipher(db, passphrase)
 	if errors.Is(err, ErrMissingItem) {
+		// create if missing
 		cipher, err = createCipher(db, passphrase)
 	}
 	if err != nil {

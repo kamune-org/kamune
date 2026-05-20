@@ -1,8 +1,6 @@
 package kamune
 
-import (
-	"net"
-)
+import "net"
 
 var (
 	_ net.Conn = new(conn)

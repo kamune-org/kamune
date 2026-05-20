@@ -43,7 +43,7 @@ func (e *Enigma) Encrypt(plaintext []byte) []byte {
 	nonce := make(
 		[]byte, nonceSize, nonceSize+len(plaintext)+e.aead.Overhead(),
 	)
-	rand.Read(nonce)
+	_, _ = rand.Read(nonce)
 	return e.aead.Seal(nonce, nonce, plaintext, nil)
 }
 
@@ -71,7 +71,7 @@ func Derive(key, salt, info []byte, size int) ([]byte, error) {
 
 func Text(l int) string {
 	src := make([]byte, l)
-	rand.Read(src)
+	_, _ = rand.Read(src)
 	for i := range src {
 		src[i] = base32alphabet[src[i]%32]
 	}

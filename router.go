@@ -133,12 +133,12 @@ func (r *Router) Dispatch(
 
 // DispatchNext reads the next message from the transport and dispatches it.
 func (r *Router) DispatchNext(t *Transport, dst Transferable) error {
-	md, route, err := t.ReceiveWithRoute(dst)
+	md, err := t.Receive(dst)
 	if err != nil {
 		return fmt.Errorf("receiving message: %w", err)
 	}
 
-	return r.Dispatch(t, route, dst, md)
+	return r.Dispatch(t, md.Route(), dst, md)
 }
 
 // Remove removes the handler for a specific route.
@@ -316,14 +316,15 @@ func (rd *RouteDispatcher) SendAndExpect(
 		return nil, fmt.Errorf("sending: %w", err)
 	}
 
-	md, route, err := rd.transport.ReceiveWithRoute(dst)
+	md, err := rd.transport.Receive(dst)
 	if err != nil {
 		return nil, fmt.Errorf("receiving: %w", err)
 	}
 
-	if route != expectRoute {
-		return nil, fmt.Errorf("%w: expected %s, got %s",
-			ErrRouteMismatch, expectRoute, route)
+	if route := md.Route(); route != expectRoute {
+		return nil, fmt.Errorf(
+			"%w: expected %s, got %s", ErrRouteMismatch, expectRoute, route,
+		)
 	}
 
 	return md, nil

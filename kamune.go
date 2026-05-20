@@ -13,19 +13,17 @@ import (
 
 const (
 	// Domain separation labels for handshake message encryption.
+	handshakeInfo    = "kamune/handshake/v1"
 	handshakeC2SInfo = "kamune/handshake/client-to-server/v1"
 	handshakeS2CInfo = "kamune/handshake/server-to-client/v1"
 
-	// Must be less than or equal to 65535 ([math.MaxUint16]).
-	maxTransportSize = 50 * 1024
+	maxTransportSize uint16 = 50 * 1024
 
 	saltSize        = 16
 	sessionIDLength = 20
 	challengeSize   = 32
 	maxPadding      = 256
 )
-
-var _ uint16 = maxTransportSize
 
 type (
 	RemoteVerifier func(store *storage.Storage, peer *storage.Peer) error
@@ -44,8 +42,7 @@ func Bytes(b []byte) *wrapperspb.BytesValue {
 
 // Metadata contains metadata about a received message.
 type Metadata struct {
-	pb    *pb.Metadata
-	route Route
+	pb *pb.Metadata
 }
 
 // ID returns the unique message ID.
@@ -58,4 +55,4 @@ func (m Metadata) Timestamp() time.Time { return m.pb.Timestamp.AsTime() }
 func (m Metadata) SequenceNum() uint64 { return m.pb.GetSequence() }
 
 // Route returns the route associated with this message.
-func (m Metadata) Route() Route { return m.route }
+func (m Metadata) Route() Route { return RouteFromProto(m.pb.GetRoute()) }

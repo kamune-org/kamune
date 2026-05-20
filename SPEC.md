@@ -202,7 +202,7 @@ sequence: Introduction, Handshake, and Challenge Exchange.
 
 ### 6.1 Exchange
 
-The Exchange step ensures both parties can securely comunicate through the
+The Exchange step ensures both parties can securely communicate through the
 handshake process.
 
 ```
@@ -314,8 +314,8 @@ Initiator                                    Responder
 
 **Step-by-step:**
 
-1. **Initiator generates ephemeral MLKEM keypair**:
-   - A fresh keypair is generated using `exchange.NewMLKEM()`. This keypair is
+1. **Initiator generates ephemeral MLKEM key pair**:
+   - A fresh key pair is generated using `exchange.NewMLKEM()`. This key pair is
      **ephemeral** — used for this session only and discarded afterward.
 
 2. **Initiator generates session parameters**:
@@ -357,7 +357,7 @@ Initiator                                    Responder
    - `Salt`: The responder's local salt.
    - `SessionKey`: The session ID suffix.
 
-8. **Initiator receives the response and derives the secrett**:
+8. **Initiator receives the response and derives the secret**:
     - Verifies the signature and route (`ROUTE_ACCEPT_HANDSHAKE`).
     - Constructs `sessionID = sessionPrefix + sessionSuffix`.
     - `ml.Decapsulate(enc)` is called, which decapsulates the key and derives
@@ -521,7 +521,7 @@ session.
 The XChaCha20-Poly1305 AEAD cipher provides ciphertext authentication. Any
 tampering with the encrypted payload (including the nonce) will cause
 decryption to fail, ensuring that only the holder of the derived symmetric key
-can produce valid ciphertexts.
+can produce valid cipher texts.
 
 ### 8.4 Multi-Layer Integrity
 
@@ -708,7 +708,7 @@ ciphers.
 
 ### 12.4 Forward Secrecy
 
-Each session uses an ephemeral MLKEM keypair. The shared key is derived from
+Each session uses an ephemeral MLKEM key pair. The shared key is derived from
 this ephemeral key encapsulation, not from the long-term identity keys.
 Compromise of a long-term identity key does not reveal past session keys.
 

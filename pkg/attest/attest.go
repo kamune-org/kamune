@@ -13,6 +13,7 @@ var (
 	ErrInvalidKey = errors.New("invalid key type")
 )
 
+// Attest represents the peer's identity.
 type Attest struct {
 	publicKey  ed25519.PublicKey
 	privateKey ed25519.PrivateKey
@@ -38,7 +39,7 @@ func (e Attest) EncodePublicKey() string {
 	return base64.RawURLEncoding.EncodeToString(e.MarshalPublicKey())
 }
 
-func (e Attest) Save() ([]byte, error) {
+func (e Attest) MarshalPrivateKey() ([]byte, error) {
 	return x509.MarshalPKCS8PrivateKey(e.privateKey)
 }
 

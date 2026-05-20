@@ -1,7 +1,6 @@
 package kamune
 
 import (
-	"crypto/hpke"
 	"fmt"
 	"log/slog"
 	"net"
@@ -50,37 +49,33 @@ func (d *Dialer) Dial() (*Transport, error) {
 }
 
 func (d *Dialer) dial(addr string) (*conn, error) {
+	var (
+		c   net.Conn
+		err error
+	)
 	switch d.connType {
-	case tcp:
-		c, err := net.DialTimeout("tcp", addr, d.dialTimeout)
+	case tcpConn:
+		c, err = net.DialTimeout("tcp", addr, d.dialTimeout)
 		if err != nil {
 			return nil, fmt.Errorf("dialing tcp: %w", err)
 		}
-		cn, err := newConn(c, d.connOpts...)
-		if err != nil {
-			return nil, fmt.Errorf("new tcp conn: %w", err)
-		}
-		return cn, nil
-	case udp:
-		c, err := kcp.Dial(addr)
+	case udpConn:
+		c, err = kcp.Dial(addr)
 		if err != nil {
 			return nil, fmt.Errorf("dialing udp: %w", err)
 		}
-		cn, err := newConn(c, d.connOpts...)
-		if err != nil {
-			return nil, fmt.Errorf("new udp conn: %w", err)
-		}
-		return cn, nil
 	default:
 		panic(fmt.Errorf("unknown connection type: %v", d.connType))
 	}
+
+	return newConn(c, d.connOpts...), nil
 }
 
 func (d *Dialer) handshake() (*Transport, error) {
 	defer func() {
 		if msg := recover(); msg != nil {
 			slog.Error(
-				"dial panic",
+				"handshake dial panic",
 				slog.Any("message", msg),
 				slog.String("stack", string(debug.Stack())),
 			)
@@ -95,7 +90,7 @@ func (d *Dialer) handshake() (*Transport, error) {
 	// handshake
 	ec, err := initiateExchange(d.conn)
 	if err != nil {
-		return nil, fmt.Errorf("initating exchange: %w", err)
+		return nil, fmt.Errorf("initiating exchange: %w", err)
 	}
 
 	// Step 1: Send our introduction
@@ -104,16 +99,16 @@ func (d *Dialer) handshake() (*Transport, error) {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
 
-	// Step 2: Receive peer's introduction with route validation
-	st, route, err := readSignedTransport(ec)
+	// Step 2: Receive peer's introduction
+	st, err := readSignedTransport(ec)
 	if err != nil {
 		return nil, fmt.Errorf("read transport: %w", err)
 	}
 
 	// Validate route
-	if route != RouteIdentity {
+	if r := RouteFromProto(st.GetMetadata().Route); r != RouteIdentity {
 		return nil, fmt.Errorf(
-			"%w: expected %s, got %s", ErrUnexpectedRoute, RouteIdentity, route,
+			"%w: expected %s, got %s", ErrUnexpectedRoute, RouteIdentity, r,
 		)
 	}
 
@@ -124,13 +119,17 @@ func (d *Dialer) handshake() (*Transport, error) {
 	if err := d.handshakeOpts.remoteVerifier(d.storage, peer); err != nil {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
+	serde := newSignedSerde(peer.PublicKey, d.attest)
 
 	// Step 3: Proceed with the handshake
-	pt := newUnderlyingTransport(d.conn, ec, peer.PublicKey, d.attest, d.storage)
-	t, err := requestHandshake(pt, d.handshakeOpts)
+	t, err := requestHandshake(ec, serde, d.handshakeOpts)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
 	}
+	// Since from now on all communications are encrypted via the newly ciphers
+	// derived from the handshake, we can switch to the plain connection.
+	t.conn = d.conn
+	t.store = d.storage
 
 	slog.Info(
 		"session established",
@@ -139,46 +138,6 @@ func (d *Dialer) handshake() (*Transport, error) {
 	)
 
 	return t, nil
-}
-
-func initiateExchange(c Conn) (*encryptedConn, error) {
-	kem := hpkeKEM()
-	kdf := hpkeKDF()
-	aead := hpkeAEAD()
-
-	privateKey, err := kem.GenerateKey()
-	if err != nil {
-		return nil, fmt.Errorf("generating kem key: %w", err)
-	}
-	if err := c.WriteBytes(privateKey.PublicKey().Bytes()); err != nil {
-		return nil, fmt.Errorf("writing hpke public key: %w", err)
-	}
-	remoteEnc, err := c.ReadBytes()
-	if err != nil {
-		return nil, fmt.Errorf("reading remote ciphertext: %w", err)
-	}
-	recipient, err := hpke.NewRecipient(remoteEnc, privateKey, kdf, aead, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating recipient: %w", err)
-	}
-
-	remotePublicBytes, err := c.ReadBytes()
-	if err != nil {
-		return nil, fmt.Errorf("reading remote public key: %w", err)
-	}
-	remotePublic, err := kem.NewPublicKey(remotePublicBytes)
-	if err != nil {
-		return nil, fmt.Errorf("parsing remote public key: %w", err)
-	}
-	enc, sender, err := hpke.NewSender(remotePublic, kdf, aead, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating sender: %w", err)
-	}
-	if err := c.WriteBytes(enc); err != nil {
-		return nil, fmt.Errorf("writing ciphertext: %w", err)
-	}
-
-	return newEncryptedConn(c, sender, recipient), nil
 }
 
 // PublicKey returns the dialer's public key.
@@ -198,7 +157,7 @@ func (d *Dialer) Close() error {
 func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 	d := &Dialer{
 		address:      addr,
-		connType:     tcp,
+		connType:     tcpConn,
 		readTimeout:  5 * time.Minute,
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
@@ -259,12 +218,12 @@ func DialWithDialTimeout(timeout time.Duration) DialOption {
 
 // DialWithTCPConn configures the dialer to use TCP connections.
 func DialWithTCPConn(opts ...ConnOption) DialOption {
-	return func(d *Dialer) { d.connType = tcp; d.connOpts = opts }
+	return func(d *Dialer) { d.connType = tcpConn; d.connOpts = opts }
 }
 
 // DialWithUDPConn configures the dialer to use UDP/KCP connections.
 func DialWithUDPConn(opts ...ConnOption) DialOption {
-	return func(d *Dialer) { d.connType = udp; d.connOpts = opts }
+	return func(d *Dialer) { d.connType = udpConn; d.connOpts = opts }
 }
 
 // DialWithClientName sets the client's advertised name.

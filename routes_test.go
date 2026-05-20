@@ -424,8 +424,8 @@ func TestRouterConcurrency(t *testing.T) {
 
 	var counter int64
 
-	for i := 1; i <= 5; i++ {
-		route := Route(i)
+	for i := range 5 {
+		route := Route(i + 1)
 		err := r.Handle(route, func(
 			t *Transport, msg Transferable, md *Metadata,
 		) error {

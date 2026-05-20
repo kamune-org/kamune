@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
@@ -76,12 +77,15 @@ func sendIntroduction(
 		return fmt.Errorf("signing message: %w", err)
 	}
 
+	md := &pb.Metadata{
+		Timestamp: timestamppb.Now(),
+		Route:     RouteIdentity.ToProto(),
+	}
 	st := &pb.SignedTransport{
 		Data:      message,
 		Signature: sig,
-		Metadata:  nil,
+		Metadata:  md,
 		Padding:   padding(maxPadding),
-		Route:     RouteIdentity.ToProto(),
 	}
 	payload, err := proto.Marshal(st)
 	if err != nil {
@@ -99,22 +103,20 @@ func sendIntroduction(
 // It validates the signature and extracts the peer's identity information.
 func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, error) {
 	// Validate route
-	route := RouteFromProto(st.GetRoute())
-	if route != RouteIdentity {
+	if r := RouteFromProto(st.GetMetadata().GetRoute()); r != RouteIdentity {
 		return nil, fmt.Errorf(
 			"%w: expected %s, got %s",
-			ErrUnexpectedRoute, RouteIdentity, route,
+			ErrUnexpectedRoute, RouteIdentity, r,
 		)
 	}
 
 	var introduce pb.Introduce
-	err := proto.Unmarshal(st.GetData(), &introduce)
-	if err != nil {
+	msg := st.GetData()
+	if err := proto.Unmarshal(msg, &introduce); err != nil {
 		return nil, fmt.Errorf("deserializing: %w", err)
 	}
 
 	remote := introduce.GetPublicKey()
-	msg := st.GetData()
 	if !attest.Verify(remote, msg, st.Signature) {
 		return nil, ErrInvalidSignature
 	}

@@ -5,6 +5,20 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "./pb";
 
+message SignedTransport {
+  bytes Data = 1;
+  bytes Signature = 2;
+  Metadata Metadata = 3;
+  bytes Padding = 4;
+}
+
+message Metadata {
+  string ID = 1;
+  google.protobuf.Timestamp Timestamp = 2;
+  uint64 Sequence = 3;
+  Route Route = 4;
+}
+
 enum Route {
   ROUTE_INVALID = 0;
   ROUTE_IDENTITY = 1;
@@ -15,18 +29,4 @@ enum Route {
   ROUTE_VERIFY_CHALLENGE = 6;
   ROUTE_EXCHANGE_MESSAGES = 7;
   ROUTE_CLOSE_TRANSPORT = 8;
-}
-
-message SignedTransport {
-  bytes Data = 1;
-  bytes Signature = 2;
-  Metadata Metadata = 3;
-  bytes Padding = 4;
-  Route Route = 5;
-}
-
-message Metadata {
-  string ID = 1;
-  google.protobuf.Timestamp Timestamp = 2;
-  uint64 Sequence = 3;
 }

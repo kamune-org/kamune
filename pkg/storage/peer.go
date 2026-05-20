@@ -28,7 +28,7 @@ var (
 )
 
 // peerKey returns the storage key for a peer identified by the given claim
-// (typically the marshalled public key). The key is the SHA3-512 hash of the
+// (typically the marshaled public key). The key is the SHA3-512 hash of the
 // claim.
 func peerKey(claim []byte) []byte {
 	h := sha3.Sum512(claim)

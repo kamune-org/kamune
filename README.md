@@ -7,7 +7,7 @@ Kamune provides `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X` security suite.
 ![demo](assets/demo.gif)
 
 > [!NOTE]
-> This is an experimental project. All suggestions and feedbacks are welcome and
+> This is an experimental project. All suggestions and feedback are welcome and
 > greatly appreciated.
 
 For a comprehensive technical specification, see [SPEC.md](SPEC.md).
@@ -15,7 +15,7 @@ For a comprehensive technical specification, see [SPEC.md](SPEC.md).
 ## Features
 
 - Message signing and verification using **Ed25519**
-- Encrypted handhsake using **HPKE** ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180))
+- Encrypted handshake using **HPKE** ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180))
 - Ephemeral, quantum-resistant key encapsulation with **ML-KEM-768**, providing
   **Forward secrecy**.
 - End-to-End, bidirectional symmetric encryption using **ChaCha20-Poly1305X**

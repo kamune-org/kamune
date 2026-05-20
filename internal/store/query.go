@@ -135,16 +135,6 @@ func (q *Query) BucketKeyCount(bucket []byte) int {
 	return b.Stats().KeyN
 }
 
-// ListBuckets returns a list of all bucket names in the database
-func (q *Query) ListBuckets() []string {
-	var buckets []string
-	_ = q.tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
-		buckets = append(buckets, string(name))
-		return nil
-	})
-	return buckets
-}
-
 // ListBucketsWithPrefix returns bucket names that start with the given prefix
 func (q *Query) ListBucketsWithPrefix(prefix string) []string {
 	var buckets []string

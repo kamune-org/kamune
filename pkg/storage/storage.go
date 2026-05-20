@@ -55,8 +55,8 @@ type PassphraseHandler func() ([]byte, error)
 
 func defaultPassphraseHandler() ([]byte, error) {
 	// Prefer environment variable to avoid stdin prompts in GUI/daemon contexts.
-	// NOTE: Passing secrets via env vars has security tradeoffs; prefer OS
-	// keychain integration long-term.
+	// TODO(h.yazdani): Passing secrets via env vars has security trade offs;
+	// prefer OS keychain integration in the long-term.
 	if envPass := os.Getenv("KAMUNE_DB_PASSPHRASE"); envPass != "" {
 		return []byte(envPass), nil
 	}
@@ -111,7 +111,7 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting passphrase: %w", err)
 	}
-	db, err := store.New(pass, s.dbPath)
+	db, err := store.New(s.dbPath, pass)
 	if err != nil {
 		return nil, fmt.Errorf("opening kamune db: %w", err)
 	}
@@ -124,7 +124,7 @@ func (s *Storage) Close() error {
 	return s.store.Close()
 }
 
-// PublicKey returns the marshalled public key from the stored identity.
+// PublicKey returns the marshaled public key from the stored identity.
 // It returns an error if no identity has been created yet.
 func (s *Storage) PublicKey() ([]byte, error) {
 	at, err := s.Attester()
@@ -155,15 +155,15 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new attest: %w", err)
 	}
-	data, err := at.Save()
+	data, err := at.MarshalPrivateKey()
 	if err != nil {
-		return nil, fmt.Errorf("saving key: %w", err)
+		return nil, fmt.Errorf("marshalling private key: %w", err)
 	}
 	err = s.store.Command(func(c store.Command) error {
 		return c.AddPlain(defaultBucket, key, data)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("persisting: %w", err)
+		return nil, fmt.Errorf("persisting generated attest: %w", err)
 	}
 
 	return at, nil

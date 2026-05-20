@@ -14,8 +14,8 @@ type connType int
 
 const (
 	invalidConn connType = iota
-	tcp
-	udp
+	tcpConn
+	udpConn
 )
 
 type Conn interface {
@@ -25,6 +25,10 @@ type Conn interface {
 	Close() error
 }
 
+// conn implements [Conn] interface, providing frame-based read and write
+// operations over a network connection.
+//
+// It also implements [net.Conn] interface.
 type conn struct {
 	conn          net.Conn
 	connType      connType
@@ -67,7 +71,7 @@ func (c *conn) Read(buf []byte) (int, error) {
 func (c *conn) ReadBytes() ([]byte, error) {
 	l, err := c.readLen()
 	if err != nil {
-		return nil, fmt.Errorf("message length: %w", err)
+		return nil, fmt.Errorf("get message length: %w", err)
 	}
 
 	buf := make([]byte, l)
@@ -107,7 +111,9 @@ func (c *conn) WriteBytes(data []byte) error {
 			return fmt.Errorf("writing message: %w", err)
 		}
 		if n == 0 {
-			return fmt.Errorf("writing message: wrote 0 bytes")
+			return fmt.Errorf(
+				"wrote %d bytes instead of %d", written, len(data),
+			)
 		}
 		written += n
 	}
@@ -121,7 +127,7 @@ func (c *conn) readLen() (int, error) {
 
 	var lenBuf [2]byte
 	if _, err := io.ReadFull(c.conn, lenBuf[:]); err != nil {
-		return 0, fmt.Errorf("reading: %w", err)
+		return 0, fmt.Errorf("reading first two bytes: %w", err)
 	}
 
 	msgLen := binary.BigEndian.Uint16(lenBuf[:])
@@ -137,13 +143,13 @@ func (c *conn) writeLen(data []byte) (int, error) {
 		return 0, err
 	}
 
-	msgLen := len(data)
+	msgLen := uint16(len(data))
 	if msgLen > maxTransportSize {
 		return 0, ErrMessageTooLarge
 	}
 
 	var lenBuf [2]byte
-	binary.BigEndian.PutUint16(lenBuf[:], uint16(msgLen))
+	binary.BigEndian.PutUint16(lenBuf[:], msgLen)
 
 	// Ensure the full length prefix is written.
 	written := 0
@@ -153,12 +159,14 @@ func (c *conn) writeLen(data []byte) (int, error) {
 			return 0, fmt.Errorf("writing length: %w", err)
 		}
 		if n == 0 {
-			return 0, fmt.Errorf("writing length: wrote 0 bytes")
+			return 0, fmt.Errorf(
+				"wrote %d bytes instead of %d", written, len(data),
+			)
 		}
 		written += n
 	}
 
-	return msgLen, nil
+	return int(msgLen), nil
 }
 
 func (c *conn) checkReadDeadline(deadline time.Duration) error {
@@ -221,10 +229,10 @@ func ConnWithWriteTimeout(timeout time.Duration) ConnOption {
 	return func(conn *conn) { conn.writeDeadline = timeout }
 }
 
-func newConn(c net.Conn, opts ...ConnOption) (*conn, error) {
+func newConn(c net.Conn, opts ...ConnOption) *conn {
 	cn := &conn{
 		conn:          c,
-		connType:      tcp,
+		connType:      tcpConn,
 		closed:        false,
 		writeDeadline: 1 * time.Minute,
 		readDeadline:  5 * time.Minute,
@@ -234,14 +242,14 @@ func newConn(c net.Conn, opts ...ConnOption) (*conn, error) {
 		opt(cn)
 	}
 
-	return cn, nil
+	return cn
 }
 
-// encryptedConn uses HPKE to provide an encrypted communication. It is meant
-// to be used during the handshake process and it should not be used for other
-// purposes.
+// encryptedConn uses HPKE to provide an encrypted communication. It is used
+// only during the handshake process. For any further encryption purposes, the
+// derived ciphers (from handshake) must be used.
 //
-// It implements the [Conn] interface.
+// It implements the [Conn] interface, but not [net.Conn].
 type encryptedConn struct {
 	conn      Conn
 	sender    *hpke.Sender

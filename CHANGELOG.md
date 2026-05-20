@@ -1,20 +1,29 @@
 ## v0.3.0
 
-### Cleanup
+### Improvements
 
-- Perform code and feature cleanup, aiming to increase the code quality and
-  maintainability.
-- Removed `ML-DSA`, in favor of `ED25519`.
-- Removed incomplete `Session`, `Session Manager`, and `Session Resumption`
-  implementations.
-- Removed `Double Ratchet`, as it was not correctly implemented.
+- Refactor new `storage` package for cleaner API.
+- Improve formatting and address lint issues.
+- Add and enhance tests.
+- Define better constants.
+- Include handshake timeout.
+- Write more storage query functions.
+- Add message sequence numbering.
+- Use `HKDF-SHA512` instead of `HKDF-SHA256` for key derivation.
+- Move `store` package to the internal directory, only exposing the `storage`
+  to the clients.
+- Reformat and split `daemon` package.
+- Update dependencies.
+- Fixed various typos and spelling errors.
+- Improve naming and projects' structure.
+- Enhanced error messages to be more descriptive.
 
 ### Specs
 
 - Added `SPEC.md` file for a concrete protocol definition.
 - Added SVGs illustrations to visual the flow and design.
 
-### HPKE (Hyprid Public Key Encryption)
+### HPKE (Hybrid Public Key Encryption)
 
 - Restore `MLKEM` usage in the handshake step.
 - Implemented HPKE to provide encryption in the introduction and handshake phases.
@@ -29,23 +38,18 @@
 
 ### Relay
 
-- Implememnt all features.
+- Impalement all of initially planned features.
 - First release.
 
-### Improvements
+### Cleanup
 
-- Refactor new `storage` package for cleaner API.
-- Improve formatting and address lint issues.
-- Add and enhance tests.
-- Define better constants.
-- Include handshake timeout.
-- Write more storage query functions.
-- Add message sequence numbering.
-- Use `HKDF-SHA512` instead of `HKDF-SHA256` for key derivation.
-- Move `store` package to the internal directory, only exposing the `storage`
-  to the clients.
-- Reformat `daemon` package.
-- Update dependencies.
+- Perform code and feature cleanup, aiming to increase the code quality and
+  maintainability.
+- Fixed various typos and spelling errors.
+- Removed `ML-DSA`, in favor of `ED25519`.
+- Removed incomplete `Session`, `Session Manager`, and `Session Resumption`
+  implementations.
+- Removed `Double Ratchet`, as it was not correctly implemented.
 
 ## v0.2.0
 

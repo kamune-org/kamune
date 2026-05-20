@@ -95,7 +95,6 @@ type SignedTransport struct {
 	Signature     []byte                 `protobuf:"bytes,2,opt,name=Signature,proto3" json:"Signature,omitempty"`
 	Metadata      *Metadata              `protobuf:"bytes,3,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
 	Padding       []byte                 `protobuf:"bytes,4,opt,name=Padding,proto3" json:"Padding,omitempty"`
-	Route         Route                  `protobuf:"varint,5,opt,name=Route,proto3,enum=box.Route" json:"Route,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -158,18 +157,12 @@ func (x *SignedTransport) GetPadding() []byte {
 	return nil
 }
 
-func (x *SignedTransport) GetRoute() Route {
-	if x != nil {
-		return x.Route
-	}
-	return Route_ROUTE_INVALID
-}
-
 type Metadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ID            string                 `protobuf:"bytes,1,opt,name=ID,proto3" json:"ID,omitempty"`
 	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=Timestamp,proto3" json:"Timestamp,omitempty"`
 	Sequence      uint64                 `protobuf:"varint,3,opt,name=Sequence,proto3" json:"Sequence,omitempty"`
+	Route         Route                  `protobuf:"varint,4,opt,name=Route,proto3,enum=box.Route" json:"Route,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -225,22 +218,29 @@ func (x *Metadata) GetSequence() uint64 {
 	return 0
 }
 
+func (x *Metadata) GetRoute() Route {
+	if x != nil {
+		return x.Route
+	}
+	return Route_ROUTE_INVALID
+}
+
 var File_box_proto protoreflect.FileDescriptor
 
 const file_box_proto_rawDesc = "" +
 	"\n" +
-	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaa\x01\n" +
+	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"\x88\x01\n" +
 	"\x0fSignedTransport\x12\x12\n" +
 	"\x04Data\x18\x01 \x01(\fR\x04Data\x12\x1c\n" +
 	"\tSignature\x18\x02 \x01(\fR\tSignature\x12)\n" +
 	"\bMetadata\x18\x03 \x01(\v2\r.box.MetadataR\bMetadata\x12\x18\n" +
-	"\aPadding\x18\x04 \x01(\fR\aPadding\x12 \n" +
-	"\x05Route\x18\x05 \x01(\x0e2\n" +
-	".box.RouteR\x05Route\"p\n" +
+	"\aPadding\x18\x04 \x01(\fR\aPadding\"\x92\x01\n" +
 	"\bMetadata\x12\x0e\n" +
 	"\x02ID\x18\x01 \x01(\tR\x02ID\x128\n" +
 	"\tTimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\x12\x1a\n" +
-	"\bSequence\x18\x03 \x01(\x04R\bSequence*\xf3\x01\n" +
+	"\bSequence\x18\x03 \x01(\x04R\bSequence\x12 \n" +
+	"\x05Route\x18\x04 \x01(\x0e2\n" +
+	".box.RouteR\x05Route*\xf3\x01\n" +
 	"\x05Route\x12\x11\n" +
 	"\rROUTE_INVALID\x10\x00\x12\x12\n" +
 	"\x0eROUTE_IDENTITY\x10\x01\x12\x1b\n" +
@@ -274,8 +274,8 @@ var file_box_proto_goTypes = []any{
 }
 var file_box_proto_depIdxs = []int32{
 	2, // 0: box.SignedTransport.Metadata:type_name -> box.Metadata
-	0, // 1: box.SignedTransport.Route:type_name -> box.Route
-	3, // 2: box.Metadata.Timestamp:type_name -> google.protobuf.Timestamp
+	3, // 1: box.Metadata.Timestamp:type_name -> google.protobuf.Timestamp
+	0, // 2: box.Metadata.Route:type_name -> box.Route
 	3, // [3:3] is the sub-list for method output_type
 	3, // [3:3] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name
