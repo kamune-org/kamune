@@ -90,7 +90,7 @@ func (s *Service) handleWSRelay(
 
 // ConveyWithWS extends the standard Convey flow by first attempting WebSocket
 // delivery through the hub before falling back to HTTP direct delivery and
-// queueing. This is used by the HTTP /convey endpoint when a hub is available.
+// queuing. This is used by the HTTP /convey endpoint when a hub is available.
 func (s *Service) ConveyWithWS(
 	ctx context.Context,
 	sender, receiver model.PublicKey,

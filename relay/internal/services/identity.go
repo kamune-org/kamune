@@ -36,7 +36,7 @@ func (s *Service) PublicKey() string {
 //   - "emoji": 8 emoji symbols derived from a SHA-256 hash, joined with " • "
 //   - "fingerprint": base64 raw-URL encoded SHA-256 digest of the public key
 //
-// An unrecognised format string silently falls back to "base64".
+// An unrecognized format string silently falls back to "base64".
 func (s *Service) Identity(format string) IdentityResponse {
 	raw := s.attest.MarshalPublicKey()
 

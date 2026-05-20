@@ -31,7 +31,7 @@ type webhookEntry struct {
 }
 
 // WebhookRegistry manages webhook callback registrations keyed by the
-// base64-encoded marshalled public key of each peer.
+// base64-encoded marshaled public key of each peer.
 type WebhookRegistry struct {
 	mu      sync.RWMutex
 	hooks   map[model.PublicKey]*webhookEntry // base64(pubkey) -> entry

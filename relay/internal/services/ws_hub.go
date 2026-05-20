@@ -32,7 +32,7 @@ type wsConn struct {
 }
 
 // Hub manages active WebSocket connections keyed by the base64-encoded
-// marshalled public key of each peer. It enables real-time message delivery
+// marshaled public key of each peer. It enables real-time message delivery
 // to connected peers.
 type Hub struct {
 	mu    sync.RWMutex

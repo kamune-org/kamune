@@ -37,7 +37,7 @@ func (s *Service) Convey(
 	sender, receiver model.PublicKey, sessionID string, data []byte,
 ) (bool, error) {
 	// Try to obtain peer addresses. Non-fatal: if inquiry fails we fall back to
-	// queueing.
+	// queuing.
 	var addresses []string
 	if peer, err := s.InquiryPeer(receiver); err == nil && peer != nil {
 		addresses = peer.Address

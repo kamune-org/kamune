@@ -81,9 +81,9 @@ func loadAttest(store model.Store) (*attest.Attest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating new attester: %w", err)
 	}
-	data, err := at.Save()
+	data, err := at.MarshalPrivateKey()
 	if err != nil {
-		return nil, fmt.Errorf("marshalling attester: %w", err)
+		return nil, fmt.Errorf("marshalling attester private key: %w", err)
 	}
 	err = store.Command(func(c model.Command) error {
 		return c.Set(identityNS, attestationKey, data)

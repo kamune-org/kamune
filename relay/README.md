@@ -74,7 +74,7 @@ Response:
 ```
 
 The `format` parameter is case-insensitive and leading/trailing whitespace is
-trimmed. An unrecognised value silently falls back to `base64`.
+trimmed. An unrecognized value silently falls back to `base64`.
 
 ## WebSocket
 
