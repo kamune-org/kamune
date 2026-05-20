@@ -13,14 +13,14 @@ func TestCommandSerialization(t *testing.T) {
 	tests := []struct {
 		name     string
 		wantType string
-		wantCmd  string
+		wantCmd  CMD
 		cmd      Command
 	}{
 		{
 			name: "start_server command",
 			cmd: Command{
 				Type:   "cmd",
-				Cmd:    CmdStartServer,
+				CMD:    CmdStartServer,
 				ID:     "test-123",
 				Params: json.RawMessage(`{"addr":"127.0.0.1:9000"}`),
 			},
@@ -31,7 +31,7 @@ func TestCommandSerialization(t *testing.T) {
 			name: "dial command",
 			cmd: Command{
 				Type:   "cmd",
-				Cmd:    CmdDial,
+				CMD:    CmdDial,
 				ID:     "test-456",
 				Params: json.RawMessage(`{"addr":"192.168.1.10:9000"}`),
 			},
@@ -42,7 +42,7 @@ func TestCommandSerialization(t *testing.T) {
 			name: "send_message command",
 			cmd: Command{
 				Type:   "cmd",
-				Cmd:    CmdSendMessage,
+				CMD:    CmdSendMessage,
 				ID:     "test-789",
 				Params: json.RawMessage(`{"session_id":"abc","data_base64":"SGVsbG8="}`),
 			},
@@ -61,7 +61,7 @@ func TestCommandSerialization(t *testing.T) {
 			a.NoError(err, "failed to unmarshal command")
 
 			a.Equal(tt.wantType, decoded.Type, "Type mismatch")
-			a.Equal(tt.wantCmd, decoded.Cmd, "Cmd mismatch")
+			a.Equal(tt.wantCmd, decoded.CMD, "Cmd mismatch")
 			a.Equal(tt.cmd.ID, decoded.ID, "ID mismatch")
 		})
 	}
@@ -73,7 +73,7 @@ func TestEventSerialization(t *testing.T) {
 		name     string
 		evt      Event
 		wantType string
-		wantEvt  string
+		wantEvt  Evt
 	}{
 		{
 			name: "ready event",
@@ -241,7 +241,7 @@ func TestDaemonNew(t *testing.T) {
 func TestCommandConstants(t *testing.T) {
 	a := assert.New(t)
 	// Verify command constants are defined correctly
-	expectedCommands := map[string]string{
+	expectedCommands := map[string]CMD{
 		"start_server":  CmdStartServer,
 		"dial":          CmdDial,
 		"send_message":  CmdSendMessage,
@@ -251,14 +251,14 @@ func TestCommandConstants(t *testing.T) {
 	}
 
 	for expected, actual := range expectedCommands {
-		a.Equal(expected, actual, "Command constant mismatch")
+		a.Equal(expected, string(actual), "Command constant mismatch")
 	}
 }
 
 func TestEventConstants(t *testing.T) {
 	a := assert.New(t)
 	// Verify event constants are defined correctly
-	expectedEvents := map[string]string{
+	expectedEvents := map[string]Evt{
 		"ready":            EvtReady,
 		"server_started":   EvtServerStarted,
 		"session_started":  EvtSessionStarted,
@@ -270,7 +270,7 @@ func TestEventConstants(t *testing.T) {
 	}
 
 	for expected, actual := range expectedEvents {
-		a.Equal(expected, actual, "Event constant mismatch")
+		a.Equal(expected, string(actual), "Event constant mismatch")
 	}
 }
 
@@ -279,8 +279,8 @@ func TestParseCommand(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
-		wantCmd   string
-		wantID    string
+		wantCmd   CMD
+		wantID    ID
 		wantError bool
 	}{
 		{
@@ -319,7 +319,7 @@ func TestParseCommand(t *testing.T) {
 			}
 
 			a.NoError(err, "unexpected error")
-			a.Equal(tt.wantCmd, cmd.Cmd, "Cmd mismatch")
+			a.Equal(tt.wantCmd, cmd.CMD, "Cmd mismatch")
 			a.Equal(tt.wantID, cmd.ID, "ID mismatch")
 		})
 	}
