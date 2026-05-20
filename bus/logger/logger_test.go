@@ -292,8 +292,7 @@ func BenchmarkInfo(b *testing.B) {
 	r.NoError(err, "Init failed")
 	defer Close()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		Info("benchmark message")
 	}
 }
@@ -311,7 +310,7 @@ func BenchmarkErrorf(b *testing.B) {
 	defer Close()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		Errorf("benchmark error: %d", i)
 	}
 }

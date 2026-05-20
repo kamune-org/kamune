@@ -284,24 +284,20 @@ func TestDBPathConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent writers (set dbPath directly under lock to avoid Fyne UI calls)
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
+	for i := range 10 {
+		wg.Go(func() {
 			c.mu.Lock()
-			c.dbPath = "/path/" + string(rune('a'+n))
+			c.dbPath = "/path/" + string(rune('a'+i))
 			c.mu.Unlock()
-		}(i)
+		})
 	}
 
 	// Concurrent readers
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			p := c.DBPath()
 			a.NotEmpty(p, "DBPath should never be empty during concurrent access")
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -406,7 +402,7 @@ func TestConcurrentSessionAccess(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Writers
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -421,14 +417,12 @@ func TestConcurrentSessionAccess(t *testing.T) {
 	}
 
 	// Readers
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			mu.RLock()
 			_ = len(sessions)
 			mu.RUnlock()
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -441,7 +435,7 @@ func TestSessionRemoval(t *testing.T) {
 	a := assert.New(t)
 
 	sessions := make([]*Session, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		sessions[i] = &Session{
 			ID: "session-" + string(rune('A'+i)),
 		}
@@ -528,8 +522,8 @@ func TestMessageTimestampOrdering(t *testing.T) {
 		{Text: "Third", Timestamp: now, IsLocal: true},
 	}
 
-	for i := 1; i < len(messages); i++ {
-		a.True(messages[i].Timestamp.After(messages[i-1].Timestamp), "message %d should be after message %d", i, i-1)
+	for i := range messages {
+		a.True(messages[i+1].Timestamp.After(messages[i].Timestamp), "message %d should be after message %d", i+1, i)
 	}
 }
 
@@ -641,7 +635,7 @@ func TestChatAppVersionConstant(t *testing.T) {
 func BenchmarkTruncateSessionID(b *testing.B) {
 	longID := "this-is-a-very-long-session-id-that-needs-truncation"
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = truncateSessionID(longID)
 	}
 }

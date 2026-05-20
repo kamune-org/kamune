@@ -13,14 +13,13 @@ import (
 // setupMenus configures the application menu bar.
 func (c *ChatApp) setupMenus() {
 	// File menu
-	fileMenu := fyne.NewMenu("File",
+	fileMenu := fyne.NewMenu(
+		"File",
 		fyne.NewMenuItem("Start Server...", c.showServerDialog),
 		fyne.NewMenuItem("Connect to Server...", c.showConnectDialog),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("View History...", c.historyViewer.ShowHistoryDialog),
-		fyne.NewMenuItem("Refresh History", func() {
-			c.refreshHistorySessions()
-		}),
+		fyne.NewMenuItem("Refresh History", func() { c.refreshHistorySessions() }),
 		fyne.NewMenuItem("Delete Session History...", func() {
 			c.mu.RLock()
 			hs := c.activeHistSession
@@ -31,18 +30,14 @@ func (c *ChatApp) setupMenus() {
 				dialog.ShowInformation("No History Session", "Select a history session first.", c.window)
 			}
 		}),
-		fyne.NewMenuItem("Database Path...", func() {
-			c.showDBPathDialog()
-		}),
+		fyne.NewMenuItem("Database Path...", func() { c.showDBPathDialog() }),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Quit", func() {
-			c.cleanup()
-			c.app.Quit()
-		}),
+		fyne.NewMenuItem("Quit", func() { c.cleanup(); c.app.Quit() }),
 	)
 
 	// Edit menu
-	editMenu := fyne.NewMenu("Edit",
+	editMenu := fyne.NewMenu(
+		"Edit",
 		fyne.NewMenuItem("Clear Messages", func() {
 			ct := c.tabManager.SelectedTab()
 			if ct == nil {
@@ -56,19 +51,14 @@ func (c *ChatApp) setupMenus() {
 			c.tabManager.RefreshActiveTab()
 		}),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Copy Session ID", func() {
-			c.copyActiveSessionID()
-		}),
-		fyne.NewMenuItem("Copy Fingerprint", func() {
-			c.copyFingerprint()
-		}),
+		fyne.NewMenuItem("Copy Session ID", func() { c.copyActiveSessionID() }),
+		fyne.NewMenuItem("Copy Fingerprint", func() { c.copyFingerprint() }),
 	)
 
 	// Session menu
-	sessionMenu := fyne.NewMenu("Session",
-		fyne.NewMenuItem("Session Info", func() {
-			c.showSessionInfo()
-		}),
+	sessionMenu := fyne.NewMenu(
+		"Session",
+		fyne.NewMenuItem("Session Info", func() { c.showSessionInfo() }),
 		fyne.NewMenuItem("Rename Session", func() {
 			c.mu.RLock()
 			session := c.activeSession
@@ -82,33 +72,20 @@ func (c *ChatApp) setupMenus() {
 				dialog.ShowInformation("No Session", "Select a session to rename.", c.window)
 			}
 		}),
-		fyne.NewMenuItem("Copy Session ID", func() {
-			c.copyActiveSessionID()
-		}),
+		fyne.NewMenuItem("Copy Session ID", func() { c.copyActiveSessionID() }),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Close Other Tabs", func() {
-			c.tabManager.CloseOtherTabs()
-		}),
-		fyne.NewMenuItem("Close Tabs to the Right", func() {
-			c.tabManager.CloseTabsToTheRight()
-		}),
-		fyne.NewMenuItem("Close All Tabs", func() {
-			c.tabManager.CloseAllTabs()
-		}),
+		fyne.NewMenuItem("Close Other Tabs", func() { c.tabManager.CloseOtherTabs() }),
+		fyne.NewMenuItem("Close Tabs to the Right", func() { c.tabManager.CloseTabsToTheRight() }),
+		fyne.NewMenuItem("Close All Tabs", func() { c.tabManager.CloseAllTabs() }),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("End Session", func() {
-			c.disconnectActiveSession()
-		}),
+		fyne.NewMenuItem("End Session", func() { c.disconnectActiveSession() }),
 	)
 
 	// View menu
-	viewMenu := fyne.NewMenu("View",
-		fyne.NewMenuItem("Toggle Logs", func() {
-			c.toggleLogPanel()
-		}),
-		fyne.NewMenuItem("Clear Logs", func() {
-			c.logViewer.Clear()
-		}),
+	viewMenu := fyne.NewMenu(
+		"View",
+		fyne.NewMenuItem("Toggle Logs", func() { c.toggleLogPanel() }),
+		fyne.NewMenuItem("Clear Logs", func() { c.logViewer.Clear() }),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Show Sessions Tab", func() {
 			if c.sidebarTabs != nil {
@@ -123,7 +100,8 @@ func (c *ChatApp) setupMenus() {
 	)
 
 	// Settings menu
-	settingsMenu := fyne.NewMenu("Settings",
+	settingsMenu := fyne.NewMenu(
+		"Settings",
 		fyne.NewMenuItem("Verification: Strict", func() {
 			c.verificationMode = VerificationModeStrict
 			c.showVerificationModeNotification()
@@ -139,15 +117,16 @@ func (c *ChatApp) setupMenus() {
 	)
 
 	// Help menu
-	helpMenu := fyne.NewMenu("Help",
-		fyne.NewMenuItem("Keyboard Shortcuts", func() {
-			c.showShortcutsHelp()
-		}),
+	helpMenu := fyne.NewMenu(
+		"Help",
+		fyne.NewMenuItem("Keyboard Shortcuts", func() { c.showShortcutsHelp() }),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("About Bus", func() {
-			dialog.ShowInformation("About Bus",
+			dialog.ShowInformation(
+				"About Bus",
 				fmt.Sprintf("Bus — Kamune Chat v%s\n\nSecure end-to-end encrypted messaging.\nBuilt with Fyne and the Kamune protocol.\n\nShortcuts:\n  Ctrl+N — Connect\n  Ctrl+S — Start Server\n  Ctrl+H — View History\n  Ctrl+L — Toggle Logs\n  Ctrl+W — Close Tab\n  Ctrl+Shift+W — Close All Tabs", appVersion),
-				c.window)
+				c.window,
+			)
 		}),
 	)
 
