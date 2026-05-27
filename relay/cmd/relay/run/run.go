@@ -24,7 +24,7 @@ func Run() error {
 	ctx := context.Background()
 
 	var cfgPath string
-	flag.StringVar(&cfgPath, "config", ".assets/config.toml", "config path")
+	flag.StringVar(&cfgPath, "config", "assets/config.toml", "config path")
 	flag.Parse()
 
 	slogger.NewDefault(slogger.WithLevel(slog.LevelDebug))

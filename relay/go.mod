@@ -9,7 +9,7 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/dgraph-io/badger/v4 v4.9.1
 	github.com/google/uuid v1.6.0
-	github.com/hossein1376/grape v0.5.1-0.20260425194836-1f6236d16e1b
+	github.com/hossein1376/grape v0.6.0
 	github.com/kamune-org/kamune v0.2.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.51.0
