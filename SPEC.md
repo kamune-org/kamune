@@ -13,12 +13,12 @@
 3. [Cipher Suite](#3-cipher-suite)
 4. [Wire Format](#4-wire-format)
 5. [Routes](#5-routes)
-6. [Protocol Flow: New Session](#7-protocol-flow-new-session)
-   - 6.1 [Exchange](#62-exchange)
-   - 6.2 [Introduction](#61-introduction)
-   - 6.3 [Handshake](#62-handshake)
-   - 6.4 [Challenge Exchange](#63-challenge-exchange)
-   - 6.5 [Communication](#64-communication)
+6. [Protocol Flow: New Session](#6-protocol-flow-new-session)
+   - 6.1 [Exchange](#61-exchange)
+   - 6.2 [Introduction](#62-introduction)
+   - 6.3 [Handshake](#63-handshake)
+   - 6.4 [Challenge Exchange](#64-challenge-exchange)
+   - 6.5 [Communication](#65-communication)
 7. [Encryption and Key Derivation](#7-encryption-and-key-derivation)
 8. [Message Integrity and Replay Protection](#8-message-integrity-and-replay-protection)
 9. [Transport Layer](#9-transport-layer)
@@ -61,10 +61,11 @@ The default cipher suite is `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`.
 | **Peer** | A remote party identified by its public key, name, and timestamps. |
 | **Transport** | The encrypted, session-aware communication channel between two peers. |
 | **Underlying Transport** | The encrypted connection used during Introduction and Handshake. |
-| **HPKE** | Hybrid Public Key Encryption (RFC 9180). Performs key encapsulation and key schedule derivation in a single operation during the Handshake phase. Configured with MLKEM768-X25519 KEM, HKDF-SHA512 KDF, and ChaCha20-Poly1305 AEAD. |
-| **Enigma** | The symmetric encryption/decryption engine wrapping XChaCha20-Poly1305. |
-| **Route** | A typed tag on each message identifying its purpose and protocol phase. |
-| **Fingerprint** | A human-readable representation of a public key (emoji, hex, or base64). |
+| **HPKE** | Hybrid Public Key Encryption (RFC 9180). Performs key encapsulation and key schedule derivation in a single operation during the Exchange phase. Configured with MLKEM768-X25519 KEM, HKDF-SHA512 KDF, and ChaCha20-Poly1305 AEAD. |
+| **Enigma** | The symmetric encryption/decryption engine wrapping XChaCha20-Poly1305 with keys derived via HKDF-SHA512. |
+| **Route** | A typed tag on each message's Metadata identifying its purpose and protocol phase. |
+| **Fingerprint** | A human-readable representation of a public key (emoji, hex, base64, or pseudonym). |
+| **Transcript Hash** | A SHA-256 hash over the serialized handshake messages, bound into challenge derivation to prevent replay and downgrade attacks. |
 
 ---
 
@@ -120,9 +121,8 @@ Protobuf envelope:
 SignedTransport {
   bytes    Data      = 1;   // Serialized inner message (Protobuf)
   bytes    Signature = 2;   // Digital signature over Data
-  Metadata Metadata  = 3;   // Message metadata (ID, timestamp, sequence)
+  Metadata Metadata  = 3;   // Message metadata (ID, timestamp, sequence, route)
   bytes    Padding   = 4;   // Random padding (0–256 bytes)
-  Route    Route     = 5;   // Message type/route identifier
 }
 ```
 
@@ -133,11 +133,11 @@ SignedTransport {
 - **Signature**: The Ed25519 signature computed over the raw `Data` bytes using
   the sender's private key.
 - **Metadata**: Contains a unique message ID (random text), a Protobuf
-  `Timestamp`, and a monotonically increasing sequence number.
+  `Timestamp`, a monotonically increasing sequence number, and the `Route` enum
+  identifying the message type and protocol phase.
 - **Padding**: Random bytes of length `[0, 256)`, generated uniformly at
   random. Padding serves as a traffic analysis countermeasure by obscuring
   actual message sizes.
-- **Route**: An enum identifying the message type and protocol phase.
 
 ### 4.3 Encrypted Messages
 
@@ -159,6 +159,10 @@ Ciphertext layout:
 The 24-byte nonce is generated randomly for each encryption operation and
 prepended to the ciphertext. The Poly1305 authentication tag is appended by the
 AEAD construction.
+
+The same encryption scheme (XChaCha20-Poly1305) is also used for the HPKE
+Exchange phase, which establishes an encrypted tunnel for the Introduction and
+Handshake messages.
 
 ---
 
@@ -184,8 +188,10 @@ transitions.
 
 - Routes `1–6` are **handshake routes** and MUST only appear during session
   establishment.
-- Routes `7–9` are **session routes** and MUST only appear after a session is
+- Routes `7–8` are **session routes** and MUST only appear after a session is
   fully established.
+- Route `4` (`ROUTE_FINALIZE_HANDSHAKE`) is defined in the enum but is
+  **reserved** and not currently used by the protocol.
 - Any message with `ROUTE_INVALID` (`0`) or an unrecognized route value MUST
   be rejected.
 
@@ -202,8 +208,12 @@ sequence: Introduction, Handshake, and Challenge Exchange.
 
 ### 6.1 Exchange
 
-The Exchange step ensures both parties can securely communicate through the
-handshake process.
+The Exchange phase establishes an encrypted tunnel over the raw connection
+using HPKE (Hybrid Public Key Encryption, RFC 9180) with the MLKEM768-X25519
+hybrid KEM. This protects the subsequent Introduction and Handshake messages
+from eavesdropping.
+
+The HPKE domain separation info string is set to `"Kamune HPKE v1"`.
 
 ```
 Initiator (Client)             Responder (Server)
@@ -222,21 +232,26 @@ Initiator (Client)             Responder (Server)
        |                            |
 ```
 
-**Step-by-step:**
+**Step-by-step (Initiator):**
 
-1. Initiator generates an ephemeral HPKE key pair and sends the public key to the
-   responder.
-2. Responder receives and parses the public key. Then, generates the ciphertext
-   (enc) and the sender context. Finally, the ciphertext is sent to the initiator.
-3. Initiator receives the ciphertext, and creates the recipient context via the
-   private key.
-4. Responder generates an ephemeral HPKE key pair and sends the public key to the
-   initiator.
-5. Initiator receives and parses the public key. Then, generates the ciphertext
-   (enc) and the sender context. Finally, the ciphertext is sent to the responder.
-6. Responder receives the ciphertext, and creates the recipient context via the
-   private key.
-7. Both parties now can communicate through their sender and recipient ciphers.
+1. Generate an ephemeral HPKE key pair using the MLKEM768-X25519 KEM and send
+   the public key to the responder.
+2. Receive the responder's encapsulated ciphertext (`enc`) and create an HPKE
+   `Recipient` context using the private key.
+3. Receive the responder's HPKE public key and create an HPKE `Sender` context.
+4. Generate and send the encapsulated ciphertext (`enc`) to the responder.
+
+**Step-by-step (Responder):**
+
+1. Receive the initiator's public key, create an HPKE `Sender` context, and
+   send the encapsulated ciphertext (`enc`) back.
+2. Generate an ephemeral HPKE key pair and send the public key to the initiator.
+3. Receive the initiator's encapsulated ciphertext (`enc`) and create an HPKE
+   `Recipient` context.
+
+Both sides now hold a paired `Sender` and `Recipient`, enabling bidirectional
+authenticated encryption. An `encryptedConn` wrapping the raw `Conn` handles
+`Seal`/`Open` transparently for the remainder of the handshake.
 
 ### 6.2 Introduction
 
@@ -291,19 +306,20 @@ other's authenticated public key and proceed to the Handshake.
 ### 6.3 Handshake
 
 The Handshake phase uses post-quantum MLKEM768 to establish a shared key and 
-derive session-specific symmetric encryption keys.
+derive session-specific symmetric encryption keys. The HPKE-encrypted tunnel
+from the Exchange phase is used for transport.
 
 ```
 Initiator                                    Responder
     |                                            |
-    |  ---- PlainTransport[REQUEST_HS] ------>   |
+    |  ---- SignedTransport[REQUEST_HS] ----->   |
     |        Handshake {                         |
     |          Key:  MLKEM PublicKey             |
     |          Salt: 16 random bytes,            |
     |          SessionKey: 10-char prefix        |
     |        }                                   |
     |                                            |
-    |   <---- PlainTransport[ACCEPT_HS] ------   |
+    |   <---- SignedTransport[ACCEPT_HS] -----   |
     |        Handshake {                         |
     |          Key: KEM enc (encapsulated key)   |
     |          Salt: 16 random bytes,            |
@@ -327,8 +343,8 @@ Initiator                                    Responder
    - `Key`: The MLKEM public key bytes.
    - `Salt`: The initiator's local salt.
    - `SessionKey`: The session ID prefix.
-   - This message is serialized via the `plainTransport`, which wraps it in a
-     `SignedTransport` envelope with the initiator's signature and metadata.
+   - Wrapped in a `SignedTransport` envelope signed with the initiator's
+     identity key.
 
 4. **Responder receives and validates the request**:
    - The `SignedTransport` signature is verified using the initiator's public
@@ -341,34 +357,39 @@ Initiator                                    Responder
    - `sessionID`: Concatenation of `sessionPrefix + sessionSuffix` (20
      characters total).
 
-6. **Responder creates symmetric ciphers**:
-   - **shared secret**: `exchange.EncapsulateMLKEM`
-   - **Encoder** (for outgoing messages):
-     `NewEnigma(secret, localSalt, sessionID + "server-to-client")` →
-     XChaCha20-Poly1305 AEAD.
-   - **Decoder** (for incoming messages):
-     `NewEnigma(secret, remoteSalt, sessionID + "client-to-server")` →
-     XChaCha20-Poly1305 AEAD.
-   - The directional info strings and per-side salts ensure encoder and decoder
-     keys are distinct.
+6. **Responder performs MLKEM encapsulation**:
+   - Calls `exchange.EncapsulateMLKEM(req.GetKey())` which derives the shared
+     secret and produces the encapsulated key (`enc`).
 
-7. **Responder sends `Handshake` response** (route: `ROUTE_ACCEPT_HANDSHAKE`):
+7. **Responder creates symmetric ciphers**:
+   - **Encoder** (for outgoing messages):
+     `NewEnigma(secret, localSalt, sessionID + "kamune/handshake/server-to-client/v1")`
+   - **Decoder** (for incoming messages):
+     `NewEnigma(secret, remoteSalt, sessionID + "kamune/handshake/client-to-server/v1")`
+   - The domain-separated directional info strings and per-side salts ensure
+     encoder and decoder keys are distinct.
+
+8. **Responder sends `Handshake` response** (route: `ROUTE_ACCEPT_HANDSHAKE`):
    - `Key`: The KEM encapsulated key (`enc`).
    - `Salt`: The responder's local salt.
    - `SessionKey`: The session ID suffix.
 
-8. **Initiator receives the response and derives the secret**:
-    - Verifies the signature and route (`ROUTE_ACCEPT_HANDSHAKE`).
-    - Constructs `sessionID = sessionPrefix + sessionSuffix`.
-    - `ml.Decapsulate(enc)` is called, which decapsulates the key and derives
-      the same shared key schedule as the sender.
+9. **Initiator receives the response and derives the secret**:
+   - Verifies the signature and route.
+   - Constructs `sessionID = sessionPrefix + sessionSuffix`.
+   - Calls `ml.Decapsulate(enc)` to derive the same shared secret.
 
-9. **Initiator creates symmetric ciphers** (mirrored):
-    - **Encoder**: `NewEnigma(secret, localSalt, sessionID + "client-to-server")`.
-    - **Decoder**: `NewEnigma(secret, remoteSalt, sessionID + "server-to-client")`.
+10. **Initiator creates symmetric ciphers** (mirrored):
+    - **Encoder**: `NewEnigma(secret, localSalt, sessionID + "kamune/handshake/client-to-server/v1")`
+    - **Decoder**: `NewEnigma(secret, remoteSalt, sessionID + "kamune/handshake/server-to-client/v1")`
 
-At this point, both parties hold the same keys and have established matching
-symmetric cipher pairs. The ephemeral MLKEM private key is discarded.
+11. **Both compute the transcript hash**:
+    - `transcriptHash = SHA-256("kamune/handshake/v1" || len(req) || req || len(resp) || resp)`
+    - The hash binds both handshake messages together and is used in the
+      subsequent Challenge Exchange.
+
+At this point, both parties hold the same keys, matching cipher pairs, and a
+shared transcript hash. The ephemeral MLKEM private key is discarded.
 
 ### 6.4 Challenge Exchange
 
@@ -397,8 +418,11 @@ Initiator                                     Responder
 
 1. **Initiator generates and sends challenge**:
    - Derives a 32-byte challenge token:
-     `HKDF-SHA512(sharedSecret, nil, sessionID + "client-to-server", 32)`.
-     The `sharedSecret` is the secret from the Handshake phase.
+     `HKDF-SHA512(secret, nil, sessionID + "|" + handshakeC2SInfo + "|" + transcriptHash, 32)`.
+     The `secret` is the shared secret from the Handshake phase and
+     `handshakeC2SInfo` is `"kamune/handshake/client-to-server/v1"`.
+   - The transcript hash binds the challenge to the specific handshake
+     messages, preventing replay and downgrade attacks.
    - Encrypts and sends it via the `Transport` (route: `ROUTE_SEND_CHALLENGE`).
      This is the first message encrypted with the session's symmetric keys.
 
@@ -414,7 +438,8 @@ Initiator                                     Responder
 
 4. **Responder generates and sends its own challenge**:
    - Derives a 32-byte challenge token:
-     `HKDF-SHA512(sharedSecret, nil, sessionID + "server-to-client", 32)`.
+     `HKDF-SHA512(secret, nil, sessionID + "|" + handshakeS2CInfo + "|" + transcriptHash, 32)`.
+     where `handshakeS2CInfo` is `"kamune/handshake/server-to-client/v1"`.
    - Encrypts and sends it (route: `ROUTE_SEND_CHALLENGE`).
 
 5. **Initiator receives, decrypts, and echoes**:
@@ -431,7 +456,7 @@ The challenge exchange proves that:
 - Both parties derived the same keys and exported identical keys.
 - The session ID is agreed upon.
 
-### 6.4 Communication
+### 6.5 Communication
 
 Once the session is `Established`, peers exchange application messages using
 the `Transport`:
@@ -446,8 +471,8 @@ the `Transport`:
    message is sequence 1).
 2. The application message (any Protobuf `Transferable`) is serialized.
 3. The serialized message is signed with the sender's identity key.
-4. The signature, message bytes, metadata (ID, timestamp, sequence), random
-   padding, and route are assembled into a `SignedTransport` envelope.
+4. The signature, message bytes, and metadata (ID, timestamp, sequence, and
+   route) plus random padding are assembled into a `SignedTransport` envelope.
 5. The entire `SignedTransport` is serialized to bytes.
 6. The bytes are encrypted using the sender's `Enigma` encoder
    (XChaCha20-Poly1305 with a fresh 24-byte random nonce).
@@ -476,7 +501,61 @@ the `Transport`:
   <img alt="Key Derivation Schedule" src="assets/diagrams/key-derivation.svg">
 </picture>
 
-TODO
+### 7.1 Exchange Phase Keys
+
+During the Exchange phase, HPKE with the MLKEM768-X25519 hybrid KEM produces
+paired `Sender` and `Recipient` contexts directly. No additional key derivation
+is performed — the HPKE library handles key scheduling internally using
+HKDF-SHA512 (KDF) and ChaCha20-Poly1305 (AEAD).
+
+### 7.2 Handshake Phase Key Derivation
+
+The MLKEM768 encapsulation produces a 32-byte shared secret. Symmetric cipher
+keys are derived per-direction using HKDF-SHA512:
+
+```
+encoderKey = HKDF-SHA512(secret, localSalt, sessionID + directionInfo, 32)
+decoderKey = HKDF-SHA512(secret, remoteSalt, sessionID + oppositeInfo, 32)
+```
+
+Where:
+- `secret`: 32-byte MLKEM768 shared secret (from `Decapsulate` or `Encapsulate`)
+- `localSalt`: 16 random bytes from the local party
+- `remoteSalt`: 16 random bytes from the remote party
+- `sessionID`: 20-character concatenation of prefix + suffix
+- Direction info strings are domain-separated:
+  - Client-to-server: `"kamune/handshake/client-to-server/v1"`
+  - Server-to-client: `"kamune/handshake/server-to-client/v1"`
+
+### 7.3 Challenge Tokens
+
+Challenge tokens are derived using the same HKDF-SHA512:
+
+```
+challenge = HKDF-SHA512(secret, nil, sessionID + "|" + directionInfo + "|" + transcriptHash, 32)
+```
+
+The transcript hash binds the challenge to the specific session's handshake
+messages, preventing replay and downgrade attacks.
+
+### 7.4 Enigma Cipher
+
+The `Enigma` wrapper provides XChaCha20-Poly1305 AEAD encryption:
+
+- `NewEnigma(secret, salt, info)`: Derives a 32-byte key via HKDF-SHA512 and
+  creates an XChaCha20-Poly1305 AEAD cipher.
+- `Encrypt(plaintext)`: Generates a fresh 24-byte random nonce, encrypts with
+  the AEAD, and prepends the nonce to the ciphertext.
+- `Decrypt(ciphertext)`: Extracts the 24-byte nonce, decrypts with the AEAD.
+
+### 7.5 Key Hierarchy Summary
+
+| Phase | Key Material | Derivation |
+|-------|-------------|------------|
+| Exchange | HPKE Sender/Recipient contexts | HPKE internal key schedule (MLKEM768-X25519 + HKDF-SHA512 + ChaCha20-Poly1305) |
+| Handshake | 32-byte shared secret | MLKEM768 Encapsulate/Decapsulate |
+| Cipher keys | 32-byte per-direction keys | HKDF-SHA512(secret, salt, domainInfo) |
+| Challenge tokens | 32-byte tokens | HKDF-SHA512(secret, nil, sessionID + "|" + dirInfo + "|" + transcriptHash) |
 
 ---
 
@@ -608,11 +687,10 @@ itself is never stored.
 
 | Bucket | Key | Value | Encryption |
 |--------|-----|-------|------------|
-| `kamune-store` | Cipher metadata keys | Salts and wrapped key | Plaintext |
+| `kamune-store` | `"derive-salt"`, `"wrapped-salt"`, `"secret-salt"`, `"wrapped-key"` | Encryption salts and wrapped DEK | Plaintext |
+| `kamune-store` | `"attest"` | Ed25519 private key (attestation) | Encrypted (DEK) |
 | `peers` | `SHA3-512(publicKey)` | Protobuf `Peer` | Encrypted (DEK) |
-| `kamune-store_sessions` | `SHA3-512(sessionID)` | Protobuf `SessionState` | Encrypted (DEK) |
-| `kamune-store_handshakes` | `SHA3-512(publicKey)` | Protobuf handshake state | Encrypted (DEK) |
-| `kamune-store_pubkey_index` | `SHA3-512(publicKey)` | Protobuf `PubKeySessionIndex` | Encrypted (DEK) |
+| `session_meta_<sessionID>` | `"name"` | Human-readable session name | Encrypted (DEK) |
 | `chat_<sessionID>` | 14-byte composite key | Chat message payload | Encrypted (DEK) |
 
 ### 10.4 Chat History Key Format
@@ -665,8 +743,6 @@ wrapper). Built-in middleware includes:
 - **LoggingMiddleware**: Logs route dispatch events.
 - **RecoveryMiddleware**: Catches panics in handlers and converts them to
   errors.
-- **SessionPhaseMiddleware**: Rejects messages if the session has not reached
-  a required phase.
 
 ### 11.3 Route Groups
 
@@ -785,13 +861,13 @@ message SignedTransport {
   bytes    Signature = 2;
   Metadata Metadata  = 3;
   bytes    Padding   = 4;
-  Route    Route     = 5;
 }
 
 message Metadata {
   string                    ID        = 1;
   google.protobuf.Timestamp Timestamp = 2;
   uint64                    Sequence  = 3;
+  Route                     Route     = 4;
 }
 ```
 
@@ -813,6 +889,8 @@ message Metadata {
 | `defaultDialTimeout` | 10 seconds | Default connection establishment timeout |
 | `defaultPeerExpiry` | 7 days | Default peer identity expiration |
 | `lengthPrefixSize` | 2 bytes | Size of the big-endian message length header |
+| `sessionPrefixLength` | 10 characters | Length of the session ID prefix emitted by the initiator |
+| `sessionSuffixLength` | 10 characters | Length of the session ID suffix emitted by the responder |
 
 ---
 
@@ -828,4 +906,5 @@ message Metadata {
 | `ErrUnexpectedRoute` | Received a route that does not match the expected protocol state. |
 | `ErrInvalidRoute` | Route value is `0` (invalid) or unrecognized. |
 | `ErrPeerExpired` | Peer's identity has exceeded the configured expiry duration. |
-| `ErrHandshakeInProgress` | A handshake is already in progress with the given peer. |
+| `ErrSessionExpired` | Session state has expired and can no longer be used. |
+| `ErrPeerRejected` | The remote verifier callback rejected the peer during introduction. |
