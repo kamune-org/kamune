@@ -16,8 +16,8 @@ import (
 
 // Dialer handles outgoing connections and initiates handshakes.
 type Dialer struct {
-	attest        *attest.Attest
 	conn          Conn
+	attest        *attest.Attest
 	storage       *storage.Storage
 	clientName    string
 	address       string

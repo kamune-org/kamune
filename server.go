@@ -19,11 +19,11 @@ import (
 
 // Server handles incoming connections and manages the handshake process.
 type Server struct {
-	attest        *attest.Attest
 	listener      net.Listener
-	handshakeOpts handshakeOpts
-	handlerFunc   HandlerFunc
+	attest        *attest.Attest
 	storage       *storage.Storage
+	handlerFunc   HandlerFunc
+	handshakeOpts handshakeOpts
 	addr          string
 	serverName    string
 	connOpts      []ConnOption
