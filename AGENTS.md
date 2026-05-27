@@ -1,0 +1,57 @@
+# Kamune — AGENTS.md
+
+## Project structure
+
+Monorepo with 4 Go 1.26 modules:
+
+| Directory | Module | Purpose |
+|-----------|--------|---------|
+| `.` (root) | `github.com/kamune-org/kamune` | Core library (protocol, transport, crypto) |
+| `relay/` | `github.com/kamune-org/kamune/relay` | Relay server (BadgerDB, WebSocket, REST) |
+| `chat/` | `github.com/kamune-org/kamune/chat` | TUI client (Bubble Tea) |
+| `bus/` | `github.com/kamune-org/kamune/bus` | GUI client (Fyne) |
+| `cmd/daemon/` | part of root module | JSON-over-stdio daemon for external apps |
+
+`chat/`, `bus/`, and `relay/` use `replace github.com/kamune-org/kamune => ../` in their `go.mod`.
+
+## Commands
+
+- **Test any module**: `go test ./... -v` (works in root, relay/, chat/, bus/)
+- **Test single package**: `go test -v ./pkg/storage` (any sub-package)
+- **Benchmarks**: `go test ./... -bench .`
+- **Vet** (root only): `go vet ./...`
+- **Format** (root only): `gofmt -s -w .` and `goimports -w .`
+- **Align structs** (fieldalignment only): `make align-structs` in root or `golangci-lint run --fix`
+- **Regenerate protobuf** (root or relay): `make gen-proto` requires `protoc` with Go plugin
+- **Build relay**: `make build` in `relay/` (outputs `relay` binary, version injected via ldflags)
+- **Run relay**: `make run` in `relay/` or `go run ./cmd/relay -config <path>`
+- **Build daemon**: `go build -o daemon ./cmd/daemon` (from root)
+- **Build chat TUI**: `go build -o chat .` in `chat/`
+- **Build bus GUI**: `go build -o bus .` in `bus/`
+
+## Architecture notes
+
+- Root package exports: `Server`, `Dialer`, `Transport`, `Conn` interface, `Router`, `Route`
+- `pkg/` contains public sub-packages: `attest`, `exchange`, `fingerprint`, `storage`
+- `internal/` is private: `box/pb` (protobuf), `enigma` (XChaCha20-Poly1305), `store` (BoltDB wrapper)
+- Relay is a standalone HTTP server with its own storage (BadgerDB, not BoltDB) and its own protobuf schema
+- Cipher suite: `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`
+- Protocol flow: Exchange (HPKE) → Introduction → Handshake (ML-KEM-768) → Challenge → Communication
+
+## Storage quirks
+
+- Root DB is BoltDB at `~/.config/kamune/db` (override with `KAMUNE_DB_PATH`)
+- Passphrase from `KAMUNE_DB_PASSPHRASE` env var, otherwise stdin prompt
+- Use `storage.WithNoPassphrase()` for tests or `db_no_passphrase: true` in daemon
+- Relay uses BadgerDB at configurable path, with separate TOML config
+
+## Conventions
+
+- Go 1.26 style (no `//go:build` tags needed for tool directives)
+- All lockable state uses `sync.Mutex`, not `sync.RWMutex`
+- Error sentinels use `Err` prefix, defined in the package they belong to (e.g. `transport.go`, `router.go`, `pkg/storage/storage.go`, `pkg/attest/attest.go`)
+- Handlers panic-recovered via `runtime/debug.Stack()` logging
+- Logging uses `log/slog` with structured attributes (`slog.String`, `slog.Any`); the relay module also uses a custom `slogger` package for `slogger.Err` and `slogger.String`
+- No mock framework — tests use real implementations, interfaces, and standard `testing.T`
+- Table-driven tests preferred for multiple cases
+- `internal/` packages are private to root module; sub-modules (relay, chat, bus) have their own `internal/`
