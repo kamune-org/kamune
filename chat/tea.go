@@ -21,12 +21,6 @@ type (
 	errMsg error
 )
 
-// historyLoaded is sent once the background goroutine finishes reading prior
-// chat entries from the database.
-type historyLoaded struct {
-	messages []string
-}
-
 type model struct {
 	viewport   viewport.Model
 	messages   []string
@@ -84,13 +78,17 @@ func initialModel(t *kamune.Transport) model {
 
 // loadHistory returns a tea.Cmd that asynchronously reads prior chat entries
 // from the database and delivers them as a historyLoaded message.
-func loadHistory(t *kamune.Transport, userPrefix, userText, peerPrefix, peerText lipgloss.Style) tea.Cmd {
+func loadHistory(
+	t *kamune.Transport,
+	userPrefix, userText, peerPrefix, peerText lipgloss.Style,
+) tea.Cmd {
 	return func() tea.Msg {
 		entries, err := t.Store().GetChatHistory(t.SessionID())
 		if err != nil {
 			slog.Warn("failed to load chat history",
 				slog.String("session_id", t.SessionID()),
-				slog.Any("error", err))
+				slog.Any("error", err),
+			)
 			return historyLoaded{}
 		}
 
@@ -129,10 +127,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case historyLoaded:
-		header := fmt.Sprintf("Session ID is %s. Happy Chatting!", m.transport.SessionID())
+		header := fmt.Sprintf(
+			"Session ID is %s. Happy Chatting!", m.transport.SessionID(),
+		)
 		if len(msg.messages) > 0 {
-			header = fmt.Sprintf("Session ID is %s. Restored %d message(s). Happy Chatting!",
-				m.transport.SessionID(), len(msg.messages))
+			header = fmt.Sprintf(
+				"Session ID is %s. Restored %d message(s). Happy Chatting!",
+				m.transport.SessionID(),
+				len(msg.messages),
+			)
 			// Prepend historical messages before any that arrived while loading.
 			m.messages = append(msg.messages, m.messages...)
 		}
@@ -179,9 +182,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				metadata.Timestamp(),
 				storage.SenderLocal,
 			); err != nil {
-				slog.Error("failed to persist sent chat entry",
+				slog.Error(
+					"failed to persist sent chat entry",
 					slog.String("session_id", m.transport.SessionID()),
-					slog.Any("error", err))
+					slog.Any("error", err),
+				)
 			}
 			prefix := fmt.Sprintf(
 				"[%s] You: ",
