@@ -24,6 +24,15 @@ func New(service *services.Service, cfg config.Config) *grape.Router {
 	return newRouter(h, cfg)
 }
 
+// WebSocketHandler returns the WebSocket handler without grape middleware,
+// so that http.Hijacker is preserved for the WebSocket upgrade.
+//   - TODO: remove this function when grape releases v0.7.0+ (respWriter
+//     implements http.Hijacker). After that, register /ws through the
+//     grape router as before.
+func WebSocketHandler(service *services.Service) http.HandlerFunc {
+	return (&Handler{service: service}).WebSocketHandler
+}
+
 func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	status, err := h.service.Health()

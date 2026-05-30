@@ -48,10 +48,19 @@ func Run() error {
 		return fmt.Errorf("new service: %w", err)
 	}
 	router := handlers.New(srvc, cfg)
+	wsHandler := handlers.WebSocketHandler(srvc)
+
+	mux := http.NewServeMux()
+	// Route /ws directly without grape middleware so that http.Hijacker
+	// is preserved for the WebSocket upgrade.
+	//   TODO: register /ws through the grape router when grape releases
+	//   v0.7.0+ (respWriter implements http.Hijacker).
+	mux.Handle("/ws", wsHandler)
+	mux.Handle("/", router)
 
 	server := &http.Server{
 		Addr:         cfg.Server.Address,
-		Handler:      router,
+		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
