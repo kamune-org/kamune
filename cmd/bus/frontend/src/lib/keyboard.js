@@ -1,4 +1,4 @@
-const isMac = (() => {
+export const isMac = (() => {
   if (typeof navigator === 'undefined') return false
   const plat = navigator?.userAgentData?.platform ?? navigator.platform ?? ''
   return plat.toUpperCase().indexOf('MAC') >= 0

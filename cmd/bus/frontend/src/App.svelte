@@ -15,7 +15,7 @@
     dbPath, logEntries, verificationMode, appVersion, activeSessionId,
     sidebarTab, logPanelOpen, verificationDialog, dialogs, toast,
   } from './lib/stores.js'
-  import { K } from './lib/keyboard.js'
+  import { K, isMac } from './lib/keyboard.js'
 
   import Sidebar from './lib/Sidebar.svelte'
   import ChatPanel from './lib/ChatPanel.svelte'
@@ -274,7 +274,7 @@
   }
 
   function handleKeydown(e) {
-    if (e.ctrlKey || e.metaKey) {
+    if (isMac ? e.metaKey : e.ctrlKey) {
       switch (e.key) {
         case 'l':
           e.preventDefault()
@@ -286,7 +286,12 @@
           break
         case 's':
           e.preventDefault()
-          handleStartServer()
+          if (serverActive) {
+            handleStopServer()
+          } else {
+            connectServerAddr = ':8443'
+            dialogs.update(d => ({ ...d, showServer: true }))
+          }
           break
         case 'h':
           e.preventDefault()
@@ -479,7 +484,7 @@
         <div class="dialog-body">
           <div class="shortcuts-grid">
             <span><kbd>{K('N')}</kbd></span><span>Connect to server</span>
-            <span><kbd>{K('S')}</kbd></span><span>Start server</span>
+            <span><kbd>{K('S')}</kbd></span><span>Toggle server</span>
             <span><kbd>{K('H')}</kbd></span><span>History tab</span>
             <span><kbd>{K('R')}</kbd></span><span>Refresh history</span>
             <span><kbd>{K('L')}</kbd></span><span>Toggle log panel</span>
@@ -544,12 +549,6 @@
           dialogs.update(d => ({ ...d, showSessionInfo: info }))
         }}
         on:closePanel={() => activeSessionId.set(null)}
-        on:openConnect={() => dialogs.update(d => ({ ...d, showConnect: true }))}
-        on:startServer={() => {
-          connectServerAddr = ':8443'
-          dialogs.update(d => ({ ...d, showServer: true }))
-        }}
-        on:toggleLogs={() => logPanelOpen.update(v => !v)}
       />
 
       {#if $logPanelOpen}

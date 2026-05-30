@@ -105,18 +105,18 @@
         <h2 class="welcome-title">Bus — Kamune Chat</h2>
         <p class="welcome-sub">Secure, end-to-end encrypted messaging</p>
         <div class="welcome-shortcuts">
-          <button class="shortcut-chip" on:click={() => dispatch('openConnect')}>
+          <span class="shortcut-chip">
             <kbd>{K('N')}</kbd>
             <span>Connect</span>
-          </button>
-          <button class="shortcut-chip" on:click={() => dispatch('startServer')}>
+          </span>
+          <span class="shortcut-chip">
             <kbd>{K('S')}</kbd>
-            <span>Start Server</span>
-          </button>
-          <button class="shortcut-chip" on:click={() => dispatch('toggleLogs')}>
+            <span>Toggle Server</span>
+          </span>
+          <span class="shortcut-chip">
             <kbd>{K('L')}</kbd>
             <span>Toggle Logs</span>
-          </button>
+          </span>
         </div>
       </div>
     {:else if activeMsgs.length === 0}
@@ -408,13 +408,6 @@
     border-radius: 8px;
     font-size: 11px;
     color: var(--text-muted);
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .shortcut-chip:hover {
-    background: var(--bg-hover);
-    border-color: var(--accent-primary);
-    color: var(--text-primary);
   }
   .shortcut-chip kbd {
     color: var(--text-primary);
