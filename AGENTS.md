@@ -2,32 +2,32 @@
 
 ## Project structure
 
-Monorepo with 4 Go 1.26 modules:
+Monorepo with 5 Go 1.26 modules:
 
 | Directory | Module | Purpose |
 |-----------|--------|---------|
 | `.` (root) | `github.com/kamune-org/kamune` | Core library (protocol, transport, crypto) |
-| `relay/` | `github.com/kamune-org/kamune/relay` | Relay server (BadgerDB, WebSocket, REST) |
-| `chat/` | `github.com/kamune-org/kamune/chat` | TUI client (Bubble Tea) |
-| `bus/` | `github.com/kamune-org/kamune/bus` | GUI client (Fyne) |
-| `cmd/daemon/` | part of root module | JSON-over-stdio daemon for external apps |
+| `cmd/relay/` | `github.com/kamune-org/kamune/cmd/relay` | Relay server (BadgerDB, WebSocket, REST) |
+| `cmd/tui/` | `github.com/kamune-org/kamune/cmd/tui` | TUI example client (Bubble Tea) |
+| `cmd/bus/` | `github.com/kamune-org/kamune/cmd/bus` | GUI client (Wails) |
+| `cmd/daemon/` | `github.com/kamune-org/kamune/cmd/daemon` | JSON-over-stdio daemon for external apps |
 
-`chat/`, `bus/`, and `relay/` use `replace github.com/kamune-org/kamune => ../` in their `go.mod`.
+All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `go.mod` (daemon uses `../`).
 
 ## Commands
 
-- **Test any module**: `go test ./... -v` (works in root, relay/, chat/, bus/)
+- **Test any module**: `go test ./... -v` (works in root, cmd/relay/, cmd/tui/, cmd/bus/)
 - **Test single package**: `go test -v ./pkg/storage` (any sub-package)
 - **Benchmarks**: `go test ./... -bench .`
 - **Vet** (root only): `go vet ./...`
 - **Format** (root only): `gofmt -s -w .` and `goimports -w .`
 - **Align structs** (fieldalignment only): `make align-structs` in root or `golangci-lint run --fix`
 - **Regenerate protobuf** (root or relay): `make gen-proto` requires `protoc` with Go plugin
-- **Build relay**: `make build` in `relay/` (outputs `relay` binary, version injected via ldflags)
-- **Run relay**: `make run` in `relay/` or `go run ./cmd/relay -config <path>`
+- **Build relay**: `make build` in `cmd/relay/` (outputs `relay` binary, version injected via ldflags)
+- **Run relay**: `make run` in `cmd/relay/` or `go run ./cmd/relay -config <path>`
 - **Build daemon**: `go build -o daemon ./cmd/daemon` (from root)
-- **Build chat TUI**: `go build -o chat .` in `chat/`
-- **Build bus GUI**: `go build -o bus .` in `bus/`
+- **Build chat TUI**: `go build -o tui .` in `cmd/tui/`
+- **Build bus GUI**: `wails build` in `cmd/bus/` (requires Wails CLI)
 
 ## Architecture notes
 
@@ -55,3 +55,4 @@ Monorepo with 4 Go 1.26 modules:
 - No mock framework — tests use real implementations, interfaces, and standard `testing.T`
 - Table-driven tests preferred for multiple cases
 - `internal/` packages are private to root module; sub-modules (relay, chat, bus) have their own `internal/`
+

@@ -26,6 +26,16 @@ For a comprehensive technical specification, see [SPEC.md](SPEC.md).
 - **Direct peer-to-peer communication**, no intermediary server required
 - **Protobuf** for fast, compact binary message encoding
 
+## Modules
+
+| Directory | Purpose |
+|-----------|---------|
+| `.` (root) | Core library (protocol, transport, crypto) |
+| `cmd/relay/` | Relay server for peer discovery & message relay |
+| `cmd/daemon/` | JSON-over-stdio daemon for external apps |
+| `cmd/tui/` | Terminal chat client (example) |
+| `cmd/bus/` | Desktop GUI chat client |
+
 ## Roadmap
 
 The following is a list of features that are currently planned or have been
@@ -57,7 +67,6 @@ removal.
   - [ ] Key rotation
 - [x] Saving and restoring chat history
 - [x] Daemon server
-- [x] Native clients via Fyne
 - [ ] Provide NAT traversal and/or hole punching strategies
 - [ ] Messaging Layer Security (MLS) and group chats *
 - [ ] Replace Protobuf with a custom encoding\decoding protocol *
