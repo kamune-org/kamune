@@ -104,7 +104,7 @@ func (h *Hub) Deliver(
 
 	msg := WSMessage{
 		Type:      "message",
-		Sender:    sender,
+		Sender:    model.PublicKey(base64.RawURLEncoding.EncodeToString([]byte(sender))),
 		SessionID: sessionID,
 		Data:      base64.RawURLEncoding.EncodeToString(data),
 	}

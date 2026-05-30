@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,7 +69,11 @@ func (p *PeerID) UnmarshalBinary(data []byte) error {
 type PublicKey string
 
 func (pk PublicKey) String() string {
-	return string(pk)
+	return base64.RawURLEncoding.EncodeToString([]byte(pk))
+}
+
+func (pk PublicKey) LogValue() slog.Value {
+	return slog.StringValue(base64.RawURLEncoding.EncodeToString([]byte(pk)))
 }
 
 func (pk *PublicKey) UnmarshalText(b []byte) error {
@@ -77,7 +82,7 @@ func (pk *PublicKey) UnmarshalText(b []byte) error {
 	}
 
 	key := make([]byte, base64.RawURLEncoding.DecodedLen(len(b)))
-	n, err := base64.RawStdEncoding.Decode(key, b)
+	n, err := base64.RawURLEncoding.Decode(key, b)
 	if err != nil {
 		return err
 	}
