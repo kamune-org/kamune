@@ -1,0 +1,37 @@
+import { writable, derived } from 'svelte/store'
+
+export const sessions = writable([])
+export const historySessions = writable([])
+export const sessionMessages = writable({})
+export const status = writable({ status: 'disconnected', message: 'Not connected' })
+export const fingerprint = writable({ emoji: '', hex: '' })
+export const dbPath = writable('')
+export const logEntries = writable([])
+export const verificationMode = writable(1)
+export const appVersion = writable('2.0.0')
+
+export const activeSessionId = writable(null)
+export const sidebarTab = writable('sessions') // 'sessions' | 'history'
+export const logPanelOpen = writable(false)
+export const showWelcome = derived(sessions, $sessions => $sessions.length === 0)
+
+export const activeSession = derived(
+  [sessions, activeSessionId],
+  ([$sessions, $activeSessionId]) => {
+    if ($activeSessionId === null) return null
+    return $sessions.find(s => s.id === $activeSessionId) || null
+  }
+)
+
+export const toast = writable(null) // { message, type: 'error'|'info' }
+
+export const verificationDialog = writable(null)
+export const dialogs = writable({
+  showServer: false,
+  showConnect: false,
+  showSessionInfo: null,
+  showRename: null,
+  showRenameType: null,
+  showDelete: null,
+  showShortcuts: false,
+})
