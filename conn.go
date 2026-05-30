@@ -10,14 +10,6 @@ import (
 	"time"
 )
 
-type connType int
-
-const (
-	invalidConn connType = iota
-	tcpConn
-	udpConn
-)
-
 type Conn interface {
 	ReadBytes() ([]byte, error)
 	WriteBytes(data []byte) error
@@ -31,7 +23,6 @@ type Conn interface {
 // It also implements [net.Conn] interface.
 type conn struct {
 	conn          net.Conn
-	connType      connType
 	mu            sync.Mutex
 	closed        bool
 	readDeadline  time.Duration
@@ -232,7 +223,6 @@ func ConnWithWriteTimeout(timeout time.Duration) ConnOption {
 func newConn(c net.Conn, opts ...ConnOption) *conn {
 	cn := &conn{
 		conn:          c,
-		connType:      tcpConn,
 		closed:        false,
 		writeDeadline: 1 * time.Minute,
 		readDeadline:  5 * time.Minute,
