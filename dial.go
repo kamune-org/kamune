@@ -22,7 +22,6 @@ type Dialer struct {
 	clientName    string
 	address       string
 	handshakeOpts handshakeOpts
-	storageOpts   []storage.StorageOption
 	connOpts      []ConnOption
 	connType      connType
 	writeTimeout  time.Duration
@@ -129,7 +128,6 @@ func (d *Dialer) handshake() (*Transport, error) {
 	// Since from now on all communications are encrypted via the newly ciphers
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = d.conn
-	t.store = d.storage
 
 	slog.Info(
 		"session established",
@@ -145,18 +143,13 @@ func (d *Dialer) PublicKey() []byte {
 	return d.attest.MarshalPublicKey()
 }
 
-// Close closes the dialer's storage.
-func (d *Dialer) Close() error {
-	if d.storage != nil {
-		return d.storage.Close()
-	}
-	return nil
-}
-
-// NewDialer creates a new dialer with the given address and options.
-func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
+// NewDialer creates a new dialer with the given address, storage, and options.
+func NewDialer(
+	addr string, store *storage.Storage, opts ...DialOption,
+) (*Dialer, error) {
 	d := &Dialer{
 		address:      addr,
+		storage:      store,
 		connType:     tcpConn,
 		readTimeout:  5 * time.Minute,
 		writeTimeout: 1 * time.Minute,
@@ -171,19 +164,14 @@ func NewDialer(addr string, opts ...DialOption) (*Dialer, error) {
 		opt(d)
 	}
 
-	storage, err := storage.OpenStorage(d.storageOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("opening storage: %w", err)
-	}
-
-	at, err := storage.Attester()
+	at, err := d.storage.Attester()
 	if err != nil {
 		return nil, fmt.Errorf("loading attester: %w", err)
 	}
-
-	d.storage = storage
 	d.attest = at
-	d.clientName = fingerprint.Sum(at.MarshalPublicKey())
+	if d.clientName == "" {
+		d.clientName = fingerprint.Sum(at.MarshalPublicKey())
+	}
 
 	return d, nil
 }
@@ -229,9 +217,4 @@ func DialWithUDPConn(opts ...ConnOption) DialOption {
 // DialWithClientName sets the client's advertised name.
 func DialWithClientName(name string) DialOption {
 	return func(d *Dialer) { d.clientName = name }
-}
-
-// DialWithStorageOpts sets storage options.
-func DialWithStorageOpts(opts ...storage.StorageOption) DialOption {
-	return func(d *Dialer) { d.storageOpts = opts }
 }

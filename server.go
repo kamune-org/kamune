@@ -17,18 +17,22 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
+var (
+	ErrClosedServer = errors.New("server is closed")
+)
+
 // Server handles incoming connections and manages the handshake process.
 type Server struct {
 	listener      net.Listener
 	attest        *attest.Attest
 	storage       *storage.Storage
+	serverName    string
 	handlerFunc   HandlerFunc
 	handshakeOpts handshakeOpts
 	addr          string
-	serverName    string
 	connOpts      []ConnOption
-	storageOpts   []storage.StorageOption
 	connType      connType
+	closed        bool
 	mu            sync.Mutex
 }
 
@@ -36,35 +40,20 @@ type Server struct {
 // It blocks until the listener is closed via [Server.Close] or an
 // unrecoverable error occurs.
 func (s *Server) ListenAndServe() error {
-	defer func() {
-		if err := s.storage.Close(); err != nil {
-			slog.Warn("closing storage", slog.Any("error", err))
-		}
-	}()
+	if s.closed {
+		return ErrClosedServer
+	}
 
-	l, err := s.listen()
+	var err error
+	s.listener, err = s.listen()
 	if err != nil {
 		return fmt.Errorf("listening: %w", err)
 	}
 
-	s.mu.Lock()
-	s.listener = l
-	s.mu.Unlock()
-
-	defer func() {
-		s.mu.Lock()
-		s.listener = nil
-		s.mu.Unlock()
-
-		if err := l.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			slog.Warn("closing listener", slog.Any("error", err))
-		}
-	}()
-
 	slog.Info("server started", slog.String("addr", s.addr))
 
 	for {
-		c, err := l.Accept()
+		c, err := s.listener.Accept()
 		if err != nil {
 			// Exit cleanly when the listener is closed (shutdown).
 			if errors.Is(err, net.ErrClosed) {
@@ -83,14 +72,20 @@ func (s *Server) ListenAndServe() error {
 // times and concurrently.
 func (s *Server) Close() error {
 	s.mu.Lock()
-	l := s.listener
-	s.listener = nil
-	s.mu.Unlock()
+	defer s.mu.Unlock()
 
-	if l == nil {
+	if s.closed {
 		return nil
 	}
-	return l.Close()
+
+	if s.listener != nil {
+		if err := s.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			return fmt.Errorf("closing listener: %w", err)
+		}
+	}
+
+	s.closed = true
+	return nil
 }
 
 func (s *Server) listen() (net.Listener, error) {
@@ -184,7 +179,6 @@ func (s *Server) handleNewConnection(
 	// Since from now on all communications are encrypted via the newly ciphers
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
-	t.store = s.storage
 
 	slog.Info(
 		"session established",
@@ -204,12 +198,13 @@ func (s *Server) PublicKey() []byte {
 	return s.attest.MarshalPublicKey()
 }
 
-// NewServer creates a new server with the given address and handler.
+// NewServer creates a new server with the given address, handler, and storage.
 func NewServer(
-	addr string, handler HandlerFunc, opts ...ServerOptions,
+	addr string, handler HandlerFunc, store *storage.Storage, opts ...ServerOptions,
 ) (*Server, error) {
 	s := &Server{
 		addr:        addr,
+		storage:     store,
 		connType:    tcpConn,
 		handlerFunc: handler,
 		handshakeOpts: handshakeOpts{
@@ -222,20 +217,15 @@ func NewServer(
 		o(s)
 	}
 
-	storage, err := storage.OpenStorage(s.storageOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("opening storage: %w", err)
-	}
-
-	at, err := storage.Attester()
+	at, err := s.storage.Attester()
 	if err != nil {
 		return nil, fmt.Errorf("loading attester: %w", err)
 	}
 
-	s.storage = storage
 	s.attest = at
-	s.serverName = fingerprint.Sum(at.MarshalPublicKey())
-
+	if s.serverName == "" {
+		s.serverName = fingerprint.Sum(at.MarshalPublicKey())
+	}
 	return s, nil
 }
 
@@ -252,17 +242,12 @@ func ServeWithTCP(opts ...ConnOption) ServerOptions {
 	return func(s *Server) { s.connType = tcpConn; s.connOpts = opts }
 }
 
-// ServeWithName sets the server's advertised name.
-func ServeWithName(name string) ServerOptions {
+// ServeWithServerName sets the server's advertised name.
+func ServeWithServerName(name string) ServerOptions {
 	return func(s *Server) { s.serverName = name }
 }
 
 // ServeWithUDP configures the server to use UDP/KCP connections.
 func ServeWithUDP(opts ...ConnOption) ServerOptions {
 	return func(s *Server) { s.connType = udpConn; s.connOpts = opts }
-}
-
-// ServeWithStorageOpts sets storage options.
-func ServeWithStorageOpts(opts ...storage.StorageOption) ServerOptions {
-	return func(s *Server) { s.storageOpts = opts }
 }
