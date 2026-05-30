@@ -17,20 +17,20 @@ import (
 )
 
 func client(addr string) {
-	var dialOpts []storage.StorageOption
-	dialOpts = append(
-		dialOpts, storage.WithDBPath("./client.db"), storage.WithNoPassphrase(),
+	store, err := storage.OpenStorage(
+		storage.WithDBPath("./client.db"), storage.WithNoPassphrase(),
 	)
+	if err != nil {
+		errCh <- fmt.Errorf("opening storage: %w", err)
+		return
+	}
+	defer store.Close()
 
-	dialer, err := kamune.NewDialer(
-		addr,
-		kamune.DialWithStorageOpts(dialOpts...),
-	)
+	dialer, err := kamune.NewDialer(addr, store)
 	if err != nil {
 		errCh <- fmt.Errorf("create new dialer: %w", err)
 		return
 	}
-	defer dialer.Close()
 
 	fp := strings.Join(fingerprint.Emoji(dialer.PublicKey()), " • ")
 	fmt.Printf("Your emoji fingerprint: %s\n", fp)
@@ -52,7 +52,7 @@ func client(addr string) {
 	}
 	defer t.Close()
 
-	p := NewProgram(tea.NewProgram(initialModel(t), tea.WithAltScreen()))
+	p := NewProgram(tea.NewProgram(initialModel(t, store), tea.WithAltScreen()))
 	go func() {
 		if _, err := p.Run(); err != nil {
 			errCh <- err
@@ -72,7 +72,7 @@ func client(addr string) {
 			return
 		}
 		p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
-		if err := t.Store().AddChatEntry(
+		if err := store.AddChatEntry(
 			t.SessionID(),
 			b.GetValue(),
 			metadata.Timestamp(),

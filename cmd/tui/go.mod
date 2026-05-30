@@ -1,8 +1,8 @@
-module github.com/kamune-org/kamune/chat
+module github.com/kamune-org/kamune/cmd/tui
 
 go 1.26
 
-replace github.com/kamune-org/kamune => ../
+replace github.com/kamune-org/kamune => ../../
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0

@@ -31,9 +31,10 @@ type model struct {
 	peerText   lipgloss.Style
 	err        error
 	transport  *kamune.Transport
+	store      *storage.Storage
 }
 
-func initialModel(t *kamune.Transport) model {
+func initialModel(t *kamune.Transport, store *storage.Storage) model {
 	ta := textarea.New()
 	ta.Placeholder = "Send a message..."
 	ta.Focus()
@@ -73,6 +74,7 @@ func initialModel(t *kamune.Transport) model {
 		peerText:   lipgloss.NewStyle().Foreground(lipgloss.Color("#FFF7E1")),
 		err:        nil,
 		transport:  t,
+		store:      store,
 	}
 }
 
@@ -80,10 +82,11 @@ func initialModel(t *kamune.Transport) model {
 // from the database and delivers them as a historyLoaded message.
 func loadHistory(
 	t *kamune.Transport,
+	store *storage.Storage,
 	userPrefix, userText, peerPrefix, peerText lipgloss.Style,
 ) tea.Cmd {
 	return func() tea.Msg {
-		entries, err := t.Store().GetChatHistory(t.SessionID())
+		entries, err := store.GetChatHistory(t.SessionID())
 		if err != nil {
 			slog.Warn("failed to load chat history",
 				slog.String("session_id", t.SessionID()),
@@ -112,7 +115,7 @@ func loadHistory(
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		textarea.Blink,
-		loadHistory(m.transport, m.userPrefix, m.userText, m.peerPrefix, m.peerText),
+		loadHistory(m.transport, m.store, m.userPrefix, m.userText, m.peerPrefix, m.peerText),
 	)
 }
 
@@ -176,7 +179,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = err
 				return m, tiCmd
 			}
-			if err := m.transport.Store().AddChatEntry(
+			if err := m.store.AddChatEntry(
 				m.transport.SessionID(),
 				[]byte(text),
 				metadata.Timestamp(),
