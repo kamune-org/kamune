@@ -1,0 +1,139 @@
+package services
+
+import (
+	"bytes"
+	"crypto/sha512"
+	"errors"
+	"fmt"
+	"io"
+
+	"github.com/hossein1376/grape/errs"
+	"golang.org/x/crypto/hkdf"
+
+	"github.com/kamune-org/kamune/cmd/relay/internal/model"
+	"github.com/kamune-org/kamune/cmd/relay/internal/storage"
+)
+
+const queueKeySize = 16
+
+var (
+	// Sentinel errors returned by PushQueue to allow callers and handlers
+	// to identify specific queue-related error conditions.
+	// - ErrMessageTooLarge: payload exceeds configured MaxMessageSize
+	// - ErrQueueFull: queue has reached MaxQueueSize
+	ErrMessageTooLarge = errors.New("message too large")
+	ErrQueueFull       = errors.New("queue full")
+)
+
+func (s *Service) PushQueue(
+	sender, receiver model.PublicKey, sessionID string, data []byte,
+) error {
+	// Enforce per-message size limit if configured (0 means unlimited)
+	if s.cfg.Storage.MaxMessageSize > 0 && len(data) > s.cfg.Storage.MaxMessageSize {
+		return fmt.Errorf(
+			"%w: size %d exceeds max %d",
+			ErrMessageTooLarge,
+			len(data),
+			s.cfg.Storage.MaxMessageSize,
+		)
+	}
+
+	key, err := queueKey(sender, receiver, sessionID)
+	if err != nil {
+		return fmt.Errorf("derive queue key: %w", err)
+	}
+
+	err = s.store.Command(func(c model.Command) error {
+		// Enforce max queue length if configured (0 means unlimited)
+		if s.cfg.Storage.MaxQueueSize > 0 {
+			qlen, err := c.QLen(key)
+			if err != nil {
+				return fmt.Errorf("get queue length: %w", err)
+			}
+			if qlen >= s.cfg.Storage.MaxQueueSize {
+				return fmt.Errorf(
+					"%w: length %d >= max %d",
+					ErrQueueFull,
+					qlen,
+					s.cfg.Storage.MaxQueueSize,
+				)
+			}
+		}
+
+		return c.QPush(key, data)
+	})
+	if err != nil {
+		return fmt.Errorf("push to queue: %w", err)
+	}
+
+	// Fire webhook notification (best-effort, non-blocking).
+	s.NotifyWebhook(sender, receiver, sessionID)
+
+	return nil
+}
+
+func (s *Service) PopQueue(
+	sender, receiver model.PublicKey, sessionID string,
+) ([]byte, error) {
+	key, err := queueKey(sender, receiver, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("derive queue key: %w", err)
+	}
+
+	var data []byte
+	err = s.store.Command(func(c model.Command) error {
+		var err error
+		data, err = c.QPop(key)
+		return err
+	})
+	if err != nil {
+		if errors.Is(err, storage.ErrMissing) {
+			return nil, errs.NotFound()
+		}
+		return nil, fmt.Errorf("pop from queue: %w", err)
+	}
+
+	return data, nil
+}
+
+// QueueLen returns the number of pending messages in the queue for the given
+// sender/receiver/session tuple without consuming any of them.
+func (s *Service) QueueLen(
+	sender, receiver model.PublicKey, sessionID string,
+) (uint64, error) {
+	key, err := queueKey(sender, receiver, sessionID)
+	if err != nil {
+		return 0, fmt.Errorf("derive queue key: %w", err)
+	}
+
+	var length uint64
+	err = s.store.Command(func(c model.Command) error {
+		var err error
+		length, err = c.QLen(key)
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("get queue length: %w", err)
+	}
+
+	return length, nil
+}
+
+func queueKey(
+	sender, receiver model.PublicKey, sessionID string,
+) ([]byte, error) {
+	sb := []byte(sender)
+	rb := []byte(receiver)
+	data := bytes.Buffer{}
+	data.Grow(len(sb) + len(rb) + len(sessionID))
+	data.Write(sb)
+	data.Write(rb)
+	data.Write([]byte(sessionID))
+
+	r := hkdf.New(sha512.New, data.Bytes(), nil, nil)
+	key := make([]byte, queueKeySize)
+	if _, err := io.ReadFull(r, key); err != nil {
+		return nil, err
+	}
+	return key, nil
+}
