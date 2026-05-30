@@ -71,14 +71,11 @@ func (a *App) StopServer() error {
 	a.setStatus(StatusDisconnected, "Stopping server...")
 	a.addLogEntry("INFO", "Stopping server...")
 
+	var sessions []*liveSession
 	var serverDone chan struct{}
+
 	a.mu.Lock()
-	for _, s := range a.sessions {
-		s.Transport.Close()
-	}
-	for _, s := range a.sessions {
-		<-s.ReceiveDone
-	}
+	sessions = append([]*liveSession(nil), a.sessions...)
 	a.sessions = nil
 	if a.server != nil {
 		a.server.Close()
@@ -90,8 +87,15 @@ func (a *App) StopServer() error {
 	a.serverDone = nil
 	a.mu.Unlock()
 
+	for _, s := range sessions {
+		s.Transport.Close()
+	}
+	for _, s := range sessions {
+		waitOrTimeout(s.ReceiveDone, "session receive: "+s.ID)
+	}
+
 	if serverDone != nil {
-		<-serverDone
+		waitOrTimeout(serverDone, "ListenAndServe")
 	}
 
 	runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "")
@@ -157,24 +161,28 @@ func (a *App) ConnectToServer(addr string) (string, error) {
 }
 
 func (a *App) DisconnectSession(sessionID string) error {
-	a.mu.Lock()
 	var session *liveSession
 	var remaining int
-	for i, s := range a.sessions {
-		if s.ID == sessionID {
-			session = s
-			a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)
+
+	func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		for i, s := range a.sessions {
+			if s.ID == sessionID {
+				session = s
+				a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)
+				break
+			}
 		}
-	}
-	remaining = len(a.sessions)
-	a.mu.Unlock()
+		remaining = len(a.sessions)
+	}()
 
 	if session == nil {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
 	session.Transport.Close()
-	<-session.ReceiveDone
+	waitOrTimeout(session.ReceiveDone, "DisconnectSession: "+sessionID)
 
 	runtime.EventsEmit(a.ctx, "session-closed", sessionID)
 	a.addLogEntry("INFO", "Disconnected session: "+sessionID)
@@ -215,6 +223,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
 	a.addLogEntry("INFO", "New incoming connection: "+sessionID)
 
+	defer close(session.ReceiveDone)
 	a.receiveMessagesBlocking(session)
 
 	a.mu.Lock()

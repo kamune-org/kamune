@@ -18,6 +18,8 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
+const channelTimeout = 5 * time.Second
+
 const keychainService = "kamune"
 
 func keychainAccount(dbPath string) string {
@@ -114,7 +116,7 @@ type App struct {
 	dbPath      string
 	db          *storage.Storage
 	storeMu     sync.Mutex
-	passphrase  []byte
+	passphrase  atomic.Value // stores []byte
 	storageReady bool
 	emojiFP     string
 	hexFP       string
@@ -167,12 +169,8 @@ func (a *App) store() *storage.Storage {
 
 func (a *App) passphraseHandler() storage.PassphraseHandler {
 	return func() ([]byte, error) {
-		a.mu.RLock()
-		defer a.mu.RUnlock()
-		if a.passphrase == nil {
-			return []byte(""), nil
-		}
-		return a.passphrase, nil
+		p, _ := a.passphrase.Load().([]byte)
+		return p, nil
 	}
 }
 
@@ -194,9 +192,7 @@ func (a *App) startup(ctx context.Context) {
 		a.addLogEntry("WARN", "Removed orphaned empty passphrase from keychain")
 
 	case err == nil && passphrase != "":
-		a.mu.Lock()
-		a.passphrase = []byte(passphrase)
-		a.mu.Unlock()
+		a.passphrase.Store([]byte(passphrase))
 
 		store, storeErr := storage.OpenStorage(
 			storage.WithDBPath(a.dbPath),
@@ -211,9 +207,7 @@ func (a *App) startup(ctx context.Context) {
 			return
 		}
 
-		a.mu.Lock()
-		a.passphrase = nil
-		a.mu.Unlock()
+		a.passphrase.Store([]byte(nil))
 		keyring.Delete(keychainService, keychainAccount(a.dbPath))
 		a.addLogEntry("WARN", "Keychain passphrase is invalid, clearing and prompting")
 	}
@@ -224,14 +218,11 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	a.addLogEntry("INFO", "Application shutting down")
 
+	var sessions []*liveSession
 	var serverDone chan struct{}
+
 	a.mu.Lock()
-	for _, s := range a.sessions {
-		s.Transport.Close()
-	}
-	for _, s := range a.sessions {
-		<-s.ReceiveDone
-	}
+	sessions = append([]*liveSession(nil), a.sessions...)
 	a.sessions = nil
 	if a.server != nil {
 		a.server.Close()
@@ -241,9 +232,15 @@ func (a *App) shutdown(ctx context.Context) {
 	a.serverDone = nil
 	a.mu.Unlock()
 
-	// Wait for the ListenAndServe goroutine to finish.
+	for _, s := range sessions {
+		s.Transport.Close()
+	}
+	for _, s := range sessions {
+		waitOrTimeout(s.ReceiveDone, "session receive: "+s.ID)
+	}
+
 	if serverDone != nil {
-		<-serverDone
+		waitOrTimeout(serverDone, "ListenAndServe")
 	}
 
 	a.storeMu.Lock()
@@ -282,6 +279,14 @@ func (a *App) addLogEntry(level, msg string) {
 		lvl = slog.LevelError
 	}
 	slog.Log(a.ctx, lvl, msg)
+}
+
+func waitOrTimeout[T any](ch <-chan T, label string) {
+	select {
+	case <-ch:
+	case <-time.After(channelTimeout):
+		slog.Warn("Timeout waiting for " + label)
+	}
 }
 
 func (a *App) setStatus(status ConnectionStatus, msg string) {
@@ -390,7 +395,7 @@ func (a *App) GetDBPath() string {
 func (a *App) SetDBPath(path string) {
 	a.mu.Lock()
 	a.dbPath = path
-	a.passphrase = nil
+	a.passphrase.Store([]byte(nil))
 	a.emojiFP = ""
 	a.hexFP = ""
 	a.storageReady = false
@@ -423,9 +428,7 @@ func (a *App) SetVerificationMode(mode int) {
 }
 
 func (a *App) SubmitPassphrase(passphrase string, saveToKeychain bool) error {
-	a.mu.Lock()
-	a.passphrase = []byte(passphrase)
-	a.mu.Unlock()
+	a.passphrase.Store([]byte(passphrase))
 
 	a.storeMu.Lock()
 	if a.db != nil {
@@ -436,9 +439,7 @@ func (a *App) SubmitPassphrase(passphrase string, saveToKeychain bool) error {
 
 	store := a.store()
 	if store == nil {
-		a.mu.Lock()
-		a.passphrase = nil
-		a.mu.Unlock()
+		a.passphrase.Store([]byte(nil))
 		return fmt.Errorf("wrong passphrase or corrupted database")
 	}
 
@@ -541,32 +542,39 @@ func (a *App) GetSessionMessages(sessionID string) []MessageInfo {
 
 func (a *App) GetHistoryMessages(sessionID string) []MessageInfo {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	var found bool
 	for _, hs := range a.histSessions {
 		if hs.ID == sessionID && hs.Loaded {
-			store := a.store()
-			if store == nil {
-				return nil
-			}
-
-			entries, err := store.GetChatHistory(sessionID)
-			if err != nil {
-				a.addLogEntry("ERROR", "Failed to get chat history: "+err.Error())
-				return nil
-			}
-
-			msgs := make([]MessageInfo, len(entries))
-			for i, e := range entries {
-				msgs[i] = MessageInfo{
-					Text:      string(e.Data),
-					Timestamp: e.Timestamp,
-					IsLocal:   e.Sender == storage.SenderLocal,
-				}
-			}
-			return msgs
+			found = true
+			break
 		}
 	}
-	return nil
+	a.mu.RUnlock()
+
+	if !found {
+		return nil
+	}
+
+	store := a.store()
+	if store == nil {
+		return nil
+	}
+
+	entries, err := store.GetChatHistory(sessionID)
+	if err != nil {
+		a.addLogEntry("ERROR", "Failed to get chat history: "+err.Error())
+		return nil
+	}
+
+	msgs := make([]MessageInfo, len(entries))
+	for i, e := range entries {
+		msgs[i] = MessageInfo{
+			Text:      string(e.Data),
+			Timestamp: e.Timestamp,
+			IsLocal:   e.Sender == storage.SenderLocal,
+		}
+	}
+	return msgs
 }
 
 func (a *App) GetLogEntries() []LogEntryInfo {
