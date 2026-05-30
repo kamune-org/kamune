@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/kamune-org/kamune/internal/enigma"
-	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 var (
@@ -24,7 +23,6 @@ var (
 type Transport struct {
 	conn         Conn
 	serde        *signedSerde
-	store        *storage.Storage
 	encoder      *enigma.Enigma
 	decoder      *enigma.Enigma
 	mu           *sync.Mutex
@@ -123,9 +121,6 @@ func (t *Transport) Close() error { return t.conn.Close() }
 
 // SessionID returns the unique identifier for this session.
 func (t *Transport) SessionID() string { return t.sessionID }
-
-// Store returns the storage associated with this transport.
-func (t *Transport) Store() *storage.Storage { return t.store }
 
 // RemotePublicKey returns the remote peer's public key.
 func (t *Transport) RemotePublicKey() []byte { return t.serde.remote }
