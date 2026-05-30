@@ -57,6 +57,7 @@ func New(path string, passphrase []byte) (*Store, error) {
 		cipher, err = createCipher(db, passphrase)
 	}
 	if err != nil {
+		db.Close()
 		return nil, fmt.Errorf("cipher: %w", err)
 	}
 
