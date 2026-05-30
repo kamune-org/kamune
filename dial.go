@@ -7,8 +7,6 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/xtaci/kcp-go/v5"
-
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
@@ -16,14 +14,13 @@ import (
 
 // Dialer handles outgoing connections and initiates handshakes.
 type Dialer struct {
-	conn          Conn
 	attest        *attest.Attest
 	storage       *storage.Storage
 	clientName    string
 	address       string
 	handshakeOpts handshakeOpts
 	connOpts      []ConnOption
-	connType      connType
+	dialFunc      func(addr string) (Conn, error)
 	writeTimeout  time.Duration
 	dialTimeout   time.Duration
 	readTimeout   time.Duration
@@ -31,46 +28,33 @@ type Dialer struct {
 
 // Dial establishes a connection and performs the handshake.
 func (d *Dialer) Dial() (*Transport, error) {
-	if d.conn == nil {
-		c, err := d.dial(d.address)
-		if err != nil {
-			return nil, fmt.Errorf("dialing: %w", err)
-		}
-		d.conn = c
+	cn, err := d.dial(d.address)
+	if err != nil {
+		return nil, fmt.Errorf("dialing: %w", err)
 	}
 
-	transport, err := d.handshake()
+	transport, err := d.handshake(cn)
 	if err != nil {
+		cn.Close()
 		return nil, fmt.Errorf("handshake: %w", err)
 	}
 
 	return transport, nil
 }
 
-func (d *Dialer) dial(addr string) (*conn, error) {
-	var (
-		c   net.Conn
-		err error
-	)
-	switch d.connType {
-	case tcpConn:
-		c, err = net.DialTimeout("tcp", addr, d.dialTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("dialing tcp: %w", err)
-		}
-	case udpConn:
-		c, err = kcp.Dial(addr)
-		if err != nil {
-			return nil, fmt.Errorf("dialing udp: %w", err)
-		}
-	default:
-		panic(fmt.Errorf("unknown connection type: %v", d.connType))
+func (d *Dialer) dial(addr string) (Conn, error) {
+	if d.dialFunc != nil {
+		return d.dialFunc(addr)
 	}
-
+	// defaults to TCP
+	c, err := net.DialTimeout("tcp", addr, d.dialTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("dialing tcp: %w", err)
+	}
 	return newConn(c, d.connOpts...), nil
 }
 
-func (d *Dialer) handshake() (*Transport, error) {
+func (d *Dialer) handshake(cn Conn) (*Transport, error) {
 	defer func() {
 		if msg := recover(); msg != nil {
 			slog.Error(
@@ -82,12 +66,12 @@ func (d *Dialer) handshake() (*Transport, error) {
 	}()
 
 	// Bound the handshake to avoid indefinite blocking.
-	_ = d.conn.SetDeadline(time.Now().Add(d.handshakeOpts.timeout))
-	defer func() { _ = d.conn.SetDeadline(time.Time{}) }()
+	_ = cn.SetDeadline(time.Now().Add(d.handshakeOpts.timeout))
+	defer func() { _ = cn.SetDeadline(time.Time{}) }()
 
 	// Step 0: Exchange HPKE keys to derive an encrypted connection for the
 	// handshake
-	ec, err := initiateExchange(d.conn)
+	ec, err := initiateExchange(cn)
 	if err != nil {
 		return nil, fmt.Errorf("initiating exchange: %w", err)
 	}
@@ -127,7 +111,7 @@ func (d *Dialer) handshake() (*Transport, error) {
 	}
 	// Since from now on all communications are encrypted via the newly ciphers
 	// derived from the handshake, we can switch to the plain connection.
-	t.conn = d.conn
+	t.conn = cn
 
 	slog.Info(
 		"session established",
@@ -150,7 +134,6 @@ func NewDialer(
 	d := &Dialer{
 		address:      addr,
 		storage:      store,
-		connType:     tcpConn,
 		readTimeout:  5 * time.Minute,
 		writeTimeout: 1 * time.Minute,
 		dialTimeout:  10 * time.Second,
@@ -161,7 +144,9 @@ func NewDialer(
 	}
 
 	for _, opt := range opts {
-		opt(d)
+		if err := opt(d); err != nil {
+			return nil, err
+		}
 	}
 
 	at, err := d.storage.Attester()
@@ -176,45 +161,59 @@ func NewDialer(
 	return d, nil
 }
 
-// DialOption configures the dialer.
-type DialOption func(*Dialer)
+// DialOption configures the dialer. Returning an error from an option causes
+// [NewDialer] to fail immediately with that error.
+type DialOption func(*Dialer) error
 
 // DialWithRemoteVerifier sets a custom remote verifier function.
 func DialWithRemoteVerifier(verifier RemoteVerifier) DialOption {
-	return func(d *Dialer) { d.handshakeOpts.remoteVerifier = verifier }
+	return func(d *Dialer) error {
+		d.handshakeOpts.remoteVerifier = verifier
+		return nil
+	}
 }
 
-// DialWithExistingConn uses an existing connection instead of dialing.
-func DialWithExistingConn(conn Conn) DialOption {
-	return func(d *Dialer) { d.conn = conn }
+// DialWithFunc sets a custom dial function for the dialer. When set, the
+// dialer uses this function instead of the default TCP dial. This is the
+// dial-side equivalent of [ServeWithListener].
+func DialWithFunc(
+	fn func(addr string) (Conn, error), opts ...ConnOption,
+) DialOption {
+	return func(d *Dialer) error {
+		d.dialFunc = fn
+		d.connOpts = opts
+		return nil
+	}
 }
 
 // DialWithReadTimeout sets the read timeout for connections.
 func DialWithReadTimeout(timeout time.Duration) DialOption {
-	return func(d *Dialer) { d.readTimeout = timeout }
+	return func(d *Dialer) error {
+		d.readTimeout = timeout
+		return nil
+	}
 }
 
 // DialWithWriteTimeout sets the write timeout for connections.
 func DialWithWriteTimeout(timeout time.Duration) DialOption {
-	return func(d *Dialer) { d.writeTimeout = timeout }
+	return func(d *Dialer) error {
+		d.writeTimeout = timeout
+		return nil
+	}
 }
 
 // DialWithDialTimeout sets the timeout for establishing connections.
 func DialWithDialTimeout(timeout time.Duration) DialOption {
-	return func(d *Dialer) { d.dialTimeout = timeout }
-}
-
-// DialWithTCPConn configures the dialer to use TCP connections.
-func DialWithTCPConn(opts ...ConnOption) DialOption {
-	return func(d *Dialer) { d.connType = tcpConn; d.connOpts = opts }
-}
-
-// DialWithUDPConn configures the dialer to use UDP/KCP connections.
-func DialWithUDPConn(opts ...ConnOption) DialOption {
-	return func(d *Dialer) { d.connType = udpConn; d.connOpts = opts }
+	return func(d *Dialer) error {
+		d.dialTimeout = timeout
+		return nil
+	}
 }
 
 // DialWithClientName sets the client's advertised name.
 func DialWithClientName(name string) DialOption {
-	return func(d *Dialer) { d.clientName = name }
+	return func(d *Dialer) error {
+		d.clientName = name
+		return nil
+	}
 }
