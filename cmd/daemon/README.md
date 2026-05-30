@@ -114,7 +114,8 @@ Start a kamune server listening for incoming connections.
   "id":"abc-123",
   "data":{
     "addr":"127.0.0.1:9000",
-    "public_key":"base64-encoded-key"
+    "public_key":"base64-encoded-key",
+    "emoji":["🦊","🐱","🐶"]
   }
 }
 ```
@@ -265,7 +266,7 @@ Close a specific session.
   "id":"mno-345",
   "params":{
     "session_id":"xyz789"
-  },
+  }
 }
 ```
 
