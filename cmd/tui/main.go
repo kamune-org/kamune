@@ -28,33 +28,62 @@ func main() {
 	flag.Parse()
 
 	args := flag.Args()
-	if len(args) != 2 {
-		fmt.Println("expected 2 args: [mode] [addr|sessionID]")
-		fmt.Println("modes: dial, serve, history")
-		fmt.Println("example: ./chat -db ./client.db dial 127.0.0.1:9000")
+	if len(args) < 2 {
+		fmt.Println("usage: ./chat -db <path> <mode> [args...]")
+		fmt.Println("modes:")
+		fmt.Println("  dial <addr>              Direct TCP dial")
+		fmt.Println("  serve <addr>             Direct TCP server")
+		fmt.Println("  history <sessionID>      Print chat history")
+		fmt.Println("  relay-dial <addr> <key>  Dial through relay")
+		fmt.Println("  relay-serve <addr>       Serve through relay")
 		os.Exit(1)
 	}
 
 	mode := args[0]
-	arg := args[1]
 
 	switch mode {
 	case "dial":
+		if len(args) < 2 {
+			fmt.Println("usage: dial <addr>")
+			os.Exit(1)
+		}
 		go func() {
-			client(arg)
+			client(args[1])
 		}()
 	case "serve":
+		if len(args) < 2 {
+			fmt.Println("usage: serve <addr>")
+			os.Exit(1)
+		}
 		go func() {
-			server(arg)
+			server(args[1])
 		}()
 	case "history":
+		if len(args) < 2 {
+			fmt.Println("usage: history <sessionID>")
+			os.Exit(1)
+		}
 		go func() {
-			// Treat arg as the session ID to inspect.
-			sid := arg
-			if err := printHistory(sid, dbFlag); err != nil {
+			if err := printHistory(args[1], dbFlag); err != nil {
 				errCh <- fmt.Errorf("history: %w", err)
 			}
 			stop <- struct{}{}
+		}()
+	case "relay-dial":
+		if len(args) < 3 {
+			fmt.Println("usage: relay-dial <relayAddr> <peerKey>")
+			os.Exit(1)
+		}
+		go func() {
+			relayClient(args[1], args[2])
+		}()
+	case "relay-serve":
+		if len(args) < 2 {
+			fmt.Println("usage: relay-serve <relayAddr>")
+			os.Exit(1)
+		}
+		go func() {
+			relayServer(args[1])
 		}()
 	default:
 		panic(fmt.Errorf("invalid command: %s", mode))
