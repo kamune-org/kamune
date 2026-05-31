@@ -225,12 +225,12 @@ func (a *App) shutdown(ctx context.Context) {
 	var serverDone chan struct{}
 
 	a.mu.Lock()
-	sessions = append([]*liveSession(nil), a.sessions...)
-	a.sessions = nil
 	if a.server != nil {
 		a.server.Close()
 		a.server = nil
 	}
+	sessions = append([]*liveSession(nil), a.sessions...)
+	a.sessions = nil
 	serverDone = a.serverDone
 	a.serverDone = nil
 	a.mu.Unlock()

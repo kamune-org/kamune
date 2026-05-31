@@ -12,6 +12,13 @@ import (
 )
 
 func (a *App) StartServer(addr string, transport string, relayAddr string) (string, error) {
+	a.mu.Lock()
+	if a.server != nil {
+		a.mu.Unlock()
+		return "", fmt.Errorf("server is already running")
+	}
+	a.mu.Unlock()
+
 	a.setStatus(StatusConnecting, "Starting server...")
 
 	store := a.store()
@@ -97,12 +104,12 @@ func (a *App) StopServer() error {
 	var serverDone chan struct{}
 
 	a.mu.Lock()
-	sessions = append([]*liveSession(nil), a.sessions...)
-	a.sessions = nil
 	if a.server != nil {
 		a.server.Close()
 		a.server = nil
 	}
+	sessions = append([]*liveSession(nil), a.sessions...)
+	a.sessions = nil
 	a.emojiFP = ""
 	a.b64FP = ""
 	serverDone = a.serverDone
@@ -302,6 +309,7 @@ func (a *App) loadChatHistory(session *liveSession) {
 		return
 	}
 
+	a.mu.Lock()
 	session.Messages = make([]MessageInfo, 0, len(entries))
 	for _, e := range entries {
 		session.Messages = append(session.Messages, MessageInfo{
@@ -313,4 +321,5 @@ func (a *App) loadChatHistory(session *liveSession) {
 			session.LastActivity = e.Timestamp
 		}
 	}
+	a.mu.Unlock()
 }
