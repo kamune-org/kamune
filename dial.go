@@ -18,11 +18,11 @@ import (
 type Dialer struct {
 	attest        *attest.Attest
 	storage       *storage.Storage
+	dialFunc      func(addr string) (Conn, error)
 	clientName    string
 	address       string
 	handshakeOpts handshakeOpts
 	connOpts      []ConnOption
-	dialFunc      func(addr string) (Conn, error)
 	writeTimeout  time.Duration
 	dialTimeout   time.Duration
 	readTimeout   time.Duration

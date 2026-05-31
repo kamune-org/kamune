@@ -16,16 +16,15 @@ import (
 )
 
 type RelayListener struct {
+	ctx       context.Context
 	channel   *exchange.Channel
-	channelMu sync.Mutex
-	selfKey   []byte
 	sessions  map[string]*RelayConn
 	accept    chan *RelayConn
-
-	ctx     context.Context
-	cancel  context.CancelFunc
-	mu      sync.Mutex
-	closeFn func()
+	cancel    context.CancelFunc
+	closeFn   func()
+	selfKey   []byte
+	channelMu sync.Mutex
+	mu        sync.Mutex
 }
 
 func ListenRelay(

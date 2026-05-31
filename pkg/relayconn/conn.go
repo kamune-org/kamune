@@ -14,22 +14,17 @@ import (
 )
 
 type RelayConn struct {
-	sessionID string
-	peerKey   []byte
-
-	buf   [][]byte
-	bufMu sync.Mutex
-	recv  chan struct{}
-
-	channel   *exchange.Channel
-	channelMu *sync.Mutex
-
-	ctx    context.Context
-	cancel context.CancelFunc
-
-	closeFn func()
-
 	deadline   time.Time
+	ctx        context.Context
+	recv       chan struct{}
+	channel    *exchange.Channel
+	channelMu  *sync.Mutex
+	cancel     context.CancelFunc
+	closeFn    func()
+	sessionID  string
+	peerKey    []byte
+	buf        [][]byte
+	bufMu      sync.Mutex
 	deadlineMu sync.Mutex
 }
 
