@@ -1,7 +1,6 @@
 package kamune
 
 import (
-	"crypto/hpke"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -235,56 +234,4 @@ func newConn(c net.Conn, opts ...ConnOption) *conn {
 	return cn
 }
 
-// encryptedConn uses HPKE to provide an encrypted communication. It is used
-// only during the handshake process. For any further encryption purposes, the
-// derived ciphers (from handshake) must be used.
-//
-// It implements the [Conn] interface, but not [net.Conn].
-type encryptedConn struct {
-	conn      Conn
-	sender    *hpke.Sender
-	recipient *hpke.Recipient
-}
 
-func newEncryptedConn(
-	conn Conn, sender *hpke.Sender, recipient *hpke.Recipient,
-) *encryptedConn {
-	return &encryptedConn{
-		conn:      conn,
-		sender:    sender,
-		recipient: recipient,
-	}
-}
-
-func (ec *encryptedConn) ReadBytes() ([]byte, error) {
-	encrypted, err := ec.conn.ReadBytes()
-	if err != nil {
-		return nil, fmt.Errorf("read encrypted: %w", err)
-	}
-	data, err := ec.recipient.Open(nil, encrypted)
-	if err != nil {
-		return nil, fmt.Errorf("decrypting: %w", err)
-	}
-
-	return data, nil
-}
-
-func (ec *encryptedConn) WriteBytes(data []byte) error {
-	encrypted, err := ec.sender.Seal(nil, data)
-	if err != nil {
-		return fmt.Errorf("encrypting: %w", err)
-	}
-	if err = ec.conn.WriteBytes(encrypted); err != nil {
-		return fmt.Errorf("write encrypted: %w", err)
-	}
-
-	return nil
-}
-
-func (ec *encryptedConn) Close() error {
-	return ec.conn.Close()
-}
-
-func (ec *encryptedConn) SetDeadline(t time.Time) error {
-	return ec.conn.SetDeadline(t)
-}

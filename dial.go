@@ -10,6 +10,7 @@ import (
 	"github.com/xtaci/kcp-go/v5"
 
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -73,9 +74,9 @@ func (d *Dialer) handshake(cn Conn) (*Transport, error) {
 
 	// Step 0: Exchange HPKE keys to derive an encrypted connection for the
 	// handshake
-	ec, err := initiateExchange(cn)
+	ec, err := exchange.Initiate(cn)
 	if err != nil {
-		return nil, fmt.Errorf("initiating exchange: %w", err)
+		return nil, fmt.Errorf("initiate exchange: %w", err)
 	}
 
 	// Step 1: Send our introduction

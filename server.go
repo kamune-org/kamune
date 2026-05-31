@@ -13,6 +13,7 @@ import (
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -143,7 +144,7 @@ func (s *Server) serve(cn Conn) error {
 
 	// Step 0: Exchange HPKE keys to derive an encrypted connection for the
 	// handshake
-	ec, err := acceptExchange(cn)
+	ec, err := exchange.Accept(cn)
 	if err != nil {
 		return fmt.Errorf("accepting exchange: %w", err)
 	}
@@ -169,7 +170,7 @@ func (s *Server) serve(cn Conn) error {
 }
 
 func (s *Server) handleNewConnection(
-	cn Conn, ec *encryptedConn, st *pb.SignedTransport,
+	cn Conn, ec *exchange.Channel, st *pb.SignedTransport,
 ) error {
 	// Bound the handshake to avoid indefinite blocking.
 	_ = cn.SetDeadline(time.Now().Add(s.handshakeOpts.timeout))
