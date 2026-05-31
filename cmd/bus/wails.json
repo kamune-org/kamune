@@ -7,7 +7,6 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "Hossein Yazdani",
-    "email": "hosseinyazdani1376@gmail.com"
+    "name": "Kamune Org"
   }
 }

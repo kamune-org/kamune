@@ -35,7 +35,7 @@ const (
 	StatusError        ConnectionStatus = "error"
 )
 
-const appVersion = "2.0.0"
+var appVersion = "2.0.0"
 
 type VerificationMode int
 
@@ -107,24 +107,24 @@ type pendingVerification struct {
 }
 
 type App struct {
-	ctx     context.Context
-	mu      sync.RWMutex
+	ctx context.Context
+	mu  sync.RWMutex
 
-	sessions           []*liveSession
-	histSessions       []*historySession
-	server             *kamune.Server
-	serverDone         chan struct{}
+	sessions            []*liveSession
+	histSessions        []*historySession
+	server              *kamune.Server
+	serverDone          chan struct{}
 	serverTransportType string
 
-	dbPath      string
-	db          *storage.Storage
-	storeMu     sync.Mutex
-	passphrase  atomic.Value // stores []byte
+	dbPath       string
+	db           *storage.Storage
+	storeMu      sync.Mutex
+	passphrase   atomic.Value // stores []byte
 	storageReady bool
-	emojiFP     string
-	b64FP       string
-	verifMode   VerificationMode
-	appVersion  string
+	emojiFP      string
+	b64FP        string
+	verifMode    VerificationMode
+	appVersion   string
 
 	status          ConnectionStatus
 	statusMsg       string
@@ -134,8 +134,8 @@ type App struct {
 	logMu         sync.RWMutex
 	logBufferSize int
 
-	verifMu       sync.Mutex
-	verifRequests map[int64]*pendingVerification
+	verifMu        sync.Mutex
+	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
 }
 
@@ -718,19 +718,19 @@ func (a *App) GetSessionInfo(sessionID string) map[string]interface{} {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-		for _, s := range a.sessions {
-			if s.ID == sessionID {
-				return map[string]interface{}{
-					"type":          "live",
-					"peerName":      s.PeerName,
-					"sessionID":     s.ID,
-					"messageCount":  len(s.Messages),
-					"lastActivity":  s.LastActivity.Format(time.RFC3339),
-					"isServer":      s.IsServer,
-					"transportType": s.TransportType,
-				}
+	for _, s := range a.sessions {
+		if s.ID == sessionID {
+			return map[string]interface{}{
+				"type":          "live",
+				"peerName":      s.PeerName,
+				"sessionID":     s.ID,
+				"messageCount":  len(s.Messages),
+				"lastActivity":  s.LastActivity.Format(time.RFC3339),
+				"isServer":      s.IsServer,
+				"transportType": s.TransportType,
 			}
 		}
+	}
 
 	for _, hs := range a.histSessions {
 		if hs.ID == sessionID {
