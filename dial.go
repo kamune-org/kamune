@@ -7,6 +7,8 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/xtaci/kcp-go/v5"
+
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
@@ -182,6 +184,38 @@ func DialWithFunc(
 	return func(d *Dialer) error {
 		d.dialFunc = fn
 		d.connOpts = opts
+		return nil
+	}
+}
+
+// DialWithTCP configures the dialer to use TCP connections. This is the default
+// behavior, so this option is only needed for explicitness or to set connection
+// options. The dialer will fail at [NewDialer] time if the TCP dialer cannot be
+// created.
+func DialWithTCP(opts ...ConnOption) DialOption {
+	return func(d *Dialer) error {
+		d.dialFunc = func(addr string) (Conn, error) {
+			c, err := net.DialTimeout("tcp", addr, d.dialTimeout)
+			if err != nil {
+				return nil, fmt.Errorf("dialing tcp: %w", err)
+			}
+			return newConn(c, opts...), nil
+		}
+		return nil
+	}
+}
+
+// DialWithUDP configures the dialer to use UDP/KCP connections. The dialer
+// will fail at [NewDialer] time if the UDP dialer cannot be created.
+func DialWithUDP(opts ...ConnOption) DialOption {
+	return func(d *Dialer) error {
+		d.dialFunc = func(addr string) (Conn, error) {
+			c, err := kcp.Dial(addr)
+			if err != nil {
+				return nil, fmt.Errorf("dialing udp: %w", err)
+			}
+			return newConn(c, opts...), nil
+		}
 		return nil
 	}
 }
