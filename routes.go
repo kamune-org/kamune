@@ -17,6 +17,10 @@ const (
 	RouteVerifyChallenge
 	RouteExchangeMessages
 	RouteCloseTransport
+
+	// RoutePing / RoutePong reserved for application-level keep-alive.
+	// TODO(h.yazdani): implement application-level ping/pong to prevent
+	// read timeouts on idle connections across all transport types.
 )
 
 // String returns the string representation of the route.

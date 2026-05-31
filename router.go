@@ -299,10 +299,14 @@ func (rd *RouteDispatcher) Serve(msgFactory func() Transferable) error {
 		msg := msgFactory()
 		err := rd.router.DispatchNext(rd.transport, msg)
 		if err != nil {
-			if errors.Is(err, ErrConnClosed) {
+			switch {
+			case errors.Is(err, ErrConnClosed):
 				return nil
+			case errors.Is(err, ErrReceiveTimeout):
+				continue
+			default:
+				return err
 			}
-			return err
 		}
 	}
 }

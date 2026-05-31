@@ -4,10 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"os"
 	"sync"
 
 	"github.com/kamune-org/kamune/internal/enigma"
 )
+
+// TODO(h.yazdani): implement application-level ping/pong (RoutePing/RoutePong)
+// to prevent read timeouts on idle connections across all transport types.
+// The timeout-retry below is the safety net; keep-alive would prevent timeouts
+// from firing during idle periods entirely.
 
 var (
 	ErrConnClosed         = errors.New("connection has been closed")
@@ -17,7 +24,18 @@ var (
 	ErrOutOfSync          = errors.New("peers are out of sync")
 	ErrUnexpectedRoute    = errors.New("unexpected route received")
 	ErrInvalidRoute       = errors.New("invalid route")
+	ErrReceiveTimeout     = errors.New("receive timed out")
 )
+
+func isTimeout(err error) bool {
+	switch {
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		return true
+	default:
+		ne, ok := errors.AsType[net.Error](err)
+		return ok && ne.Timeout()
+	}
+}
 
 // Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
@@ -55,6 +73,8 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 	case err == nil: // continue
 	case errors.Is(err, io.EOF):
 		return nil, ErrConnClosed
+	case isTimeout(err):
+		return nil, ErrReceiveTimeout
 	default:
 		return nil, fmt.Errorf("reading payload: %w", err)
 	}
