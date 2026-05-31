@@ -42,6 +42,8 @@ export function HasKeychainPassphrase():Promise<boolean>;
 
 export function LoadHistoryMessages(arg1:string):Promise<void>;
 
+export function OpenFileDialog():Promise<string>;
+
 export function RefreshHistory():Promise<void>;
 
 export function RenameHistorySession(arg1:string,arg2:string):Promise<void>;

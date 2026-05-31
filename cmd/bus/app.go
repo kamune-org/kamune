@@ -416,6 +416,16 @@ func (a *App) SetDBPath(path string) {
 	a.addLogEntry("INFO", "DB path changed to: "+path)
 }
 
+func (a *App) OpenFileDialog() string {
+	file, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Database File",
+	})
+	if err != nil {
+		return ""
+	}
+	return file
+}
+
 func (a *App) GetVerificationMode() int {
 	a.mu.RLock()
 	defer a.mu.RUnlock()

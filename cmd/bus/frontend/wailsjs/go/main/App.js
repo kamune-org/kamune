@@ -82,6 +82,10 @@ export function LoadHistoryMessages(arg1) {
   return window['go']['main']['App']['LoadHistoryMessages'](arg1);
 }
 
+export function OpenFileDialog() {
+  return window['go']['main']['App']['OpenFileDialog']();
+}
+
 export function RefreshHistory() {
   return window['go']['main']['App']['RefreshHistory']();
 }

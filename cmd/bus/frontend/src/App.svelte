@@ -41,10 +41,15 @@
 
   let connectServerAddr = ':8443'
   let connectServerAddr2 = ''
+  let serverTransport = 'tcp'
+  let connectTransport = 'tcp'
+  let serverRelayAddr = ''
+  let connectRelayAddr = ''
+  let connectPeerKey = ''
   let serverLoading = false
   let connectLoading = false
   let showPassphraseDialog = true
-  let passphrasePathChangeMode = false
+  let passphraseDismissable = false
 
   onMount(async () => {
     const v = await GetVersion()
@@ -110,13 +115,13 @@
     })
     EventsOn('request-passphrase', () => {
       showPassphraseDialog = true
-      passphrasePathChangeMode = false
+      passphraseDismissable = false
     })
     EventsOn('verification-mode-changed', (mode) => {
       verificationMode.set(mode)
     })
-    EventsOn('fingerprint-changed', (emoji, hex) => {
-      fingerprint.set({ emoji, hex })
+    EventsOn('fingerprint-changed', (emoji, b64) => {
+      fingerprint.set({ emoji, b64 })
     })
 
     // Request notification permission
@@ -338,10 +343,6 @@
     }
     if (e.key === 'Escape') {
       closeAllDialogs()
-      if (passphrasePathChangeMode) {
-        showPassphraseDialog = false
-        passphrasePathChangeMode = false
-      }
       logPanelOpen.set(false)
     }
   }
@@ -351,7 +352,7 @@
 
 <div class="app-layout">
   {#if showPassphraseDialog}
-    <PassphraseDialog pathChangeMode={passphrasePathChangeMode} />
+    <PassphraseDialog dismissable={passphraseDismissable} on:close={() => showPassphraseDialog = false} />
   {/if}
 
   {#if $verificationDialog}
@@ -609,7 +610,7 @@
       }}
       on:changeDBPath={() => {
         showPassphraseDialog = true
-        passphrasePathChangeMode = true
+        passphraseDismissable = true
       }}
     />
 

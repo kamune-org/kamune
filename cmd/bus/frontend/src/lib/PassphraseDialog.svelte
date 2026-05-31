@@ -1,8 +1,12 @@
 <script>
-  import { onMount } from 'svelte'
-  import { SubmitPassphrase, HasKeychainPassphrase, GetDBPath, SetDBPath } from '../../wailsjs/go/main/App.js'
+  import { onMount, createEventDispatcher } from 'svelte'
+  import {
+    SubmitPassphrase, HasKeychainPassphrase, GetDBPath,
+    SetDBPath, OpenFileDialog,
+  } from '../../wailsjs/go/main/App.js'
 
-  export let pathChangeMode = false
+  export let dismissable = false
+  const dispatch = createEventDispatcher()
 
   let passphrase = ''
   let showPass = false
@@ -11,39 +15,19 @@
   let error = ''
   let hasKeychain = false
   let dbPath = ''
-  let editingPath = false
-  let newDbPath = ''
 
   onMount(async () => {
     hasKeychain = await HasKeychainPassphrase()
     dbPath = await GetDBPath()
-    newDbPath = dbPath
   })
-
-  function startEditPath() {
-    newDbPath = dbPath
-    editingPath = true
-  }
-
-  function cancelEditPath() {
-    newDbPath = dbPath
-    editingPath = false
-  }
 
   async function submit() {
     loading = true
     error = ''
     try {
-      if (editingPath) {
-        editingPath = false
-        dbPath = newDbPath
-      }
-      if (dbPath !== await GetDBPath()) {
+      const currentPath = await GetDBPath()
+      if (dbPath !== currentPath) {
         await SetDBPath(dbPath)
-      } else if (pathChangeMode) {
-        error = 'Database path not changed'
-        loading = false
-        return
       }
       await SubmitPassphrase(passphrase, saveToKeychain)
     } catch (e) {
@@ -58,20 +42,28 @@
     await submit()
   }
 
+  async function browsePath() {
+    try {
+      const file = await OpenFileDialog()
+      if (file) {
+        dbPath = file
+      }
+    } catch (e) {
+      console.error('Failed to open file dialog:', e)
+    }
+  }
+
   function handleKeydown(e) {
     if (e.key === 'Enter') {
-      if (editingPath) {
-        editingPath = false
-        dbPath = newDbPath
-        return
-      }
       submit()
+    } else if (e.key === 'Escape' && dismissable) {
+      dispatch('close')
     }
   }
 </script>
 
-<div class="overlay">
-  <div class="dialog" on:keydown={handleKeydown}>
+<div class="overlay" on:click={dismissable ? () => dispatch('close') : undefined} on:keydown={dismissable ? (e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation() } : undefined}>
+  <div class="dialog" on:click|stopPropagation on:keydown={handleKeydown}>
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
@@ -87,34 +79,19 @@
         The database is encrypted at rest.
       </p>
 
-      <div class="dbpath-field">
-        {#if editingPath}
-          <input
-            type="text"
-            bind:value={newDbPath}
-            class="dbpath-input"
-            disabled={loading}
-            autofocus
-            on:keydown={(e) => { if (e.key === 'Escape') cancelEditPath() }}
-          />
-          <button class="dbpath-btn dbpath-btn-cancel" on:click={cancelEditPath} disabled={loading} title="Cancel">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-              <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-            </svg>
-          </button>
-          <button class="dbpath-btn dbpath-btn-confirm" on:click={() => { editingPath = false; dbPath = newDbPath }} disabled={loading} title="Confirm">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-            </svg>
-          </button>
-        {:else}
-          <span class="dbpath-value" title={dbPath}>{dbPath}</span>
-          <button class="dbpath-edit-btn" on:click={startEditPath} disabled={loading} title="Change database path">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-            </svg>
-          </button>
-        {/if}
+      <div class="path-field">
+        <input
+          type="text"
+          bind:value={dbPath}
+          class="path-input"
+          placeholder="Path to database"
+          disabled={loading}
+        />
+        <button class="path-browse-btn" on:click={browsePath} disabled={loading} title="Browse for file">
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+          </svg>
+        </button>
       </div>
 
       <div class="pass-field">
@@ -125,7 +102,6 @@
           placeholder="Enter passphrase"
           class="pass-input"
           disabled={loading}
-          autofocus
         />
         <button
           class="toggle-vis"
@@ -228,63 +204,34 @@
     margin-bottom: 14px;
   }
 
-  .dbpath-field {
+  .path-field {
     position: relative;
     display: flex;
     align-items: center;
     margin-bottom: 10px;
   }
-  .dbpath-value {
+  .path-input {
     width: 100%;
     padding: 11px 40px 11px 14px;
     background: var(--bg-input);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
-    color: var(--text-timestamp);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: border-color 0.2s;
-  }
-  .dbpath-value:hover {
-    border-color: var(--text-timestamp);
-  }
-  .dbpath-edit-btn {
-    position: absolute;
-    right: 6px;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-timestamp);
-    border-radius: 6px;
-    transition: all 0.15s;
-  }
-  .dbpath-edit-btn:hover:not(:disabled) {
-    color: var(--text-secondary);
-    background: var(--bg-hover);
-  }
-  .dbpath-edit-btn:disabled {
-    opacity: 0.4;
-  }
-  .dbpath-input {
-    width: 100%;
-    padding: 11px 68px 11px 14px;
-    background: var(--bg-input);
-    border: 1px solid var(--accent-primary);
-    border-radius: var(--border-radius);
     color: var(--text-primary);
     font-family: var(--font-mono);
-    font-size: 12px;
-    outline: none;
-    box-shadow: 0 0 0 3px var(--accent-primary-dim);
+    font-size: 13px;
+    transition: border-color 0.2s;
   }
-  .dbpath-btn {
+  .path-input:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px var(--accent-primary-dim);
+    outline: none;
+  }
+  .path-input:disabled {
+    opacity: 0.6;
+  }
+  .path-browse-btn {
     position: absolute;
+    right: 6px;
     width: 30px;
     height: 30px;
     display: flex;
@@ -294,21 +241,12 @@
     border-radius: 6px;
     transition: all 0.15s;
   }
-  .dbpath-btn:hover:not(:disabled) {
-    background: var(--bg-hover);
-    color: var(--text-secondary);
-  }
-  .dbpath-btn:disabled {
-    opacity: 0.4;
-  }
-  .dbpath-btn-cancel {
-    right: 38px;
-  }
-  .dbpath-btn-confirm {
-    right: 6px;
-  }
-  .dbpath-btn-confirm:hover:not(:disabled) {
+  .path-browse-btn:hover:not(:disabled) {
     color: var(--accent-primary);
+    background: var(--accent-primary-dim);
+  }
+  .path-browse-btn:disabled {
+    opacity: 0.4;
   }
 
   .pass-field {
@@ -323,7 +261,7 @@
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 13px;
     font-family: var(--font-mono);
     transition: border-color 0.2s;
   }
