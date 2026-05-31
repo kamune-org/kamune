@@ -1,8 +1,8 @@
 # Kamune Protocol Specification
 
-**Version:** 0.2.0
+**Version:** 0.3.0
 **Status:** Experimental
-**Suite:** `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`
+**Suite:** `Ed25519_MLKEM768_ChaCha20-Poly1305X`
 
 ---
 
@@ -52,20 +52,20 @@ The default cipher suite is `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`.
 
 ## 2. Terminology
 
-| Term | Definition |
-|------|-----------|
-| **Initiator (Client)** | The party that opens the connection and begins the protocol exchange. |
-| **Responder (Server)** | The party that accepts the connection and responds to protocol messages. |
-| **Attester** | The cryptographic identity holder; signs messages with its private key. |
-| **Identifier** | The verification counterpart of an Attester; verifies signatures with a public key. |
-| **Peer** | A remote party identified by its public key, name, and timestamps. |
-| **Transport** | The encrypted, session-aware communication channel between two peers. |
-| **Underlying Transport** | The encrypted connection used during Introduction and Handshake. |
-| **HPKE** | Hybrid Public Key Encryption (RFC 9180). Performs key encapsulation and key schedule derivation in a single operation during the Exchange phase. Configured with MLKEM768-X25519 KEM, HKDF-SHA512 KDF, and ChaCha20-Poly1305 AEAD. |
-| **Enigma** | The symmetric encryption/decryption engine wrapping XChaCha20-Poly1305 with keys derived via HKDF-SHA512. |
-| **Route** | A typed tag on each message's Metadata identifying its purpose and protocol phase. |
-| **Fingerprint** | A human-readable representation of a public key (emoji, hex, base64, or pseudonym). |
-| **Transcript Hash** | A SHA-256 hash over the serialized handshake messages, bound into challenge derivation to prevent replay and downgrade attacks. |
+| Term                     | Definition                                                                                                                                                                                                                         |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Initiator (Client)**   | The party that opens the connection and begins the protocol exchange.                                                                                                                                                              |
+| **Responder (Server)**   | The party that accepts the connection and responds to protocol messages.                                                                                                                                                           |
+| **Attester**             | The cryptographic identity holder; signs messages with its private key.                                                                                                                                                            |
+| **Identifier**           | The verification counterpart of an Attester; verifies signatures with a public key.                                                                                                                                                |
+| **Peer**                 | A remote party identified by its public key, name, and timestamps.                                                                                                                                                                 |
+| **Transport**            | The encrypted, session-aware communication channel between two peers.                                                                                                                                                              |
+| **Underlying Transport** | The encrypted connection used during Introduction and Handshake.                                                                                                                                                                   |
+| **HPKE**                 | Hybrid Public Key Encryption (RFC 9180). Performs key encapsulation and key schedule derivation in a single operation during the Exchange phase. Configured with MLKEM768-X25519 KEM, HKDF-SHA512 KDF, and ChaCha20-Poly1305 AEAD. |
+| **Enigma**               | The symmetric encryption/decryption engine wrapping XChaCha20-Poly1305 with keys derived via HKDF-SHA512.                                                                                                                          |
+| **Route**                | A typed tag on each message's Metadata identifying its purpose and protocol phase.                                                                                                                                                 |
+| **Fingerprint**          | A human-readable representation of a public key (emoji, hex, base64, or pseudonym).                                                                                                                                                |
+| **Transcript Hash**      | A SHA-256 hash over the serialized handshake messages, bound into challenge derivation to prevent replay and downgrade attacks.                                                                                                    |
 
 ---
 
@@ -77,12 +77,12 @@ The default cipher suite is `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`.
 
 ### 3.1 Default Suite: `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`
 
-| Component | Algorithm | Purpose |
-|-----------|-----------|---------|
-| **Identity Signing** | Ed25519 | Digital signatures for authentication and message integrity during Introduction, Handshake, and all signed transports. |
-| **Key Establishment** | MLKEM768 | Performs key encapsulation and derives the shared key schedule in a single operation. Ephemeral keypairs are used per session. |
-| **HPKE** | MLKEM768-X25519, HKDF-SHA512, ChaCha20-Poly1305X | Encrypts the handshake communications |
-| **Transport Encryption** | ChaCha20-Poly1305X | Extended-nonce AEAD cipher for bidirectional message encryption and authentication during the Communication phase. |
+| Component                | Algorithm                                        | Purpose                                                                                                                        |
+| ------------------------ | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Identity Signing**     | Ed25519                                          | Digital signatures for authentication and message integrity during Introduction, Handshake, and all signed transports.         |
+| **Key Establishment**    | MLKEM768                                         | Performs key encapsulation and derives the shared key schedule in a single operation. Ephemeral keypairs are used per session. |
+| **HPKE**                 | MLKEM768-X25519, HKDF-SHA512, ChaCha20-Poly1305X | Encrypts the handshake communications                                                                                          |
+| **Transport Encryption** | ChaCha20-Poly1305X                               | Extended-nonce AEAD cipher for bidirectional message encryption and authentication during the Communication phase.             |
 
 ---
 
@@ -172,17 +172,19 @@ Routes are typed tags embedded in every `SignedTransport` message. They identify
 the message's purpose and enforce the expected protocol state machine
 transitions.
 
-| Value | Route Name | Phase | Direction | Description |
-|-------|-----------|-------|-----------|-------------|
-| `0` | `ROUTE_INVALID` | — | — | Invalid/unset route. MUST be rejected. |
-| `1` | `ROUTE_IDENTITY` | Introduction | Bidirectional | Identity exchange (`Introduce` message). |
-| `2` | `ROUTE_REQUEST_HANDSHAKE` | Handshake | Initiator → Responder | ML-KEM public key, salt, and session prefix. |
-| `3` | `ROUTE_ACCEPT_HANDSHAKE` | Handshake | Responder → Initiator | KEM ciphertext, salt, and session suffix. |
-| `4` | `ROUTE_FINALIZE_HANDSHAKE` | Handshake | — | Reserved for future handshake finalization. |
-| `5` | `ROUTE_SEND_CHALLENGE` | Challenge | Bidirectional | Challenge token (encrypted). |
-| `6` | `ROUTE_VERIFY_CHALLENGE` | Challenge | Bidirectional | Challenge response echo (encrypted). |
-| `7` | `ROUTE_EXCHANGE_MESSAGES` | Communication | Bidirectional | Application-layer messages. |
-| `8` | `ROUTE_CLOSE_TRANSPORT` | Communication | Bidirectional | Graceful session teardown. |
+| Value | Route Name                 | Phase         | Direction             | Description                                  |
+| ----- | -------------------------- | ------------- | --------------------- | -------------------------------------------- |
+| `0`   | `ROUTE_INVALID`            | —             | —                     | Invalid/unset route. MUST be rejected.       |
+| `1`   | `ROUTE_IDENTITY`           | Introduction  | Bidirectional         | Identity exchange (`Introduce` message).     |
+| `2`   | `ROUTE_REQUEST_HANDSHAKE`  | Handshake     | Initiator → Responder | ML-KEM public key, salt, and session prefix. |
+| `3`   | `ROUTE_ACCEPT_HANDSHAKE`   | Handshake     | Responder → Initiator | KEM ciphertext, salt, and session suffix.    |
+| `4`   | `ROUTE_FINALIZE_HANDSHAKE` | Handshake     | —                     | Reserved for future handshake finalization.  |
+| `5`   | `ROUTE_SEND_CHALLENGE`     | Challenge     | Bidirectional         | Challenge token (encrypted).                 |
+| `6`   | `ROUTE_VERIFY_CHALLENGE`   | Challenge     | Bidirectional         | Challenge response echo (encrypted).         |
+| `7`   | `ROUTE_EXCHANGE_MESSAGES`  | Communication | Bidirectional         | Application-layer messages.                  |
+| `8`   | `ROUTE_CLOSE_TRANSPORT`    | Communication | Bidirectional         | Graceful session teardown.                   |
+| `9`   | `ROUTE_PING`               | Keep-Alive    | Bidirectional         | Reserved for application-level ping.         |
+| `10`  | `ROUTE_PONG`               | Keep-Alive    | Bidirectional         | Reserved for application-level pong.         |
 
 ### 5.1 Route Validation Rules
 
@@ -190,6 +192,8 @@ transitions.
   establishment.
 - Routes `7–8` are **session routes** and MUST only appear after a session is
   fully established.
+- Routes `9–10` are **keep-alive routes** and are reserved for future
+  application-level ping/pong. They MUST NOT currently be sent or received.
 - Route `4` (`ROUTE_FINALIZE_HANDSHAKE`) is defined in the enum but is
   **reserved** and not currently used by the protocol.
 - Any message with `ROUTE_INVALID` (`0`) or an unrecognized route value MUST
@@ -226,7 +230,7 @@ Initiator (Client)             Responder (Server)
        |                            |
        |  <----- RawBytes --------  |
        |      HPKE Public Key       |
-       |                            | 
+       |                            |
        |  ------ RawBytes ------>   |
        |      Ciphertext (enc)      |
        |                            |
@@ -263,13 +267,15 @@ Initiator (Client)                          Responder (Server)
        |  ---- SignedTransport[IDENTITY] ------>   |
        |        Introduce {                        |
        |          Name,                            |
-       |          PublicKey                        |
+       |          PublicKey,                       |
+       |          AppVersion                       |
        |        }                                  |
        |                                           |
        |   <---- SignedTransport[IDENTITY] -----   |
        |         Introduce {                       |
        |           Name,                           |
-       |           PublicKey                       |
+       |           PublicKey,                      |
+       |           AppVersion                      |
        |         }                                 |
        |                                           |
 ```
@@ -281,6 +287,7 @@ Initiator (Client)                          Responder (Server)
      fingerprint of their public key, base64-encoded).
    - `PublicKey`: The initiator's identity public key (Ed25519),
      serialized in PKIX/DER format.
+   - `AppVersion`: The initiator's application semver (e.g. `"0.3.0"`).
    - The `SignedTransport` envelope's `Signature` is computed over the
      serialized `Introduce` message using the initiator's private key.
 
@@ -288,6 +295,10 @@ Initiator (Client)                          Responder (Server)
    - Parses the `PublicKey` using the appropriate algorithm's key parser.
    - Verifies the `Signature` over `Data` using the parsed public key.
    - If signature verification fails, the connection MUST be terminated.
+   - Checks `AppVersion` against its own version using semver comparison:
+     major versions must match; pre-1.0 (major=0) additionally requires
+     matching minor. On mismatch, the connection is rejected with
+     `ErrVersionMismatch`.
    - The responder's **Remote Verifier** is invoked — this is a pluggable
      callback that decides whether to accept or reject the peer. The default
      implementation displays the peer's emoji and hex fingerprints and prompts
@@ -305,7 +316,7 @@ other's authenticated public key and proceed to the Handshake.
 
 ### 6.3 Handshake
 
-The Handshake phase uses post-quantum MLKEM768 to establish a shared key and 
+The Handshake phase uses post-quantum MLKEM768 to establish a shared key and
 derive session-specific symmetric encryption keys. The HPKE-encrypted tunnel
 from the Exchange phase is used for transport.
 
@@ -451,6 +462,7 @@ Initiator                                     Responder
 7. **Both parties set phase to `Established`**.
 
 The challenge exchange proves that:
+
 - The initiator can decrypt messages encrypted by the responder (and vice
   versa).
 - Both parties derived the same keys and exported identical keys.
@@ -519,6 +531,7 @@ decoderKey = HKDF-SHA512(secret, remoteSalt, sessionID + oppositeInfo, 32)
 ```
 
 Where:
+
 - `secret`: 32-byte MLKEM768 shared secret (from `Decapsulate` or `Encapsulate`)
 - `localSalt`: 16 random bytes from the local party
 - `remoteSalt`: 16 random bytes from the remote party
@@ -550,12 +563,12 @@ The `Enigma` wrapper provides XChaCha20-Poly1305 AEAD encryption:
 
 ### 7.5 Key Hierarchy Summary
 
-| Phase | Key Material | Derivation |
-|-------|-------------|------------|
-| Exchange | HPKE Sender/Recipient contexts | HPKE internal key schedule (MLKEM768-X25519 + HKDF-SHA512 + ChaCha20-Poly1305) |
-| Handshake | 32-byte shared secret | MLKEM768 Encapsulate/Decapsulate |
-| Cipher keys | 32-byte per-direction keys | HKDF-SHA512(secret, salt, domainInfo) |
-| Challenge tokens | 32-byte tokens | HKDF-SHA512(secret, nil, sessionID + "|" + dirInfo + "|" + transcriptHash) |
+| Phase            | Key Material                   | Derivation                                                                     |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------------ | --------------- | ------------------- |
+| Exchange         | HPKE Sender/Recipient contexts | HPKE internal key schedule (MLKEM768-X25519 + HKDF-SHA512 + ChaCha20-Poly1305) |
+| Handshake        | 32-byte shared secret          | MLKEM768 Encapsulate/Decapsulate                                               |
+| Cipher keys      | 32-byte per-direction keys     | HKDF-SHA512(secret, salt, domainInfo)                                          |
+| Challenge tokens | 32-byte tokens                 | HKDF-SHA512(secret, nil, sessionID + "                                         | " + dirInfo + " | " + transcriptHash) |
 
 ---
 
@@ -569,6 +582,7 @@ field. The signature is computed using the sender's long-term identity key
 public key obtained during the Introduction phase.
 
 This provides:
+
 - **Authentication**: Proof that the message was created by the claimed sender.
 - **Integrity**: Any modification to `Data` invalidates the signature.
 - **Non-repudiation**: The sender cannot deny having sent the message (though
@@ -586,11 +600,11 @@ counters:
 
 **Validation rules on receive:**
 
-| Condition | Action |
-|-----------|--------|
-| `seq == recvSequence + 1` | Accept; update `recvSequence`. |
-| `seq < recvSequence + 1` | Reject as **duplicate**. Return `ErrOutOfSync`. |
-| `seq > recvSequence + 1` | Reject as **gap/missing messages**. Return `ErrOutOfSync`. |
+| Condition                 | Action                                                     |
+| ------------------------- | ---------------------------------------------------------- |
+| `seq == recvSequence + 1` | Accept; update `recvSequence`.                             |
+| `seq < recvSequence + 1`  | Reject as **duplicate**. Return `ErrOutOfSync`.            |
+| `seq > recvSequence + 1`  | Reject as **gap/missing messages**. Return `ErrOutOfSync`. |
 
 Sequence numbers provide ordering guarantees and replay protection within a
 session.
@@ -633,6 +647,7 @@ provides reliable, ordered delivery over UDP. The same length-prefixed framing
 and protocol messages are used identically over KCP.
 
 KCP provides:
+
 - ARQ (Automatic Repeat reQuest) for reliability.
 - Reed-Solomon forward error correction.
 - Congestion control.
@@ -685,13 +700,13 @@ itself is never stored.
 
 ### 10.3 Stored Data
 
-| Bucket | Key | Value | Encryption |
-|--------|-----|-------|------------|
-| `kamune-store` | `"derive-salt"`, `"wrapped-salt"`, `"secret-salt"`, `"wrapped-key"` | Encryption salts and wrapped DEK | Plaintext |
-| `kamune-store` | `"attest"` | Ed25519 private key (attestation) | Encrypted (DEK) |
-| `peers` | `SHA3-512(publicKey)` | Protobuf `Peer` | Encrypted (DEK) |
-| `session_meta_<sessionID>` | `"name"` | Human-readable session name | Encrypted (DEK) |
-| `chat_<sessionID>` | 14-byte composite key | Chat message payload | Encrypted (DEK) |
+| Bucket                     | Key                                                                 | Value                             | Encryption      |
+| -------------------------- | ------------------------------------------------------------------- | --------------------------------- | --------------- |
+| `kamune-store`             | `"derive-salt"`, `"wrapped-salt"`, `"secret-salt"`, `"wrapped-key"` | Encryption salts and wrapped DEK  | Plaintext       |
+| `kamune-store`             | `"attest"`                                                          | Ed25519 private key (attestation) | Encrypted (DEK) |
+| `peers`                    | `SHA3-512(publicKey)`                                               | Protobuf `Peer`                   | Encrypted (DEK) |
+| `session_meta_<sessionID>` | `"name"`                                                            | Human-readable session name       | Encrypted (DEK) |
+| `chat_<sessionID>`         | 14-byte composite key                                               | Chat message payload              | Encrypted (DEK) |
 
 ### 10.4 Chat History Key Format
 
@@ -795,7 +810,7 @@ per-message.
 ### 12.5 Post-Quantum Resistance
 
 The MLKEM768 KEM provides resistance against quantum computer attacks on the key
-establishment. It ensures that the protocol remains secure as long as ML-KEM-768 
+establishment. It ensures that the protocol remains secure as long as ML-KEM-768
 remains unbroken, providing defense in depth against quantum adversaries.
 
 With the default Ed25519 signing, the key establishment is quantum-resistant
@@ -823,21 +838,9 @@ analysis.
 
 ```
 message Introduce {
-  string    Name      = 1;  // Human-readable peer name
-  bytes     PublicKey = 2;  // Identity public key (PKIX/DER or raw)
-}
-
-message Handshake {
-  bytes  Key        = 1;  // ML-KEM public key (request) or ciphertext (response)
-  bytes  Salt       = 2;  // 16-byte random salt
-  string SessionKey = 3;  // Session ID half (prefix or suffix)
-}
-
-message Peer {
-  string                    Name      = 1;
-  bytes                     PublicKey = 2;
-  google.protobuf.Timestamp FirstSeen = 3;
-  google.protobuf.Timestamp LastSeen  = 4;
+  string    Name       = 1;  // Human-readable peer name
+  bytes     PublicKey  = 2;  // Identity public key (PKIX/DER or raw)
+  string    AppVersion = 3;  // Application semver for peer compatibility check
 }
 ```
 
@@ -875,36 +878,38 @@ message Metadata {
 
 ## 14. Constants and Limits
 
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `maxTransportSize` | 51,200 bytes (50 KiB) | Maximum wire message payload size |
-| `saltSize` | 16 bytes | Size of random salts for key derivation |
-| `sessionIDLength` | 20 characters | Total session ID length (10 prefix + 10 suffix) |
-| `challengeSize` | 32 bytes | Size of handshake challenge tokens |
-| `maxPadding` | 256 bytes | Maximum random padding added to messages |
-| `nonceSize` | 24 bytes | XChaCha20-Poly1305 nonce size |
-| `keySize` | 32 bytes | ChaCha20-Poly1305 / HKDF output key size |
-| `defaultReadTimeout` | 5 minutes | Default TCP/KCP read deadline |
-| `defaultWriteTimeout` | 1 minute | Default TCP/KCP write deadline |
-| `defaultDialTimeout` | 10 seconds | Default connection establishment timeout |
-| `defaultPeerExpiry` | 7 days | Default peer identity expiration |
-| `lengthPrefixSize` | 2 bytes | Size of the big-endian message length header |
-| `sessionPrefixLength` | 10 characters | Length of the session ID prefix emitted by the initiator |
-| `sessionSuffixLength` | 10 characters | Length of the session ID suffix emitted by the responder |
+| Constant              | Value                 | Description                                              |
+| --------------------- | --------------------- | -------------------------------------------------------- |
+| `maxTransportSize`    | 51,200 bytes (50 KiB) | Maximum wire message payload size                        |
+| `saltSize`            | 16 bytes              | Size of random salts for key derivation                  |
+| `sessionIDLength`     | 20 characters         | Total session ID length (10 prefix + 10 suffix)          |
+| `challengeSize`       | 32 bytes              | Size of handshake challenge tokens                       |
+| `maxPadding`          | 256 bytes             | Maximum random padding added to messages                 |
+| `nonceSize`           | 24 bytes              | XChaCha20-Poly1305 nonce size                            |
+| `keySize`             | 32 bytes              | ChaCha20-Poly1305 / HKDF output key size                 |
+| `defaultReadTimeout`  | 5 minutes             | Default TCP/KCP read deadline                            |
+| `defaultWriteTimeout` | 1 minute              | Default TCP/KCP write deadline                           |
+| `defaultDialTimeout`  | 10 seconds            | Default connection establishment timeout                 |
+| `defaultPeerExpiry`   | 7 days                | Default peer identity expiration                         |
+| `lengthPrefixSize`    | 2 bytes               | Size of the big-endian message length header             |
+| `sessionPrefixLength` | 10 characters         | Length of the session ID prefix emitted by the initiator |
+| `sessionSuffixLength` | 10 characters         | Length of the session ID suffix emitted by the responder |
 
 ---
 
 ## 15. Error Conditions
 
-| Error | Condition |
-|-------|-----------|
-| `ErrConnClosed` | Connection has been closed (locally or by peer). |
-| `ErrInvalidSignature` | Signature verification failed on a received message. |
+| Error                   | Condition                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| `ErrConnClosed`         | Connection has been closed (locally or by peer).                                           |
+| `ErrReceiveTimeout`     | Read deadline exceeded (non-fatal; caller may retry).                                      |
+| `ErrInvalidSignature`   | Signature verification failed on a received message.                                       |
 | `ErrVerificationFailed` | Challenge echo did not match the original challenge, or remote verifier rejected the peer. |
-| `ErrMessageTooLarge` | Message exceeds `maxTransportSize` (50 KiB). |
-| `ErrOutOfSync` | Sequence number mismatch (duplicate or missing messages). |
-| `ErrUnexpectedRoute` | Received a route that does not match the expected protocol state. |
-| `ErrInvalidRoute` | Route value is `0` (invalid) or unrecognized. |
-| `ErrPeerExpired` | Peer's identity has exceeded the configured expiry duration. |
-| `ErrSessionExpired` | Session state has expired and can no longer be used. |
-| `ErrPeerRejected` | The remote verifier callback rejected the peer during introduction. |
+| `ErrMessageTooLarge`    | Message exceeds `maxTransportSize` (50 KiB).                                               |
+| `ErrOutOfSync`          | Sequence number mismatch (duplicate or missing messages).                                  |
+| `ErrUnexpectedRoute`    | Received a route that does not match the expected protocol state.                          |
+| `ErrInvalidRoute`       | Route value is `0` (invalid) or unrecognized.                                              |
+| `ErrVersionMismatch`    | Remote peer's application version is incompatible with local version.                      |
+| `ErrPeerExpired`        | Peer's identity has exceeded the configured expiry duration.                               |
+| `ErrSessionExpired`     | Session state has expired and can no longer be used.                                       |
+| `ErrPeerRejected`       | The remote verifier callback rejected the peer during introduction.                        |

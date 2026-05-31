@@ -713,7 +713,7 @@
   </g>
   <g>
     <rect class="st40" x="315" y="395" width="270" height="22" rx="5" ry="5"/>
-    <text class="st67" transform="translate(395.48 410)"><tspan class="st76" x="0" y="0">Introduce</tspan><tspan class="st80" x="44.71" y="0"> </tspan><tspan class="st76" x="48.47" y="0">{</tspan><tspan class="st80" x="51.6" y="0"> </tspan><tspan class="st76" x="55.36" y="0">Name,</tspan><tspan class="st80" x="84.86" y="0"> </tspan><tspan class="st76" x="88.62" y="0">PublicKey</tspan><tspan class="st80" x="133.54" y="0"> </tspan><tspan class="st76" x="137.3" y="0">}</tspan></text>
+    <text class="st67" transform="translate(340.48 410)"><tspan class="st76" x="0" y="0">Introduce</tspan><tspan class="st80" x="44.71" y="0"> </tspan><tspan class="st76" x="48.47" y="0">{</tspan><tspan class="st80" x="51.6" y="0"> </tspan><tspan class="st76" x="55.36" y="0">Name,</tspan><tspan class="st80" x="84.86" y="0"> </tspan><tspan class="st76" x="88.62" y="0">PublicKey,</tspan><tspan class="st80" x="143.38" y="0"> </tspan><tspan class="st76" x="147.14" y="0">AppVersion</tspan><tspan class="st80" x="209.14" y="0"> </tspan><tspan class="st76" x="212.9" y="0">}</tspan></text>
   </g>
   <g>
     <rect class="st94" x="756" y="397" width="95" height="18" rx="4" ry="4"/>
@@ -726,7 +726,7 @@
   </g>
   <g>
     <rect class="st40" x="315" y="439" width="270" height="22" rx="5" ry="5"/>
-    <text class="st67" transform="translate(395.48 454)"><tspan class="st76" x="0" y="0">Introduce</tspan><tspan class="st80" x="44.71" y="0"> </tspan><tspan class="st76" x="48.47" y="0">{</tspan><tspan class="st80" x="51.6" y="0"> </tspan><tspan class="st76" x="55.36" y="0">Name,</tspan><tspan class="st80" x="84.86" y="0"> </tspan><tspan class="st76" x="88.62" y="0">PublicKey</tspan><tspan class="st80" x="133.54" y="0"> </tspan><tspan class="st76" x="137.3" y="0">}</tspan></text>
+    <text class="st67" transform="translate(340.48 454)"><tspan class="st76" x="0" y="0">Introduce</tspan><tspan class="st80" x="44.71" y="0"> </tspan><tspan class="st76" x="48.47" y="0">{</tspan><tspan class="st80" x="51.6" y="0"> </tspan><tspan class="st76" x="55.36" y="0">Name,</tspan><tspan class="st80" x="84.86" y="0"> </tspan><tspan class="st76" x="88.62" y="0">PublicKey,</tspan><tspan class="st80" x="143.38" y="0"> </tspan><tspan class="st76" x="147.14" y="0">AppVersion</tspan><tspan class="st80" x="209.14" y="0"> </tspan><tspan class="st76" x="212.9" y="0">}</tspan></text>
   </g>
   <g>
     <rect class="st94" x="55" y="442" width="85" height="18" rx="4" ry="4"/>
