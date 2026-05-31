@@ -2,53 +2,23 @@ package handlers
 
 import (
 	"context"
-	"fmt"
+	"encoding/base64"
 	"log/slog"
 	"net/http"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
-	"github.com/hossein1376/grape"
-	"github.com/hossein1376/grape/errs"
 	"github.com/hossein1376/grape/slogger"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/model"
-	"github.com/kamune-org/kamune/cmd/relay/internal/services"
+	"github.com/kamune-org/kamune/pkg/exchange"
+	"github.com/kamune-org/kamune/pkg/relayconn/pb"
+	"google.golang.org/protobuf/proto"
 )
 
-// WebSocketHandler upgrades an HTTP request to a WebSocket connection and
-// registers the peer in the hub for real-time bidirectional message relay.
-//
-// The client must provide its public key as a query parameter (?key=<base64>).
-// Once connected, the server enters a read loop that processes incoming JSON
-// messages via Service.HandleWSMessage.
-//
-// Supported inbound message types:
-//
-//   - "message": relay a message to another peer (fields: receiver, session_id, data)
-//   - "ping":    keepalive; the server responds with {"type":"pong"}
-//
-// The server may push the following message types to the client at any time:
-//
-//   - "message":        an incoming message from another peer
-//   - "message_ack":    confirmation that a relayed message was delivered
-//   - "message_queued": the relayed message could not be delivered and was queued
-//   - "pong":           response to a "ping"
-//   - "error":          something went wrong processing a client message
 func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	q := r.URL.Query()
-	// --- Authenticate: extract & parse the peer's public key ----------------
-	pk, err := model.ParsePublicKey(q.Get("key"))
-	if err != nil {
-		err = fmt.Errorf("parse public key: %w", err)
-		grape.ExtractFromErr(ctx, w, errs.BadRequest(errs.WithErrMsg(err)))
-		return
-	}
 
-	// --- Upgrade to WebSocket -----------------------------------------------
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Allow any origin so CLI / native clients can connect without CORS.
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
@@ -56,28 +26,59 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply the same per-message size limit as the REST queue endpoints.
 	if maxSize := h.service.MaxMessageSize(); maxSize > 0 {
 		conn.SetReadLimit(int64(maxSize))
 	}
 
-	// --- Register in the hub ------------------------------------------------
+	adapter := &wsAdapter{conn: conn, ctx: ctx}
+	ch, err := exchange.Accept(adapter)
+	if err != nil {
+		conn.Close(websocket.StatusNormalClosure, "exchange failed")
+		slog.Error("ws: hpke accept failed", slogger.Err("err", err))
+		return
+	}
+
+	identityBytes, err := ch.ReadBytes()
+	if err != nil {
+		ch.Close()
+		return
+	}
+	var identityFrame pb.Frame
+	if err := proto.Unmarshal(identityBytes, &identityFrame); err != nil {
+		ch.Close()
+		return
+	}
+	peerKey := identityFrame.GetIdentity().GetKey()
+	if len(peerKey) == 0 {
+		ch.Close()
+		return
+	}
+
+	pk := model.PublicKey(base64.RawURLEncoding.EncodeToString(peerKey))
+
+	relayFrame := &pb.Frame{
+		Kind: &pb.Frame_Identity{
+			Identity: &pb.Identity{Key: h.service.PublicKeyRaw()},
+		},
+	}
+	relayBytes, _ := proto.Marshal(relayFrame)
+	if err := ch.WriteBytes(relayBytes); err != nil {
+		ch.Close()
+		return
+	}
+
 	hub := h.service.Hub()
 	if hub == nil {
-		_ = conn.Close(websocket.StatusInternalError, "websocket hub unavailable")
+		_ = ch.Close()
 		return
 	}
 
 	connCtx, cancel := context.WithCancel(ctx)
-	hub.Register(pk, conn, cancel)
+	hub.Register(pk, ch, cancel)
 
-	// Track metrics.
 	if m := h.service.Metrics(); m != nil {
 		m.IncWSConnections()
 	}
-
-	// Send a welcome message so the client knows the handshake succeeded.
-	_ = wsjson.Write(connCtx, conn, services.WSMessage{Type: "connected"})
 
 	slog.Info(
 		"ws: peer connected",
@@ -85,12 +86,11 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		slog.String("remote", clientIP(r)),
 	)
 
-	// --- Read pump (blocks until disconnect) --------------------------------
-	hub.ReadPump(connCtx, pk, conn, func(msgCtx context.Context, msg services.WSMessage) error {
+	hub.ReadPump(connCtx, pk, ch, func(msgCtx context.Context, msg *pb.Message) error {
 		if m := h.service.Metrics(); m != nil {
 			m.IncWSMessagesIn()
 		}
-		err := h.service.HandleWSMessage(msgCtx, pk, conn, msg)
+		err := h.service.HandleWSRelay(msgCtx, pk, msg)
 		if err == nil {
 			if m := h.service.Metrics(); m != nil {
 				m.IncWSMessagesOut()
@@ -99,7 +99,6 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 
-	// --- Cleanup after disconnect -------------------------------------------
 	hub.Unregister(pk)
 	if m := h.service.Metrics(); m != nil {
 		m.DecWSConnections()

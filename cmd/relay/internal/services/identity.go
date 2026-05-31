@@ -29,6 +29,11 @@ func (s *Service) PublicKey() string {
 	return s.attest.EncodePublicKey()
 }
 
+// PublicKeyRaw returns the relay's public key as raw bytes.
+func (s *Service) PublicKeyRaw() []byte {
+	return s.attest.MarshalPublicKey()
+}
+
 // Identity returns the relay's public key encoded in the requested format.
 // Supported formats:
 //   - "base64" (default): base64 raw-URL encoding of the raw public key bytes
