@@ -2,11 +2,17 @@ package exchange
 
 import (
 	"crypto/hpke"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"time"
 )
 
+// HPKE ciphersuite components used for key establishment.
+// MLKEM768-X25519 provides hybrid post-quantum + classical security.
+// HKDF-SHA512 is the KDF and ChaCha20Poly1305 is the AEAD (used only
+// within the HPKE key schedule; actual transport encryption uses the
+// exported keys with XChaCha20-Poly1305 via enigma).
 var (
 	hpkeKEM  = hpke.MLKEM768X25519
 	hpkeKDF  = hpke.HKDFSHA512
@@ -85,18 +91,28 @@ func Initiate(c ReadWriter) (*Channel, error) {
 	if err := c.WriteBytes(privateKey.PublicKey().Bytes()); err != nil {
 		return nil, fmt.Errorf("writing hpke public key: %w", err)
 	}
-	remoteEnc, err := c.ReadBytes()
+
+	merged, err := c.ReadBytes()
 	if err != nil {
-		return nil, fmt.Errorf("reading remote ciphertext: %w", err)
+		return nil, fmt.Errorf("reading merged message: %w", err)
 	}
+	if len(merged) < 2 {
+		return nil, fmt.Errorf("truncated exchange: %d bytes", len(merged))
+	}
+	encLen := binary.BigEndian.Uint16(merged[:2])
+	if int(encLen) > len(merged)-2 {
+		return nil, fmt.Errorf(
+			"truncated ciphertext: declared %d, total %d",
+			encLen,
+			len(merged),
+		)
+	}
+	remoteEnc := merged[2 : 2+encLen]
+	remotePublicBytes := merged[2+encLen:]
+
 	recipient, err := hpke.NewRecipient(remoteEnc, privateKey, kdf, aead, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating recipient: %w", err)
-	}
-
-	remotePublicBytes, err := c.ReadBytes()
-	if err != nil {
-		return nil, fmt.Errorf("reading remote public key: %w", err)
 	}
 	remotePublic, err := kem.NewPublicKey(remotePublicBytes)
 	if err != nil {
@@ -130,17 +146,21 @@ func Accept(c ReadWriter) (*Channel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating sender: %w", err)
 	}
-	if err := c.WriteBytes(enc); err != nil {
-		return nil, fmt.Errorf("writing ciphertext: %w", err)
-	}
 
 	privateKey, err := kem.GenerateKey()
 	if err != nil {
 		return nil, fmt.Errorf("generating kem key: %w", err)
 	}
-	if err := c.WriteBytes(privateKey.PublicKey().Bytes()); err != nil {
-		return nil, fmt.Errorf("writing hpke public key: %w", err)
+	pubB := privateKey.PublicKey().Bytes()
+
+	merged := make([]byte, 2+len(enc)+len(pubB))
+	binary.BigEndian.PutUint16(merged, uint16(len(enc)))
+	copy(merged[2:], enc)
+	copy(merged[2+len(enc):], pubB)
+	if err := c.WriteBytes(merged); err != nil {
+		return nil, fmt.Errorf("writing merged exchange message: %w", err)
 	}
+
 	remoteEnc, err := c.ReadBytes()
 	if err != nil {
 		return nil, fmt.Errorf("reading remote ciphertext: %w", err)

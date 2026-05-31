@@ -225,10 +225,8 @@ Initiator (Client)             Responder (Server)
        |  ------ RawBytes ------>   |
        |      HPKE Public Key       |
        |                            |
-       |  <----- RawBytes -------   |
+       |  <------ RawBytes -------  |
        |      Ciphertext (enc)      |
-       |                            |
-       |  <----- RawBytes --------  |
        |      HPKE Public Key       |
        |                            |
        |  ------ RawBytes ------>   |
@@ -240,16 +238,18 @@ Initiator (Client)             Responder (Server)
 
 1. Generate an ephemeral HPKE key pair using the MLKEM768-X25519 KEM and send
    the public key to the responder.
-2. Receive the responder's encapsulated ciphertext (`enc`) and create an HPKE
-   `Recipient` context using the private key.
-3. Receive the responder's HPKE public key and create an HPKE `Sender` context.
-4. Generate and send the encapsulated ciphertext (`enc`) to the responder.
+2. Receive the merged message (ciphertext `enc` prefixed with its 2-byte length
+   followed by the responder's public key), create an HPKE `Recipient` context
+   using the private key, and create an HPKE `Sender` context from the
+   responder's public key.
+3. Generate and send the encapsulated ciphertext (`enc`) to the responder.
 
 **Step-by-step (Responder):**
 
 1. Receive the initiator's public key, create an HPKE `Sender` context, and
-   send the encapsulated ciphertext (`enc`) back.
-2. Generate an ephemeral HPKE key pair and send the public key to the initiator.
+   generate an ephemeral HPKE key pair.
+2. Send the encapsulated ciphertext (`enc`) and public key as a single merged
+   message (2-byte length prefix + ciphertext + public key).
 3. Receive the initiator's encapsulated ciphertext (`enc`) and create an HPKE
    `Recipient` context.
 
@@ -295,10 +295,16 @@ Initiator (Client)                          Responder (Server)
    - Parses the `PublicKey` using the appropriate algorithm's key parser.
    - Verifies the `Signature` over `Data` using the parsed public key.
    - If signature verification fails, the connection MUST be terminated.
-   - Checks `AppVersion` against its own version using semver comparison:
-     major versions must match; pre-1.0 (major=0) additionally requires
-     matching minor. On mismatch, the connection is rejected with
-     `ErrVersionMismatch`.
+   - Checks `AppVersion` against its own version using semver comparison.
+     Version matching follows a three-tier policy:
+
+     | Condition                        | Action                                                                                                                                                                                                            |
+     | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+     | Major differs                    | **Hard reject** — connection terminated with `ErrVersionMismatch`. Different major versions imply incompatible protocol semantics.                                                                                |
+     | Minor differs (pre-1.0, major=0) | **Hard reject** — treated as a breaking change before v1.0. Connection terminated with `ErrVersionMismatch`.                                                                                                      |
+     | Minor differs (major ≥ 1)        | **Warning** — the connection proceeds, but a structured warning is logged via `slog.Warn`. Client applications SHOULD surface this warning to the user, as the remote peer may have a newer or older feature set. |
+     | Only patch differs               | **Silent ignore** — patch versions are always compatible and the difference is not checked.                                                                                                                       |
+
    - The responder's **Remote Verifier** is invoked — this is a pluggable
      callback that decides whether to accept or reject the peer. The default
      implementation displays the peer's emoji and hex fingerprints and prompts
