@@ -1,158 +1,63 @@
 ## v0.3.0
 
-### Improvements
+### Core Library
 
-- Refactor new `storage` package for cleaner API.
-- Improve formatting and address lint issues.
-- Add and enhance tests.
-- Define better constants.
-- Include handshake timeout.
-- Write more storage query functions.
-- Add message sequence numbering.
-- Use `HKDF-SHA512` instead of `HKDF-SHA256` for key derivation.
-- Move `store` package to the internal directory, only exposing the `storage`
-  to the clients.
-- Reformat and split `daemon` package.
-- Update dependencies.
-- Fixed various typos and spelling errors.
-- Improve naming and projects' structure.
-- Enhanced error messages to be more descriptive.
-
-### Specs
-
-- Added `SPEC.md` file for a concrete protocol definition.
-- Added SVGs illustrations to visual the flow and design.
-
-### HPKE (Hybrid Public Key Encryption)
-
-- Restore `MLKEM` usage in the handshake step.
-- Implemented HPKE to provide encryption in the introduction and handshake phases.
-- Introduced a new step, `Exchange`, to be called immediately at start.
-- Created `encryptedConn` abstraction to conveniently use HPKE. 
-
-### Bus
-
-- Split the `widgets.go` into smaller, more focused files.
-- Improve design and aesthetics of the application.
-- Introduced history tab.
+- Custom transport seam (`Listener`, `DialWithFunc`, `DialWithTCP`, `DialWithUDP`).
+- Remove `Transport.Store()`; inject `*storage.Storage` into `NewServer`/`NewDialer`.
+- `ErrReceiveTimeout` sentinel — receive loops retry on timeout instead of closing.
+- App version check during introduction phase (`ErrVersionMismatch`).
+- HPKE encryption in introduction and handshake.
+- Add `Channel` type in `pkg/exchange`; `encryptedConn` abstraction.
+- Move `store` to `internal/`, expose only `pkg/storage`.
+- Refactor storage API; add query functions.
+- `fingerprint.Sum` (SHA-256); migrate from `golang.org/x/crypto/sha3` to stdlib `crypto/sha3`.
+- Protect `Conn` with mutex; simplify `Option` type; improve dial/serve/resume error messages.
+- `KAMUNE_DB_PASSPHRASE` and `KAMUNE_DB_PATH` env vars; `getDefaultDBDir()`.
+- Remove dead code (`connType`, `ML-DSA`, incomplete Session/Double Ratchet).
+- Fix db handle leak on cipher error; fix ECDH private key marshalling.
+- Improve error messages and update dependencies.
 
 ### Relay
 
-- Impalement all of initially planned features.
-- First release.
+- First release with all planned features.
+- Extract shared `pkg/relayconn` for reuse across clients.
+- Fix WebSocket handler identity, hub management, and key encoding.
 
-### Cleanup
+### Bus
 
-- Perform code and feature cleanup, aiming to increase the code quality and
-  maintainability.
-- Fixed various typos and spelling errors.
-- Removed `ML-DSA`, in favor of `ED25519`.
-- Removed incomplete `Session`, `Session Manager`, and `Session Resumption`
-  implementations.
-- Removed `Double Ratchet`, as it was not correctly implemented.
+- Fyne → Wails + Svelte rewrite.
+- Add relay transport UI and inline DB editing.
+- Fix race conditions, duplicate Wails events, and 3 keyboard shortcut bugs.
+- Receive loops retry on read timeout.
+- Cross-platform build script with ldflags version injection.
+- Add history tab; improve design and aesthetics.
 
-## v0.2.0
+### TUI
 
-### Session Resumption & Routing
-
-- **Session Resumption:** Implement full client/server session resumption flow
-  (`resume.go`) so that peers can reconnect and restore an existing session
-  without repeating the handshake. Session state is persisted and restored
-  automatically.
-
-- **Router & Route Dispatching:** Introduce `Router` and `RouteDispatcher` with
-  middleware support (`router.go`). Add a `Route` enum and thread route
-  constants through `Transport.Send` and serialization for structured message
-  routing.
-- **Session Manager:** Add persistent `SessionManager` (`session.go`) with
-  handshake tracking, session save/load, `ListSessions`, and `CreatedAt`
-  preservation.
-
-### Desktop GUI (Bus)
-
-- **Fyne-based Chat GUI:** Add a cross-platform desktop client under `bus/`
-  built with Fyne, including chat UI, custom widgets, peer verification dialog,
-  and encrypted history viewer.
-- **Session List & In-App Logs:** Display active sessions and live application
-  logs inside the GUI.
-- **App Icons:** Ship platform-specific app icons for macOS, Windows, and Linux.
-- **Unified DB Path:** GUI and CLI now share a single default database path
-  (`~/.config/kamune/db`), overridable via `KAMUNE_DB_PATH`.
-- **File Logger:** Concurrent file logger (`bus/logger`) with `Init`, `Close`,
-  `Info`/`Warn`/`Error`/`Errorf` helpers, plus tests and benchmarks.
+- Move to `cmd/tui/`.
+- Relay-dial and relay-serve commands.
+- Receive loops retry on read timeout.
 
 ### Daemon
 
-- **JSON-over-stdio Daemon:** Add `cmd/daemon` — a headless wrapper that
-  exposes Kamune operations over JSON-over-stdio IPC, with its own README and
-  tests.
+- Split into smaller files; adapt to new core API.
+- Storage caching; receive loop retries on timeout.
 
-### Relay Improvements
+### Documentation & Project Structure
 
-- **Refactored Relay:** Switch `attest.Identity` → `attest.Algorithm` across
-  the relay API and models. Improve client IP extraction and rate-limit error
-  responses.
-- **Queue Operations:** Extend relay storage API with queue ops
-  (`storage/queue.go`, `services/queue.go`) and a new queue HTTP handler, with
-  tests.
-- **Centralized Parsing:** Add `handlers/parse.go` to share base64 and
-  public-key parsing logic; remove duplicate code from handlers.
-
-### Storage
-
-- **`DeleteBatch`:** Remove multiple keys from a bucket in a single
-  transaction; missing buckets produce `ErrMissingBucket`, non-existent keys
-  are silently skipped.
-- **Bucket Listing Helpers:** Add `ListBuckets` and `ListKeys` queries to
-  `pkg/store`.
-- **`PubKeySessionIndex`:** New protobuf model and storage index mapping public
-  keys to session IDs.
-- **Peer `LastSeen`:** Track and persist the last-seen timestamp on every
-  `Peer`, with full test coverage.
-
-### Cryptography & Fingerprinting
-
-- **SHA-256 Fingerprint:** Add `fingerprint.Sum` (SHA-256) alongside the
-  existing emoji/hex helpers.
-- **stdlib `crypto/sha3`:** Replace `golang.org/x/crypto/sha3` with the Go
-  standard library `crypto/sha3` package.
-
-### Connection & Transport
-
-- **Conn Mutex:** Protect `Conn` fields with a mutex for safe concurrent use;
-  simplify `Option` type by removing its error return.
-- **Improved Dial/Serve/Resume:** Better error messages, cleaner control flow,
-  and style improvements across `dial.go`, `server.go`, and `resume.go`.
-
-### Configuration & Environment
-
-- **Environment Variables:** `KAMUNE_DB_PASSPHRASE` and `KAMUNE_DB_PATH` are
-  now preferred over interactive prompts and hard-coded paths.
-- **Default DB Directory:** `getDefaultDBDir()` resolves
-  `KAMUNE_DB_PATH` → `~/.config/kamune/db` → `./db`.
+- Add AGENTS.md with project conventions.
+- Add SPEC.md with protocol definition and SVG flow illustrations.
 
 ### Testing & Quality
 
-- **Testify Adoption:** Replace manual `t.Error`/`t.Fatalf` checks with
-  `testify/assert` and `testify/require` across the entire test suite.
-- **Comprehensive Storage Tests:** Add tests covering peer timestamps, session
-  index persistence, expiry/cleanup, batch deletes, session update/info, and
-  resume checks.
-- **Per-Goroutine Done Channels:** Replace shared signal channels with
-  individual done channels in concurrent tests; capture and assert goroutine
-  errors after joining.
-- **New Fingerprint Tests:** Expand fingerprint coverage including `Hex`
-  empty-input edge case.
+- Comprehensive storage tests (timestamps, session index, expiry, batch deletes).
 
 ### Miscellaneous
 
-- **Protobuf Regeneration:** Regenerate Go protobuf bindings (protoc v6.33.4);
-  add `Route` field to `SignedTransport`, update `box.proto` and `model.proto`.
-- **Logo & Assets:** Add `assets/logo.png`; move `demo.gif` from `.assets/` to
-  `assets/`.
-- **ECDH Private Key Marshal:** Fix ECDH private key marshalling in
-  `pkg/exchange`.
-- **README Updates:** Refresh feature checklist and fix demo image path.
+- Regenerate protobuf bindings (protoc v6.33.4)
+- Add `Route` field to `SignedTransport`.
+- Add `assets/logo.png`.
+- Update README.
 
 ---
 
@@ -166,50 +71,54 @@ protocol designed for minimal latency and overhead.
 ### Features & Technical Highlights
 
 **Security & Cryptography**
-- **Hybrid Cipher Suite:**  
-  - Ed25519 for digital signatures and identity verification  
-  - ML-KEM-768 for quantum-resistant key encapsulation (PQ KEM)  
-  - HKDF-SHA512 for session key derivation  
-  - ChaCha20-Poly1305X for authenticated symmetric encryption  
-  - Optional ML-DSA for post-quantum digital signatures  
-- **Forward Secrecy:**  
+
+- **Hybrid Cipher Suite:**
+  - Ed25519 for digital signatures and identity verification
+  - ML-KEM-768 for quantum-resistant key encapsulation (PQ KEM)
+  - HKDF-SHA512 for session key derivation
+  - ChaCha20-Poly1305X for authenticated symmetric encryption
+  - Optional ML-DSA for post-quantum digital signatures
+- **Forward Secrecy:**
   - ECDH key exchange ensures session keys are ephemeral. Past communications
     remain secure even if long-term keys are compromised.
-- **Ephemeral Keys:**  
+- **Ephemeral Keys:**
   - Each session uses one-time-use keys for handshake and encryption,
     minimizing exposure.
 
 **Protocol Flow**
-- **Introduction Phase:**  
+
+- **Introduction Phase:**
   - Clients and servers exchange public keys and verify identities using
     digital signatures and fingerprinting (emoji/hex).
-- **Handshake Phase:**  
+- **Handshake Phase:**
   - Ephemeral ML-KEM keys are exchanged, and both sides derive a shared secret.
   - Session IDs are constructed from random prefixes/suffixes.
   - Mutual challenge-response ensures both parties possess the correct keys.
-- **Communication Phase:**  
+- **Communication Phase:**
   - Messages are signed, encrypted, and transmitted with metadata (timestamp,
     sequence number).
   - Integrity checks and replay protection are enforced.
   - Transport supports chunked reads/writes and message size limits.
 
 **Transport & Networking**
-- **TCP and UDP Support:**  
-  - Custom protocol implemented over both TCP and UDP sockets  
-  - Direct peer-to-peer connections; no central server required  
-  - Relay server available for IP discovery and NAT traversal (experimental)  
-- **Timeouts & Deadlines:**  
+
+- **TCP and UDP Support:**
+  - Custom protocol implemented over both TCP and UDP sockets
+  - Direct peer-to-peer connections; no central server required
+  - Relay server available for IP discovery and NAT traversal (experimental)
+- **Timeouts & Deadlines:**
   - Configurable read/write timeouts for robust connection management
 
 **Messaging & Storage**
-- **Protobuf Encoding:**  
-  - Efficient binary serialization for all protocol messages  
-- **Chat History:**  
+
+- **Protobuf Encoding:**
+  - Efficient binary serialization for all protocol messages
+- **Chat History:**
   - Encrypted chat history is stored per session, with support for retrieval
-    and replay  
+    and replay
   - Storage uses per-session buckets and random key suffixes to avoid
-    collisions  
-- **Peer Management:**  
+    collisions
+- **Peer Management:**
   - Peer identities are stored with expiration; expired peers are
-    automatically purged  
+    automatically purged
   - Peer verification prompts with fingerprint display

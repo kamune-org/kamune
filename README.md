@@ -2,15 +2,13 @@
 
 Communication over untrusted networks.
 
-Kamune provides `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X` security suite.
+Kamune provides `Ed25519_MLKEM768_ChaCha20-Poly1305X` security suite.
 
 ![demo](assets/demo.gif)
 
 > [!NOTE]
 > This is an experimental project. All suggestions and feedback are welcome and
 > greatly appreciated.
-
-For a comprehensive technical specification, see [SPEC.md](SPEC.md).
 
 ## Features
 
@@ -23,102 +21,43 @@ For a comprehensive technical specification, see [SPEC.md](SPEC.md).
 - Lightweight, custom protocol implemented in both **TCP and UDP** for minimal
   overhead and latency
 - **Real-time, instant messaging** over socket-based connection
-- **Direct peer-to-peer communication**, no intermediary server required
+- **Direct peer-to-peer communication**, with optional relay fallback
 - **Protobuf** for fast, compact binary message encoding
 
 ## Modules
 
-| Directory | Purpose |
-|-----------|---------|
-| `.` (root) | Core library (protocol, transport, crypto) |
-| `cmd/relay/` | Relay server for peer discovery & message relay |
-| `cmd/daemon/` | JSON-over-stdio daemon for external apps |
-| `cmd/tui/` | Terminal chat client (example) |
-| `cmd/bus/` | Desktop GUI chat client |
+| Directory     | Purpose                | Description                                                                                   |
+| ------------- | ---------------------- | --------------------------------------------------------------------------------------------- |
+| `.` (root)    | Core library           | Protocol, transport, cipher suite, session management, router, and storage abstraction        |
+| `cmd/relay/`  | Relay server           | HTTP/WebSocket relay for peer discovery, IP exchange, and message queuing; backed by BadgerDB |
+| `cmd/daemon/` | JSON-over-stdio daemon | Headless IPC wrapper for integrating kamune into external applications                        |
+| `cmd/tui/`    | Terminal chat client   | Bubble Tea TUI example demonstrating direct and relay-based connections                       |
+| `cmd/bus/`    | Desktop GUI client     | Wails + Svelte desktop app with relay transport UI, session management, and encrypted history |
 
 ## Roadmap
 
-The following is a list of features that are currently planned or have been
-conceived of. It is by no means exhaustive, and does not imply a commitment to
-fully implement any or all of them. It will be updated as the project progresses.
-
-Items marked with `*` are subject to edits, changes, and even partial or total
-removal.
-
-- [x] Settle on the cipher suite
-- [x] Write the core functionality
-- [x] Implement a minimal TUI
-- [x] Stabilize the package API
-- [x] Bind ciphers to session-specific info
-- [x] Network protocols support
-  - [x] TCP
-  - [x] UDP
-  - [ ] QUIC, WebRTC, or others? *
-- [x] Better timeout and deadline management
-- [x] Routes and session reconnection
-- [x] Relay server
-  - [x] IP discovery
-  - [x] Message conveying
-  - [x] Queue persistence
-- [x] Handling remotes, connection retries, and session management
-  - [x] QR code generation
-  - [x] Peer name
-  - [x] Remote's public key expiration
-  - [ ] Key rotation
-- [x] Saving and restoring chat history
-- [x] Daemon server
-- [ ] Provide NAT traversal and/or hole punching strategies
-- [ ] Messaging Layer Security (MLS) and group chats *
-- [ ] Replace Protobuf with a custom encoding\decoding protocol *
+- [ ] Application-level ping/pong keep-alive
+- [ ] Chunked reads/writes for large messages
+- [ ] NAT traversal / hole punching
+- [ ] Custom encoding protocol (replace Protobuf)
+- [ ] Key rotation
+- [ ] OS keychain integration (replace env var passphrase)
+- [ ] QUIC, WebRTC, or other transport protocols
+- [ ] Messaging Layer Security (MLS) / group chats
 
 ## How does it work?
 
-There are three stages. In the following terminology, server is the party who is
-accepting connections, and the client is the party who is trying to establish a
-connection to the server.
+Communication happens in three phases:
 
-> For a comprehensive technical specification, see [SPEC.md](SPEC.md).
+1. **Exchange** — Parties agree on an HPKE shared secret to encrypt the handshake.
+2. **Handshake** — Ephemeral ML-KEM-768 key exchange, session ID derivation, and mutual challenge-response verification.
+3. **Communication** — Signed, encrypted, and sequenced message frames with replay protection.
+
+For a comprehensive technical specification, see [SPEC.md](SPEC.md).
 
 <picture>
   <img alt="Cipher Suite Architecture" src="assets/diagrams/cipher-suite.svg">
 </picture>
-
-## Exchange
-
-Both parties exchange HPKE public keys and agree on a shared secret, which will
-be used to encrypt the following handshake steps. Afterwards, separate ciphers
-will be used for encryption of user messages.
-
-### Introduction
-
-Client sends its public key (think of it like an ID card) to the server and
-server, in return, responds with its own public key (ID card). If both parties
-**verify** the other one's identity, handshake process gets started.
-
-### Handshake
-
-Client creates a new, **ephemeral** (one-time use) keypair using the 
-post-quantum **MLKEM768** KEM. The public key, alongside a randomly generated
-salt and ID prefix, are sent to the server.
-
-Server parses the received public key and performs KEM encapsulation and derives
-the full secret key internally. The encapsulated key (`enc` or `ciphertext`), a
-newly generated ID suffix, and salt are sent back to the client.
-
-Client receives the encapsulated key and decapsulates the key and derives the 
-same shared secret. Both sides then create bidirectional symmetric encryption
-ciphers for the transport layer — one key for client-to-server and one for 
-server-to-client.
-
-To make sure everyone is on the same page, each party performs a **challenge**
-to verify that the other party can decipher our messages, and if we can
-decipher their messages as well.  
-A challenge token is derived from the shared secret and the agreed upon session
-ID (which was created by concatenating the ID prefix and suffix). It is 
-encrypted and sent to the other party. They should decrypt the message, encrypt 
-it again with their own encryption cipher, and send it back.  
-If each side receives and successfully verifies their token, the handshake is
-deemed successful!
 
 <details>
 <summary>Handshake flow diagram</summary>
@@ -127,18 +66,3 @@ deemed successful!
   <img alt="Handshake Flow" src="assets/diagrams/handshake-flow.svg">
 </picture>
 </details>
-
-### Communication
-
-Imagine a post office. When a cargo is accepted, A unique signature is generated
-based on its content and the sender's identity. Everyone can verify the
-signature, but only the sender can issue a new one.  
-The cargo, the signature, and some other info such as timestamp and a number
-(sequence) are placed inside a box. Then, the box will be locked and sealed.
-Shipment will be done via a custom gateway specifically designed for this, and
-it will deliver the package straight to the recipient.
-
-At destination, the parcel will be checked for any kind of temperaments or
-changes. Using pre-established keys from the handshake phase, smallest
-modifications will be detected and the package is rejected. If all checks pass
-successfully, the cargo will be delivered and opened.
