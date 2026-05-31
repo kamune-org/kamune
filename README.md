@@ -37,13 +37,18 @@ Kamune provides `Ed25519_MLKEM768_ChaCha20-Poly1305X` security suite.
 ## Roadmap
 
 - [ ] Application-level ping/pong keep-alive
+- [ ] Session resumption — reconnect without full re-handshake
+- [ ] Relay identity verification — client authenticates the relay server
+- [ ] Client-side minor version warning — surface the core warning to users in clients
 - [ ] Chunked reads/writes for large messages
 - [ ] NAT traversal / hole punching
+- [ ] In-house WebSocket implementation for relay and core
 - [ ] Custom encoding protocol (replace Protobuf)
 - [ ] Key rotation
 - [ ] OS keychain integration (replace env var passphrase)
 - [ ] QUIC, WebRTC, or other transport protocols
 - [ ] Messaging Layer Security (MLS) / group chats
+- [ ] Android/iOS native applications
 
 ## How does it work?
 
