@@ -70,6 +70,24 @@
     await loadSessions()
     await loadHistory()
 
+    // Clear stale handlers first (Wails EventsOn adds without dedup —
+    // if onMount runs twice, handlers accumulate and events fire 2×)
+    EventsOff('status-changed')
+    EventsOff('session-new')
+    EventsOff('session-closed')
+    EventsOff('session-updated')
+    EventsOff('history-updated')
+    EventsOff('session-messages')
+    EventsOff('message-sent')
+    EventsOff('message-received')
+    EventsOff('verify-peer')
+    EventsOff('log-entry')
+    EventsOff('notification')
+    EventsOff('storage-ready')
+    EventsOff('request-passphrase')
+    EventsOff('verification-mode-changed')
+    EventsOff('fingerprint-changed')
+
     EventsOn('status-changed', (data) => status.set(data))
     EventsOn('session-new', async (data) => {
       await loadSessions()
