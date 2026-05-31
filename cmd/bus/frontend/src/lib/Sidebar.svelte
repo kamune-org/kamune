@@ -146,6 +146,8 @@
                   <span class="meta-msgs">{session.msgCount} msgs</span>
                   <span class="meta-dot">·</span>
                   <span class="meta-time">{timeAgo(session.lastActivity)}</span>
+                  <span class="meta-dot">·</span>
+                  <span class="transport-badge" class:transport-relay={session.transportType === 'relay'} class:transport-udp={session.transportType === 'udp'}>{session.transportType}</span>
                 </div>
               </div>
               <div class="session-actions">
@@ -490,6 +492,24 @@
   }
   .meta-time {
     color: var(--text-timestamp);
+  }
+  .transport-badge {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--accent-primary);
+  }
+  .transport-badge.transport-relay {
+    background: rgba(139, 92, 246, 0.1);
+    color: var(--accent-secondary);
+  }
+  .transport-badge.transport-udp {
+    background: rgba(34, 211, 238, 0.1);
+    color: #22d3ee;
   }
 
   .session-actions {

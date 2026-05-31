@@ -46,11 +46,12 @@ const (
 )
 
 type SessionInfo struct {
-	ID           string    `json:"id"`
-	PeerName     string    `json:"peerName"`
-	IsServer     bool      `json:"isServer"`
-	MsgCount     int       `json:"msgCount"`
-	LastActivity time.Time `json:"lastActivity"`
+	ID            string    `json:"id"`
+	PeerName      string    `json:"peerName"`
+	IsServer      bool      `json:"isServer"`
+	MsgCount      int       `json:"msgCount"`
+	LastActivity  time.Time `json:"lastActivity"`
+	TransportType string    `json:"transportType"`
 }
 
 type HistorySessionInfo struct {
@@ -80,13 +81,14 @@ type LogEntryInfo struct {
 }
 
 type liveSession struct {
-	ID           string
-	PeerName     string
-	Transport    *kamune.Transport
-	Messages     []MessageInfo
-	LastActivity time.Time
-	ReceiveDone  chan struct{}
-	IsServer     bool
+	ID            string
+	PeerName      string
+	Transport     *kamune.Transport
+	Messages      []MessageInfo
+	LastActivity  time.Time
+	ReceiveDone   chan struct{}
+	IsServer      bool
+	TransportType string
 }
 
 type historySession struct {
@@ -108,10 +110,11 @@ type App struct {
 	ctx     context.Context
 	mu      sync.RWMutex
 
-	sessions     []*liveSession
-	histSessions []*historySession
-	server       *kamune.Server
-	serverDone   chan struct{}
+	sessions           []*liveSession
+	histSessions       []*historySession
+	server             *kamune.Server
+	serverDone         chan struct{}
+	serverTransportType string
 
 	dbPath      string
 	db          *storage.Storage
@@ -119,7 +122,7 @@ type App struct {
 	passphrase  atomic.Value // stores []byte
 	storageReady bool
 	emojiFP     string
-	hexFP       string
+	b64FP       string
 	verifMode   VerificationMode
 	appVersion  string
 
@@ -303,7 +306,7 @@ func (a *App) initFromStorage() {
 		a.addLogEntry("DEBUG", "No existing storage to load from")
 		a.mu.Lock()
 		a.emojiFP = ""
-		a.hexFP = ""
+		a.b64FP = ""
 		a.storageReady = true
 		a.mu.Unlock()
 		runtime.EventsEmit(a.ctx, "storage-ready")
@@ -320,21 +323,21 @@ func (a *App) initFromStorage() {
 	pubKey, err := store.PublicKey()
 	if err == nil {
 		emoji := strings.Join(fingerprint.Emoji(pubKey), " • ")
-		hex := fingerprint.Hex(pubKey)
+		b64 := fingerprint.Base64(pubKey)
 
 		a.mu.Lock()
 		a.emojiFP = emoji
-		a.hexFP = hex
+		a.b64FP = b64
 		a.storageReady = true
 		a.mu.Unlock()
 
 		runtime.EventsEmit(a.ctx, "storage-ready")
-		runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, hex)
+		runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64)
 		a.addLogEntry("INFO", "Loaded fingerprint from existing identity")
 	} else {
 		a.mu.Lock()
 		a.emojiFP = ""
-		a.hexFP = ""
+		a.b64FP = ""
 		a.storageReady = true
 		a.mu.Unlock()
 		runtime.EventsEmit(a.ctx, "storage-ready")
@@ -383,7 +386,7 @@ func (a *App) GetStatus() StatusInfo {
 func (a *App) GetFingerprint() map[string]string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return map[string]string{"emoji": a.emojiFP, "hex": a.hexFP}
+	return map[string]string{"emoji": a.emojiFP, "b64": a.b64FP}
 }
 
 func (a *App) GetDBPath() string {
@@ -397,7 +400,7 @@ func (a *App) SetDBPath(path string) {
 	a.dbPath = path
 	a.passphrase.Store([]byte(nil))
 	a.emojiFP = ""
-	a.hexFP = ""
+	a.b64FP = ""
 	a.storageReady = false
 	a.mu.Unlock()
 
@@ -499,11 +502,12 @@ func (a *App) GetSessions() []SessionInfo {
 	result := make([]SessionInfo, 0, len(a.sessions))
 	for _, s := range a.sessions {
 		result = append(result, SessionInfo{
-			ID:           s.ID,
-			PeerName:     s.PeerName,
-			IsServer:     s.IsServer,
-			MsgCount:     len(s.Messages),
-			LastActivity: s.LastActivity,
+			ID:            s.ID,
+			PeerName:      s.PeerName,
+			IsServer:      s.IsServer,
+			MsgCount:      len(s.Messages),
+			LastActivity:  s.LastActivity,
+			TransportType: s.TransportType,
 		})
 	}
 	return result
@@ -704,18 +708,19 @@ func (a *App) GetSessionInfo(sessionID string) map[string]interface{} {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	for _, s := range a.sessions {
-		if s.ID == sessionID {
-			return map[string]interface{}{
-				"type":          "live",
-				"peerName":      s.PeerName,
-				"sessionID":     s.ID,
-				"messageCount":  len(s.Messages),
-				"lastActivity":  s.LastActivity.Format(time.RFC3339),
-				"isServer":      s.IsServer,
+		for _, s := range a.sessions {
+			if s.ID == sessionID {
+				return map[string]interface{}{
+					"type":          "live",
+					"peerName":      s.PeerName,
+					"sessionID":     s.ID,
+					"messageCount":  len(s.Messages),
+					"lastActivity":  s.LastActivity.Format(time.RFC3339),
+					"isServer":      s.IsServer,
+					"transportType": s.TransportType,
+				}
 			}
 		}
-	}
 
 	for _, hs := range a.histSessions {
 		if hs.ID == sessionID {

@@ -43,6 +43,19 @@ func buildMenu(app *App) *menu.Menu {
 	auto.Click = func(_ *menu.CallbackData) { setVerifMode(app.ctx, 2) }
 
 	conn.AddSeparator()
+	conn.AddText("Copy Public Key", nil, func(_ *menu.CallbackData) {
+		fp := app.GetFingerprint()
+		if fp["b64"] == "" {
+			app.SendNotification("Fingerprint", "No identity key — start a server first")
+			return
+		}
+		if err := app.CopyToClipboard(fp["b64"]); err != nil {
+			app.SendNotification("Fingerprint", "Failed to copy: "+err.Error())
+		} else {
+			app.SendNotification("Fingerprint", "Public key copied to clipboard")
+		}
+	})
+	conn.AddSeparator()
 	conn.AddText("Forget Saved Passphrase…", nil, func(_ *menu.CallbackData) {
 		answer, err := runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
 			Title:         "Clear Saved Passphrase",

@@ -27,6 +27,8 @@
 
   $: serverActive = $status.status === 'connected' || $status.status === 'connecting'
 
+  const TRANSPORTS = ['tcp', 'udp', 'relay']
+
   const LABELS = {
     type: 'Type',
     peerName: 'Peer Name',
@@ -52,7 +54,7 @@
     status.set(s)
 
     const fp = await GetFingerprint()
-    fingerprint.set({ emoji: fp.emoji, hex: fp.hex })
+    fingerprint.set({ emoji: fp.emoji, b64: fp.b64 })
 
     const p = await GetDBPath()
     dbPath.set(p)
@@ -152,11 +154,16 @@
   }
 
   async function handleStartServer() {
+    if (serverTransport === 'relay' && !serverRelayAddr.trim()) {
+      alert('Relay server address is required')
+      return
+    }
     closeAllDialogs()
     serverLoading = true
     try {
-      const addr = connectServerAddr.trim() || ':8443'
-      const fp = await StartServer(addr)
+      const addr = serverTransport === 'relay' ? '' : (connectServerAddr.trim() || ':8443')
+      const relayAddr = serverTransport === 'relay' ? serverRelayAddr.trim() : ''
+      const fp = await StartServer(addr, serverTransport, relayAddr)
       await loadSessions()
     } catch (e) {
       alert('Failed to start server: ' + e)
@@ -175,10 +182,22 @@
   }
 
   async function handleConnect() {
+    if (connectTransport === 'relay') {
+      if (!connectRelayAddr.trim()) {
+        alert('Relay server address is required')
+        return
+      }
+      if (!connectPeerKey.trim()) {
+        alert('Peer public key is required')
+        return
+      }
+    }
     connectLoading = true
     try {
-      const addr = connectServerAddr2.trim() || 'localhost:8443'
-      const sessionId = await ConnectToServer(addr)
+      const addr = connectTransport === 'relay' ? '' : (connectServerAddr2.trim() || 'localhost:8443')
+      const relayAddr = connectTransport === 'relay' ? connectRelayAddr.trim() : ''
+      const peerKey = connectTransport === 'relay' ? connectPeerKey.trim() : ''
+      const sessionId = await ConnectToServer(addr, connectTransport, relayAddr, peerKey)
       await loadSessions()
       activeSessionId.set(sessionId)
       closeAllDialogs()
@@ -282,6 +301,9 @@
           break
         case 'n':
           e.preventDefault()
+          connectTransport = 'tcp'
+          connectRelayAddr = ''
+          connectPeerKey = ''
           dialogs.update(d => ({ ...d, showConnect: true }))
           break
         case 's':
@@ -290,6 +312,8 @@
             handleStopServer()
           } else {
             connectServerAddr = ':8443'
+            serverTransport = 'tcp'
+            serverRelayAddr = ''
             dialogs.update(d => ({ ...d, showServer: true }))
           }
           break
@@ -350,12 +374,34 @@
           <h3>Start Server</h3>
         </div>
         <div class="dialog-body">
-          <input
-            bind:value={connectServerAddr}
-            placeholder="Listen address (e.g. :8443)"
-            class="dialog-input"
-          />
-          <p class="dialog-hint">Leave empty for default :8443</p>
+          <div class="transport-pills">
+            <span class="transport-label">Transport</span>
+            <div class="pill-group">
+              {#each TRANSPORTS as t}
+                <button
+                  class="pill-btn"
+                  class:pill-active={serverTransport === t}
+                  on:click={() => serverTransport = t}
+                >{t.toUpperCase()}</button>
+              {/each}
+            </div>
+          </div>
+
+          {#if serverTransport !== 'relay'}
+            <input
+              bind:value={connectServerAddr}
+              placeholder="Listen address (e.g. :8443)"
+              class="dialog-input"
+            />
+            <p class="dialog-hint">Leave empty for default :8443</p>
+          {:else}
+            <input
+              bind:value={serverRelayAddr}
+              placeholder="Relay server address (e.g. 127.0.0.1:8888)"
+              class="dialog-input"
+            />
+            <p class="dialog-hint">Address of the relay server</p>
+          {/if}
         </div>
         <div class="dialog-actions">
           <button class="dialog-btn dialog-btn-secondary" on:click={closeAllDialogs}>Cancel</button>
@@ -377,15 +423,44 @@
               <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
             </svg>
           </div>
-          <h3>Connect to Server</h3>
+          <h3>Connect to Peer</h3>
         </div>
         <div class="dialog-body">
-          <input
-            bind:value={connectServerAddr2}
-            placeholder="Server address (e.g. 192.168.1.100:8443)"
-            class="dialog-input"
-          />
-          <p class="dialog-hint">Leave empty for default localhost:8443</p>
+          <div class="transport-pills">
+            <span class="transport-label">Transport</span>
+            <div class="pill-group">
+              {#each TRANSPORTS as t}
+                <button
+                  class="pill-btn"
+                  class:pill-active={connectTransport === t}
+                  on:click={() => connectTransport = t}
+                >{t.toUpperCase()}</button>
+              {/each}
+            </div>
+          </div>
+
+          {#if connectTransport !== 'relay'}
+            <input
+              bind:value={connectServerAddr2}
+              placeholder="Peer address (e.g. 192.168.1.100:8443)"
+              class="dialog-input"
+            />
+            <p class="dialog-hint">Leave empty for default localhost:8443</p>
+          {:else}
+            <input
+              bind:value={connectRelayAddr}
+              placeholder="Relay server address (e.g. 127.0.0.1:8888)"
+              class="dialog-input"
+            />
+            <p class="dialog-hint">Address of the relay server</p>
+
+            <input
+              bind:value={connectPeerKey}
+              placeholder="Peer's base64 public key"
+              class="dialog-input"
+            />
+            <p class="dialog-hint">Paste the peer's public key from their fingerprint</p>
+          {/if}
         </div>
         <div class="dialog-actions">
           <button class="dialog-btn dialog-btn-secondary" on:click={closeAllDialogs}>Cancel</button>
@@ -503,9 +578,9 @@
   <div class="app-body">
     <Sidebar
       {serverActive}
-      on:startServer={() => { connectServerAddr = ':8443'; dialogs.update(d => ({ ...d, showServer: true })) }}
+      on:startServer={() => { connectServerAddr = ':8443'; serverTransport = 'tcp'; serverRelayAddr = ''; dialogs.update(d => ({ ...d, showServer: true })) }}
       on:stopServer={handleStopServer}
-      on:connect={() => dialogs.update(d => ({ ...d, showConnect: true }))}
+      on:connect={() => { connectTransport = 'tcp'; connectRelayAddr = ''; connectPeerKey = ''; dialogs.update(d => ({ ...d, showConnect: true })) }}
       on:refreshHistory={handleRefreshHistory}
       on:selectSession={(e) => {
         handleSelectTab(e.detail)
@@ -684,6 +759,47 @@
     margin-top: 8px;
     font-size: 11px;
     color: var(--text-timestamp);
+  }
+
+  /* ── Transport Pills ── */
+  .transport-pills {
+    margin-bottom: 14px;
+  }
+  .transport-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 6px;
+  }
+  .pill-group {
+    display: flex;
+    gap: 4px;
+  }
+  .pill-btn {
+    flex: 1;
+    padding: 7px 10px;
+    border-radius: var(--border-radius);
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+    transition: all 0.15s;
+  }
+  .pill-btn:hover {
+    color: var(--text-secondary);
+    border-color: var(--border-light);
+  }
+  .pill-btn.pill-active {
+    background: var(--accent-primary);
+    color: #fff;
+    border-color: var(--accent-primary);
+  }
+  .pill-btn.pill-active:hover {
+    background: var(--accent-primary-hover);
   }
 
   .dialog-actions {

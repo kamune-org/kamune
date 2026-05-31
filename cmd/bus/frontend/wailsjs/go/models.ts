@@ -119,6 +119,7 @@ export namespace main {
 	    msgCount: number;
 	    // Go type: time
 	    lastActivity: any;
+	    transportType: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SessionInfo(source);
@@ -131,6 +132,7 @@ export namespace main {
 	        this.isServer = source["isServer"];
 	        this.msgCount = source["msgCount"];
 	        this.lastActivity = this.convertValues(source["lastActivity"], null);
+	        this.transportType = source["transportType"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

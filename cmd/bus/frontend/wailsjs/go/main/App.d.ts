@@ -6,7 +6,7 @@ export function ClearKeychainPassphrase():Promise<void>;
 
 export function ClearLogs():Promise<void>;
 
-export function ConnectToServer(arg1:string):Promise<string>;
+export function ConnectToServer(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function CopyToClipboard(arg1:string):Promise<void>;
 
@@ -58,7 +58,7 @@ export function SetDBPath(arg1:string):Promise<void>;
 
 export function SetVerificationMode(arg1:number):Promise<void>;
 
-export function StartServer(arg1:string):Promise<string>;
+export function StartServer(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function StopServer():Promise<void>;
 

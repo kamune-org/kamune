@@ -11,7 +11,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-func (a *App) StartServer(addr string) (string, error) {
+func (a *App) StartServer(addr string, transport string, relayAddr string) (string, error) {
 	a.setStatus(StatusConnecting, "Starting server...")
 
 	store := a.store()
@@ -19,12 +19,26 @@ func (a *App) StartServer(addr string) (string, error) {
 		return "", fmt.Errorf("storage is not available")
 	}
 
-	svr, err := kamune.NewServer(
-		addr,
-		a.serverHandler,
-		store,
-		kamune.ServeWithRemoteVerifier(a.getVerifier()),
-	)
+	var opts []kamune.ServerOptions
+	opts = append(opts, kamune.ServeWithRemoteVerifier(a.getVerifier()))
+
+	switch transport {
+	case "relay":
+		listener, err := listenRelay(store, relayAddr)
+		if err != nil {
+			a.setStatus(StatusError, "Failed to connect to relay")
+			a.addLogEntry("ERROR", "Relay listen failed: "+err.Error())
+			return "", fmt.Errorf("relay listen: %w", err)
+		}
+		opts = append(opts, kamune.ServeWithListener(listener))
+		addr = "" // addr is unused with ServeWithListener
+	case "udp":
+		opts = append(opts, kamune.ServeWithUDP())
+	default:
+		opts = append(opts, kamune.ServeWithTCP())
+	}
+
+	svr, err := kamune.NewServer(addr, a.serverHandler, store, opts...)
 	if err != nil {
 		a.setStatus(StatusError, "Failed to create server")
 		a.addLogEntry("ERROR", "Failed to create server: "+err.Error())
@@ -33,17 +47,18 @@ func (a *App) StartServer(addr string) (string, error) {
 
 	pubKey := svr.PublicKey()
 	emoji := strings.Join(fingerprint.Emoji(pubKey), " • ")
-	hex := fingerprint.Hex(pubKey)
+	b64 := fingerprint.Base64(pubKey)
 
 	done := make(chan struct{})
 	a.mu.Lock()
 	a.emojiFP = emoji
-	a.hexFP = hex
+	a.b64FP = b64
 	a.server = svr
 	a.serverDone = done
+	a.serverTransportType = transport
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, hex)
+	runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64)
 
 	go func() {
 		defer close(done)
@@ -53,15 +68,22 @@ func (a *App) StartServer(addr string) (string, error) {
 		}
 		a.mu.Lock()
 		a.emojiFP = ""
-		a.hexFP = ""
+		a.b64FP = ""
 		a.server = nil
+		a.serverTransportType = ""
 		a.mu.Unlock()
 		runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "")
 		a.setStatus(StatusDisconnected, "Server stopped")
 	}()
 
-	a.setStatus(StatusConnected, "Server running on "+addr)
-	a.addLogEntry("INFO", "Server started on "+addr)
+	var statusMsg string
+	if transport == "relay" {
+		statusMsg = "Server (relay) — connected to " + relayAddr
+	} else {
+		statusMsg = "Server running on " + addr
+	}
+	a.setStatus(StatusConnected, statusMsg)
+	a.addLogEntry("INFO", "Server started: "+statusMsg)
 	a.loadHistorySessions(store)
 
 	return emoji, nil
@@ -82,7 +104,7 @@ func (a *App) StopServer() error {
 		a.server = nil
 	}
 	a.emojiFP = ""
-	a.hexFP = ""
+	a.b64FP = ""
 	serverDone = a.serverDone
 	a.serverDone = nil
 	a.mu.Unlock()
@@ -100,11 +122,10 @@ func (a *App) StopServer() error {
 
 	runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "")
 	a.setStatus(StatusDisconnected, "Server stopped")
-	a.addLogEntry("INFO", "Server stopped")
 	return nil
 }
 
-func (a *App) ConnectToServer(addr string) (string, error) {
+func (a *App) ConnectToServer(addr string, transport string, relayAddr string, peerKey string) (string, error) {
 	a.setStatus(StatusConnecting, "Connecting to "+addr+"...")
 
 	store := a.store()
@@ -112,28 +133,47 @@ func (a *App) ConnectToServer(addr string) (string, error) {
 		return "", fmt.Errorf("storage is not available")
 	}
 
-	dialer, err := kamune.NewDialer(addr, store,
-		kamune.DialWithRemoteVerifier(a.getVerifier()),
-	)
+	var opts []kamune.DialOption
+	opts = append(opts, kamune.DialWithRemoteVerifier(a.getVerifier()))
+
+	switch transport {
+	case "relay":
+		fn, err := dialRelayFunc(store, relayAddr, peerKey)
+		if err != nil {
+			a.setStatus(StatusError, "Failed to prepare relay dial")
+			return "", fmt.Errorf("relay dial func: %w", err)
+		}
+		opts = append(opts, kamune.DialWithFunc(fn))
+		addr = relayAddr
+	case "udp":
+		opts = append(opts, kamune.DialWithUDP())
+	default:
+		opts = append(opts, kamune.DialWithTCP())
+	}
+
+	dialer, err := kamune.NewDialer(addr, store, opts...)
 	if err != nil {
 		a.setStatus(StatusError, "Failed to create dialer")
+		a.addLogEntry("ERROR", "Failed to create dialer: "+err.Error())
 		return "", fmt.Errorf("create dialer: %w", err)
 	}
 
 	t, err := dialer.Dial()
 	if err != nil {
 		a.setStatus(StatusError, "Connection failed")
+		a.addLogEntry("ERROR", "Dial failed: "+err.Error())
 		return "", fmt.Errorf("dial: %w", err)
 	}
 
 	sessionID := t.SessionID()
 	session := &liveSession{
-		ID:           sessionID,
-		PeerName:     fingerprint.Base64(t.RemotePublicKey()),
-		Transport:    t,
-		Messages:     make([]MessageInfo, 0),
-		LastActivity: time.Now(),
-		ReceiveDone:  make(chan struct{}),
+		ID:            sessionID,
+		PeerName:      fingerprint.Base64(t.RemotePublicKey()),
+		Transport:     t,
+		Messages:      make([]MessageInfo, 0),
+		LastActivity:  time.Now(),
+		ReceiveDone:   make(chan struct{}),
+		TransportType: transport,
 	}
 
 	a.loadChatHistory(session)
@@ -143,11 +183,12 @@ func (a *App) ConnectToServer(addr string) (string, error) {
 	a.mu.Unlock()
 
 	info := SessionInfo{
-		ID:           session.ID,
-		PeerName:     session.PeerName,
-		IsServer:     false,
-		MsgCount:     len(session.Messages),
-		LastActivity: session.LastActivity,
+		ID:            session.ID,
+		PeerName:      session.PeerName,
+		IsServer:      false,
+		MsgCount:      len(session.Messages),
+		LastActivity:  session.LastActivity,
+		TransportType: session.TransportType,
 	}
 	runtime.EventsEmit(a.ctx, "session-new", info)
 	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
@@ -195,15 +236,23 @@ func (a *App) DisconnectSession(sessionID string) error {
 }
 
 func (a *App) serverHandler(t *kamune.Transport) error {
+	a.mu.RLock()
+	transport := a.serverTransportType
+	a.mu.RUnlock()
+	if transport == "" {
+		transport = "tcp"
+	}
+
 	sessionID := t.SessionID()
 	session := &liveSession{
-		ID:           sessionID,
-		PeerName:     fingerprint.Base64(t.RemotePublicKey()),
-		Transport:    t,
-		Messages:     make([]MessageInfo, 0),
-		LastActivity: time.Now(),
-		ReceiveDone:  make(chan struct{}),
-		IsServer:     true,
+		ID:            sessionID,
+		PeerName:      fingerprint.Base64(t.RemotePublicKey()),
+		Transport:     t,
+		Messages:      make([]MessageInfo, 0),
+		LastActivity:  time.Now(),
+		ReceiveDone:   make(chan struct{}),
+		IsServer:      true,
+		TransportType: transport,
 	}
 
 	a.loadChatHistory(session)
@@ -213,11 +262,12 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	a.mu.Unlock()
 
 	info := SessionInfo{
-		ID:           session.ID,
-		PeerName:     session.PeerName,
-		IsServer:     true,
-		MsgCount:     len(session.Messages),
-		LastActivity: session.LastActivity,
+		ID:            session.ID,
+		PeerName:      session.PeerName,
+		IsServer:      true,
+		MsgCount:      len(session.Messages),
+		LastActivity:  session.LastActivity,
+		TransportType: session.TransportType,
 	}
 	runtime.EventsEmit(a.ctx, "session-new", info)
 	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
