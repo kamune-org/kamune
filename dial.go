@@ -79,7 +79,7 @@ func (d *Dialer) handshake(cn Conn) (*Transport, error) {
 	}
 
 	// Step 1: Send our introduction
-	err = sendIntroduction(ec, d.clientName, d.attest)
+	err = sendIntroduction(ec, d.attest, d.clientName, AppVersion)
 	if err != nil {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
@@ -97,10 +97,15 @@ func (d *Dialer) handshake(cn Conn) (*Transport, error) {
 		)
 	}
 
-	peer, err := receiveIntroduction(st)
+	peer, remoteVersion, err := receiveIntroduction(st)
 	if err != nil {
 		return nil, fmt.Errorf("receive introduction: %w", err)
 	}
+
+	if err := checkVersion(remoteVersion); err != nil {
+		return nil, fmt.Errorf("version check: %w", err)
+	}
+
 	if err := d.handshakeOpts.remoteVerifier(d.storage, peer); err != nil {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
@@ -111,9 +116,11 @@ func (d *Dialer) handshake(cn Conn) (*Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
 	}
+
 	// Since from now on all communications are encrypted via the newly ciphers
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
+	t.remoteVersion = remoteVersion
 
 	slog.Info(
 		"session established",

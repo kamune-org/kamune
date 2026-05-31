@@ -39,14 +39,15 @@ func isTimeout(err error) bool {
 
 // Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
-	conn         Conn
-	serde        *signedSerde
-	encoder      *enigma.Enigma
-	decoder      *enigma.Enigma
-	mu           *sync.Mutex
-	sessionID    string
-	recvSequence uint64
-	sendSequence uint64
+	conn          Conn
+	serde         *signedSerde
+	encoder       *enigma.Enigma
+	decoder       *enigma.Enigma
+	mu            *sync.Mutex
+	sessionID     string
+	remoteVersion string
+	recvSequence  uint64
+	sendSequence  uint64
 }
 
 func newTransport(
@@ -144,3 +145,6 @@ func (t *Transport) SessionID() string { return t.sessionID }
 
 // RemotePublicKey returns the remote peer's public key.
 func (t *Transport) RemotePublicKey() []byte { return t.serde.remote }
+
+// RemoteAppVersion returns the remote peer's advertised application version.
+func (t *Transport) RemoteAppVersion() string { return t.remoteVersion }

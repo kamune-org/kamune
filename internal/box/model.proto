@@ -8,6 +8,7 @@ option go_package = "./pb";
 message Introduce {
   string Name = 1;
   bytes PublicKey = 2;
+  string AppVersion = 3;
 }
 
 message Handshake {

@@ -62,11 +62,12 @@ func defaultRemoteVerifier(store *storage.Storage, peer *storage.Peer) error {
 // sendIntroduction sends an identity introduction message to the peer.
 // This is the first message exchanged in a new connection.
 func sendIntroduction(
-	conn Conn, name string, at *attest.Attest,
+	conn Conn, at *attest.Attest, name, version string,
 ) error {
 	intro := &pb.Introduce{
-		Name:      name,
-		PublicKey: at.MarshalPublicKey(),
+		Name:       name,
+		PublicKey:  at.MarshalPublicKey(),
+		AppVersion: version,
 	}
 	message, err := proto.Marshal(intro)
 	if err != nil {
@@ -100,11 +101,11 @@ func sendIntroduction(
 }
 
 // receiveIntroduction parses an introduction message from a signed transport.
-// It validates the signature and extracts the peer's identity information.
-func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, error) {
+// It validates the signature and extracts the peer's identity and version.
+func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, string, error) {
 	// Validate route
 	if r := RouteFromProto(st.GetMetadata().GetRoute()); r != RouteIdentity {
-		return nil, fmt.Errorf(
+		return nil, "", fmt.Errorf(
 			"%w: expected %s, got %s",
 			ErrUnexpectedRoute, RouteIdentity, r,
 		)
@@ -113,13 +114,15 @@ func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, error) {
 	var introduce pb.Introduce
 	msg := st.GetData()
 	if err := proto.Unmarshal(msg, &introduce); err != nil {
-		return nil, fmt.Errorf("deserializing: %w", err)
+		return nil, "", fmt.Errorf("deserializing: %w", err)
 	}
 
 	remote := introduce.GetPublicKey()
 	if !attest.Verify(remote, msg, st.Signature) {
-		return nil, ErrInvalidSignature
+		return nil, "", ErrInvalidSignature
 	}
 
-	return &storage.Peer{Name: introduce.Name, PublicKey: remote}, nil
+	peer := &storage.Peer{Name: introduce.Name, PublicKey: remote}
+
+	return peer, introduce.GetAppVersion(), nil
 }

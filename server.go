@@ -175,16 +175,20 @@ func (s *Server) handleNewConnection(
 	_ = cn.SetDeadline(time.Now().Add(s.handshakeOpts.timeout))
 	defer func() { _ = cn.SetDeadline(time.Time{}) }()
 
-	peer, err := receiveIntroduction(st)
+	peer, remoteVersion, err := receiveIntroduction(st)
 	if err != nil {
 		return fmt.Errorf("receiving introduction: %w", err)
+	}
+
+	if err := checkVersion(remoteVersion); err != nil {
+		return fmt.Errorf("version check: %w", err)
 	}
 
 	if err := s.handshakeOpts.remoteVerifier(s.storage, peer); err != nil {
 		return fmt.Errorf("verify remote: %w", err)
 	}
 
-	err = sendIntroduction(ec, s.serverName, s.attest)
+	err = sendIntroduction(ec, s.attest, s.serverName, AppVersion)
 	if err != nil {
 		return fmt.Errorf("sending introduction: %w", err)
 	}
@@ -194,9 +198,11 @@ func (s *Server) handleNewConnection(
 	if err != nil {
 		return fmt.Errorf("accepting handshake: %w", err)
 	}
+
 	// Since from now on all communications are encrypted via the newly ciphers
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
+	t.remoteVersion = remoteVersion
 
 	slog.Info(
 		"session established",
