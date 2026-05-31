@@ -361,13 +361,17 @@ func (d *Daemon) receiveLoop(
 
 		metadata, err := t.Receive(b)
 		if err != nil {
-			if errors.Is(err, kamune.ErrConnClosed) {
+			switch {
+			case errors.Is(err, kamune.ErrConnClosed):
+				return
+			case errors.Is(err, kamune.ErrReceiveTimeout):
+				continue
+			default:
+				d.emitError(
+					"", fmt.Sprintf("receive error on session %s: %v", sessionID, err),
+				)
 				return
 			}
-			d.emitError(
-				"", fmt.Sprintf("receive error on session %s: %v", sessionID, err),
-			)
-			return
 		}
 
 		d.emit(EvtMessageReceived, "", MapA{

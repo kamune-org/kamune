@@ -52,12 +52,16 @@ func relayServer(relayAddr string) {
 			b := kamune.Bytes(nil)
 			metadata, err := t.Receive(b)
 			if err != nil {
-				if errors.Is(err, kamune.ErrConnClosed) {
+				switch {
+				case errors.Is(err, kamune.ErrConnClosed):
 					p.Quit()
 					return nil
+				case errors.Is(err, kamune.ErrReceiveTimeout):
+					continue
+				default:
+					errCh <- fmt.Errorf("receiving: %w", err)
+					return nil
 				}
-				errCh <- fmt.Errorf("receiving: %w", err)
-				return nil
 			}
 			p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
 			if err := store.AddChatEntry(

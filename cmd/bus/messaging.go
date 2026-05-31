@@ -72,12 +72,16 @@ func (a *App) receiveMessagesBlocking(session *liveSession) {
 		b := kamune.Bytes(nil)
 		metadata, err := t.Receive(b)
 		if err != nil {
-			if errors.Is(err, kamune.ErrConnClosed) {
+			switch {
+			case errors.Is(err, kamune.ErrConnClosed):
 				a.addLogEntry("INFO", "Connection closed: "+session.ID)
-			} else {
+				return
+			case errors.Is(err, kamune.ErrReceiveTimeout):
+				continue
+			default:
 				a.addLogEntry("ERROR", "Receive error: "+err.Error())
+				return
 			}
-			return
 		}
 
 		msgText := string(b.GetValue())
