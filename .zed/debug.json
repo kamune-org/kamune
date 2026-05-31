@@ -1,20 +1,20 @@
 [
   {
     "label": "Chat Serve",
-    "cwd": "./chat",
+    "cwd": "./cmd/tui",
     "adapter": "Delve",
     "request": "launch",
     "mode": "debug",
     "program": ".",
-    "args": ["serve", "127.0.0.1:9999"]
+    "args": ["serve", "127.0.0.1:9999"],
   },
   {
     "label": "Chat Dial",
-    "cwd": "./chat",
+    "cwd": "./cmd/tui",
     "adapter": "Delve",
     "request": "launch",
     "mode": "debug",
     "program": ".",
-    "args": ["dial", "127.0.0.1:9999"]
-  }
+    "args": ["dial", "127.0.0.1:9999"],
+  },
 ]
