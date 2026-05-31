@@ -29,6 +29,14 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 - **Build chat TUI**: `go build -o tui .` in `cmd/tui/`
 - **Build bus GUI**: `wails build` in `cmd/bus/` (requires Wails CLI)
 
+## Commits
+
+- Format: `<module>: <lowercase description>` — e.g. `bus: fix duplicate Wails events`, `kamune: add ErrReceiveTimeout sentinel`
+- Root module changes use `kamune:`; multi-module changes use comma-separated names like `bus,tui,daemon:`
+- Commits must be small and focused — one logical change per commit
+- Subject line must be 72 characters or fewer
+- Never commit or push without prompting the user first
+
 ## Architecture notes
 
 - Root package exports: `Server`, `Dialer`, `Transport`, `Conn` interface, `Router`, `Route`
