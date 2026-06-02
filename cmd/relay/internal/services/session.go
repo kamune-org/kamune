@@ -107,6 +107,28 @@ func (sm *SessionManager) Recipient(token []byte, sender *exchange.Channel) (*ex
 	}
 }
 
+// ClosePeerChannel closes the exchange channel of the peer that is NOT the
+// given closed channel. When one peer disconnects, this ensures the other
+// peer's read pump exits rather than blocking forever.
+func (sm *SessionManager) ClosePeerChannel(token []byte, closed *exchange.Channel) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sess, ok := sm.sessions[fmt.Sprintf("%x", token)]
+	if !ok {
+		return
+	}
+	switch closed {
+	case sess.listener:
+		if sess.dialer != nil {
+			sess.dialer.Close()
+		}
+	case sess.dialer:
+		if sess.listener != nil {
+			sess.listener.Close()
+		}
+	}
+}
+
 func (sm *SessionManager) Remove(token []byte) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

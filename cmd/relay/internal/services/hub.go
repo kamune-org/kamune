@@ -31,6 +31,8 @@ func (h *Hub) RegisterDialer(ch *exchange.Channel, token []byte) error {
 }
 
 func (h *Hub) ReadPump(ctx context.Context, ch *exchange.Channel, token []byte) {
+	defer h.sessions.ClosePeerChannel(token, ch)
+
 	for {
 		data, err := ch.ReadBytes()
 		if err != nil {
@@ -73,7 +75,9 @@ func (h *Hub) handleMessage(sender *exchange.Channel, token []byte, data []byte)
 
 	if err := recipient.WriteBytes(b); err != nil {
 		slog.Debug("hub: write to recipient failed", slog.Any("error", err))
-		h.sessions.Remove(token)
+		sender.Close()
+		// ClosePeerChannel + Remove happen in ReadPump's defer once
+		// sender's ReadPump exits from the channel close above.
 	}
 }
 
