@@ -9,6 +9,7 @@ export const dbPath = writable('')
 export const logEntries = writable([])
 export const verificationMode = writable(1)
 export const appVersion = writable('2.0.0')
+export const libraryVersion = writable('')
 
 export const activeSessionId = writable(null)
 export const sidebarTab = writable('sessions') // 'sessions' | 'history'
@@ -26,6 +27,7 @@ export const activeSession = derived(
 export const toast = writable(null) // { message, type: 'error'|'info' }
 
 export const verificationDialog = writable(null)
+export const versionWarnings = writable({})
 export const dialogs = writable({
   showServer: false,
   showConnect: false,

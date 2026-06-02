@@ -10,8 +10,8 @@ export function ClearLogs() {
   return window['go']['main']['App']['ClearLogs']();
 }
 
-export function ConnectToServer(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['ConnectToServer'](arg1, arg2, arg3, arg4);
+export function ConnectToServer(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['ConnectToServer'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function CopyToClipboard(arg1) {
@@ -42,8 +42,16 @@ export function GetHistorySessions() {
   return window['go']['main']['App']['GetHistorySessions']();
 }
 
+export function GetLibraryVersion() {
+  return window['go']['main']['App']['GetLibraryVersion']();
+}
+
 export function GetLogEntries() {
   return window['go']['main']['App']['GetLogEntries']();
+}
+
+export function GetServerRunning() {
+  return window['go']['main']['App']['GetServerRunning']();
 }
 
 export function GetSessionInfo(arg1) {
@@ -118,8 +126,8 @@ export function SetVerificationMode(arg1) {
   return window['go']['main']['App']['SetVerificationMode'](arg1);
 }
 
-export function StartServer(arg1, arg2, arg3) {
-  return window['go']['main']['App']['StartServer'](arg1, arg2, arg3);
+export function StartServer(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['StartServer'](arg1, arg2, arg3, arg4);
 }
 
 export function StopServer() {

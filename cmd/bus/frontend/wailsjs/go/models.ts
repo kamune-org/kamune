@@ -120,6 +120,7 @@ export namespace main {
 	    // Go type: time
 	    lastActivity: any;
 	    transportType: string;
+	    remoteVersion: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SessionInfo(source);
@@ -133,6 +134,7 @@ export namespace main {
 	        this.msgCount = source["msgCount"];
 	        this.lastActivity = this.convertValues(source["lastActivity"], null);
 	        this.transportType = source["transportType"];
+	        this.remoteVersion = source["remoteVersion"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

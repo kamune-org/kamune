@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +18,41 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/zalando/go-keyring"
 )
+
+type ver struct {
+	major, minor int
+}
+
+func parseVer(v string) (ver, bool) {
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) != 3 {
+		return ver{}, false
+	}
+	maj, err1 := strconv.Atoi(parts[0])
+	min, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return ver{}, false
+	}
+	return ver{major: maj, minor: min}, true
+}
+
+func checkMinorMismatch(local, remote string) (string, bool) {
+	if remote == "" {
+		return "", false
+	}
+	lv, ok := parseVer(local)
+	if !ok {
+		return "", false
+	}
+	rv, ok := parseVer(remote)
+	if !ok {
+		return "", false
+	}
+	if lv.major == rv.major && lv.minor != rv.minor {
+		return fmt.Sprintf("Minor version mismatch (v%s vs v%s): things may not work as expected", remote, local), true
+	}
+	return "", false
+}
 
 const channelTimeout = 5 * time.Second
 
@@ -52,6 +88,7 @@ type SessionInfo struct {
 	MsgCount      int       `json:"msgCount"`
 	LastActivity  time.Time `json:"lastActivity"`
 	TransportType string    `json:"transportType"`
+	RemoteVersion string    `json:"remoteVersion"`
 }
 
 type HistorySessionInfo struct {
@@ -83,6 +120,7 @@ type LogEntryInfo struct {
 type liveSession struct {
 	ID            string
 	PeerName      string
+	RemoteVersion string
 	Transport     *kamune.Transport
 	Messages      []MessageInfo
 	LastActivity  time.Time
@@ -185,14 +223,34 @@ func (a *App) startup(ctx context.Context) {
 		a.addLogEntry("ERROR", "Failed to get home dir: "+err.Error())
 		return
 	}
-	a.dbPath = filepath.Join(homeDir, ".config", "kamune", "db")
+
+	if envPath := os.Getenv("KAMUNE_DB_PATH"); envPath != "" {
+		a.dbPath = envPath
+	} else {
+		a.dbPath = filepath.Join(homeDir, ".config", "kamune", "db")
+	}
 
 	passphrase, err := keyring.Get(keychainService, keychainAccount(a.dbPath))
 	switch {
 	case err == nil && passphrase == "":
-		// Orphaned empty keychain entry — clean it up.
+		a.passphrase.Store([]byte(passphrase))
+
+		store, storeErr := storage.OpenStorage(
+			storage.WithDBPath(a.dbPath),
+			storage.WithPassphraseHandler(a.passphraseHandler()),
+		)
+		if storeErr == nil {
+			a.storeMu.Lock()
+			a.db = store
+			a.storeMu.Unlock()
+			a.addLogEntry("INFO", "Loaded empty passphrase from keychain — no password")
+			a.initFromStorage()
+			return
+		}
+
+		a.passphrase.Store([]byte(nil))
 		_ = keyring.Delete(keychainService, keychainAccount(a.dbPath))
-		a.addLogEntry("WARN", "Removed orphaned empty passphrase from keychain")
+		a.addLogEntry("WARN", "Saved empty passphrase is invalid, clearing and prompting")
 
 	case err == nil && passphrase != "":
 		a.passphrase.Store([]byte(passphrase))
@@ -377,6 +435,10 @@ func (a *App) GetVersion() string {
 	return a.appVersion
 }
 
+func (a *App) GetLibraryVersion() string {
+	return kamune.AppVersion
+}
+
 func (a *App) GetStatus() StatusInfo {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -417,13 +479,13 @@ func (a *App) SetDBPath(path string) {
 }
 
 func (a *App) OpenFileDialog() string {
-	file, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select Database File",
+	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Database Directory",
 	})
-	if err != nil {
+	if err != nil || dir == "" {
 		return ""
 	}
-	return file
+	return filepath.Join(dir, "db")
 }
 
 func (a *App) GetVerificationMode() int {
@@ -456,7 +518,7 @@ func (a *App) SubmitPassphrase(passphrase string, saveToKeychain bool) error {
 		return fmt.Errorf("wrong passphrase or corrupted database")
 	}
 
-	if saveToKeychain && passphrase != "" {
+	if saveToKeychain {
 		if err := keyring.Set(keychainService, keychainAccount(a.dbPath), passphrase); err != nil {
 			a.addLogEntry("WARN", "Failed to save passphrase to keychain: "+err.Error())
 		} else {
@@ -518,9 +580,16 @@ func (a *App) GetSessions() []SessionInfo {
 			MsgCount:      len(s.Messages),
 			LastActivity:  s.LastActivity,
 			TransportType: s.TransportType,
+			RemoteVersion: s.RemoteVersion,
 		})
 	}
 	return result
+}
+
+func (a *App) GetServerRunning() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.server != nil
 }
 
 func (a *App) GetHistorySessions() []HistorySessionInfo {
@@ -728,6 +797,7 @@ func (a *App) GetSessionInfo(sessionID string) map[string]interface{} {
 				"lastActivity":  s.LastActivity.Format(time.RFC3339),
 				"isServer":      s.IsServer,
 				"transportType": s.TransportType,
+				"remoteVersion": s.RemoteVersion,
 			}
 		}
 	}

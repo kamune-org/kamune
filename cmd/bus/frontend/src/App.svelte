@@ -2,7 +2,8 @@
   import { onMount, onDestroy } from 'svelte'
   import {
     GetSessions, GetHistorySessions, GetFingerprint, GetDBPath,
-    GetLogEntries, GetVersion, GetStatus, GetVerificationMode,
+    GetLogEntries, GetVersion, GetLibraryVersion, GetStatus, GetVerificationMode,
+    GetServerRunning,
     StartServer, ConnectToServer, StopServer, DisconnectSession,
     SendMessage, RefreshHistory, SetVerificationMode,
     ClearLogs, RenameSession, RenameHistorySession, DeleteHistorySession,
@@ -14,6 +15,7 @@
     sessions, historySessions, sessionMessages, status, fingerprint,
     dbPath, logEntries, verificationMode, appVersion, activeSessionId,
     sidebarTab, logPanelOpen, verificationDialog, dialogs, toast,
+    versionWarnings, libraryVersion,
   } from './lib/stores.js'
   import { K, isMac } from './lib/keyboard.js'
 
@@ -25,7 +27,7 @@
   import RenameDialog from './lib/RenameDialog.svelte'
   import PassphraseDialog from './lib/PassphraseDialog.svelte'
 
-  $: serverActive = $status.status === 'connected' || $status.status === 'connecting'
+  let serverActive = false
 
   const TRANSPORTS = ['tcp', 'udp', 'relay']
 
@@ -46,6 +48,8 @@
   let serverRelayAddr = ''
   let connectRelayAddr = ''
   let connectPeerKey = ''
+  let serverName = ''
+  let connectName = ''
   let serverLoading = false
   let connectLoading = false
   let showPassphraseDialog = true
@@ -54,6 +58,9 @@
   onMount(async () => {
     const v = await GetVersion()
     appVersion.set(v)
+
+    const lv = await GetLibraryVersion()
+    libraryVersion.set(lv)
 
     const s = await GetStatus()
     status.set(s)
@@ -66,6 +73,8 @@
 
     const vm = await GetVerificationMode()
     verificationMode.set(vm)
+
+    serverActive = await GetServerRunning()
 
     await loadSessions()
     await loadHistory()
@@ -85,6 +94,8 @@
     EventsOff('notification')
     EventsOff('storage-ready')
     EventsOff('request-passphrase')
+    EventsOff('server-running')
+    EventsOff('version-warning')
     EventsOff('verification-mode-changed')
     EventsOff('fingerprint-changed')
 
@@ -93,7 +104,10 @@
       await loadSessions()
       activeSessionId.set(data.id)
     })
-    EventsOn('session-closed', async (data) => { await loadSessions() })
+    EventsOn('session-closed', async (data) => {
+      await loadSessions()
+      versionWarnings.update(w => { const n = { ...w }; delete n[data]; return n })
+    })
     EventsOn('session-updated', async (data) => { await loadSessions() })
     EventsOn('history-updated', async (data) => { await loadHistory() })
     EventsOn('session-messages', (sessionID, messages) => {
@@ -141,6 +155,10 @@
     EventsOn('fingerprint-changed', (emoji, b64) => {
       fingerprint.set({ emoji, b64 })
     })
+    EventsOn('server-running', (running) => { serverActive = running })
+    EventsOn('version-warning', (sessionId, msg) => {
+      versionWarnings.update(w => ({ ...w, [sessionId]: msg }))
+    })
 
     // Request notification permission
     if ('Notification' in window && Notification.permission === 'default') {
@@ -162,6 +180,8 @@
     EventsOff('notification')
     EventsOff('storage-ready')
     EventsOff('request-passphrase')
+    EventsOff('server-running')
+    EventsOff('version-warning')
     EventsOff('verification-mode-changed')
     EventsOff('fingerprint-changed')
   })
@@ -186,7 +206,7 @@
     try {
       const addr = serverTransport === 'relay' ? '' : (connectServerAddr.trim() || ':8443')
       const relayAddr = serverTransport === 'relay' ? serverRelayAddr.trim() : ''
-      const fp = await StartServer(addr, serverTransport, relayAddr)
+      const fp = await StartServer(addr, serverTransport, relayAddr, serverName.trim())
       await loadSessions()
     } catch (e) {
       alert('Failed to start server: ' + e)
@@ -220,7 +240,7 @@
       const addr = connectTransport === 'relay' ? '' : (connectServerAddr2.trim() || 'localhost:8443')
       const relayAddr = connectTransport === 'relay' ? connectRelayAddr.trim() : ''
       const peerKey = connectTransport === 'relay' ? connectPeerKey.trim() : ''
-      const sessionId = await ConnectToServer(addr, connectTransport, relayAddr, peerKey)
+      const sessionId = await ConnectToServer(addr, connectTransport, relayAddr, peerKey, connectName.trim())
       await loadSessions()
       activeSessionId.set(sessionId)
       closeAllDialogs()
@@ -327,6 +347,7 @@
           connectTransport = 'tcp'
           connectRelayAddr = ''
           connectPeerKey = ''
+          connectName = ''
           dialogs.update(d => ({ ...d, showConnect: true }))
           break
         case 's':
@@ -337,6 +358,7 @@
             connectServerAddr = ':8443'
             serverTransport = 'tcp'
             serverRelayAddr = ''
+            serverName = ''
             dialogs.update(d => ({ ...d, showServer: true }))
           }
           break
@@ -370,7 +392,11 @@
 
 <div class="app-layout">
   {#if showPassphraseDialog}
-    <PassphraseDialog dismissable={passphraseDismissable} on:close={() => showPassphraseDialog = false} />
+    <PassphraseDialog dismissable={passphraseDismissable} on:close={async () => {
+      showPassphraseDialog = false
+      const p = await GetDBPath()
+      dbPath.set(p)
+    }} />
   {/if}
 
   {#if $verificationDialog}
@@ -405,6 +431,13 @@
               {/each}
             </div>
           </div>
+
+          <input
+            bind:value={serverName}
+            placeholder="Your name (optional)"
+            class="dialog-input"
+          />
+          <p class="dialog-hint">Leave empty for a random pseudonym</p>
 
           {#if serverTransport !== 'relay'}
             <input
@@ -457,6 +490,13 @@
               {/each}
             </div>
           </div>
+
+          <input
+            bind:value={connectName}
+            placeholder="Your name (optional)"
+            class="dialog-input"
+          />
+          <p class="dialog-hint">Leave empty for a random pseudonym</p>
 
           {#if connectTransport !== 'relay'}
             <input
@@ -597,9 +637,9 @@
   <div class="app-body">
     <Sidebar
       {serverActive}
-      on:startServer={() => { connectServerAddr = ':8443'; serverTransport = 'tcp'; serverRelayAddr = ''; dialogs.update(d => ({ ...d, showServer: true })) }}
+      on:startServer={() => { connectServerAddr = ':8443'; serverTransport = 'tcp'; serverRelayAddr = ''; serverName = ''; dialogs.update(d => ({ ...d, showServer: true })) }}
       on:stopServer={handleStopServer}
-      on:connect={() => { connectTransport = 'tcp'; connectRelayAddr = ''; connectPeerKey = ''; dialogs.update(d => ({ ...d, showConnect: true })) }}
+      on:connect={() => { connectTransport = 'tcp'; connectRelayAddr = ''; connectPeerKey = ''; connectName = ''; dialogs.update(d => ({ ...d, showConnect: true })) }}
       on:refreshHistory={handleRefreshHistory}
       on:selectSession={(e) => {
         handleSelectTab(e.detail)

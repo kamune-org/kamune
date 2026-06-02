@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte'
-  import { status, appVersion, logPanelOpen, verificationMode } from './stores.js'
+  import { status, appVersion, libraryVersion, logPanelOpen, verificationMode } from './stores.js'
 
   const dispatch = createEventDispatcher()
 
@@ -25,12 +25,15 @@
       style="background:{indicatorColor}"
     ></span>
     <span class="status-msg">{indicatorText}</span>
-    <span class="mode-badge" title="Verification mode — change from Connection menu">
-      {modeLabels[$verificationMode] || 'Unknown'}
+    <span class="sep">·</span>
+    <span class="version" title="Bus v{$appVersion} • kamune v{$libraryVersion}">
+      v{$appVersion} <span class="lib-part">(kamune v{$libraryVersion})</span>
     </span>
   </div>
   <div class="status-right">
-    <span class="version" title="v{$appVersion}">v{$appVersion}</span>
+    <span class="mode-badge" title="Verification mode — change from Connection menu">
+      {modeLabels[$verificationMode] || 'Unknown'}
+    </span>
     <button
       class="status-btn logs-btn"
       class:active={$logPanelOpen}
@@ -91,10 +94,17 @@
     align-items: center;
     gap: 10px;
   }
+  .sep {
+    color: var(--text-timestamp);
+    opacity: 0.3;
+    font-size: 13px;
+  }
   .version {
     color: var(--text-timestamp);
     font-family: var(--font-mono);
     font-size: 11px;
+  }
+  .lib-part {
     opacity: 0.7;
   }
   .mode-badge {

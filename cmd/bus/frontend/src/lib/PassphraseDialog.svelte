@@ -10,7 +10,7 @@
 
   let passphrase = ''
   let showPass = false
-  let saveToKeychain = true
+  let saveToKeychain = false
   let loading = false
   let error = ''
   let hasKeychain = false
@@ -38,7 +38,7 @@
 
   async function skipPassphrase() {
     passphrase = ''
-    saveToKeychain = false
+    saveToKeychain = true
     await submit()
   }
 

@@ -2,6 +2,7 @@
   import { createEventDispatcher, afterUpdate } from 'svelte'
   import {
     sessions, activeSessionId, sessionMessages, sidebarTab, showWelcome,
+    versionWarnings,
   } from './stores.js'
   import { CopyToClipboard } from '../../wailsjs/go/main/App.js'
   import { K } from './keyboard.js'
@@ -50,13 +51,9 @@
   {#if $activeSessionId}
     <div class="info-bar">
       <div class="info-left">
-        <div class="info-avatar" class:is-server={activeSession?.isServer}>
+        <div class="info-avatar" class:history={isHistory}>
           <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-            {#if activeSession?.isServer}
-              <path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm3 1h10v2H7V5zm0 3h10v2H7V8zm0 3h10v2H7v-2z" clip-rule="evenodd" />
-            {:else}
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-            {/if}
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
           </svg>
         </div>
         <div class="info-details">
@@ -91,6 +88,20 @@
           </svg>
         </button>
       </div>
+    </div>
+  {/if}
+
+  {#if $activeSessionId && $versionWarnings[$activeSessionId]}
+    <div class="version-warning">
+      <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+      </svg>
+      <span>{$versionWarnings[$activeSessionId]}</span>
+      <button class="warn-dismiss" on:click={() => versionWarnings.update(w => { const n = { ...w }; delete n[$activeSessionId]; return n })}>
+        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+          <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+        </svg>
+      </button>
     </div>
   {/if}
 
@@ -202,16 +213,16 @@
     width: 34px;
     height: 34px;
     border-radius: 8px;
-    background: var(--accent-primary-dim);
-    color: var(--accent-primary);
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--status-connected);
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
   }
-  .info-avatar.is-server {
-    background: rgba(16, 185, 129, 0.12);
-    color: var(--status-connected);
+  .info-avatar.history {
+    background: var(--accent-primary-dim);
+    color: var(--accent-primary);
   }
   .info-details {
     display: flex;
@@ -510,5 +521,37 @@
   .send-btn:disabled {
     opacity: 0.3;
     cursor: default;
+  }
+
+  .version-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(245, 158, 11, 0.12);
+    border-bottom: 1px solid rgba(245, 158, 11, 0.25);
+    color: #f59e0b;
+    font-size: 12px;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .version-warning span {
+    flex: 1;
+  }
+  .warn-dismiss {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: transparent;
+    color: rgba(245, 158, 11, 0.6);
+    border-radius: 4px;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .warn-dismiss:hover {
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
   }
 </style>

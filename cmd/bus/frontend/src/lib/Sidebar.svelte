@@ -148,6 +148,10 @@
                   <span class="meta-time">{timeAgo(session.lastActivity)}</span>
                   <span class="meta-dot">·</span>
                   <span class="transport-badge" class:transport-relay={session.transportType === 'relay'} class:transport-udp={session.transportType === 'udp'}>{session.transportType}</span>
+                  {#if session.remoteVersion}
+                    <span class="meta-dot">·</span>
+                    <span class="meta-version">v{session.remoteVersion}</span>
+                  {/if}
                 </div>
               </div>
               <div class="session-actions">
@@ -510,6 +514,11 @@
   .transport-badge.transport-udp {
     background: rgba(34, 211, 238, 0.1);
     color: #22d3ee;
+  }
+  .meta-version {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-timestamp);
   }
 
   .session-actions {

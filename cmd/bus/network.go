@@ -11,7 +11,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-func (a *App) StartServer(addr string, transport string, relayAddr string) (string, error) {
+func (a *App) StartServer(addr string, transport string, relayAddr string, name string) (string, error) {
 	a.mu.Lock()
 	if a.server != nil {
 		a.mu.Unlock()
@@ -26,8 +26,13 @@ func (a *App) StartServer(addr string, transport string, relayAddr string) (stri
 		return "", fmt.Errorf("storage is not available")
 	}
 
+	if name == "" {
+		name = fingerprint.Pseudonym()
+	}
+
 	var opts []kamune.ServerOptions
 	opts = append(opts, kamune.ServeWithRemoteVerifier(a.getVerifier()))
+	opts = append(opts, kamune.ServeWithServerName(name))
 
 	switch transport {
 	case "relay":
@@ -66,6 +71,7 @@ func (a *App) StartServer(addr string, transport string, relayAddr string) (stri
 	a.mu.Unlock()
 
 	runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64)
+	runtime.EventsEmit(a.ctx, "server-running", true)
 
 	go func() {
 		defer close(done)
@@ -80,6 +86,7 @@ func (a *App) StartServer(addr string, transport string, relayAddr string) (stri
 		a.serverTransportType = ""
 		a.mu.Unlock()
 		runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "")
+		runtime.EventsEmit(a.ctx, "server-running", false)
 		a.setStatus(StatusDisconnected, "Server stopped")
 	}()
 
@@ -132,7 +139,7 @@ func (a *App) StopServer() error {
 	return nil
 }
 
-func (a *App) ConnectToServer(addr string, transport string, relayAddr string, peerKey string) (string, error) {
+func (a *App) ConnectToServer(addr string, transport string, relayAddr string, peerKey string, name string) (string, error) {
 	a.setStatus(StatusConnecting, "Connecting to "+addr+"...")
 
 	store := a.store()
@@ -142,6 +149,11 @@ func (a *App) ConnectToServer(addr string, transport string, relayAddr string, p
 
 	var opts []kamune.DialOption
 	opts = append(opts, kamune.DialWithRemoteVerifier(a.getVerifier()))
+
+	if name == "" {
+		name = fingerprint.Pseudonym()
+	}
+	opts = append(opts, kamune.DialWithClientName(name))
 
 	switch transport {
 	case "relay":
@@ -173,9 +185,11 @@ func (a *App) ConnectToServer(addr string, transport string, relayAddr string, p
 	}
 
 	sessionID := t.SessionID()
+	peer := t.RemotePeer()
 	session := &liveSession{
 		ID:            sessionID,
-		PeerName:      fingerprint.Base64(t.RemotePublicKey()),
+		PeerName:      peer.Name,
+		RemoteVersion: peer.AppVersion,
 		Transport:     t,
 		Messages:      make([]MessageInfo, 0),
 		LastActivity:  time.Now(),
@@ -184,6 +198,11 @@ func (a *App) ConnectToServer(addr string, transport string, relayAddr string, p
 	}
 
 	a.loadChatHistory(session)
+
+	if msg, mismatch := checkMinorMismatch(kamune.AppVersion, peer.AppVersion); mismatch {
+		a.addLogEntry("WARN", msg)
+		runtime.EventsEmit(a.ctx, "version-warning", sessionID, msg)
+	}
 
 	a.mu.Lock()
 	a.sessions = append(a.sessions, session)
@@ -196,6 +215,7 @@ func (a *App) ConnectToServer(addr string, transport string, relayAddr string, p
 		MsgCount:      len(session.Messages),
 		LastActivity:  session.LastActivity,
 		TransportType: session.TransportType,
+		RemoteVersion: peer.AppVersion,
 	}
 	runtime.EventsEmit(a.ctx, "session-new", info)
 	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
@@ -251,9 +271,11 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	}
 
 	sessionID := t.SessionID()
+	peer := t.RemotePeer()
 	session := &liveSession{
 		ID:            sessionID,
-		PeerName:      fingerprint.Base64(t.RemotePublicKey()),
+		PeerName:      peer.Name,
+		RemoteVersion: peer.AppVersion,
 		Transport:     t,
 		Messages:      make([]MessageInfo, 0),
 		LastActivity:  time.Now(),
@@ -263,6 +285,11 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	}
 
 	a.loadChatHistory(session)
+
+	if msg, mismatch := checkMinorMismatch(kamune.AppVersion, peer.AppVersion); mismatch {
+		a.addLogEntry("WARN", msg)
+		runtime.EventsEmit(a.ctx, "version-warning", sessionID, msg)
+	}
 
 	a.mu.Lock()
 	a.sessions = append(a.sessions, session)
@@ -275,6 +302,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		MsgCount:      len(session.Messages),
 		LastActivity:  session.LastActivity,
 		TransportType: session.TransportType,
+		RemoteVersion: peer.AppVersion,
 	}
 	runtime.EventsEmit(a.ctx, "session-new", info)
 	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
