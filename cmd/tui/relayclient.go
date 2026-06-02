@@ -65,12 +65,14 @@ func relayClient(relayAddr, peerKeyB64 string) {
 	}
 	defer t.Close()
 
+	msg, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
+
 	pk := dialer.PublicKey()
 	fp := strings.Join(fingerprint.Emoji(pk), " • ")
 	fmt.Printf("Your emoji fingerprint: %s\n", fp)
 	fmt.Printf("Your base64 public key: %s\n", base64.RawURLEncoding.EncodeToString(pk))
 
-	p := NewProgram(tea.NewProgram(initialModel(t, store), tea.WithAltScreen()))
+	p := NewProgram(tea.NewProgram(initialModel(t, store, msg), tea.WithAltScreen()))
 	go func() {
 		if _, err := p.Run(); err != nil {
 			errCh <- err

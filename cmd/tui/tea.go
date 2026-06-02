@@ -29,12 +29,13 @@ type model struct {
 	userText   lipgloss.Style
 	peerPrefix lipgloss.Style
 	peerText   lipgloss.Style
+	warnStyle  lipgloss.Style
 	err        error
 	transport  *kamune.Transport
 	store      *storage.Storage
 }
 
-func initialModel(t *kamune.Transport, store *storage.Storage) model {
+func initialModel(t *kamune.Transport, store *storage.Storage, versionWarnings ...string) model {
 	ta := textarea.New()
 	ta.Placeholder = "Send a message..."
 	ta.Focus()
@@ -64,14 +65,24 @@ func initialModel(t *kamune.Transport, store *storage.Storage) model {
 		Padding(0, 1)
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 
+	var msgs []string
+	for _, w := range versionWarnings {
+		if w != "" {
+			msgs = append(msgs, lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFD700")).
+				Render("⚠ " + w))
+		}
+	}
+
 	return model{
 		textarea:   ta,
-		messages:   []string{},
+		messages:   msgs,
 		viewport:   vp,
 		userPrefix: lipgloss.NewStyle().Foreground(lipgloss.Color("#4A90E2")),
 		userText:   lipgloss.NewStyle().Foreground(lipgloss.Color("#E0F0FF")),
 		peerPrefix: lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500")),
 		peerText:   lipgloss.NewStyle().Foreground(lipgloss.Color("#FFF7E1")),
+		warnStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")),
 		err:        nil,
 		transport:  t,
 		store:      store,

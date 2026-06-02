@@ -40,7 +40,8 @@ func relayServer(relayAddr string) {
 	}
 
 	handler := func(t *kamune.Transport) error {
-		p := NewProgram(tea.NewProgram(initialModel(t, store), tea.WithAltScreen()))
+		msg, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
+		p := NewProgram(tea.NewProgram(initialModel(t, store, msg), tea.WithAltScreen()))
 		go func() {
 			if _, err := p.Run(); err != nil {
 				panic(err)
