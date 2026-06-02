@@ -1,72 +1,490 @@
-# Relay Protocol
+# Relay Protocol (Token Relay)
 
-Kamune supports a relay server for NAT traversal and offline message delivery.
-Peers communicate through a WebSocket relay using HPKE-encrypted channels.
+Kamune includes a relay server for NAT traversal. The relay is a **blind
+token-based session switch** — a listener connects, receives a random token,
+shares it out of band, and the dialer connects with that token. The relay
+bridges encrypted frames between the two and learns nothing about their
+identities or message content.
+
+## Design Goals
+
+- **Blind**: the relay never sees public keys, identities, or message content
+- **Stateless**: no storage, no queues, no offline messages (tokens are
+  ephemeral in-memory state)
+- **Zero metadata**: no social graph, no presence tracking, no persistent
+  identifiers across connections
+- **Out-of-band rendezvous**: the only thing peers exchange is a short random
+  token — no key material, no addresses
+- **Transport-agnostic**: same protocol over WebSocket, raw TCP, or TLS
 
 ## Relay Protobuf Schema
 
 ```protobuf
+syntax = "proto3";
 package relayconn;
 
 message Frame {
     oneof kind {
-        Identity identity = 1;
-        Message  msg      = 2;
-        Ack      ack      = 3;
-        Ping     ping     = 4;
-        Pong     pong     = 5;
+        Register   register   = 1;  // Create or join a session
+        Registered registered = 2;  // Relay responds with the session token
+        Message    msg        = 3;  // Route data to the session peer
+        Ping       ping       = 4;  // Keepalive
+        Pong       pong       = 5;  // Keepalive response
+        Auth       auth       = 6;  // PSK authentication (optional)
     }
 }
 
-message Identity {
-    bytes key = 1;  // Peer's public key (PKIX/DER)
+message Register {
+    bytes token = 1;  // Empty when creating a session (listener),
+                      // 16-byte token when joining (dialer)
+}
+
+message Registered {
+    bytes token = 1;  // The 16-byte session token
 }
 
 message Message {
-    bytes  receiver   = 1;  // Target peer's public key
-    bytes  sender     = 2;  // Set by relay when forwarding
-    string session_id = 3;
-    bytes  data       = 4;
-}
-
-message Ack {
-    string session_id = 1;
+    bytes data = 1;  // Encrypted payload — opaque to the relay
 }
 
 message Ping {}
+
 message Pong {}
+
+message Auth {
+    bytes psk = 1;  // Pre-shared key for PSK mode
+}
 ```
 
-## Connection to Relay
+## Connection Flow
 
-Both dialing (`DialRelay`) and listening (`ListenRelay`) initiate a WebSocket
-connection to the relay at `ws://<addr>/ws`:
+The protocol uses a single oneof frame type for session management.
 
-1. Establish HPKE Channel via `exchange.Initiate` over the WebSocket.
-2. Send `Frame{Identity{key: selfPubKey}}` through the HPKE channel.
-3. Receive the relay's `Frame{Identity{key: relayPubKey}}`.
-4. The relay now knows the peer's public key and can route messages.
+### Listener (creates session)
 
-## Relay Sessions
+1. Establish transport connection (WebSocket, TCP, or TLS).
+2. Perform HPKE key exchange (`exchange.Initiate` — the relay calls `Accept`).
+3. If PSK auth is configured, send `Frame.Auth{psk}` before registering.
+4. Send `Frame.Register{token: nil}` to request a new session.
+5. Receive `Frame.Registered{token: T}` — T is a random 16-byte token.
+6. Send T to the dialer out of band (QR code, text message, NFC, etc.).
+7. Enter read loop. The first incoming `Frame.Message{data}` establishes the
+   session — the dialer has arrived.
 
-Each relay session is identified by a synthetic session ID:
+### Dialer (joins session)
+
+1. Establish transport connection.
+2. Perform HPKE key exchange (`exchange.Initiate`).
+3. If PSK auth is configured, send `Frame.Auth{psk}` before registering.
+4. Send `Frame.Register{token: T}` with the token received from the listener.
+5. The relay validates T, joins the dialer to the session, and sends the
+   dialer a `Frame.Registered{token: T}` to confirm.
+6. Enter read loop. Messages are now bridged.
 
 ```
-syntheticSessionID(selfKey, peerKey) = "relay-hs:" + hex(SHA-256(selfKey || peerKey)[:8])
+Listener                                    Relay
+   │                                          │
+   ├── Connect ──────────────────────────────►│
+   ├── HPKE Initiate ────────────────────────►│
+   ├── (Auth if PSK) ────────────────────────►│
+   ├── Register{token: nil} ─────────────────►│
+   │◄─ Registered{token: T} ─────────────────┤
+   │                                          │
+   │  (send T to dialer OOB)                  │
+   │                                          │
+   │                              Dialer      │
+   │                                 │        │
+   │                                 ├── Connect ─────►│
+   │                                 ├── HPKE Initiate─►│
+   │                                 ├── (Auth if PSK)─►│
+   │                                 ├── Register{T} ──►│
+   │◄════ Message{data} ═══════════════════╝        │
+   │══════ Message{data} ═══════════════════╗        │
+   │                                 ◄══════╝        │
+   │                                 ══════╗          │
 ```
 
-## Relay Frame Flow
+The relay tracks which transport connection belongs to which session. When
+one peer writes a `Frame.Message{data}`, the relay delivers it to the other
+peer in the same session.
 
-- **Outgoing messages**: Wrapped in `Frame{Msg{receiver, sessionID, data}}`,
-  encrypted via the HPKE Channel, and sent over the relay WebSocket.
-- **Incoming messages**: `Frame{Msg{data}}` is unwrapped from the relay,
-  buffered, and returned via `ReadBytes()`.
-- **Ping/Pong**: `Frame{Ping}` triggers an automatic `Frame{Pong}` response at
-  the relay connection level.
+## Frame Flow
+
+- **Session creation**: `Frame.Register{token: nil}` asks the relay to
+  generate a new random token and create a session. The relay replies with
+  `Frame.Registered{token: T}` containing the 16-byte token.
+- **Session join**: `Frame.Register{token: T}` with a previously issued token
+  adds the sender's connection to the session. The relay replies with
+  `Frame.Registered{token: T}` to confirm.
+- **Message relay**: `Frame.Message{data}` is delivered to the other peer
+  in the session. If the other peer has not yet connected, the message is
+  silently dropped (no queuing).
+- **Ping/Pong**: `Frame.Ping` triggers an automatic `Frame.Pong` response
+  at the relay connection level. The relay and client only respond to Pings;
+  neither side initiates them.
+- **Auth**: `Frame.Auth{psk}` authenticates the peer before registering.
+  Required when the relay is in PSK mode. The relay replies with an empty
+  `Frame.Auth{}` on success or disconnects on failure.
+
+The relay applies no back-pressure, no queuing, no retry — if the recipient
+disconnects, the message is silently dropped. The Kamune protocol layer
+(running inside the encrypted channel) handles reliability.
+
+### Token lifecycle
+
+1. **Issued**: relay generates T = `crypto/rand` 16 bytes, creates an
+   in-memory session, stores T → session mapping. The session has one
+   participant: the listener.
+2. **Consumed**: when a dialer sends `Register{token: T}`, the relay joins
+   the dialer's connection to the session. The token is now consumed — no
+   further peer can join with the same T.
+3. **Expired**: if the listener disconnects before a dialer joins, the
+   token is discarded and cannot be used.
+4. **TTL**: tokens have a configurable time-to-live (default: 5 minutes).
+   If no dialer joins within the TTL, the session is cleaned up.
+
+Tokens are:
+- **Single-use**: one dialer per token
+- **Time-bound**: TTL enforced server-side
+- **Opaque**: the relay does not embed any peer information in the token
+- **Unpredictable**: generated by `crypto/rand`
+
+## What the relay learns (and doesn't)
+
+| The relay sees                      | The relay does NOT see          |
+| ----------------------------------- | ------------------------------- |
+| Session S has 2 connections         | Public keys of either peer      |
+| Connection A is in session S        | Identity of any peer            |
+| Session S received a message at T    | Persistent identifier (token is |
+|                                     | ephemeral and single-use)       |
+|                                     | Message content (E2E encrypted) |
+|                                     | Social graph (each token is     |
+|                                     | unique per rendezvous)          |
+
+The relay never learns who any peer is — it sees only that two connections
+share a token, nothing more.
 
 ## RelayListener
 
-`ListenRelay` returns a `RelayListener` implementing the `Listener` interface.
-When a message arrives for a new session ID, a new `RelayConn` is created and
-pushed to the accept channel. The `RelayConn` implements the `Conn` interface
-and can be used with the standard `Server` via `ServeWithListener`.
+`ListenRelay` connects to the relay and performs the HPKE exchange, then:
+
+1. Sends `Frame.Register{token: nil}` to create a session.
+2. Receives `Frame.Registered{token: T}` and returns T to the caller.
+3. Enters a read loop. When a `Frame.Message{data}` arrives, it creates a
+   new `RelayConn` and pushes it to the accept channel.
+4. The relay token is consumed by the first dialer that presents it.
+
+All `RelayConn` instances for the same listener share the underlying relay
+HPKE channel — the relay differentiates sessions by token.
+
+## Transports
+
+The relay supports three independent transport listeners, each configured
+via its own section in the TOML config. Any combination can be active at once.
+
+The client API takes the relay address and an optional password (for PSK
+mode). No peer key or identity key is needed — the dialer discovers the
+session via the token, and the HPKE exchange generates ephemeral keys per
+connection.
+
+### WebSocket (`[ws]`)
+
+A WebSocket listener. Shares the HTTP server address from `[server].address`.
+Suitable for permissive networks, local development, and deployments behind
+a CDN.
+
+```toml
+[ws]
+enabled = true
+```
+
+When `enabled` is `false`, the WebSocket listener is disabled.
+
+For WebSocket over TLS (`wss://`), provide a TLS config to the client API
+(see TLS section for certificate setup).
+
+Client API:
+
+```go
+relayconn.DialRelay(ctx, addr, token)
+relayconn.DialRelayWSS(ctx, addr, token, tlsCfg)
+relayconn.ListenRelay(ctx, addr)        // returns (*RelayListener, token, error)
+relayconn.ListenRelayWSS(ctx, addr, tlsCfg) // returns (*RelayListener, token, error)
+```
+
+### Raw TCP (`[tcp]`)
+
+A bare TCP listener with length-prefixed framing. No TLS, no HTTP — just
+2-byte big-endian length + payload over a plain TCP stream. Suitable for
+trusted LANs, VPN backends, and development.
+
+```toml
+[tcp]
+enabled = true
+address = "127.0.0.1:8889"
+```
+
+Client API:
+
+```go
+relayconn.DialRelayTCP(ctx, addr, token)
+relayconn.ListenRelayTCP(ctx, addr)  // returns (*RelayListener, token, error)
+```
+
+### TLS (`[tls]`)
+
+A TLS-encrypted TCP listener using the same length-prefixed framing, but
+wrapped in a TLS 1.3 connection. To passive DPI this is indistinguishable
+from any other TLS service on port 443 — no HTTP upgrade, no opcodes, no
+protocol fingerprint.
+
+```toml
+[tls]
+enabled = true
+address = "0.0.0.0:443"
+cert_file = "/path/to/cert.pem"
+key_file  = "/path/to/key.pem"
+```
+
+**Auto-generated certificate.** When `cert_file` and `key_file` are specified
+but the files don't exist, the relay generates a self-signed TLS certificate.
+This certificate is valid for 10 years and contains no identifying metadata.
+If `cert_file` or `key_file` is empty, the relay returns an error — you must
+specify paths even for auto-generated certs.
+
+Client API:
+
+```go
+tlsCfg := &tls.Config{}
+relayconn.DialRelayTLS(ctx, addr, token, tlsCfg)
+relayconn.ListenRelayTLS(ctx, addr, tlsCfg)  // returns (*RelayListener, token, error)
+```
+
+### Comparison
+
+| Transport | Wire fingerprint             | DPI evasion               | Use case                     |
+| --------- | ---------------------------- | ------------------------- | ---------------------------- |
+| WebSocket | HTTP upgrade + `0x82` frames | Weak                      | Permissive nets, dev, CDN    |
+| Raw TCP   | Plain TCP, no TLS            | None (visible as raw TCP) | Trusted LAN, VPN             |
+| TLS       | Standard TLS 1.3             | Excellent                 | Production, hostile networks |
+
+### PSK auth
+
+All transport functions accept an optional password via `relayconn.WithPassword`:
+
+```go
+relayconn.DialRelay(ctx, addr, token, relayconn.WithPassword("secret"))
+relayconn.ListenRelay(ctx, addr, relayconn.WithPassword("secret"))
+```
+
+### Config example: stealth deployment
+
+```toml
+[tcp]
+enabled = false
+
+[tls]
+enabled = true
+address = "0.0.0.0:443"
+# cert_file and key_file will be auto-generated on first run
+cert_file = "server.crt"
+key_file  = "server.key"
+
+[ws]
+enabled = false
+
+[server]
+password = ""
+expose_health = false
+expose_ip = false
+```
+
+On the wire: TLS 1.3 handshake followed by length-prefixed ciphertext. No
+HTTP requests, no protocol fingerprint beyond "unknown TLS application".
+
+## Deploying Behind a CDN
+
+A CDN proxies traffic between clients and your relay, shielding the relay's
+IP address and providing free TLS termination. This is the recommended
+deployment model for hostile networks.
+
+### How WSS works
+
+`wss://` is the WebSocket equivalent of `https://` — a WebSocket connection
+inside a TLS tunnel. The client performs a standard TLS handshake first,
+then sends the WebSocket upgrade inside the encrypted tunnel. Passive DPI
+sees only the initial TLS handshake.
+
+### CDN deployment flow
+
+```
+                  TLS (CDN cert)         plain WS (private network)
+Client ──wss://relay.cdn.com/ws──► CDN ──ws://relay:8080/ws──► Relay
+  │                                │
+  │‑ Client sees CDN's valid cert  │‑ CDN terminates TLS
+  │‑ Client never sees relay IP    │‑ Forwards upgrade as-is
+  │‑ Blends with millions of       │‑ Connection to origin is
+  │  other CDN sites               │  plain WS on private network
+```
+
+The relay operator does not need a TLS certificate. The CDN provides one.
+The relay listens on `[server] address = "127.0.0.1:8080"` with `[ws] enabled = true`
+— plain WebSocket behind the CDN is perfectly safe.
+
+Use `DialRelayWSS` / `ListenRelayWSS` on the client side with a TLS config
+pointed at the CDN hostname.
+
+### Cloudflare Tunnel (recommended)
+
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+lets the relay make a single outbound connection to Cloudflare, eliminating
+the need for a public IP or open firewall ports entirely:
+
+```
+Client ──wss://relay.cdn.com/ws──► Cloudflare edge
+                                       ▲
+                                       │ outbound tunnel (no open ports)
+                                       │
+                                   Relay (cloudflared on localhost:8080)
+```
+
+- No public IP required — works behind CGNAT, residential ISPs, or firewalls
+- No open ports — only outbound connections
+- Free tier handles unlimited traffic
+- DPI sees traffic to Cloudflare IPs, not the relay
+
+The relay itself needs no changes — it listens on localhost as usual.
+
+### Config for CDN-backed relay
+
+```toml
+[ws]
+enabled = true
+
+[tcp]
+enabled = false
+
+[tls]
+enabled = false
+
+[server]
+address = "127.0.0.1:8080"   # localhost only — CDN connects via tunnel
+password = ""
+expose_health = false
+expose_ip = false
+```
+
+### CDN vs direct TLS comparison
+
+|                     | Direct TLS listener | CDN (Cloudflare)                   | Cloudflare Tunnel         |
+| ------------------- | ------------------- | ---------------------------------- | ------------------------- |
+| Relay IP hidden     | No                  | Yes (CDN IP shown)                 | Yes (no public IP at all) |
+| TLS cert            | Self-signed (auto)  | CDN's valid cert                   | CDN's valid cert          |
+| DPI evasion         | Good (raw TLS)      | Excellent (blends with CF traffic) | Excellent                 |
+| Cost                | Free                | Free                               | Free                      |
+| Open ports required | Yes (port 443)      | Yes (port 443 on origin)           | No (outbound only)        |
+| Setup complexity    | None (auto-cert)    | DNS + proxy toggle                 | Install cloudflared       |
+
+### Cloudflare Workers
+
+[Workers](https://workers.cloudflare.com/) can act as a WebSocket proxy
+between clients and the relay, optionally adding auth, logging, or IP
+filtering at the edge:
+
+```js
+// worker.js — WebSocket proxy (~20 lines)
+export default {
+  async fetch(req) {
+    const url = new URL(req.url);
+    const origin = new URL("wss://relay-origin.example.com");
+    origin.pathname = url.pathname;
+    return fetch(new Request(origin, req));
+  },
+};
+```
+
+The Worker forwards the WebSocket upgrade transparently. All subsequent WS
+frames pass through. The relay sees the Worker's IP, not the client's.
+
+## Access Control
+
+The relay supports restricting which peers can create sessions. Enforcement
+happens inside the HPKE-encrypted channel, before a token is issued.
+
+| Mode | Config                   | Behaviour                                              |
+| ---- | ------------------------ | ------------------------------------------------------ |
+| Open | `password = ""` (default) | Any peer can create sessions and receive tokens       |
+| PSK  | `password = "<secret>"`  | Peer must send `Frame.Auth{psk}` before `Register`     |
+
+### Open mode (default)
+
+```toml
+[server]
+password = ""
+```
+
+No restrictions. The relay accepts any peer.
+
+### PSK mode
+
+```toml
+[server]
+password = "aB3dF5gH8jK2lQ4wE6rT9yU1iO7pZ0x"
+```
+
+After the HPKE exchange, the peer must send a `Frame.Auth{psk: "..."}`
+frame before `Frame.Register`. The relay verifies the PSK using
+constant-time comparison and closes the connection if incorrect.
+
+On the client side, pass the password via `relayconn.WithPassword`:
+
+```go
+rc, err := relayconn.DialRelay(ctx, addr, token, relayconn.WithPassword(password))
+```
+
+## Rate Limiting
+
+The relay supports optional rate limiting per connection to prevent abuse.
+
+```toml
+[rate_limit]
+enabled = true
+time_window = "1m"
+quota = 20
+```
+
+When enabled, each connection is limited to `quota` registrations per
+`time_window`. Exceeding the quota closes the connection.
+
+## Config Reference
+
+```toml
+[server]
+address = "127.0.0.1:8888"   # HTTP/WS listen address
+password = ""                 # PSK password, empty = open mode
+expose_health = true          # expose /health endpoint
+expose_ip = true              # expose /ip endpoint
+
+[ws]
+enabled = true                # WebSocket listener (shares server address)
+
+[tcp]
+enabled = false               # Raw TCP listener
+address = "127.0.0.1:8889"
+
+[tls]
+enabled = false               # TLS listener
+address = "0.0.0.0:443"
+# cert_file = "server.crt"    # required (auto-generated if files missing)
+# key_file  = "server.key"    # required (auto-generated if files missing)
+
+[session]
+token_ttl = "5m"              # Token time-to-live (default: 5 minutes)
+max_concurrent_sessions = 10000  # Maximum active sessions
+max_message_size = 65536      # Maximum message payload size (bytes)
+
+[rate_limit]
+enabled = true                # Enable rate limiting
+time_window = "1m"            # Rate limit window
+quota = 20                    # Max registrations per window
+```

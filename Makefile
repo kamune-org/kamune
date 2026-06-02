@@ -9,6 +9,7 @@ bench:
 .PHONY: gen-proto
 gen-proto:
 	@protoc -I=internal/box --go_out=internal/box internal/box/*.proto
+	@protoc -I=pkg/relayconn --go_out=pkg/relayconn pkg/relayconn/pb/*.proto
 
 .PHONY: align-structs
 align-structs:
