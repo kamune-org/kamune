@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte'
   import {
     GetSessions, GetHistorySessions, GetFingerprint, GetDBPath,
-    GetLogEntries, GetVersion, GetLibraryVersion, GetStatus, GetVerificationMode,
+    GetLogEntries, GetVersion, GetLibraryVersion, GetMyName, GetStatus, GetVerificationMode,
     GetServerRunning,
     StartServer, ConnectToServer, StopServer, DisconnectSession,
     SendMessage, RefreshHistory, SetVerificationMode,
@@ -15,7 +15,7 @@
     sessions, historySessions, sessionMessages, status, fingerprint,
     dbPath, logEntries, verificationMode, appVersion, activeSessionId,
     sidebarTab, logPanelOpen, verificationDialog, dialogs, toast,
-    versionWarnings, libraryVersion,
+    versionWarnings, libraryVersion, myName,
   } from './lib/stores.js'
   import { K, isMac } from './lib/keyboard.js'
 
@@ -61,6 +61,9 @@
 
     const lv = await GetLibraryVersion()
     libraryVersion.set(lv)
+
+    const mn = await GetMyName()
+    myName.set(mn)
 
     const s = await GetStatus()
     status.set(s)
@@ -155,6 +158,9 @@
     EventsOn('fingerprint-changed', (emoji, b64) => {
       fingerprint.set({ emoji, b64 })
     })
+    EventsOn('local-name-changed', (name) => {
+      myName.set(name)
+    })
     EventsOn('server-running', (running) => { serverActive = running })
     EventsOn('version-warning', (sessionId, msg) => {
       versionWarnings.update(w => ({ ...w, [sessionId]: msg }))
@@ -184,6 +190,7 @@
     EventsOff('version-warning')
     EventsOff('verification-mode-changed')
     EventsOff('fingerprint-changed')
+    EventsOff('local-name-changed')
   })
 
   async function loadSessions() {

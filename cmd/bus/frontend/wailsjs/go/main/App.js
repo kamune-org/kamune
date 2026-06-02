@@ -50,6 +50,10 @@ export function GetLogEntries() {
   return window['go']['main']['App']['GetLogEntries']();
 }
 
+export function GetMyName() {
+  return window['go']['main']['App']['GetMyName']();
+}
+
 export function GetServerRunning() {
   return window['go']['main']['App']['GetServerRunning']();
 }
@@ -120,6 +124,10 @@ export function SetActiveSession(arg1) {
 
 export function SetDBPath(arg1) {
   return window['go']['main']['App']['SetDBPath'](arg1);
+}
+
+export function SetMyName(arg1) {
+  return window['go']['main']['App']['SetMyName'](arg1);
 }
 
 export function SetVerificationMode(arg1) {

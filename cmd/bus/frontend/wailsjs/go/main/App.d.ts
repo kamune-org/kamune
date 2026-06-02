@@ -26,6 +26,8 @@ export function GetLibraryVersion():Promise<string>;
 
 export function GetLogEntries():Promise<Array<main.LogEntryInfo>>;
 
+export function GetMyName():Promise<string>;
+
 export function GetServerRunning():Promise<boolean>;
 
 export function GetSessionInfo(arg1:string):Promise<Record<string, any>>;
@@ -61,6 +63,8 @@ export function SendNotification(arg1:string,arg2:string):Promise<void>;
 export function SetActiveSession(arg1:string):Promise<void>;
 
 export function SetDBPath(arg1:string):Promise<void>;
+
+export function SetMyName(arg1:string):Promise<void>;
 
 export function SetVerificationMode(arg1:number):Promise<void>;
 

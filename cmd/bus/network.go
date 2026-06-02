@@ -27,8 +27,17 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 	}
 
 	if name == "" {
-		name = fingerprint.Pseudonym()
+		pubKey, err := store.PublicKey()
+		if err != nil {
+			return "", fmt.Errorf("getting identity: %w", err)
+		}
+		name = fingerprint.Pseudonym(pubKey)
 	}
+
+	a.mu.Lock()
+	a.myName = name
+	a.mu.Unlock()
+	_ = store.SetSettings("bus", "local_name", name)
 
 	var opts []kamune.ServerOptions
 	opts = append(opts, kamune.ServeWithRemoteVerifier(a.getVerifier()))
@@ -151,8 +160,18 @@ func (a *App) ConnectToServer(addr string, transport string, relayAddr string, p
 	opts = append(opts, kamune.DialWithRemoteVerifier(a.getVerifier()))
 
 	if name == "" {
-		name = fingerprint.Pseudonym()
+		pubKey, err := store.PublicKey()
+		if err != nil {
+			return "", fmt.Errorf("getting identity: %w", err)
+		}
+		name = fingerprint.Pseudonym(pubKey)
 	}
+
+	a.mu.Lock()
+	a.myName = name
+	a.mu.Unlock()
+	_ = store.SetSettings("bus", "local_name", name)
+
 	opts = append(opts, kamune.DialWithClientName(name))
 
 	switch transport {

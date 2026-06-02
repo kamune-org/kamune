@@ -2,14 +2,38 @@
   import { createEventDispatcher } from 'svelte'
   import {
     sessions, historySessions, activeSessionId, fingerprint,
-    status, sidebarTab, dbPath,
+    status, sidebarTab, dbPath, myName,
   } from './stores.js'
-  import { CopyToClipboard } from '../../wailsjs/go/main/App.js'
+  import { CopyToClipboard, SetMyName } from '../../wailsjs/go/main/App.js'
 
   const dispatch = createEventDispatcher()
   export let serverActive = false
 
   let copied = false
+  let editingName = false
+  let editName = ''
+
+  function focusInput(node) {
+    node.focus()
+    node.select()
+  }
+
+  function startEdit() {
+    editName = $myName
+    editingName = true
+  }
+
+  async function saveName() {
+    const trimmed = editName.trim()
+    if (trimmed && trimmed !== $myName) {
+      await SetMyName(trimmed)
+    }
+    editingName = false
+  }
+
+  function cancelEdit() {
+    editingName = false
+  }
 
   function toggleTab(tab) {
     sidebarTab.set(tab)
@@ -53,8 +77,21 @@
 <div class="sidebar">
   <div class="sidebar-header">
     <div class="brand">
-      <span class="brand-icon">◆</span>
+      <svg class="brand-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" /></svg>
       <span class="brand-text">Kamune</span>
+      {#if editingName}
+        <input
+          class="name-input"
+          type="text"
+          bind:value={editName}
+          maxlength="32"
+          on:blur={saveName}
+          on:keydown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') cancelEdit() }}
+          use:focusInput
+        >
+      {:else if $myName}
+        <span class="brand-name" on:click={startEdit} on:keydown={(e) => e.key === 'Enter' && startEdit()} tabindex="0" role="button">{ $myName }</span>
+      {/if}
     </div>
   </div>
 
@@ -309,7 +346,7 @@
     gap: 8px;
   }
   .brand-icon {
-    font-size: 18px;
+    display: flex;
     color: var(--accent-primary);
   }
   .brand-text {
@@ -317,6 +354,33 @@
     font-weight: 700;
     letter-spacing: -0.3px;
     color: var(--text-primary);
+  }
+  .brand-name {
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+    margin-left: auto;
+  }
+  .brand-name:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .name-input {
+    font-size: 13px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-primary);
+    border-radius: 4px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    outline: none;
+    width: 180px;
+    margin-left: auto;
   }
 
   .sidebar-tabs {

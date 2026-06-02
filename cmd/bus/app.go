@@ -163,6 +163,8 @@ type App struct {
 	b64FP        string
 	verifMode    VerificationMode
 	appVersion   string
+	pubKey       []byte
+	myName       string
 
 	status          ConnectionStatus
 	statusMsg       string
@@ -384,10 +386,33 @@ func (a *App) initFromStorage() {
 		b64 := fingerprint.Base64(pubKey)
 
 		a.mu.Lock()
+		a.pubKey = pubKey
 		a.emojiFP = emoji
 		a.b64FP = b64
 		a.storageReady = true
 		a.mu.Unlock()
+
+		name, nameErr := store.GetSettings("bus", "local_name")
+		if nameErr == nil && name == "" {
+			name = fingerprint.Pseudonym(pubKey)
+			_ = store.SetSettings("bus", "local_name", name)
+		}
+		if nameErr == nil {
+			a.mu.Lock()
+			a.myName = name
+			a.mu.Unlock()
+			runtime.EventsEmit(a.ctx, "local-name-changed", name)
+		}
+
+		modeStr, modeErr := store.GetSettings("bus", "verification_mode")
+		if modeErr == nil && modeStr != "" {
+			if mode, err := strconv.Atoi(modeStr); err == nil {
+				a.mu.Lock()
+				a.verifMode = VerificationMode(mode)
+				a.mu.Unlock()
+				runtime.EventsEmit(a.ctx, "verification-mode-changed", mode)
+			}
+		}
 
 		runtime.EventsEmit(a.ctx, "storage-ready")
 		runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64)
@@ -437,6 +462,34 @@ func (a *App) GetVersion() string {
 
 func (a *App) GetLibraryVersion() string {
 	return kamune.AppVersion
+}
+
+func (a *App) GetMyName() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.myName
+}
+
+const maxNameLength = 32
+
+func (a *App) SetMyName(name string) error {
+	if len(name) > maxNameLength {
+		return fmt.Errorf("name must be %d characters or fewer", maxNameLength)
+	}
+
+	store := a.store()
+	if store != nil {
+		if err := store.SetSettings("bus", "local_name", name); err != nil {
+			return fmt.Errorf("persist name: %w", err)
+		}
+	}
+
+	a.mu.Lock()
+	a.myName = name
+	a.mu.Unlock()
+
+	runtime.EventsEmit(a.ctx, "local-name-changed", name)
+	return nil
 }
 
 func (a *App) GetStatus() StatusInfo {
@@ -498,6 +551,9 @@ func (a *App) SetVerificationMode(mode int) {
 	a.mu.Lock()
 	a.verifMode = VerificationMode(mode)
 	a.mu.Unlock()
+	if store := a.store(); store != nil {
+		_ = store.SetSettings("bus", "verification_mode", strconv.Itoa(mode))
+	}
 	a.addLogEntry("INFO", "Verification mode set to: "+verifModeName(VerificationMode(mode)))
 	runtime.EventsEmit(a.ctx, "verification-mode-changed", mode)
 }
