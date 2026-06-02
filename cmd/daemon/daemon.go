@@ -362,6 +362,8 @@ func (d *Daemon) receiveLoop(
 		metadata, err := t.Receive(b)
 		if err != nil {
 			switch {
+			case errors.Is(err, kamune.ErrPeerDisconnected):
+				return
 			case errors.Is(err, kamune.ErrConnClosed):
 				return
 			case errors.Is(err, kamune.ErrReceiveTimeout):
