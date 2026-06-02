@@ -2,6 +2,7 @@ package relayconn
 
 import (
 	"context"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -76,7 +77,9 @@ func (rc *RelayConn) ReadBytes() ([]byte, error) {
 			if timer != nil {
 				timer.Stop()
 			}
-			return nil, rc.ctx.Err()
+			// Return io.EOF so Transport.Receive() maps this to
+			// ErrConnClosed rather than a generic error.
+			return nil, io.EOF
 		}
 	}
 }

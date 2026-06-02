@@ -8,6 +8,7 @@ var (
 	ErrVersionMismatch    = errors.New("version mismatch")
 	ErrClosedServer       = errors.New("server is closed")
 	ErrConnClosed         = errors.New("connection has been closed")
+	ErrPeerDisconnected   = errors.New("peer disconnected")
 	ErrInvalidSignature   = errors.New("invalid signature")
 	ErrVerificationFailed = errors.New("verification failed")
 	ErrMessageTooLarge    = errors.New("message is too large")

@@ -1,7 +1,9 @@
 # Kamune Protocol Specification
 
 **Version:** 0.4.0
+
 **Status:** Experimental
+
 **Suite:** `Ed25519_MLKEM768_ChaCha20-Poly1305X`
 
 ---
@@ -19,7 +21,8 @@
    - 6.3 [Handshake](#63-handshake)
    - 6.4 [Challenge Exchange](#64-challenge-exchange)
    - 6.5 [Communication](#65-communication)
-   - 6.6 [Keep-Alive](#66-keep-alive)
+   - 6.6 [Session Teardown](#66-session-teardown)
+   - 6.7 [Keep-Alive](#67-keep-alive)
 7. [Encryption and Key Derivation](#7-encryption-and-key-derivation)
 8. [Message Integrity and Replay Protection](#8-message-integrity-and-replay-protection)
 9. [Transport Layer](#9-transport-layer)
@@ -42,6 +45,9 @@ integrity.
 The protocol operates in four sequential stages — **Exchange**, **Introduction**,
 **Handshake**, and **Communication** — establishing a cryptographically secured
 bidirectional channel between two peers without requiring an intermediary server.
+When the session ends, a **Session Teardown** phase sends a close notification
+before closing the transport, allowing peers to distinguish a graceful
+disconnect from a network failure.
 
 The default cipher suite is `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`.
 
@@ -193,7 +199,13 @@ transitions.
   establishment.
 - Routes `7–8` are **session routes** and MUST only appear after a session is
   fully established.
+  - Route `8` (`ROUTE_CLOSE_TRANSPORT`) signals a **graceful teardown**.
+    Upon receiving this route, the receiver MUST close the session and
+    return `ErrPeerDisconnected` to the application layer. No further
+    messages should be processed for this session.
 - Routes `9–10` are **keep-alive routes** for application-level ping/pong.
+  The `Transport` layer automatically responds to `ROUTE_PING` messages with
+  a `ROUTE_PONG` echo.
 - Route `4` (`ROUTE_FINALIZE_HANDSHAKE`) is defined in the enum but is
   **reserved** and not currently used by the protocol.
 - Any message with `ROUTE_INVALID` (`0`) or an unrecognized route value MUST
@@ -511,12 +523,36 @@ the `Transport`:
 7. The inner message is deserialized into the expected Protobuf type.
 8. The route and metadata are returned to the application layer.
 
-### 6.6 Keep-Alive
+### 6.6 Session Teardown
+
+When a peer decides to close a session, it performs a **graceful teardown**:
+
+1. The peer sends a `RouteCloseTransport` message (route `8`) with an empty
+   payload, encrypted as a regular session message.
+2. After the close message is written, the underlying transport connection is
+   closed.
+3. The receiving peer decrypts the message, detects `ROUTE_CLOSE_TRANSPORT`,
+   and returns `ErrPeerDisconnected` from `Transport.Receive()`.
+4. The receiving peer's receive loop exits cleanly, and the application may
+   surface a "Peer disconnected" notification.
+
+If the transport connection is dropped without a `RouteCloseTransport` message
+(e.g., network failure, crash), the receiving peer gets `ErrConnClosed` from
+`Transport.Receive()` instead. This allows applications to distinguish:
+
+| Error                 | Meaning                                            |
+| --------------------- | -------------------------------------------------- |
+| `ErrPeerDisconnected` | Remote peer closed the session gracefully.         |
+| `ErrConnClosed`       | The connection was dropped (network issue, crash). |
+
+The close message is sent **best-effort** — if the connection is already broken,
+the send is skipped and the transport is closed directly.
+
+### 6.7 Keep-Alive
 
 Peers may probe liveness using an application-level ping/pong exchange over
 routes `9` and `10`. Ping/pong messages follow the same sequence number space
-and encryption as session messages (they are not handled by the transport layer
-automatically).
+and encryption as session messages.
 
 **Ping flow:**
 
@@ -970,7 +1006,8 @@ message Metadata {
 | Error                   | Condition                                                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------ |
 | `ErrClosedServer`       | Operation attempted on a closed server.                                                    |
-| `ErrConnClosed`         | Connection has been closed (locally or by peer).                                           |
+| `ErrConnClosed`         | Connection has been closed (locally or by peer, abrupt).                                   |
+| `ErrPeerDisconnected`   | Remote peer closed the session gracefully (`ROUTE_CLOSE_TRANSPORT` received).              |
 | `ErrReceiveTimeout`     | Read deadline exceeded (non-fatal; caller may retry).                                      |
 | `ErrInvalidSignature`   | Signature verification failed on a received message.                                       |
 | `ErrVerificationFailed` | Challenge echo did not match the original challenge, or remote verifier rejected the peer. |

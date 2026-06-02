@@ -79,6 +79,15 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 		return nil, fmt.Errorf("deserializing: %w", err)
 	}
 
+	// Check for protocol-level routes before sequence validation.
+	switch metadata.Route() {
+	case RouteCloseTransport:
+		return nil, ErrPeerDisconnected
+	case RoutePing:
+		// Ping is handled externally via Ping/Pong methods; return
+		// metadata for the caller to process.
+	}
+
 	// Validate per-message sequence number to detect duplicates, missing, or
 	// out-of-order messages.
 	seq := metadata.SequenceNum()
@@ -126,8 +135,12 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 	return metadata, nil
 }
 
-// Close closes the transport connection.
-func (t *Transport) Close() error { return t.conn.Close() }
+// Close closes the transport connection. It sends a RouteCloseTransport frame
+// before closing (best-effort — if the send fails, it closes directly).
+func (t *Transport) Close() error {
+	_, _ = t.Send(Bytes(nil), RouteCloseTransport)
+	return t.conn.Close()
+}
 
 // Ping sends a keep-alive ping to the remote peer and waits for a pong
 // response within the given timeout. The ping carries random data for
