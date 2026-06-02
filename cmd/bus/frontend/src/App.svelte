@@ -15,7 +15,7 @@
     sessions, historySessions, sessionMessages, status, fingerprint,
     dbPath, logEntries, verificationMode, appVersion, activeSessionId,
     sidebarTab, logPanelOpen, verificationDialog, dialogs, toast,
-    versionWarnings, libraryVersion, myName,
+    versionWarnings, libraryVersion, myName, relayToken,
   } from './lib/stores.js'
   import { K, isMac } from './lib/keyboard.js'
 
@@ -41,15 +41,18 @@
     name: 'Name',
   }
 
-  let connectServerAddr = ':8443'
+  let connectServerAddr = ''
   let connectServerAddr2 = ''
   let serverTransport = 'tcp'
   let connectTransport = 'tcp'
   let serverRelayAddr = ''
+  let serverRelayPassword = ''
   let connectRelayAddr = ''
+  let connectRelayPassword = ''
   let connectPeerKey = ''
-  let serverName = ''
-  let connectName = ''
+  let serverError = ''
+  let connectError = ''
+
   let serverLoading = false
   let connectLoading = false
   let showPassphraseDialog = true
@@ -69,7 +72,7 @@
     status.set(s)
 
     const fp = await GetFingerprint()
-    fingerprint.set({ emoji: fp.emoji, b64: fp.b64 })
+    fingerprint.set({ emoji: fp.emoji, b64: fp.b64, hex: fp.hex, sum: fp.sum })
 
     const p = await GetDBPath()
     dbPath.set(p)
@@ -101,6 +104,8 @@
     EventsOff('version-warning')
     EventsOff('verification-mode-changed')
     EventsOff('fingerprint-changed')
+    EventsOff('relay-token')
+    EventsOff('toast')
 
     EventsOn('status-changed', (data) => status.set(data))
     EventsOn('session-new', async (data) => {
@@ -155,15 +160,27 @@
     EventsOn('verification-mode-changed', (mode) => {
       verificationMode.set(mode)
     })
-    EventsOn('fingerprint-changed', (emoji, b64) => {
-      fingerprint.set({ emoji, b64 })
+    EventsOn('fingerprint-changed', (emoji, b64, hex, sum) => {
+      fingerprint.set({ emoji, b64, hex, sum })
     })
     EventsOn('local-name-changed', (name) => {
       myName.set(name)
     })
-    EventsOn('server-running', (running) => { serverActive = running })
+    EventsOn('server-running', (running) => {
+      serverActive = running
+      if (!running) relayToken.set('')
+    })
+    EventsOn('relay-token', (token) => {
+      relayToken.set(token)
+      toast.set({ message: `Relay token: ${token}`, token, type: 'token' })
+      setTimeout(() => toast.set(null), 15000)
+    })
     EventsOn('version-warning', (sessionId, msg) => {
       versionWarnings.update(w => ({ ...w, [sessionId]: msg }))
+    })
+    EventsOn('toast', (message, type) => {
+      toast.set({ message, type: type || 'info' })
+      setTimeout(() => toast.set(null), 2000)
     })
 
     // Request notification permission
@@ -191,6 +208,8 @@
     EventsOff('verification-mode-changed')
     EventsOff('fingerprint-changed')
     EventsOff('local-name-changed')
+    EventsOff('relay-token')
+    EventsOff('toast')
   })
 
   async function loadSessions() {
@@ -204,17 +223,27 @@
   }
 
   async function handleStartServer() {
-    if (serverTransport === 'relay' && !serverRelayAddr.trim()) {
-      alert('Relay server address is required')
+    if (serverTransport === 'relay') {
+      if (!serverRelayAddr.trim()) {
+        serverError = 'Relay address is required'
+        return
+      }
+    } else if (!connectServerAddr.trim()) {
+      serverError = 'Listen address is required'
       return
     }
     closeAllDialogs()
     serverLoading = true
     try {
-      const addr = serverTransport === 'relay' ? '' : (connectServerAddr.trim() || ':8443')
+      const addr = serverTransport === 'relay' ? '' : connectServerAddr.trim()
       const relayAddr = serverTransport === 'relay' ? serverRelayAddr.trim() : ''
-      const fp = await StartServer(addr, serverTransport, relayAddr, serverName.trim())
+      const relayPw = serverTransport === 'relay' ? serverRelayPassword : ''
+      const [fp, token] = await StartServer(addr, serverTransport, relayAddr, $myName, relayPw)
       await loadSessions()
+      if (token) {
+        toast.set({ message: `Relay token: ${token}`, token, type: 'token' })
+        setTimeout(() => toast.set(null), 15000)
+      }
     } catch (e) {
       alert('Failed to start server: ' + e)
     } finally {
@@ -234,23 +263,27 @@
   async function handleConnect() {
     if (connectTransport === 'relay') {
       if (!connectRelayAddr.trim()) {
-        alert('Relay server address is required')
+        connectError = 'Relay address is required'
         return
       }
       if (!connectPeerKey.trim()) {
-        alert('Peer public key is required')
+        connectError = 'Relay token is required'
         return
       }
+    } else if (!connectServerAddr2.trim()) {
+      connectError = 'Peer address is required'
+      return
     }
+    closeAllDialogs()
     connectLoading = true
     try {
-      const addr = connectTransport === 'relay' ? '' : (connectServerAddr2.trim() || 'localhost:8443')
+      const addr = connectTransport === 'relay' ? '' : connectServerAddr2.trim()
       const relayAddr = connectTransport === 'relay' ? connectRelayAddr.trim() : ''
       const peerKey = connectTransport === 'relay' ? connectPeerKey.trim() : ''
-      const sessionId = await ConnectToServer(addr, connectTransport, relayAddr, peerKey, connectName.trim())
+      const pw = connectTransport === 'relay' ? connectRelayPassword : ''
+      const sessionId = await ConnectToServer(addr, connectTransport, relayAddr, peerKey, $myName, pw)
       await loadSessions()
       activeSessionId.set(sessionId)
-      closeAllDialogs()
     } catch (e) {
       alert('Failed to connect: ' + e)
     } finally {
@@ -312,6 +345,8 @@
   }
 
   function closeAllDialogs() {
+    serverError = ''
+    connectError = ''
     dialogs.update(d => ({
       ...d,
       showServer: false,
@@ -351,10 +386,6 @@
           break
         case 'n':
           e.preventDefault()
-          connectTransport = 'tcp'
-          connectRelayAddr = ''
-          connectPeerKey = ''
-          connectName = ''
           dialogs.update(d => ({ ...d, showConnect: true }))
           break
         case 's':
@@ -362,10 +393,6 @@
           if (serverActive) {
             handleStopServer()
           } else {
-            connectServerAddr = ':8443'
-            serverTransport = 'tcp'
-            serverRelayAddr = ''
-            serverName = ''
             dialogs.update(d => ({ ...d, showServer: true }))
           }
           break
@@ -433,18 +460,11 @@
                 <button
                   class="pill-btn"
                   class:pill-active={serverTransport === t}
-                  on:click={() => serverTransport = t}
+                  on:click={() => { serverTransport = t; serverError = '' }}
                 >{t.toUpperCase()}</button>
               {/each}
             </div>
           </div>
-
-          <input
-            bind:value={serverName}
-            placeholder="Your name (optional)"
-            class="dialog-input"
-          />
-          <p class="dialog-hint">Leave empty for a random pseudonym</p>
 
           {#if serverTransport !== 'relay'}
             <input
@@ -452,14 +472,22 @@
               placeholder="Listen address (e.g. :8443)"
               class="dialog-input"
             />
-            <p class="dialog-hint">Leave empty for default :8443</p>
           {:else}
             <input
               bind:value={serverRelayAddr}
-              placeholder="Relay server address (e.g. 127.0.0.1:8888)"
+              placeholder="Relay address (e.g. relay.example.com:8888)"
               class="dialog-input"
             />
-            <p class="dialog-hint">Address of the relay server</p>
+
+            <input
+              bind:value={serverRelayPassword}
+              type="password"
+              placeholder="Relay password (if required)"
+              class="dialog-input"
+            />
+          {/if}
+          {#if serverError}
+            <p class="dialog-error">{serverError}</p>
           {/if}
         </div>
         <div class="dialog-actions">
@@ -492,18 +520,11 @@
                 <button
                   class="pill-btn"
                   class:pill-active={connectTransport === t}
-                  on:click={() => connectTransport = t}
+                  on:click={() => { connectTransport = t; connectError = '' }}
                 >{t.toUpperCase()}</button>
               {/each}
             </div>
           </div>
-
-          <input
-            bind:value={connectName}
-            placeholder="Your name (optional)"
-            class="dialog-input"
-          />
-          <p class="dialog-hint">Leave empty for a random pseudonym</p>
 
           {#if connectTransport !== 'relay'}
             <input
@@ -511,21 +532,28 @@
               placeholder="Peer address (e.g. 192.168.1.100:8443)"
               class="dialog-input"
             />
-            <p class="dialog-hint">Leave empty for default localhost:8443</p>
           {:else}
             <input
               bind:value={connectRelayAddr}
-              placeholder="Relay server address (e.g. 127.0.0.1:8888)"
+              placeholder="Relay address (e.g. relay.example.com:8888)"
               class="dialog-input"
             />
-            <p class="dialog-hint">Address of the relay server</p>
 
             <input
               bind:value={connectPeerKey}
-              placeholder="Peer's base64 public key"
+              placeholder="Relay token (hex)"
               class="dialog-input"
             />
-            <p class="dialog-hint">Paste the peer's public key from their fingerprint</p>
+
+            <input
+              bind:value={connectRelayPassword}
+              type="password"
+              placeholder="Relay password (if required)"
+              class="dialog-input"
+            />
+          {/if}
+          {#if connectError}
+            <p class="dialog-error">{connectError}</p>
           {/if}
         </div>
         <div class="dialog-actions">
@@ -644,9 +672,9 @@
   <div class="app-body">
     <Sidebar
       {serverActive}
-      on:startServer={() => { connectServerAddr = ':8443'; serverTransport = 'tcp'; serverRelayAddr = ''; serverName = ''; dialogs.update(d => ({ ...d, showServer: true })) }}
+      on:startServer={() => { dialogs.update(d => ({ ...d, showServer: true })) }}
       on:stopServer={handleStopServer}
-      on:connect={() => { connectTransport = 'tcp'; connectRelayAddr = ''; connectPeerKey = ''; connectName = ''; dialogs.update(d => ({ ...d, showConnect: true })) }}
+      on:connect={() => { dialogs.update(d => ({ ...d, showConnect: true })) }}
       on:refreshHistory={handleRefreshHistory}
       on:selectSession={(e) => {
         handleSelectTab(e.detail)
@@ -705,8 +733,15 @@
 </div>
 
 {#if $toast}
-  <div class="toast" class:toast-error={$toast.type === 'error'} on:click={() => toast.set(null)}>
-    {$toast.message}
+  <div class="toast" class:toast-error={$toast.type === 'error'} class:toast-token={$toast.type === 'token'} class:toast-info={$toast.type === 'info'} on:click={() => toast.set(null)}>
+    <span class="toast-msg">{$toast.message}</span>
+    {#if $toast.token}
+      <button class="toast-copy" on:click|stopPropagation={async () => {
+        const { CopyToClipboard } = await import('../wailsjs/go/main/App.js')
+        await CopyToClipboard($toast.token)
+        toast.set(null)
+      }}>Copy</button>
+    {/if}
   </div>
 {/if}
 
@@ -825,6 +860,16 @@
     margin-top: 8px;
     font-size: 11px;
     color: var(--text-timestamp);
+  }
+  .dialog-error {
+    margin-top: 10px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--danger);
+    background: var(--danger-dim);
+    border-radius: var(--border-radius, 6px);
+    font-weight: 500;
+    line-height: 1.4;
   }
 
   /* ── Transport Pills ── */
@@ -990,8 +1035,10 @@
   .toast {
     position: fixed;
     bottom: 48px;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
+    right: 0;
+    margin: 0 auto;
+    width: fit-content;
     padding: 10px 20px;
     border-radius: 8px;
     font-size: 13px;
@@ -1005,9 +1052,40 @@
     color: var(--text-primary);
     border: 1px solid var(--border-color);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
   .toast.toast-error {
     border-color: var(--danger);
     color: var(--danger);
+  }
+  .toast.toast-token {
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    cursor: default;
+    word-break: break-all;
+  }
+  .toast.toast-info {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+  .toast-msg { flex: 1; }
+  .toast-copy {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--accent-primary);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .toast-copy:hover {
+    background: var(--accent-primary-hover);
   }
 </style>

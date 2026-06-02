@@ -153,22 +153,22 @@ type App struct {
 	server              *kamune.Server
 	serverDone          chan struct{}
 	serverTransportType string
+	relayToken          string
 
 	dbPath       string
 	db           *storage.Storage
 	storeMu      sync.Mutex
 	passphrase   atomic.Value // stores []byte
 	storageReady bool
-	emojiFP      string
-	b64FP        string
-	verifMode    VerificationMode
-	appVersion   string
-	pubKey       []byte
+	pubKey         []byte
 	myName       string
 
 	status          ConnectionStatus
 	statusMsg       string
 	activeSessionID string
+	verifMode       VerificationMode
+	appVersion      string
+	fingerprintFmt  string
 
 	logEntries    []LogEntryInfo
 	logMu         sync.RWMutex
@@ -187,6 +187,7 @@ func NewApp() *App {
 		statusMsg:     "Not connected",
 		verifMode:     VerificationModeQuick,
 		appVersion:    appVersion,
+		fingerprintFmt: "hex",
 		logBufferSize: 200,
 		logEntries:    make([]LogEntryInfo, 0, 200),
 		verifRequests: make(map[int64]*pendingVerification),
@@ -365,12 +366,11 @@ func (a *App) initFromStorage() {
 	if _, err := os.Stat(a.dbPath); os.IsNotExist(err) {
 		a.addLogEntry("DEBUG", "No existing storage to load from")
 		a.mu.Lock()
-		a.emojiFP = ""
-		a.b64FP = ""
+		a.pubKey = nil
 		a.storageReady = true
 		a.mu.Unlock()
 		runtime.EventsEmit(a.ctx, "storage-ready")
-		runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "")
+		runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "", "", "")
 		return
 	}
 
@@ -384,11 +384,11 @@ func (a *App) initFromStorage() {
 	if err == nil {
 		emoji := strings.Join(fingerprint.Emoji(pubKey), " • ")
 		b64 := fingerprint.Base64(pubKey)
+		hex := fingerprint.Hex(pubKey)
+		sum := fingerprint.Sum(pubKey)
 
 		a.mu.Lock()
 		a.pubKey = pubKey
-		a.emojiFP = emoji
-		a.b64FP = b64
 		a.storageReady = true
 		a.mu.Unlock()
 
@@ -415,16 +415,15 @@ func (a *App) initFromStorage() {
 		}
 
 		runtime.EventsEmit(a.ctx, "storage-ready")
-		runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64)
+		runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
 		a.addLogEntry("INFO", "Loaded fingerprint from existing identity")
 	} else {
 		a.mu.Lock()
-		a.emojiFP = ""
-		a.b64FP = ""
+		a.pubKey = nil
 		a.storageReady = true
 		a.mu.Unlock()
 		runtime.EventsEmit(a.ctx, "storage-ready")
-		runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "")
+		runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "", "", "")
 		a.addLogEntry("DEBUG", "No identity key found: "+err.Error())
 	}
 
@@ -501,7 +500,17 @@ func (a *App) GetStatus() StatusInfo {
 func (a *App) GetFingerprint() map[string]string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return map[string]string{"emoji": a.emojiFP, "b64": a.b64FP}
+	emoji := ""
+	b64 := ""
+	hex := ""
+	sum := ""
+	if len(a.pubKey) > 0 {
+		emoji = strings.Join(fingerprint.Emoji(a.pubKey), " • ")
+		b64 = fingerprint.Base64(a.pubKey)
+		hex = fingerprint.Hex(a.pubKey)
+		sum = fingerprint.Sum(a.pubKey)
+	}
+	return map[string]string{"emoji": emoji, "b64": b64, "hex": hex, "sum": sum}
 }
 
 func (a *App) GetDBPath() string {
@@ -514,8 +523,7 @@ func (a *App) SetDBPath(path string) {
 	a.mu.Lock()
 	a.dbPath = path
 	a.passphrase.Store([]byte(nil))
-	a.emojiFP = ""
-	a.b64FP = ""
+	a.pubKey = nil
 	a.storageReady = false
 	a.mu.Unlock()
 
@@ -526,7 +534,7 @@ func (a *App) SetDBPath(path string) {
 	}
 	a.storeMu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "")
+	runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "", "", "")
 	runtime.EventsEmit(a.ctx, "request-passphrase")
 	a.addLogEntry("INFO", "DB path changed to: "+path)
 }
@@ -556,6 +564,20 @@ func (a *App) SetVerificationMode(mode int) {
 	}
 	a.addLogEntry("INFO", "Verification mode set to: "+verifModeName(VerificationMode(mode)))
 	runtime.EventsEmit(a.ctx, "verification-mode-changed", mode)
+}
+
+func (a *App) GetFingerprintFormat() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.fingerprintFmt
+}
+
+func (a *App) SetFingerprintFormat(fmt string) {
+	a.mu.Lock()
+	a.fingerprintFmt = fmt
+	a.mu.Unlock()
+	runtime.EventsEmit(a.ctx, "fingerprint-format-changed", fmt)
+	a.addLogEntry("DEBUG", "Fingerprint format set to: "+fmt)
 }
 
 func (a *App) SubmitPassphrase(passphrase string, saveToKeychain bool) error {
@@ -646,6 +668,12 @@ func (a *App) GetServerRunning() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.server != nil
+}
+
+func (a *App) GetRelayToken() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.relayToken
 }
 
 func (a *App) GetHistorySessions() []HistorySessionInfo {

@@ -6,7 +6,7 @@ export function ClearKeychainPassphrase():Promise<void>;
 
 export function ClearLogs():Promise<void>;
 
-export function ConnectToServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
+export function ConnectToServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<string>;
 
 export function CopyToClipboard(arg1:string):Promise<void>;
 
@@ -18,6 +18,8 @@ export function GetDBPath():Promise<string>;
 
 export function GetFingerprint():Promise<Record<string, string>>;
 
+export function GetFingerprintFormat():Promise<string>;
+
 export function GetHistoryMessages(arg1:string):Promise<Array<main.MessageInfo>>;
 
 export function GetHistorySessions():Promise<Array<main.HistorySessionInfo>>;
@@ -27,6 +29,8 @@ export function GetLibraryVersion():Promise<string>;
 export function GetLogEntries():Promise<Array<main.LogEntryInfo>>;
 
 export function GetMyName():Promise<string>;
+
+export function GetRelayToken():Promise<string>;
 
 export function GetServerRunning():Promise<boolean>;
 
@@ -64,11 +68,13 @@ export function SetActiveSession(arg1:string):Promise<void>;
 
 export function SetDBPath(arg1:string):Promise<void>;
 
+export function SetFingerprintFormat(arg1:string):Promise<void>;
+
 export function SetMyName(arg1:string):Promise<void>;
 
 export function SetVerificationMode(arg1:number):Promise<void>;
 
-export function StartServer(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+export function StartServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
 
 export function StopServer():Promise<void>;
 

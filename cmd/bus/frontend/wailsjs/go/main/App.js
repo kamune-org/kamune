@@ -10,8 +10,8 @@ export function ClearLogs() {
   return window['go']['main']['App']['ClearLogs']();
 }
 
-export function ConnectToServer(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['main']['App']['ConnectToServer'](arg1, arg2, arg3, arg4, arg5);
+export function ConnectToServer(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['ConnectToServer'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function CopyToClipboard(arg1) {
@@ -34,6 +34,10 @@ export function GetFingerprint() {
   return window['go']['main']['App']['GetFingerprint']();
 }
 
+export function GetFingerprintFormat() {
+  return window['go']['main']['App']['GetFingerprintFormat']();
+}
+
 export function GetHistoryMessages(arg1) {
   return window['go']['main']['App']['GetHistoryMessages'](arg1);
 }
@@ -52,6 +56,10 @@ export function GetLogEntries() {
 
 export function GetMyName() {
   return window['go']['main']['App']['GetMyName']();
+}
+
+export function GetRelayToken() {
+  return window['go']['main']['App']['GetRelayToken']();
 }
 
 export function GetServerRunning() {
@@ -126,6 +134,10 @@ export function SetDBPath(arg1) {
   return window['go']['main']['App']['SetDBPath'](arg1);
 }
 
+export function SetFingerprintFormat(arg1) {
+  return window['go']['main']['App']['SetFingerprintFormat'](arg1);
+}
+
 export function SetMyName(arg1) {
   return window['go']['main']['App']['SetMyName'](arg1);
 }
@@ -134,8 +146,8 @@ export function SetVerificationMode(arg1) {
   return window['go']['main']['App']['SetVerificationMode'](arg1);
 }
 
-export function StartServer(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['StartServer'](arg1, arg2, arg3, arg4);
+export function StartServer(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['StartServer'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function StopServer() {

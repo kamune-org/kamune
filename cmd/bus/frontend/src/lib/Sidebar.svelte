@@ -2,14 +2,20 @@
   import { createEventDispatcher } from 'svelte'
   import {
     sessions, historySessions, activeSessionId, fingerprint,
-    status, sidebarTab, dbPath, myName,
+    status, sidebarTab, dbPath, myName, relayToken,
   } from './stores.js'
   import { CopyToClipboard, SetMyName } from '../../wailsjs/go/main/App.js'
+
+  function truncateToken(t) {
+    if (t.length <= 16) return t
+    return t.slice(0, 6) + '…' + t.slice(-4)
+  }
 
   const dispatch = createEventDispatcher()
   export let serverActive = false
 
   let copied = false
+  let tokenCopied = false
   let editingName = false
   let editName = ''
 
@@ -122,8 +128,8 @@
       {#if $historySessions.length > 0}
         <span class="tab-count">{$historySessions.length}</span>
       {/if}
-    </button>
-  </div>
+        </button>
+      </div>
 
   <div class="sidebar-content">
     {#if $sidebarTab === 'sessions'}
@@ -149,6 +155,23 @@
           Connect
         </button>
       </div>
+
+      {#if $relayToken}
+        <div class="relay-token-bar" role="button" tabindex="0" on:click={async () => {
+          await CopyToClipboard($relayToken)
+          tokenCopied = true
+          setTimeout(() => tokenCopied = false, 1500)
+        }} on:keydown={(e) => { if (e.key === 'Enter') { e.target.click() } }}>
+          <svg class="rt-icon" viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+            <path d="M8 2a1 1 0 000 2h2a1 1 0 100-2H8z" />
+            <path d="M3 5a2 2 0 012-1 1 1 0 000 2 2 2 0 00-2 2 1 1 0 01-2 0V6a1 1 0 011-1h1zm0 10V8h1a2 2 0 002 2v4a2 2 0 01-2 2H4zm10-9a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" />
+            <path d="M12 2a1 1 0 00-1 1v1h1a2 2 0 012 2v8a2 2 0 01-2 2H8a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 00-1-1H7a3 3 0 00-3 3v10a3 3 0 003 3h6a3 3 0 003-3V6a3 3 0 00-3-3h-1z" />
+          </svg>
+          <span class="rt-label">Relay Token</span>
+          <span class="rt-value">{truncateToken($relayToken)}</span>
+          <span class="rt-copy-hint">{tokenCopied ? 'Copied!' : 'Click to copy'}</span>
+        </div>
+      {/if}
 
       <div class="list">
         {#if $sessions.length === 0}
@@ -762,5 +785,54 @@
     font-size: 9px;
     color: var(--text-timestamp);
     margin-top: 2px;
+  }
+
+  .relay-token-bar {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 8px;
+    margin: 4px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--accent-primary-dim);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    font-size: 11px;
+    user-select: none;
+    outline: none;
+  }
+  .relay-token-bar:hover,
+  .relay-token-bar:focus-visible {
+    border-color: var(--accent-primary);
+    background: var(--bg-hover);
+  }
+  .rt-icon {
+    color: var(--accent-primary);
+    flex-shrink: 0;
+  }
+  .rt-label {
+    font-weight: 600;
+    color: var(--accent-primary);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.4px;
+  }
+  .rt-value {
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    word-break: break-all;
+  }
+  .rt-copy-hint {
+    margin-left: auto;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-timestamp);
+    flex-shrink: 0;
+    transition: color 0.15s;
+  }
+  .rt-copy-hint:has(+ .rt-copied),
+  .rt-copied {
+    color: var(--accent-primary);
   }
 </style>

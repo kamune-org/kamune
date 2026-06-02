@@ -4,7 +4,7 @@ export const sessions = writable([])
 export const historySessions = writable([])
 export const sessionMessages = writable({})
 export const status = writable({ status: 'disconnected', message: 'Not connected' })
-export const fingerprint = writable({ emoji: '', b64: '' })
+export const fingerprint = writable({ emoji: '', b64: '', hex: '', sum: '' })
 export const dbPath = writable('')
 export const logEntries = writable([])
 export const verificationMode = writable(1)
@@ -25,7 +25,8 @@ export const activeSession = derived(
   }
 )
 
-export const toast = writable(null) // { message, type: 'error'|'info' }
+export const toast = writable(null) // { message, type: 'error'|'info'|'token' }
+export const relayToken = writable('')
 
 export const verificationDialog = writable(null)
 export const versionWarnings = writable({})

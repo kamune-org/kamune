@@ -11,11 +11,11 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-func (a *App) StartServer(addr string, transport string, relayAddr string, name string) (string, error) {
+func (a *App) StartServer(addr string, transport string, relayAddr string, name string, password string) (string, string, error) {
 	a.mu.Lock()
 	if a.server != nil {
 		a.mu.Unlock()
-		return "", fmt.Errorf("server is already running")
+		return "", "", fmt.Errorf("server is already running")
 	}
 	a.mu.Unlock()
 
@@ -23,13 +23,13 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 
 	store := a.store()
 	if store == nil {
-		return "", fmt.Errorf("storage is not available")
+		return "", "", fmt.Errorf("storage is not available")
 	}
 
 	if name == "" {
 		pubKey, err := store.PublicKey()
 		if err != nil {
-			return "", fmt.Errorf("getting identity: %w", err)
+			return "", "", fmt.Errorf("getting identity: %w", err)
 		}
 		name = fingerprint.Pseudonym(pubKey)
 	}
@@ -39,18 +39,20 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 	a.mu.Unlock()
 	_ = store.SetSettings("bus", "local_name", name)
 
+	var relayToken string
 	var opts []kamune.ServerOptions
 	opts = append(opts, kamune.ServeWithRemoteVerifier(a.getVerifier()))
 	opts = append(opts, kamune.ServeWithServerName(name))
 
 	switch transport {
 	case "relay":
-		listener, err := listenRelay(store, relayAddr)
+		listener, token, err := listenRelay(relayAddr, password)
 		if err != nil {
 			a.setStatus(StatusError, "Failed to connect to relay")
 			a.addLogEntry("ERROR", "Relay listen failed: "+err.Error())
-			return "", fmt.Errorf("relay listen: %w", err)
+			return "", "", fmt.Errorf("relay listen: %w", err)
 		}
+		relayToken = token
 		opts = append(opts, kamune.ServeWithListener(listener))
 		addr = "" // addr is unused with ServeWithListener
 	case "udp":
@@ -63,23 +65,25 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 	if err != nil {
 		a.setStatus(StatusError, "Failed to create server")
 		a.addLogEntry("ERROR", "Failed to create server: "+err.Error())
-		return "", fmt.Errorf("create server: %w", err)
+		return "", "", fmt.Errorf("create server: %w", err)
 	}
 
 	pubKey := svr.PublicKey()
 	emoji := strings.Join(fingerprint.Emoji(pubKey), " • ")
 	b64 := fingerprint.Base64(pubKey)
+	hex := fingerprint.Hex(pubKey)
+	sum := fingerprint.Sum(pubKey)
 
 	done := make(chan struct{})
 	a.mu.Lock()
-	a.emojiFP = emoji
-	a.b64FP = b64
+	a.pubKey = pubKey
 	a.server = svr
 	a.serverDone = done
 	a.serverTransportType = transport
+	a.relayToken = relayToken
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64)
+	runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
 	runtime.EventsEmit(a.ctx, "server-running", true)
 
 	go func() {
@@ -89,12 +93,10 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 			a.addLogEntry("ERROR", "Server stopped: "+err.Error())
 		}
 		a.mu.Lock()
-		a.emojiFP = ""
-		a.b64FP = ""
+		a.relayToken = ""
 		a.server = nil
 		a.serverTransportType = ""
 		a.mu.Unlock()
-		runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "")
 		runtime.EventsEmit(a.ctx, "server-running", false)
 		a.setStatus(StatusDisconnected, "Server stopped")
 	}()
@@ -109,7 +111,12 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 	a.addLogEntry("INFO", "Server started: "+statusMsg)
 	a.loadHistorySessions(store)
 
-	return emoji, nil
+	if relayToken != "" {
+		runtime.EventsEmit(a.ctx, "relay-token", relayToken)
+		a.addLogEntry("INFO", "Relay token: "+relayToken)
+	}
+
+	return emoji, relayToken, nil
 }
 
 func (a *App) StopServer() error {
@@ -126,8 +133,7 @@ func (a *App) StopServer() error {
 	}
 	sessions = append([]*liveSession(nil), a.sessions...)
 	a.sessions = nil
-	a.emojiFP = ""
-	a.b64FP = ""
+	a.relayToken = ""
 	serverDone = a.serverDone
 	a.serverDone = nil
 	a.mu.Unlock()
@@ -143,12 +149,11 @@ func (a *App) StopServer() error {
 		waitOrTimeout(serverDone, "ListenAndServe")
 	}
 
-	runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "")
 	a.setStatus(StatusDisconnected, "Server stopped")
 	return nil
 }
 
-func (a *App) ConnectToServer(addr string, transport string, relayAddr string, peerKey string, name string) (string, error) {
+func (a *App) ConnectToServer(addr string, transport string, relayAddr string, token string, name string, password string) (string, error) {
 	a.setStatus(StatusConnecting, "Connecting to "+addr+"...")
 
 	store := a.store()
@@ -176,7 +181,7 @@ func (a *App) ConnectToServer(addr string, transport string, relayAddr string, p
 
 	switch transport {
 	case "relay":
-		fn, err := dialRelayFunc(store, relayAddr, peerKey)
+		fn, err := dialRelayFunc(relayAddr, token, password)
 		if err != nil {
 			a.setStatus(StatusError, "Failed to prepare relay dial")
 			return "", fmt.Errorf("relay dial func: %w", err)

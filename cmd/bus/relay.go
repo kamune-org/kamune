@@ -2,48 +2,50 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/relayconn"
-	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-func listenRelay(store *storage.Storage, relayAddr string) (kamune.Listener, error) {
+func listenRelay(relayAddr, password string) (kamune.Listener, string, error) {
 	if strings.TrimSpace(relayAddr) == "" {
-		return nil, errors.New("relay server address is required")
+		return nil, "", errors.New("relay server address is required")
 	}
 
-	at, err := store.Attester()
-	if err != nil {
-		return nil, fmt.Errorf("loading attester: %w", err)
+	var opts []relayconn.Option
+	if password != "" {
+		opts = append(opts, relayconn.WithPassword(password))
 	}
-	selfKey := at.MarshalPublicKey()
-	return relayconn.ListenRelay(context.Background(), relayAddr, selfKey)
+
+	listener, token, err := relayconn.ListenRelay(context.Background(), relayAddr, opts...)
+	if err != nil {
+		return nil, "", err
+	}
+	return listener, hex.EncodeToString(token), nil
 }
 
-func dialRelayFunc(store *storage.Storage, relayAddr string, peerKeyB64 string) (func(string) (kamune.Conn, error), error) {
+func dialRelayFunc(relayAddr, tokenHex, password string) (func(string) (kamune.Conn, error), error) {
 	if strings.TrimSpace(relayAddr) == "" {
 		return nil, errors.New("relay server address is required")
 	}
-	if strings.TrimSpace(peerKeyB64) == "" {
-		return nil, errors.New("peer public key is required")
+	if strings.TrimSpace(tokenHex) == "" {
+		return nil, errors.New("relay token is required")
 	}
 
-	at, err := store.Attester()
+	token, err := hex.DecodeString(tokenHex)
 	if err != nil {
-		return nil, fmt.Errorf("loading attester: %w", err)
-	}
-	selfKey := at.MarshalPublicKey()
-	peerKey, err := base64.RawURLEncoding.DecodeString(peerKeyB64)
-	if err != nil {
-		return nil, fmt.Errorf("decode peer key: %w", err)
+		return nil, fmt.Errorf("decode token: %w", err)
 	}
 	ctx := context.Background()
 	return func(addr string) (kamune.Conn, error) {
-		return relayconn.DialRelay(ctx, addr, selfKey, peerKey)
+		var opts []relayconn.Option
+		if password != "" {
+			opts = append(opts, relayconn.WithPassword(password))
+		}
+		return relayconn.DialRelay(ctx, addr, token, opts...)
 	}, nil
 }
