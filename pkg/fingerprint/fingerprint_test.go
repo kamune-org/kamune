@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"encoding/base64"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -21,6 +22,18 @@ func TestBase64(t *testing.T) {
 
 	// Test single byte
 	a.Equal("AA", Base64([]byte{0}))
+}
+
+func TestEmojiListDistinct(t *testing.T) {
+	a := assert.New(t)
+
+	a.Len(emojiList, 96)
+	seen := make(map[string]bool, len(emojiList))
+	for _, e := range emojiList {
+		a.NotEmpty(e)
+		a.False(seen[e], "duplicate emoji: %s", e)
+		seen[e] = true
+	}
 }
 
 func TestEmoji(t *testing.T) {
@@ -66,7 +79,12 @@ func TestPseudonym(t *testing.T) {
 	result := Pseudonym()
 	a.NotEmpty(result)
 	parts := strings.Split(result, " ")
-	a.Len(parts, 2)
+	a.Len(parts, 4, "expected format: <adj> <adj> <noun> <num>")
 	a.Contains(adjectives, parts[0])
-	a.Contains(nouns, parts[1])
+	a.Contains(adjectives, parts[1])
+	a.Contains(nouns, parts[2])
+	num, err := strconv.Atoi(parts[3])
+	a.NoError(err, "last part should be a number")
+	a.GreaterOrEqual(num, 1)
+	a.LessOrEqual(num, 99)
 }
