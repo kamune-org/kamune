@@ -64,18 +64,22 @@ func client(addr string) {
 	for {
 		b := kamune.Bytes(nil)
 		metadata, err := t.Receive(b)
-		if err != nil {
-			switch {
-			case errors.Is(err, kamune.ErrConnClosed):
-				p.Quit()
-				return
-			case errors.Is(err, kamune.ErrReceiveTimeout):
-				continue
-			default:
-				errCh <- fmt.Errorf("receiving: %w", err)
-				return
+			if err != nil {
+				switch {
+				case errors.Is(err, kamune.ErrPeerDisconnected):
+					fmt.Println("Peer disconnected")
+					p.Quit()
+					return
+				case errors.Is(err, kamune.ErrConnClosed):
+					p.Quit()
+					return
+				case errors.Is(err, kamune.ErrReceiveTimeout):
+					continue
+				default:
+					errCh <- fmt.Errorf("receiving: %w", err)
+					return
+				}
 			}
-		}
 		p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
 		if err := store.AddChatEntry(
 			t.SessionID(),

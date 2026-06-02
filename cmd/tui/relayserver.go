@@ -51,6 +51,10 @@ func relayServer(relayAddr, password string) {
 			metadata, err := t.Receive(b)
 			if err != nil {
 				switch {
+				case errors.Is(err, kamune.ErrPeerDisconnected):
+					fmt.Println("Peer disconnected")
+					p.Quit()
+					return nil
 				case errors.Is(err, kamune.ErrConnClosed):
 					p.Quit()
 					return nil
