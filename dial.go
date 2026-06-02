@@ -24,9 +24,7 @@ type Dialer struct {
 	address       string
 	handshakeOpts handshakeOpts
 	connOpts      []ConnOption
-	writeTimeout  time.Duration
 	dialTimeout   time.Duration
-	readTimeout   time.Duration
 }
 
 // Dial establishes a connection and performs the handshake.
@@ -121,11 +119,11 @@ func (d *Dialer) handshake(cn Conn) (*Transport, error) {
 	// Since from now on all communications are encrypted via the newly ciphers
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
-	t.remoteVersion = remoteVersion
+	t.remotePeer = peer
 
 	slog.Info(
 		"session established",
-		slog.String("session_id", t.SessionID()),
+		slog.String("session_id", t.sessionID),
 		slog.String("peer", peer.Name),
 	)
 
@@ -142,11 +140,9 @@ func NewDialer(
 	addr string, store *storage.Storage, opts ...DialOption,
 ) (*Dialer, error) {
 	d := &Dialer{
-		address:      addr,
-		storage:      store,
-		readTimeout:  5 * time.Minute,
-		writeTimeout: 1 * time.Minute,
-		dialTimeout:  10 * time.Second,
+		address:     addr,
+		storage:     store,
+		dialTimeout: 10 * time.Second,
 		handshakeOpts: handshakeOpts{
 			remoteVerifier: defaultRemoteVerifier,
 			timeout:        30 * time.Second,
@@ -224,22 +220,6 @@ func DialWithUDP(opts ...ConnOption) DialOption {
 			}
 			return newConn(c, opts...), nil
 		}
-		return nil
-	}
-}
-
-// DialWithReadTimeout sets the read timeout for connections.
-func DialWithReadTimeout(timeout time.Duration) DialOption {
-	return func(d *Dialer) error {
-		d.readTimeout = timeout
-		return nil
-	}
-}
-
-// DialWithWriteTimeout sets the write timeout for connections.
-func DialWithWriteTimeout(timeout time.Duration) DialOption {
-	return func(d *Dialer) error {
-		d.writeTimeout = timeout
 		return nil
 	}
 }

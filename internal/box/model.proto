@@ -22,4 +22,5 @@ message Peer {
   bytes PublicKey = 2;
   google.protobuf.Timestamp FirstSeen = 3;
   google.protobuf.Timestamp LastSeen = 4;
+  string AppVersion = 5;
 }

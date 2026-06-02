@@ -15,10 +15,11 @@ import (
 )
 
 type Peer struct {
-	FirstSeen time.Time
-	LastSeen  time.Time
-	Name      string
-	PublicKey []byte
+	FirstSeen  time.Time
+	LastSeen   time.Time
+	Name       string
+	AppVersion string
+	PublicKey  []byte
 }
 
 var (
@@ -73,10 +74,11 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	}
 
 	return &Peer{
-		Name:      p.Name,
-		PublicKey: p.PublicKey,
-		FirstSeen: p.FirstSeen.AsTime(),
-		LastSeen:  lastSeen,
+		Name:       p.Name,
+		PublicKey:  p.PublicKey,
+		FirstSeen:  p.FirstSeen.AsTime(),
+		LastSeen:   lastSeen,
+		AppVersion: p.AppVersion,
 	}, nil
 }
 
@@ -94,10 +96,11 @@ func (s *Storage) StorePeer(peer *Peer) error {
 	}
 
 	p := &pb.Peer{
-		Name:      peer.Name,
-		PublicKey: pubKey,
-		FirstSeen: timestamppb.New(firstSeen),
-		LastSeen:  timestamppb.New(lastSeen),
+		Name:       peer.Name,
+		PublicKey:  pubKey,
+		FirstSeen:  timestamppb.New(firstSeen),
+		LastSeen:   timestamppb.New(lastSeen),
+		AppVersion: peer.AppVersion,
 	}
 	data, err := proto.Marshal(p)
 	if err != nil {
@@ -188,10 +191,11 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 			}
 
 			peers = append(peers, &Peer{
-				Name:      p.Name,
-				PublicKey: p.PublicKey,
-				FirstSeen: p.FirstSeen.AsTime(),
-				LastSeen:  lastSeen,
+				Name:       p.Name,
+				PublicKey:  p.PublicKey,
+				FirstSeen:  p.FirstSeen.AsTime(),
+				LastSeen:   lastSeen,
+				AppVersion: p.AppVersion,
 			})
 		}
 		return nil

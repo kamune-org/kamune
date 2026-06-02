@@ -118,11 +118,15 @@ func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, string, error) 
 	}
 
 	remote := introduce.GetPublicKey()
-	if !attest.Verify(remote, msg, st.Signature) {
+	if !attest.Verify(remote, msg, st.GetSignature()) {
 		return nil, "", ErrInvalidSignature
 	}
 
-	peer := &storage.Peer{Name: introduce.Name, PublicKey: remote}
+	peer := &storage.Peer{
+		Name:       introduce.GetName(),
+		PublicKey:  remote,
+		AppVersion: introduce.GetAppVersion(),
+	}
 
 	return peer, introduce.GetAppVersion(), nil
 }

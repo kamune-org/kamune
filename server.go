@@ -18,10 +18,6 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-var (
-	ErrClosedServer = errors.New("server is closed")
-)
-
 // Listener accepts incoming connections as [Conn] values. Unlike net.Listener
 // (which yields net.Conn), this yields the abstract Conn interface, suitable
 // for custom transport backends such as a relay WebSocket.
@@ -203,7 +199,7 @@ func (s *Server) handleNewConnection(
 	// Since from now on all communications are encrypted via the newly ciphers
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
-	t.remoteVersion = remoteVersion
+	t.remotePeer = peer
 
 	slog.Info(
 		"session established",
@@ -272,6 +268,14 @@ func ServeWithRemoteVerifier(remote RemoteVerifier) ServerOptions {
 	}
 }
 
+// ServeWithServerName sets the server's advertised name.
+func ServeWithServerName(name string) ServerOptions {
+	return func(s *Server) error {
+		s.serverName = name
+		return nil
+	}
+}
+
 // ServeWithTCP configures the server to use TCP connections with the given
 // connection options. If not called, TCP with default options is used.
 func ServeWithTCP(opts ...ConnOption) ServerOptions {
@@ -282,14 +286,6 @@ func ServeWithTCP(opts ...ConnOption) ServerOptions {
 			return fmt.Errorf("listening tcp: %w", err)
 		}
 		s.listener = &tcpListener{Listener: l, connOpts: opts}
-		return nil
-	}
-}
-
-// ServeWithServerName sets the server's advertised name.
-func ServeWithServerName(name string) ServerOptions {
-	return func(s *Server) error {
-		s.serverName = name
 		return nil
 	}
 }

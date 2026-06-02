@@ -148,6 +148,7 @@ type Peer struct {
 	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=PublicKey,proto3" json:"PublicKey,omitempty"`
 	FirstSeen     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=FirstSeen,proto3" json:"FirstSeen,omitempty"`
 	LastSeen      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=LastSeen,proto3" json:"LastSeen,omitempty"`
+	AppVersion    string                 `protobuf:"bytes,5,opt,name=AppVersion,proto3" json:"AppVersion,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -210,6 +211,13 @@ func (x *Peer) GetLastSeen() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Peer) GetAppVersion() string {
+	if x != nil {
+		return x.AppVersion
+	}
+	return ""
+}
+
 var File_model_proto protoreflect.FileDescriptor
 
 const file_model_proto_rawDesc = "" +
@@ -226,12 +234,15 @@ const file_model_proto_rawDesc = "" +
 	"\x04Salt\x18\x02 \x01(\fR\x04Salt\x12\x1e\n" +
 	"\n" +
 	"SessionKey\x18\x03 \x01(\tR\n" +
-	"SessionKey\"\xaa\x01\n" +
+	"SessionKey\"\xca\x01\n" +
 	"\x04Peer\x12\x12\n" +
 	"\x04Name\x18\x01 \x01(\tR\x04Name\x12\x1c\n" +
 	"\tPublicKey\x18\x02 \x01(\fR\tPublicKey\x128\n" +
 	"\tFirstSeen\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tFirstSeen\x126\n" +
-	"\bLastSeen\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bLastSeenB\x06Z\x04./pbb\x06proto3"
+	"\bLastSeen\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bLastSeen\x12\x1e\n" +
+	"\n" +
+	"AppVersion\x18\x05 \x01(\tR\n" +
+	"AppVersionB\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_model_proto_rawDescOnce sync.Once

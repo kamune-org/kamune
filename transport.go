@@ -9,23 +9,13 @@ import (
 	"sync"
 
 	"github.com/kamune-org/kamune/internal/enigma"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // TODO(h.yazdani): implement application-level ping/pong (RoutePing/RoutePong)
 // to prevent read timeouts on idle connections across all transport types.
 // The timeout-retry below is the safety net; keep-alive would prevent timeouts
 // from firing during idle periods entirely.
-
-var (
-	ErrConnClosed         = errors.New("connection has been closed")
-	ErrInvalidSignature   = errors.New("invalid signature")
-	ErrVerificationFailed = errors.New("verification failed")
-	ErrMessageTooLarge    = errors.New("message is too large")
-	ErrOutOfSync          = errors.New("peers are out of sync")
-	ErrUnexpectedRoute    = errors.New("unexpected route received")
-	ErrInvalidRoute       = errors.New("invalid route")
-	ErrReceiveTimeout     = errors.New("receive timed out")
-)
 
 func isTimeout(err error) bool {
 	switch {
@@ -39,15 +29,15 @@ func isTimeout(err error) bool {
 
 // Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
-	conn          Conn
-	serde         *signedSerde
-	encoder       *enigma.Enigma
-	decoder       *enigma.Enigma
-	mu            *sync.Mutex
-	sessionID     string
-	remoteVersion string
-	recvSequence  uint64
-	sendSequence  uint64
+	conn         Conn
+	serde        *signedSerde
+	encoder      *enigma.Enigma
+	decoder      *enigma.Enigma
+	mu           *sync.Mutex
+	remotePeer   *storage.Peer
+	sessionID    string
+	recvSequence uint64
+	sendSequence uint64
 }
 
 func newTransport(
@@ -143,8 +133,6 @@ func (t *Transport) Close() error { return t.conn.Close() }
 // SessionID returns the unique identifier for this session.
 func (t *Transport) SessionID() string { return t.sessionID }
 
-// RemotePublicKey returns the remote peer's public key.
-func (t *Transport) RemotePublicKey() []byte { return t.serde.remote }
-
-// RemoteAppVersion returns the remote peer's advertised application version.
-func (t *Transport) RemoteAppVersion() string { return t.remoteVersion }
+// RemotePeer returns the remote peer's identity (name, public key, and app
+// version) as established during the introduction phase.
+func (t *Transport) RemotePeer() *storage.Peer { return t.remotePeer }
