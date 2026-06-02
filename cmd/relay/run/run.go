@@ -2,22 +2,25 @@ package run
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/hossein1376/grape/slogger"
-
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
 	"github.com/kamune-org/kamune/cmd/relay/internal/handlers"
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
-	"github.com/kamune-org/kamune/cmd/relay/internal/storage"
 )
 
 func Run() error {
@@ -27,59 +30,97 @@ func Run() error {
 	flag.StringVar(&cfgPath, "config", "assets/config.toml", "config path")
 	flag.Parse()
 
-	slogger.NewDefault(slogger.WithLevel(slog.LevelDebug))
 	cfg, err := config.New(cfgPath)
 	if err != nil {
 		return fmt.Errorf("new config: %w", err)
 	}
 
-	store, err := storage.Open(cfg.Storage)
-	if err != nil {
-		return fmt.Errorf("open storage: %w", err)
-	}
-	defer func() {
-		if err := store.Close(); err != nil {
-			slog.Error("closing storage", slogger.Err("error", err))
-		}
-	}()
-
-	srvc, err := services.New(store, cfg)
+	srvc, err := services.New(cfg)
 	if err != nil {
 		return fmt.Errorf("new service: %w", err)
 	}
-	router := handlers.New(srvc, cfg)
-	wsHandler := handlers.WebSocketHandler(srvc)
 
-	mux := http.NewServeMux()
-	// Route /ws directly without grape middleware so that http.Hijacker
-	// is preserved for the WebSocket upgrade.
-	//   TODO: register /ws through the grape router when grape releases
-	//   v0.7.0+ (respWriter implements http.Hijacker).
-	mux.Handle("/ws", wsHandler)
-	mux.Handle("/", router)
+	h := handlers.New(srvc, cfg)
 
-	server := &http.Server{
-		Addr:         cfg.Server.Address,
-		Handler:      mux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+	if !cfg.WS.Enabled && !cfg.TCP.Enabled && !cfg.TLS.Enabled {
+		return fmt.Errorf("no transport enabled (enable ws, tcp, or tls)")
+	}
+
+	// TCP listener
+	if cfg.TCP.Enabled {
+		go func() {
+			if err := handlers.ServeTCP(srvc.Hub(), cfg.TCP.Address); err != nil {
+				slog.Error("tcp server error", slog.Any("error", err))
+			}
+		}()
+	}
+
+	// TLS listener
+	var tlsCfg *tls.Config
+	if cfg.TLS.Enabled {
+		tlsCfg, err = loadTLSConfig(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if err != nil {
+			return fmt.Errorf("load tls config: %w", err)
+		}
+		go func() {
+			if err := handlers.ServeTLS(srvc.Hub(), cfg.TLS.Address, tlsCfg); err != nil {
+				slog.Error("tls server error", slog.Any("error", err))
+			}
+		}()
+	}
+
+	// HTTP/WS server
+	var server *http.Server
+	if cfg.WS.Enabled {
+		mux := http.NewServeMux()
+		if cfg.Server.ExposeHealth {
+			mux.HandleFunc("/health", h.HealthHandler)
+		}
+		if cfg.Server.ExposeIP {
+			mux.HandleFunc("/ip", h.EchoIPHandler)
+		}
+		mux.HandleFunc("/ws", handlers.WebSocketHandlerNoMiddleware(srvc))
+
+		server = &http.Server{
+			Addr:         cfg.Server.Address,
+			Handler:      mux,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+			TLSConfig:    tlsCfg,
+		}
 	}
 
 	errCh := make(chan error, 1)
 	exitCh := make(chan os.Signal, 1)
 	signal.Notify(exitCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		slog.Info("starting server", slog.String("address", server.Addr))
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
+
+	if server != nil {
+		go func() {
+			slog.Info("starting http relay", slog.String("address", server.Addr))
+			if server.TLSConfig != nil {
+				if err := server.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					errCh <- err
+				}
+			} else {
+				if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					errCh <- err
+				}
+			}
+		}()
+	}
+
+	if server == nil {
+		slog.Info("relay running (tcp/tls only)")
+		<-exitCh
+		slog.Info("shutting down", slog.String("signal", (<-exitCh).String()))
+		return nil
+	}
 
 	select {
 	case err := <-errCh:
 		return fmt.Errorf("starting server: %w", err)
 	case sig := <-exitCh:
-		slogger.Info(ctx, "received signal, shutting down", slogger.String("signal", sig))
+		slog.Info("shutting down", slog.String("signal", sig.String()))
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := server.Shutdown(ctx); err != nil {
@@ -87,4 +128,62 @@ func Run() error {
 		}
 		return nil
 	}
+}
+
+func loadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
+	if certFile == "" || keyFile == "" {
+		return nil, fmt.Errorf("tls cert_file and key_file are required")
+	}
+
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err == nil {
+		return &tls.Config{Certificates: []tls.Certificate{cert}}, nil
+	}
+
+	slog.Warn("tls cert files not found, generating self-signed certificate",
+		slog.String("cert", certFile),
+		slog.String("key", keyFile),
+	)
+
+	cert, err = generateSelfSignedCert(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("generate self-signed cert: %w", err)
+	}
+
+	return &tls.Config{Certificates: []tls.Certificate{cert}}, nil
+}
+
+func generateSelfSignedCert(certFile, keyFile string) (tls.Certificate, error) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate key: %w", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: "Kamune Relay",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("create cert: %w", err)
+	}
+
+	if err := os.WriteFile(certFile, der, 0644); err != nil {
+		return tls.Certificate{}, fmt.Errorf("write cert: %w", err)
+	}
+
+	privBytes := x509.MarshalPKCS1PrivateKey(priv)
+	if err := os.WriteFile(keyFile, privBytes, 0600); err != nil {
+		return tls.Certificate{}, fmt.Errorf("write key: %w", err)
+	}
+
+	return tls.X509KeyPair(der, privBytes)
 }

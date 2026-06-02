@@ -2,14 +2,13 @@ package handlers
 
 import (
 	"context"
-	"encoding/base64"
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 
 	"github.com/coder/websocket"
-	"github.com/hossein1376/grape/slogger"
 
-	"github.com/kamune-org/kamune/cmd/relay/internal/model"
+	"github.com/kamune-org/kamune/cmd/relay/internal/services"
 	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 	"google.golang.org/protobuf/proto"
@@ -22,7 +21,7 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
-		slog.Error("ws: failed to accept", slogger.Err("err", err))
+		slog.Error("ws: failed to accept", slog.Any("error", err))
 		return
 	}
 
@@ -31,78 +30,107 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	adapter := &wsAdapter{conn: conn, ctx: ctx}
-	ch, err := exchange.Accept(adapter)
+	remoteAddr := clientIP(r)
+	handleRelayConn(ctx, h.service.Hub(), adapter, remoteAddr)
+}
+
+func handleRelayConn(
+	ctx context.Context,
+	hub *services.Hub,
+	rw exchange.ReadWriter,
+	remoteAddr string,
+) {
+	ch, err := exchange.Accept(rw)
 	if err != nil {
-		conn.Close(websocket.StatusNormalClosure, "exchange failed")
-		slog.Error("ws: hpke accept failed", slogger.Err("err", err))
+		slog.Error("relay: hpke accept failed", slog.Any("error", err))
 		return
 	}
 
-	identityBytes, err := ch.ReadBytes()
+	needAuth := hub.Password() != ""
+
+	frameBytes, err := ch.ReadBytes()
 	if err != nil {
 		ch.Close()
 		return
 	}
-	var identityFrame pb.Frame
-	if err := proto.Unmarshal(identityBytes, &identityFrame); err != nil {
-		ch.Close()
-		return
-	}
-	peerKey := identityFrame.GetIdentity().GetKey()
-	if len(peerKey) == 0 {
+	var frame pb.Frame
+	if err := proto.Unmarshal(frameBytes, &frame); err != nil {
 		ch.Close()
 		return
 	}
 
-	pk := model.PublicKey(base64.RawURLEncoding.EncodeToString(peerKey))
+	switch {
+	case frame.GetAuth() != nil:
+		if !needAuth {
+			ch.Close()
+			return
+		}
+		if subtle.ConstantTimeCompare(frame.GetAuth().GetPsk(), []byte(hub.Password())) != 1 {
+			slog.Warn("relay: auth failed", slog.String("remote", remoteAddr))
+			ch.Close()
+			return
+		}
+		ack := &pb.Frame{Kind: &pb.Frame_Auth{Auth: &pb.Auth{}}}
+		b, _ := proto.Marshal(ack)
+		_ = ch.WriteBytes(b)
 
-	relayFrame := &pb.Frame{
-		Kind: &pb.Frame_Identity{
-			Identity: &pb.Identity{Key: h.service.PublicKeyRaw()},
+		frameBytes, err = ch.ReadBytes()
+		if err != nil {
+			ch.Close()
+			return
+		}
+		if err := proto.Unmarshal(frameBytes, &frame); err != nil {
+			ch.Close()
+			return
+		}
+
+	case needAuth:
+		slog.Warn("relay: missing auth frame", slog.String("remote", remoteAddr))
+		ch.Close()
+		return
+	}
+
+	register := frame.GetRegister()
+	if register == nil {
+		ch.Close()
+		return
+	}
+
+	var token []byte
+
+	if len(register.Token) == 0 {
+		token, err = hub.RegisterListener(ch)
+		if err != nil {
+			slog.Error("relay: register listener", slog.Any("error", err))
+			ch.Close()
+			return
+		}
+	} else {
+		token = register.Token
+		err = hub.RegisterDialer(ch, token)
+		if err != nil {
+			slog.Error("relay: register dialer", slog.Any("error", err))
+			ch.Close()
+			return
+		}
+	}
+
+	registered := &pb.Frame{
+		Kind: &pb.Frame_Registered{
+			Registered: &pb.Registered{Token: token},
 		},
 	}
-	relayBytes, _ := proto.Marshal(relayFrame)
-	if err := ch.WriteBytes(relayBytes); err != nil {
+	b, _ := proto.Marshal(registered)
+	if err := ch.WriteBytes(b); err != nil {
 		ch.Close()
 		return
 	}
 
-	hub := h.service.Hub()
-	if hub == nil {
-		_ = ch.Close()
-		return
-	}
-
-	connCtx, cancel := context.WithCancel(ctx)
-	hub.Register(pk, ch, cancel)
-
-	if m := h.service.Metrics(); m != nil {
-		m.IncWSConnections()
-	}
-
-	slog.Info(
-		"ws: peer connected",
-		slogger.String("peer", pk),
-		slog.String("remote", clientIP(r)),
+	slog.Info("relay: peer registered",
+		slog.String("remote", remoteAddr),
+		slog.Bool("listener", len(register.Token) == 0),
 	)
 
-	hub.ReadPump(connCtx, pk, ch, func(msgCtx context.Context, msg *pb.Message) error {
-		if m := h.service.Metrics(); m != nil {
-			m.IncWSMessagesIn()
-		}
-		err := h.service.HandleWSRelay(msgCtx, pk, msg)
-		if err == nil {
-			if m := h.service.Metrics(); m != nil {
-				m.IncWSMessagesOut()
-			}
-		}
-		return err
-	})
-
-	hub.Unregister(pk)
-	if m := h.service.Metrics(); m != nil {
-		m.DecWSConnections()
-	}
-
-	slog.Info("ws: peer disconnected", slogger.String("peer", pk))
+	hub.ReadPump(ctx, ch, token)
+	hub.Unregister(token)
 }

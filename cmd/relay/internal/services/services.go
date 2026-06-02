@@ -1,96 +1,47 @@
 package services
 
 import (
-	"errors"
-	"fmt"
+	"context"
 	"log/slog"
-	"strings"
 	"time"
 
-	"github.com/kamune-org/kamune/pkg/attest"
-	"github.com/kamune-org/kamune/pkg/fingerprint"
-
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
-	"github.com/kamune-org/kamune/cmd/relay/internal/model"
-	"github.com/kamune-org/kamune/cmd/relay/internal/storage"
-)
-
-var (
-	attestationKey = []byte("attestation")
-	identityNS     = model.NewNameSpace("identity")
 )
 
 type Service struct {
-	store     model.Store
-	attest    *attest.Attest
+	hub       *Hub
+	sessions  *SessionManager
 	cfg       config.Config
 	startedAt time.Time
-	hub       *Hub
-	webhooks  *WebhookRegistry
-	metrics   *Metrics
 }
 
-func New(store model.Store, cfg config.Config) (*Service, error) {
-	at, err := loadAttest(store)
-	if err != nil {
-		return nil, fmt.Errorf("loading attester: %w", err)
-	}
-	fp := strings.Join(fingerprint.Emoji(at.MarshalPublicKey()), " • ")
-	slog.Info("loaded identity", slog.String("fingerprint", fp))
+func New(cfg config.Config) (*Service, error) {
+	slog.Info("starting relay service")
+	sessions := NewSessionManager(cfg.Session.TokenTTL, cfg.Session.MaxConcurrentSessions)
+	hub := NewHub(sessions, cfg.Server.Password)
+
+	go sessions.cleanupLoop(context.Background())
+
 	return &Service{
-		store:     store,
-		attest:    at,
+		hub:       hub,
+		sessions:  sessions,
 		cfg:       cfg,
 		startedAt: time.Now(),
-		hub:       NewHub(),
-		webhooks:  NewWebhookRegistry(),
-		metrics:   NewMetrics(),
 	}, nil
 }
 
-// MaxMessageSize returns the configured maximum message size in bytes.
-// A value of 0 means unlimited.
-func (s *Service) MaxMessageSize() int {
-	return s.cfg.Storage.MaxMessageSize
+func (s *Service) Hub() *Hub {
+	return s.hub
 }
 
-func loadAttest(store model.Store) (*attest.Attest, error) {
-	var at *attest.Attest
-	err := store.Command(func(c model.Command) error {
-		attestBytes, err := c.Get(identityNS, attestationKey)
-		if err != nil {
-			return fmt.Errorf("getting data from storage: %w", err)
-		}
-		at, err = attest.Load(attestBytes)
-		if err != nil {
-			return fmt.Errorf("parsing data: %w", err)
-		}
-		return nil
-	})
-	switch {
-	case err == nil:
-		return at, nil
-	case errors.Is(err, storage.ErrMissing):
-		slog.Info("no identity found, creating a new one...")
-		// continue
-	default:
-		return nil, fmt.Errorf("command: %w", err)
-	}
+func (s *Service) MaxMessageSize() int {
+	return s.cfg.Session.MaxMessageSize
+}
 
-	at, err = attest.New()
-	if err != nil {
-		return nil, fmt.Errorf("creating new attester: %w", err)
-	}
-	data, err := at.MarshalPrivateKey()
-	if err != nil {
-		return nil, fmt.Errorf("marshalling attester private key: %w", err)
-	}
-	err = store.Command(func(c model.Command) error {
-		return c.Set(identityNS, attestationKey, data)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("storing attester: %w", err)
-	}
+func (s *Service) StartedAt() time.Time {
+	return s.startedAt
+}
 
-	return at, nil
+func (s *Service) SessionCount() int {
+	return s.sessions.Len()
 }

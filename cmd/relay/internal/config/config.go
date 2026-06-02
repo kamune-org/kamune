@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"time"
 
@@ -11,22 +10,40 @@ import (
 
 type Config struct {
 	Server    Server    `toml:"server"`
-	Storage   Storage   `toml:"storage"`
+	WS        WS        `toml:"ws"`
+	Session   Session   `toml:"session"`
 	RateLimit RateLimit `toml:"rate_limit"`
+	TCP       TCP       `toml:"tcp"`
+	TLS       TLS       `toml:"tls"`
 }
 
 type Server struct {
-	Address         string        `toml:"address"`
-	DeliveryTimeout time.Duration `toml:"delivery_timeout"`
+	Address       string `toml:"address"`
+	Password      string `toml:"password"`
+	ExposeHealth  bool   `toml:"expose_health"`
+	ExposeIP      bool   `toml:"expose_ip"`
 }
 
-type Storage struct {
-	Path           string        `toml:"path"`
-	LogLevel       slog.Level    `toml:"log_level"`
-	InMemory       bool          `toml:"in_memory"`
-	RegisterTTL    time.Duration `toml:"register_ttl"`
-	MaxMessageSize int           `toml:"max_message_size"`
-	MaxQueueSize   uint64        `toml:"max_queue_size"`
+type WS struct {
+	Enabled bool `toml:"enabled"`
+}
+
+type TCP struct {
+	Enabled bool   `toml:"enabled"`
+	Address string `toml:"address"`
+}
+
+type TLS struct {
+	Enabled  bool   `toml:"enabled"`
+	Address  string `toml:"address"`
+	CertFile string `toml:"cert_file"`
+	KeyFile  string `toml:"key_file"`
+}
+
+type Session struct {
+	TokenTTL              time.Duration `toml:"token_ttl"`
+	MaxConcurrentSessions int           `toml:"max_concurrent_sessions"`
+	MaxMessageSize        int           `toml:"max_message_size"`
 }
 
 type RateLimit struct {

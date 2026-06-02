@@ -25,11 +25,12 @@ type Frame struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Kind:
 	//
-	//	*Frame_Identity
+	//	*Frame_Register
+	//	*Frame_Registered
 	//	*Frame_Msg
-	//	*Frame_Ack
 	//	*Frame_Ping
 	//	*Frame_Pong
+	//	*Frame_Auth
 	Kind          isFrame_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -72,10 +73,19 @@ func (x *Frame) GetKind() isFrame_Kind {
 	return nil
 }
 
-func (x *Frame) GetIdentity() *Identity {
+func (x *Frame) GetRegister() *Register {
 	if x != nil {
-		if x, ok := x.Kind.(*Frame_Identity); ok {
-			return x.Identity
+		if x, ok := x.Kind.(*Frame_Register); ok {
+			return x.Register
+		}
+	}
+	return nil
+}
+
+func (x *Frame) GetRegistered() *Registered {
+	if x != nil {
+		if x, ok := x.Kind.(*Frame_Registered); ok {
+			return x.Registered
 		}
 	}
 	return nil
@@ -85,15 +95,6 @@ func (x *Frame) GetMsg() *Message {
 	if x != nil {
 		if x, ok := x.Kind.(*Frame_Msg); ok {
 			return x.Msg
-		}
-	}
-	return nil
-}
-
-func (x *Frame) GetAck() *Ack {
-	if x != nil {
-		if x, ok := x.Kind.(*Frame_Ack); ok {
-			return x.Ack
 		}
 	}
 	return nil
@@ -117,20 +118,29 @@ func (x *Frame) GetPong() *Pong {
 	return nil
 }
 
+func (x *Frame) GetAuth() *Auth {
+	if x != nil {
+		if x, ok := x.Kind.(*Frame_Auth); ok {
+			return x.Auth
+		}
+	}
+	return nil
+}
+
 type isFrame_Kind interface {
 	isFrame_Kind()
 }
 
-type Frame_Identity struct {
-	Identity *Identity `protobuf:"bytes,1,opt,name=identity,proto3,oneof"`
+type Frame_Register struct {
+	Register *Register `protobuf:"bytes,1,opt,name=register,proto3,oneof"`
+}
+
+type Frame_Registered struct {
+	Registered *Registered `protobuf:"bytes,2,opt,name=registered,proto3,oneof"`
 }
 
 type Frame_Msg struct {
-	Msg *Message `protobuf:"bytes,2,opt,name=msg,proto3,oneof"`
-}
-
-type Frame_Ack struct {
-	Ack *Ack `protobuf:"bytes,3,opt,name=ack,proto3,oneof"`
+	Msg *Message `protobuf:"bytes,3,opt,name=msg,proto3,oneof"`
 }
 
 type Frame_Ping struct {
@@ -141,37 +151,43 @@ type Frame_Pong struct {
 	Pong *Pong `protobuf:"bytes,5,opt,name=pong,proto3,oneof"`
 }
 
-func (*Frame_Identity) isFrame_Kind() {}
+type Frame_Auth struct {
+	Auth *Auth `protobuf:"bytes,6,opt,name=auth,proto3,oneof"` // PSK mode only, optional
+}
+
+func (*Frame_Register) isFrame_Kind() {}
+
+func (*Frame_Registered) isFrame_Kind() {}
 
 func (*Frame_Msg) isFrame_Kind() {}
-
-func (*Frame_Ack) isFrame_Kind() {}
 
 func (*Frame_Ping) isFrame_Kind() {}
 
 func (*Frame_Pong) isFrame_Kind() {}
 
-type Identity struct {
+func (*Frame_Auth) isFrame_Kind() {}
+
+type Register struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           []byte                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Token         []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"` // empty = create session, non-empty = join existing
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Identity) Reset() {
-	*x = Identity{}
+func (x *Register) Reset() {
+	*x = Register{}
 	mi := &file_pb_relay_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Identity) String() string {
+func (x *Register) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Identity) ProtoMessage() {}
+func (*Register) ProtoMessage() {}
 
-func (x *Identity) ProtoReflect() protoreflect.Message {
+func (x *Register) ProtoReflect() protoreflect.Message {
 	mi := &file_pb_relay_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -183,31 +199,72 @@ func (x *Identity) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Identity.ProtoReflect.Descriptor instead.
-func (*Identity) Descriptor() ([]byte, []int) {
+// Deprecated: Use Register.ProtoReflect.Descriptor instead.
+func (*Register) Descriptor() ([]byte, []int) {
 	return file_pb_relay_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *Identity) GetKey() []byte {
+func (x *Register) GetToken() []byte {
 	if x != nil {
-		return x.Key
+		return x.Token
+	}
+	return nil
+}
+
+type Registered struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"` // session token assigned by relay
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Registered) Reset() {
+	*x = Registered{}
+	mi := &file_pb_relay_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Registered) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Registered) ProtoMessage() {}
+
+func (x *Registered) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_relay_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Registered.ProtoReflect.Descriptor instead.
+func (*Registered) Descriptor() ([]byte, []int) {
+	return file_pb_relay_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Registered) GetToken() []byte {
+	if x != nil {
+		return x.Token
 	}
 	return nil
 }
 
 type Message struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Receiver      []byte                 `protobuf:"bytes,1,opt,name=receiver,proto3" json:"receiver,omitempty"` // set by sender for routing; relay uses this to deliver
-	Sender        []byte                 `protobuf:"bytes,2,opt,name=sender,proto3" json:"sender,omitempty"`     // set by relay when forwarding so receiver knows who sent it
-	SessionId     string                 `protobuf:"bytes,3,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Data          []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Message) Reset() {
 	*x = Message{}
-	mi := &file_pb_relay_proto_msgTypes[2]
+	mi := &file_pb_relay_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -219,7 +276,7 @@ func (x *Message) String() string {
 func (*Message) ProtoMessage() {}
 
 func (x *Message) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_relay_proto_msgTypes[2]
+	mi := &file_pb_relay_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -232,28 +289,7 @@ func (x *Message) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Message.ProtoReflect.Descriptor instead.
 func (*Message) Descriptor() ([]byte, []int) {
-	return file_pb_relay_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *Message) GetReceiver() []byte {
-	if x != nil {
-		return x.Receiver
-	}
-	return nil
-}
-
-func (x *Message) GetSender() []byte {
-	if x != nil {
-		return x.Sender
-	}
-	return nil
-}
-
-func (x *Message) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
+	return file_pb_relay_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Message) GetData() []byte {
@@ -261,50 +297,6 @@ func (x *Message) GetData() []byte {
 		return x.Data
 	}
 	return nil
-}
-
-type Ack struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Ack) Reset() {
-	*x = Ack{}
-	mi := &file_pb_relay_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Ack) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Ack) ProtoMessage() {}
-
-func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_relay_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Ack.ProtoReflect.Descriptor instead.
-func (*Ack) Descriptor() ([]byte, []int) {
-	return file_pb_relay_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *Ack) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
 }
 
 type Ping struct {
@@ -379,31 +371,76 @@ func (*Pong) Descriptor() ([]byte, []int) {
 	return file_pb_relay_proto_rawDescGZIP(), []int{5}
 }
 
+type Auth struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Psk           []byte                 `protobuf:"bytes,1,opt,name=psk,proto3" json:"psk,omitempty"` // pre-shared key for PSK mode
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Auth) Reset() {
+	*x = Auth{}
+	mi := &file_pb_relay_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Auth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Auth) ProtoMessage() {}
+
+func (x *Auth) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_relay_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Auth.ProtoReflect.Descriptor instead.
+func (*Auth) Descriptor() ([]byte, []int) {
+	return file_pb_relay_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *Auth) GetPsk() []byte {
+	if x != nil {
+		return x.Psk
+	}
+	return nil
+}
+
 var File_pb_relay_proto protoreflect.FileDescriptor
 
 const file_pb_relay_proto_rawDesc = "" +
 	"\n" +
-	"\x0epb/relay.proto\x12\trelayconn\"\xdc\x01\n" +
+	"\x0epb/relay.proto\x12\trelayconn\"\x98\x02\n" +
 	"\x05Frame\x121\n" +
-	"\bidentity\x18\x01 \x01(\v2\x13.relayconn.IdentityH\x00R\bidentity\x12&\n" +
-	"\x03msg\x18\x02 \x01(\v2\x12.relayconn.MessageH\x00R\x03msg\x12\"\n" +
-	"\x03ack\x18\x03 \x01(\v2\x0e.relayconn.AckH\x00R\x03ack\x12%\n" +
+	"\bregister\x18\x01 \x01(\v2\x13.relayconn.RegisterH\x00R\bregister\x127\n" +
+	"\n" +
+	"registered\x18\x02 \x01(\v2\x15.relayconn.RegisteredH\x00R\n" +
+	"registered\x12&\n" +
+	"\x03msg\x18\x03 \x01(\v2\x12.relayconn.MessageH\x00R\x03msg\x12%\n" +
 	"\x04ping\x18\x04 \x01(\v2\x0f.relayconn.PingH\x00R\x04ping\x12%\n" +
-	"\x04pong\x18\x05 \x01(\v2\x0f.relayconn.PongH\x00R\x04pongB\x06\n" +
-	"\x04kind\"\x1c\n" +
-	"\bIdentity\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\fR\x03key\"p\n" +
-	"\aMessage\x12\x1a\n" +
-	"\breceiver\x18\x01 \x01(\fR\breceiver\x12\x16\n" +
-	"\x06sender\x18\x02 \x01(\fR\x06sender\x12\x1d\n" +
+	"\x04pong\x18\x05 \x01(\v2\x0f.relayconn.PongH\x00R\x04pong\x12%\n" +
+	"\x04auth\x18\x06 \x01(\v2\x0f.relayconn.AuthH\x00R\x04authB\x06\n" +
+	"\x04kind\" \n" +
+	"\bRegister\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\fR\x05token\"\"\n" +
 	"\n" +
-	"session_id\x18\x03 \x01(\tR\tsessionId\x12\x12\n" +
-	"\x04data\x18\x04 \x01(\fR\x04data\"$\n" +
-	"\x03Ack\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\"\x06\n" +
+	"Registered\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\fR\x05token\"\x1d\n" +
+	"\aMessage\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"\x06\n" +
 	"\x04Ping\"\x06\n" +
-	"\x04PongB\x06Z\x04./pbb\x06proto3"
+	"\x04Pong\"\x18\n" +
+	"\x04Auth\x12\x10\n" +
+	"\x03psk\x18\x01 \x01(\fR\x03pskB\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_pb_relay_proto_rawDescOnce sync.Once
@@ -417,26 +454,28 @@ func file_pb_relay_proto_rawDescGZIP() []byte {
 	return file_pb_relay_proto_rawDescData
 }
 
-var file_pb_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_pb_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_pb_relay_proto_goTypes = []any{
-	(*Frame)(nil),    // 0: relayconn.Frame
-	(*Identity)(nil), // 1: relayconn.Identity
-	(*Message)(nil),  // 2: relayconn.Message
-	(*Ack)(nil),      // 3: relayconn.Ack
-	(*Ping)(nil),     // 4: relayconn.Ping
-	(*Pong)(nil),     // 5: relayconn.Pong
+	(*Frame)(nil),      // 0: relayconn.Frame
+	(*Register)(nil),   // 1: relayconn.Register
+	(*Registered)(nil), // 2: relayconn.Registered
+	(*Message)(nil),    // 3: relayconn.Message
+	(*Ping)(nil),       // 4: relayconn.Ping
+	(*Pong)(nil),       // 5: relayconn.Pong
+	(*Auth)(nil),       // 6: relayconn.Auth
 }
 var file_pb_relay_proto_depIdxs = []int32{
-	1, // 0: relayconn.Frame.identity:type_name -> relayconn.Identity
-	2, // 1: relayconn.Frame.msg:type_name -> relayconn.Message
-	3, // 2: relayconn.Frame.ack:type_name -> relayconn.Ack
+	1, // 0: relayconn.Frame.register:type_name -> relayconn.Register
+	2, // 1: relayconn.Frame.registered:type_name -> relayconn.Registered
+	3, // 2: relayconn.Frame.msg:type_name -> relayconn.Message
 	4, // 3: relayconn.Frame.ping:type_name -> relayconn.Ping
 	5, // 4: relayconn.Frame.pong:type_name -> relayconn.Pong
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	6, // 5: relayconn.Frame.auth:type_name -> relayconn.Auth
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_pb_relay_proto_init() }
@@ -445,11 +484,12 @@ func file_pb_relay_proto_init() {
 		return
 	}
 	file_pb_relay_proto_msgTypes[0].OneofWrappers = []any{
-		(*Frame_Identity)(nil),
+		(*Frame_Register)(nil),
+		(*Frame_Registered)(nil),
 		(*Frame_Msg)(nil),
-		(*Frame_Ack)(nil),
 		(*Frame_Ping)(nil),
 		(*Frame_Pong)(nil),
+		(*Frame_Auth)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -457,7 +497,7 @@ func file_pb_relay_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_relay_proto_rawDesc), len(file_pb_relay_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

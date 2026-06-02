@@ -2,8 +2,10 @@ package relayconn
 
 import (
 	"context"
-	"crypto/sha256"
+	"crypto/tls"
 	"fmt"
+	"net"
+	"net/http"
 	"sync"
 
 	"github.com/coder/websocket"
@@ -13,56 +15,110 @@ import (
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 )
 
-func DialRelay(ctx context.Context, relayAddr string, selfKey, peerKey []byte) (*RelayConn, error) {
+func DialRelay(ctx context.Context, relayAddr string, token []byte, opts ...Option) (*RelayConn, error) {
 	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
 	if err != nil {
 		return nil, fmt.Errorf("relay ws dial: %w", err)
 	}
-
 	adapter := &wsAdapter{conn: ws, ctx: ctx}
-	ch, err := exchange.Initiate(adapter)
+	return relayHandshake(ctx, adapter, token, func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") }, opts...)
+}
+
+func DialRelayWSS(ctx context.Context, relayAddr string, token []byte, tlsCfg *tls.Config, opts ...Option) (*RelayConn, error) {
+	dopts := &websocket.DialOptions{
+		HTTPClient: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: tlsCfg,
+			},
+		},
+	}
+	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
 	if err != nil {
-		ws.Close(websocket.StatusNormalClosure, "exchange failed")
+		return nil, fmt.Errorf("relay wss dial: %w", err)
+	}
+	adapter := &wsAdapter{conn: ws, ctx: ctx}
+	return relayHandshake(ctx, adapter, token, func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") }, opts...)
+}
+
+func DialRelayTCP(ctx context.Context, relayAddr string, token []byte, opts ...Option) (*RelayConn, error) {
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "tcp", relayAddr)
+	if err != nil {
+		return nil, fmt.Errorf("tcp dial: %w", err)
+	}
+	adapter := &tcpAdapter{conn: conn}
+	return relayHandshake(ctx, adapter, token, func() { conn.Close() }, opts...)
+}
+
+func DialRelayTLS(ctx context.Context, relayAddr string, token []byte, tlsCfg *tls.Config, opts ...Option) (*RelayConn, error) {
+	var d net.Dialer
+	conn, err := tls.DialWithDialer(&d, "tcp", relayAddr, tlsCfg)
+	if err != nil {
+		return nil, fmt.Errorf("tls dial: %w", err)
+	}
+	adapter := &tlsAdapter{conn: conn}
+	return relayHandshake(ctx, adapter, token, func() { conn.Close() }, opts...)
+}
+
+func relayHandshake(
+	ctx context.Context,
+	rw exchange.ReadWriter,
+	token []byte,
+	closeFn func(),
+	opts ...Option,
+) (*RelayConn, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	ch, err := exchange.Initiate(rw)
+	if err != nil {
+		closeFn()
 		return nil, fmt.Errorf("hpke initiate: %w", err)
 	}
 
-	identityFrame := &pb.Frame{
-		Kind: &pb.Frame_Identity{
-			Identity: &pb.Identity{Key: selfKey},
+	if o.password != "" {
+		if err := sendAuth(ch, o.password); err != nil {
+			ch.Close()
+			return nil, err
+		}
+	}
+
+	registerFrame := &pb.Frame{
+		Kind: &pb.Frame_Register{
+			Register: &pb.Register{Token: token},
 		},
 	}
-	identityBytes, err := proto.Marshal(identityFrame)
+	regBytes, err := proto.Marshal(registerFrame)
 	if err != nil {
 		ch.Close()
-		return nil, fmt.Errorf("marshal identity: %w", err)
+		return nil, fmt.Errorf("marshal register: %w", err)
 	}
-	if err := ch.WriteBytes(identityBytes); err != nil {
+	if err := ch.WriteBytes(regBytes); err != nil {
 		ch.Close()
-		return nil, fmt.Errorf("send identity: %w", err)
+		return nil, fmt.Errorf("send register: %w", err)
 	}
 
 	relayBytes, err := ch.ReadBytes()
 	if err != nil {
 		ch.Close()
-		return nil, fmt.Errorf("read relay identity: %w", err)
+		return nil, fmt.Errorf("read registered: %w", err)
 	}
 	var relayFrame pb.Frame
 	if err := proto.Unmarshal(relayBytes, &relayFrame); err != nil {
 		ch.Close()
-		return nil, fmt.Errorf("unmarshal relay identity: %w", err)
+		return nil, fmt.Errorf("unmarshal registered: %w", err)
 	}
-	_ = relayFrame.GetIdentity().GetKey()
+	if relayFrame.GetRegistered() == nil {
+		ch.Close()
+		return nil, fmt.Errorf("unexpected frame: expected registered, got %T", relayFrame.Kind)
+	}
 
-	sid := syntheticSessionID(selfKey, peerKey)
 	var mu sync.Mutex
-	rc := newRelayConn(ctx, ch, peerKey, sid, &mu)
+	rc := newRelayConn(ctx, ch, &mu)
 	rc.closeFn = func() { ch.Close() }
 
 	go rc.readPump()
 	return rc, nil
-}
-
-func syntheticSessionID(selfKey, peerKey []byte) string {
-	h := sha256.Sum256(append(selfKey, peerKey...))
-	return fmt.Sprintf("relay-hs:%x", h[:8])
 }

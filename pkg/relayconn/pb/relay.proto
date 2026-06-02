@@ -5,28 +5,31 @@ option go_package = "./pb";
 
 message Frame {
   oneof kind {
-    Identity identity = 1;
-    Message  msg      = 2;
-    Ack      ack      = 3;
-    Ping     ping     = 4;
-    Pong     pong     = 5;
+    Register   register   = 1;
+    Registered registered = 2;
+    Message    msg        = 3;
+    Ping       ping       = 4;
+    Pong       pong       = 5;
+    Auth       auth       = 6;  // PSK mode only, optional
   }
 }
 
-message Identity {
-  bytes key = 1;
+message Register {
+  bytes token = 1;  // empty = create session, non-empty = join existing
+}
+
+message Registered {
+  bytes token = 1;  // session token assigned by relay
 }
 
 message Message {
-  bytes  receiver   = 1;  // set by sender for routing; relay uses this to deliver
-  bytes  sender     = 2;  // set by relay when forwarding so receiver knows who sent it
-  string session_id = 3;
-  bytes  data       = 4;
-}
-
-message Ack {
-  string session_id = 1;
+  bytes data = 1;
 }
 
 message Ping {}
+
 message Pong {}
+
+message Auth {
+  bytes psk = 1;  // pre-shared key for PSK mode
+}

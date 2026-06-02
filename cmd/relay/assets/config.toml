@@ -1,14 +1,26 @@
 [server]
-identity = "ed25519"
 address = "127.0.0.1:8888"
-# delivery_timeout = "5s"  # timeout for direct message delivery attempts
+password = ""
+expose_health = true
+expose_ip = true
 
-[storage]
-path = "./db"
-log_level = "warn"
-register_ttl = "30m"
-max_message_size = 10240 # 10 kb
-max_queue_size = 10_000 # maximum of 100 mb per session
+[ws]
+enabled = true
+
+[session]
+token_ttl = "5m"
+max_concurrent_sessions = 10_000
+max_message_size = 65536
+
+[tcp]
+enabled = false
+address = "127.0.0.1:8889"
+
+[tls]
+enabled = false
+address = "127.0.0.1:8890"
+# cert_file = "server.crt"
+# key_file = "server.key"
 
 [rate_limit]
 enabled = true

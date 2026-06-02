@@ -21,24 +21,16 @@ type RelayConn struct {
 	channelMu  *sync.Mutex
 	cancel     context.CancelFunc
 	closeFn    func()
-	sessionID  string
-	peerKey    []byte
 	buf        [][]byte
 	bufMu      sync.Mutex
 	deadlineMu sync.Mutex
 }
 
 func newRelayConn(
-	ctx context.Context,
-	ch *exchange.Channel,
-	peerKey []byte,
-	sessionID string,
-	channelMu *sync.Mutex,
+	ctx context.Context, ch *exchange.Channel, channelMu *sync.Mutex,
 ) *RelayConn {
 	ctx, cancel := context.WithCancel(ctx)
 	return &RelayConn{
-		sessionID: sessionID,
-		peerKey:   peerKey,
 		recv:      make(chan struct{}, 1),
 		channel:   ch,
 		channelMu: channelMu,
@@ -93,9 +85,7 @@ func (rc *RelayConn) WriteBytes(data []byte) error {
 	frame := &pb.Frame{
 		Kind: &pb.Frame_Msg{
 			Msg: &pb.Message{
-				Receiver:  rc.peerKey,
-				SessionId: rc.sessionID,
-				Data:      data,
+				Data: data,
 			},
 		},
 	}
@@ -153,7 +143,7 @@ func (rc *RelayConn) readPump() {
 			rc.channelMu.Lock()
 			rc.channel.WriteBytes(b)
 			rc.channelMu.Unlock()
-		case *pb.Frame_Pong, *pb.Frame_Ack:
+		case *pb.Frame_Pong:
 		}
 	}
 }
