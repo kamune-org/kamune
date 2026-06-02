@@ -17,10 +17,8 @@ const (
 	RouteVerifyChallenge
 	RouteExchangeMessages
 	RouteCloseTransport
-
-	// RoutePing / RoutePong reserved for application-level keep-alive.
-	// TODO(h.yazdani): implement application-level ping/pong to prevent
-	// read timeouts on idle connections across all transport types.
+	RoutePing
+	RoutePong
 )
 
 // String returns the string representation of the route.
@@ -42,6 +40,10 @@ func (r Route) String() string {
 		return "ExchangeMessages"
 	case RouteCloseTransport:
 		return "CloseTransport"
+	case RoutePing:
+		return "Ping"
+	case RoutePong:
+		return "Pong"
 	default:
 		return "Invalid"
 	}
@@ -49,7 +51,7 @@ func (r Route) String() string {
 
 // IsValid returns true if the route is a valid, non-invalid route.
 func (r Route) IsValid() bool {
-	return r > RouteInvalid && r <= RouteCloseTransport
+	return r > RouteInvalid && r <= RoutePong
 }
 
 // ToProto converts the Route to its protobuf enum representation.
@@ -71,6 +73,10 @@ func (r Route) ToProto() pb.Route {
 		return pb.Route_ROUTE_EXCHANGE_MESSAGES
 	case RouteCloseTransport:
 		return pb.Route_ROUTE_CLOSE_TRANSPORT
+	case RoutePing:
+		return pb.Route_ROUTE_PING
+	case RoutePong:
+		return pb.Route_ROUTE_PONG
 	default:
 		return pb.Route_ROUTE_INVALID
 	}
@@ -95,6 +101,10 @@ func RouteFromProto(r pb.Route) Route {
 		return RouteExchangeMessages
 	case pb.Route_ROUTE_CLOSE_TRANSPORT:
 		return RouteCloseTransport
+	case pb.Route_ROUTE_PING:
+		return RoutePing
+	case pb.Route_ROUTE_PONG:
+		return RoutePong
 	default:
 		return RouteInvalid
 	}

@@ -34,20 +34,24 @@ const (
 	Route_ROUTE_VERIFY_CHALLENGE   Route = 6
 	Route_ROUTE_EXCHANGE_MESSAGES  Route = 7
 	Route_ROUTE_CLOSE_TRANSPORT    Route = 8
+	Route_ROUTE_PING               Route = 9
+	Route_ROUTE_PONG               Route = 10
 )
 
 // Enum value maps for Route.
 var (
 	Route_name = map[int32]string{
-		0: "ROUTE_INVALID",
-		1: "ROUTE_IDENTITY",
-		2: "ROUTE_REQUEST_HANDSHAKE",
-		3: "ROUTE_ACCEPT_HANDSHAKE",
-		4: "ROUTE_FINALIZE_HANDSHAKE",
-		5: "ROUTE_SEND_CHALLENGE",
-		6: "ROUTE_VERIFY_CHALLENGE",
-		7: "ROUTE_EXCHANGE_MESSAGES",
-		8: "ROUTE_CLOSE_TRANSPORT",
+		0:  "ROUTE_INVALID",
+		1:  "ROUTE_IDENTITY",
+		2:  "ROUTE_REQUEST_HANDSHAKE",
+		3:  "ROUTE_ACCEPT_HANDSHAKE",
+		4:  "ROUTE_FINALIZE_HANDSHAKE",
+		5:  "ROUTE_SEND_CHALLENGE",
+		6:  "ROUTE_VERIFY_CHALLENGE",
+		7:  "ROUTE_EXCHANGE_MESSAGES",
+		8:  "ROUTE_CLOSE_TRANSPORT",
+		9:  "ROUTE_PING",
+		10: "ROUTE_PONG",
 	}
 	Route_value = map[string]int32{
 		"ROUTE_INVALID":            0,
@@ -59,6 +63,8 @@ var (
 		"ROUTE_VERIFY_CHALLENGE":   6,
 		"ROUTE_EXCHANGE_MESSAGES":  7,
 		"ROUTE_CLOSE_TRANSPORT":    8,
+		"ROUTE_PING":               9,
+		"ROUTE_PONG":               10,
 	}
 )
 
@@ -240,7 +246,7 @@ const file_box_proto_rawDesc = "" +
 	"\tTimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\x12\x1a\n" +
 	"\bSequence\x18\x03 \x01(\x04R\bSequence\x12 \n" +
 	"\x05Route\x18\x04 \x01(\x0e2\n" +
-	".box.RouteR\x05Route*\xf3\x01\n" +
+	".box.RouteR\x05Route*\x93\x02\n" +
 	"\x05Route\x12\x11\n" +
 	"\rROUTE_INVALID\x10\x00\x12\x12\n" +
 	"\x0eROUTE_IDENTITY\x10\x01\x12\x1b\n" +
@@ -250,7 +256,12 @@ const file_box_proto_rawDesc = "" +
 	"\x14ROUTE_SEND_CHALLENGE\x10\x05\x12\x1a\n" +
 	"\x16ROUTE_VERIFY_CHALLENGE\x10\x06\x12\x1b\n" +
 	"\x17ROUTE_EXCHANGE_MESSAGES\x10\a\x12\x19\n" +
-	"\x15ROUTE_CLOSE_TRANSPORT\x10\bB\x06Z\x04./pbb\x06proto3"
+	"\x15ROUTE_CLOSE_TRANSPORT\x10\b\x12\x0e\n" +
+	"\n" +
+	"ROUTE_PING\x10\t\x12\x0e\n" +
+	"\n" +
+	"ROUTE_PONG\x10\n" +
+	"B\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_box_proto_rawDescOnce sync.Once

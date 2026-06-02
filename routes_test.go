@@ -24,6 +24,8 @@ func TestRouteString(t *testing.T) {
 		{"VerifyChallenge", RouteVerifyChallenge},
 		{"ExchangeMessages", RouteExchangeMessages},
 		{"CloseTransport", RouteCloseTransport},
+		{"Ping", RoutePing},
+		{"Pong", RoutePong},
 		{"Invalid", Route(999)},
 	}
 
@@ -45,6 +47,8 @@ func TestRouteIsValid(t *testing.T) {
 		RouteVerifyChallenge,
 		RouteExchangeMessages,
 		RouteCloseTransport,
+		RoutePing,
+		RoutePong,
 	}
 
 	for _, route := range validRoutes {
@@ -80,6 +84,8 @@ func TestRouteProtoConversion(t *testing.T) {
 		{RouteVerifyChallenge, pb.Route_ROUTE_VERIFY_CHALLENGE},
 		{RouteExchangeMessages, pb.Route_ROUTE_EXCHANGE_MESSAGES},
 		{RouteCloseTransport, pb.Route_ROUTE_CLOSE_TRANSPORT},
+		{RoutePing, pb.Route_ROUTE_PING},
+		{RoutePong, pb.Route_ROUTE_PONG},
 		{RouteInvalid, pb.Route_ROUTE_INVALID},
 	}
 
