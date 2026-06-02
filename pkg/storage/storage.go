@@ -20,8 +20,10 @@ import (
 
 var (
 	ErrMissingChatBucket = errors.New("chat bucket not found")
+	ErrEmptyAppName      = errors.New("app name must not be empty")
 
 	defaultBucket     = []byte(store.DefaultBucket)
+	settingsBucket    = []byte(store.SettingsBucket)
 	sessionMetaKey    = []byte("name")
 	sessionMetaBucket = "session_meta"
 )
@@ -139,7 +141,7 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 	var id []byte
 	err := s.store.Query(func(q store.Query) error {
 		var err error
-		id, err = q.GetPlain(defaultBucket, key)
+		id, err = q.GetEncrypted(defaultBucket, key)
 		return err
 	})
 	switch {
@@ -160,7 +162,7 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 		return nil, fmt.Errorf("marshalling private key: %w", err)
 	}
 	err = s.store.Command(func(c store.Command) error {
-		return c.AddPlain(defaultBucket, key, data)
+		return c.AddEncrypted(defaultBucket, key, data)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("persisting generated attest: %w", err)
@@ -333,6 +335,59 @@ func (s *Storage) SetSessionName(sessionID, name string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("set session name for %s: %w", sessionID, err)
+	}
+	return nil
+}
+
+// GetSettings returns a settings value stored under the given app and key.
+// If the key does not exist, an empty string is returned with no error. The
+// app namespace prevents collisions when multiple apps share the same database.
+func (s *Storage) GetSettings(app, key string) (string, error) {
+	if app == "" {
+		return "", ErrEmptyAppName
+	}
+	var val string
+	fullKey := app + ":" + key
+	err := s.store.Query(func(q store.Query) error {
+		data, err := q.GetEncrypted(settingsBucket, []byte(fullKey))
+		if err != nil {
+			return err
+		}
+		val = string(data)
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, store.ErrMissingItem) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get settings %q: %w", key, err)
+	}
+	return val, nil
+}
+
+// SetSettings stores a settings value under the given app and key. Pass an
+// empty string to delete the key. The app namespace prevents collisions when
+// multiple apps share the same database.
+func (s *Storage) SetSettings(app, key, value string) error {
+	if app == "" {
+		return ErrEmptyAppName
+	}
+	fullKey := app + ":" + key
+	k := []byte(fullKey)
+	if value == "" {
+		err := s.store.Command(func(c store.Command) error {
+			return c.Delete(settingsBucket, k)
+		})
+		if err != nil && !errors.Is(err, store.ErrMissingItem) {
+			return fmt.Errorf("delete settings %q: %w", key, err)
+		}
+		return nil
+	}
+	err := s.store.Command(func(c store.Command) error {
+		return c.AddEncrypted(settingsBucket, k, []byte(value))
+	})
+	if err != nil {
+		return fmt.Errorf("set settings %q: %w", key, err)
 	}
 	return nil
 }

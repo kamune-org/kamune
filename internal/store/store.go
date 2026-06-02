@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	DefaultBucket = "kamune-store"
-	PeersBucket   = "peers"
+	DefaultBucket  = "kamune-store"
+	PeersBucket    = "peers"
+	SettingsBucket = "settings"
 
 	kek = "key-encryption-key"
 	dek = "data-encryption-key"
@@ -29,7 +30,9 @@ var (
 	ErrMissingItem   = errors.New("item not found")
 	ErrMissingBucket = errors.New("bucket not found")
 
-	defaultBucket = []byte(DefaultBucket)
+	defaultBucket  = []byte(DefaultBucket)
+	settingsBucket = []byte(SettingsBucket)
+	peersBucket    = []byte(PeersBucket)
 )
 
 type Store struct {
@@ -44,8 +47,12 @@ func New(path string, passphrase []byte) (*Store, error) {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(defaultBucket)
-		return err
+		for _, name := range [][]byte{defaultBucket, settingsBucket, peersBucket} {
+			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating default bucket: %w", err)
