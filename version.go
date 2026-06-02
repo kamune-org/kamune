@@ -1,20 +1,15 @@
 package kamune
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
 )
 
-// ErrVersionMismatch is returned when the remote peer's application version
-// is incompatible with the local version.
-var ErrVersionMismatch = errors.New("version mismatch")
-
 // AppVersion is the semantic version of the kamune protocol/library.
 // Sub-modules may override this via ldflags or init() before package init.
-var AppVersion = "0.2.0"
+var AppVersion = "0.4.0"
 
 var localSemver semver
 
