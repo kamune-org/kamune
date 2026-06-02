@@ -73,6 +73,9 @@ func (a *App) receiveMessagesBlocking(session *liveSession) {
 		metadata, err := t.Receive(b)
 		if err != nil {
 			switch {
+			case errors.Is(err, kamune.ErrPeerDisconnected):
+				a.addLogEntry("INFO", "Peer disconnected: "+session.ID)
+				return
 			case errors.Is(err, kamune.ErrConnClosed):
 				a.addLogEntry("INFO", "Connection closed: "+session.ID)
 				return
