@@ -1,6 +1,6 @@
 # Kamune Protocol Specification
 
-**Version:** 0.3.0
+**Version:** 0.4.0
 **Status:** Experimental
 **Suite:** `Ed25519_MLKEM768_ChaCha20-Poly1305X`
 
@@ -19,11 +19,12 @@
    - 6.3 [Handshake](#63-handshake)
    - 6.4 [Challenge Exchange](#64-challenge-exchange)
    - 6.5 [Communication](#65-communication)
+   - 6.6 [Keep-Alive](#66-keep-alive)
 7. [Encryption and Key Derivation](#7-encryption-and-key-derivation)
 8. [Message Integrity and Replay Protection](#8-message-integrity-and-replay-protection)
 9. [Transport Layer](#9-transport-layer)
-10. [Storage and Persistence](#10-storage-and-persistence)
-11. [Routing and Dispatch](#11-routing-and-dispatch)
+10. [Server and Dialer](#10-server-and-dialer)
+11. [Storage and Persistence](#11-storage-and-persistence)
 12. [Security Properties](#12-security-properties)
 13. [Protobuf Schema Reference](#13-protobuf-schema-reference)
 14. [Constants and Limits](#14-constants-and-limits)
@@ -75,7 +76,7 @@ The default cipher suite is `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`.
   <img alt="Cipher Suite Architecture" src="assets/diagrams/cipher-suite.svg">
 </picture>
 
-### 3.1 Default Suite: `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`
+### 3.1 Default Suite: `Ed25519_MLKEM768_ChaCha20-Poly1305X`
 
 | Component                | Algorithm                                        | Purpose                                                                                                                        |
 | ------------------------ | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -183,8 +184,8 @@ transitions.
 | `6`   | `ROUTE_VERIFY_CHALLENGE`   | Challenge     | Bidirectional         | Challenge response echo (encrypted).         |
 | `7`   | `ROUTE_EXCHANGE_MESSAGES`  | Communication | Bidirectional         | Application-layer messages.                  |
 | `8`   | `ROUTE_CLOSE_TRANSPORT`    | Communication | Bidirectional         | Graceful session teardown.                   |
-| `9`   | `ROUTE_PING`               | Keep-Alive    | Bidirectional         | Reserved for application-level ping.         |
-| `10`  | `ROUTE_PONG`               | Keep-Alive    | Bidirectional         | Reserved for application-level pong.         |
+| `9`   | `ROUTE_PING`               | Keep-Alive    | Bidirectional         | Ping message with 8-byte random token.       |
+| `10`  | `ROUTE_PONG`               | Keep-Alive    | Bidirectional         | Pong response echoing the ping token.        |
 
 ### 5.1 Route Validation Rules
 
@@ -192,8 +193,7 @@ transitions.
   establishment.
 - Routes `7–8` are **session routes** and MUST only appear after a session is
   fully established.
-- Routes `9–10` are **keep-alive routes** and are reserved for future
-  application-level ping/pong. They MUST NOT currently be sent or received.
+- Routes `9–10` are **keep-alive routes** for application-level ping/pong.
 - Route `4` (`ROUTE_FINALIZE_HANDSHAKE`) is defined in the enum but is
   **reserved** and not currently used by the protocol.
 - Any message with `ROUTE_INVALID` (`0`) or an unrecognized route value MUST
@@ -217,7 +217,7 @@ using HPKE (Hybrid Public Key Encryption, RFC 9180) with the MLKEM768-X25519
 hybrid KEM. This protects the subsequent Introduction and Handshake messages
 from eavesdropping.
 
-The HPKE domain separation info string is set to `"Kamune HPKE v1"`.
+The HPKE domain separation info string is set to `nil`.
 
 ```
 Initiator (Client)             Responder (Server)
@@ -287,7 +287,7 @@ Initiator (Client)                          Responder (Server)
      fingerprint of their public key, base64-encoded).
    - `PublicKey`: The initiator's identity public key (Ed25519),
      serialized in PKIX/DER format.
-   - `AppVersion`: The initiator's application semver (e.g. `"0.3.0"`).
+   - `AppVersion`: The initiator's application semver (e.g. `"0.4.0"`).
    - The `SignedTransport` envelope's `Signature` is computed over the
      serialized `Introduce` message using the initiator's private key.
 
@@ -511,6 +511,29 @@ the `Transport`:
 7. The inner message is deserialized into the expected Protobuf type.
 8. The route and metadata are returned to the application layer.
 
+### 6.6 Keep-Alive
+
+Peers may probe liveness using an application-level ping/pong exchange over
+routes `9` and `10`. Ping/pong messages follow the same sequence number space
+and encryption as session messages (they are not handled by the transport layer
+automatically).
+
+**Ping flow:**
+
+1. The caller generates 8 random bytes as a freshness token.
+2. Sends the token via `Transport.Send` with route `RoutePing`.
+3. Sets a read deadline on the connection to the provided timeout.
+4. Waits for a response via `Transport.Receive`.
+5. Verifies the received route is `RoutePong` and the echoed data matches
+   the original token.
+6. If the token does not match, returns `ErrVerificationFailed`.
+7. Clears the read deadline.
+
+**Pong handler:**
+
+The peer's application code should register a handler for `RoutePing` that
+calls `Transport.Pong(data)`, which sends the data back with `RoutePong`.
+
 ---
 
 ## 7. Encryption and Key Derivation
@@ -677,19 +700,85 @@ transparently. The write path ensures the entire payload is written atomically
 
 ---
 
-## 10. Storage and Persistence
+## 10. Server and Dialer
+
+### 10.1 Server
+
+```go
+func NewServer(addr string, handler HandlerFunc, store *storage.Storage, opts ...ServerOptions) (*Server, error)
+```
+
+`NewServer` creates a kamune server that listens for incoming connections:
+
+- **Parameters**: listen `addr`, a `HandlerFunc` callback for established sessions,
+  a `*storage.Storage` instance, and variadic `ServerOptions`.
+- **Default transport**: TCP (created lazily in `ListenAndServe`).
+- **Default handshake timeout**: 30 seconds.
+
+`Server` implements `ServeWithListener(listener)` to accept connections from
+custom listeners (e.g., relay).
+
+**Server flow:**
+
+1. HPKE Exchange (`exchange.Accept`)
+2. Receive Introduction, verify signature and version
+3. Remote Verifier callback
+4. Send own Introduction
+5. Accept Handshake (including challenge exchange)
+6. Switch from HPKE Channel to raw Conn
+7. Call `handlerFunc(t)` with the established `Transport`
+
+### 10.2 Dialer
+
+```go
+func NewDialer(addr string, store *storage.Storage, opts ...DialOption) (*Dialer, error)
+```
+
+`NewDialer` creates a dialer that initiates outgoing connections:
+
+- **Parameters**: remote `addr`, a `*storage.Storage` instance, and variadic
+  `DialOption`.
+- **Default transport**: TCP with 10-second dial timeout.
+- **Default handshake timeout**: 30 seconds.
+
+`Dialer` supports `DialWithFunc` to provide a custom connection factory for
+alternative transports (relay, KCP, etc.).
+
+**Dialer flow:**
+
+1. Establish raw connection (TCP, KCP, or custom dial function)
+2. HPKE Exchange (`exchange.Initiate`)
+3. Send Introduction
+4. Receive and verify peer's Introduction
+5. Request Handshake (including challenge exchange)
+6. Switch from HPKE Channel to raw Conn
+7. Return established `Transport`
+
+### 10.3 Key Types
+
+| Type        | Description                                    | Method to Obtain                        |
+| ----------- | ---------------------------------------------- | --------------------------------------- |
+| `Server`    | Listens for incoming connections               | `NewServer(addr, handler, store, opts)` |
+| `Dialer`    | Initiates outgoing connections                 | `NewDialer(addr, store, opts)`          |
+| `Transport` | Encrypted, session-aware bidirectional channel | Returned by `Dialer.Dial()` or handler  |
+| `Conn`      | Low-level connection interface                 | `ReadBytes` / `WriteBytes`              |
+| `Listener`  | Accepts connections for `ServeWithListener`    | `Accept() (Conn, error)`                |
+
+---
+
+## 11. Storage and Persistence
 
 <picture>
   <img alt="Storage Key Hierarchy" src="assets/diagrams/storage-hierarchy.svg">
 </picture>
 
-### 10.1 Database
+### 11.1 Database
 
 Kamune uses BoltDB (`bbolt`) as its embedded key-value store. The database file
 is located at `~/.config/kamune/db` by default (overridable via
 `KAMUNE_DB_PATH`).
 
-### 10.2 Database Encryption
+### 11.2 Database Encryption
 
 The database contents are encrypted at rest using a key hierarchy:
 
@@ -704,7 +793,7 @@ The four salts (`deriveSalt`, `wrappedSalt`, `secretSalt`, and the wrapped
 key) are stored in the default bucket as plaintext metadata. The passphrase
 itself is never stored.
 
-### 10.3 Stored Data
+### 11.3 Stored Data
 
 | Bucket                     | Key                                                                 | Value                             | Encryption      |
 | -------------------------- | ------------------------------------------------------------------- | --------------------------------- | --------------- |
@@ -714,7 +803,7 @@ itself is never stored.
 | `session_meta_<sessionID>` | `"name"`                                                            | Human-readable session name       | Encrypted (DEK) |
 | `chat_<sessionID>`         | 14-byte composite key                                               | Chat message payload              | Encrypted (DEK) |
 
-### 10.4 Chat History Key Format
+### 11.4 Chat History Key Format
 
 Chat entries use a 14-byte composite key:
 
@@ -729,57 +818,12 @@ Chat entries use a 14-byte composite key:
 - **Random suffix**: 4 bytes of cryptographic randomness to avoid collisions
   when two messages share the same nanosecond timestamp.
 
-### 10.5 Peer Expiration
+### 11.5 Peer Expiration
 
 Peers stored in the database have a configurable expiration duration (default:
 7 days). On lookup, if `FirstSeen + expiryDuration < now`, the peer is
 automatically deleted and an `ErrPeerExpired` error is returned. Expired peers
 are also pruned during `ListPeers()` iteration.
-
----
-
-## 11. Routing and Dispatch
-
-### 11.1 Router
-
-The `Router` provides a message dispatch system for established sessions. It
-maps `Route` values to handler functions:
-
-```
-RouteHandler func(t *Transport, msg Transferable, md *Metadata) error
-```
-
-### 11.2 Middleware
-
-The router supports middleware — functions that wrap route handlers to provide
-cross-cutting concerns:
-
-```
-Middleware func(next RouteHandler) RouteHandler
-```
-
-Middleware is applied in registration order (first registered = outermost
-wrapper). Built-in middleware includes:
-
-- **LoggingMiddleware**: Logs route dispatch events.
-- **RecoveryMiddleware**: Catches panics in handlers and converts them to
-  errors.
-
-### 11.3 Route Groups
-
-Routes can be grouped with shared middleware via `RouteGroup`, allowing
-middleware to be scoped to a subset of handlers.
-
-### 11.4 Route Dispatcher
-
-The `RouteDispatcher` combines a `Transport` and a `Router` into a
-high-level API:
-
-- `On(route, handler)`: Register a handler.
-- `Serve(msgFactory)`: Loop, receiving messages and dispatching them.
-- `SendAndExpect(msg, sendRoute, dst, expectRoute)`: Send a message and
-  wait for a response on a specific route.
-- `Close()`: Tear down the dispatcher and transport.
 
 ---
 
@@ -840,29 +884,45 @@ analysis.
 
 ## 13. Protobuf Schema Reference
 
-### 13.1 `model.proto` — Identity and Handshake Messages
+### 13.1 `model.proto` — Identity, Handshake, and Peer Messages
 
-```
+```protobuf
 message Introduce {
-  string    Name       = 1;  // Human-readable peer name
-  bytes     PublicKey  = 2;  // Identity public key (PKIX/DER or raw)
-  string    AppVersion = 3;  // Application semver for peer compatibility check
+    string Name       = 1;  // Human-readable peer name
+    bytes  PublicKey  = 2;  // Identity public key (PKIX/DER)
+    string AppVersion = 3;  // Application semver
+}
+
+message Handshake {
+    bytes  Key        = 1;  // MLKEM768 public key or KEM ciphertext
+    bytes  Salt       = 2;  // 16 bytes of random salt
+    string SessionKey = 3;  // 10-char base32 session prefix or suffix
+}
+
+message Peer {
+    string                    Name       = 1;
+    bytes                     PublicKey  = 2;
+    google.protobuf.Timestamp FirstSeen  = 3;
+    google.protobuf.Timestamp LastSeen   = 4;
+    string                    AppVersion = 5;
 }
 ```
 
 ### 13.2 `box.proto` — Transport and Session Messages
 
-```
+```protobuf
 enum Route {
-  ROUTE_INVALID            = 0;
-  ROUTE_IDENTITY           = 1;
-  ROUTE_REQUEST_HANDSHAKE  = 2;
-  ROUTE_ACCEPT_HANDSHAKE   = 3;
-  ROUTE_FINALIZE_HANDSHAKE = 4;
-  ROUTE_SEND_CHALLENGE     = 5;
-  ROUTE_VERIFY_CHALLENGE   = 6;
-  ROUTE_EXCHANGE_MESSAGES  = 7;
-  ROUTE_CLOSE_TRANSPORT    = 8;
+    ROUTE_INVALID            = 0;
+    ROUTE_IDENTITY           = 1;
+    ROUTE_REQUEST_HANDSHAKE  = 2;
+    ROUTE_ACCEPT_HANDSHAKE   = 3;
+    ROUTE_FINALIZE_HANDSHAKE = 4;
+    ROUTE_SEND_CHALLENGE     = 5;
+    ROUTE_VERIFY_CHALLENGE   = 6;
+    ROUTE_EXCHANGE_MESSAGES  = 7;
+    ROUTE_CLOSE_TRANSPORT    = 8;
+    ROUTE_PING               = 9;
+    ROUTE_PONG               = 10;
 }
 
 message SignedTransport {
@@ -900,6 +960,8 @@ message Metadata {
 | `lengthPrefixSize`    | 2 bytes               | Size of the big-endian message length header             |
 | `sessionPrefixLength` | 10 characters         | Length of the session ID prefix emitted by the initiator |
 | `sessionSuffixLength` | 10 characters         | Length of the session ID suffix emitted by the responder |
+| `handshakeTimeout`    | 30 seconds            | Maximum time for the complete handshake                  |
+| `pingDataSize`        | 8 bytes               | Size of the random token in each ping message            |
 
 ---
 
@@ -907,6 +969,7 @@ message Metadata {
 
 | Error                   | Condition                                                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------ |
+| `ErrClosedServer`       | Operation attempted on a closed server.                                                    |
 | `ErrConnClosed`         | Connection has been closed (locally or by peer).                                           |
 | `ErrReceiveTimeout`     | Read deadline exceeded (non-fatal; caller may retry).                                      |
 | `ErrInvalidSignature`   | Signature verification failed on a received message.                                       |
