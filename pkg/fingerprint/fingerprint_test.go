@@ -76,7 +76,8 @@ func TestHex(t *testing.T) {
 func TestPseudonym(t *testing.T) {
 	a := assert.New(t)
 
-	result := Pseudonym()
+	input := []byte("test")
+	result := Pseudonym(input)
 	a.NotEmpty(result)
 	parts := strings.Split(result, " ")
 	a.Len(parts, 4, "expected format: <adj> <adj> <noun> <num>")
@@ -87,4 +88,10 @@ func TestPseudonym(t *testing.T) {
 	a.NoError(err, "last part should be a number")
 	a.GreaterOrEqual(num, 1)
 	a.LessOrEqual(num, 99)
+
+	// Same seed → same result
+	a.Equal(Pseudonym(input), Pseudonym(input))
+
+	// Different seed → different result (astronomically likely)
+	a.NotEqual(Pseudonym([]byte("a")), Pseudonym([]byte("b")))
 }

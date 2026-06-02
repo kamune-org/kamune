@@ -1,7 +1,8 @@
 package fingerprint
 
 import (
-	"math/rand/v2"
+	"crypto/sha256"
+	"encoding/binary"
 	"strconv"
 )
 
@@ -70,15 +71,16 @@ var nouns = []string{
 	"woodpecker", "worm", "yak", "zebra",
 }
 
-// Pseudonym returns a random human-readable name of the form
-// "<adjective> <adjective> <noun> <1-99>".
+// Pseudonym returns a deterministic human-readable name derived from seed,
+// formatted as "<adjective> <adjective> <noun> <1-99>".
 //
 // With ~150 adjectives, ~150 nouns, and 99 possible suffixes,
 // there are roughly 150 × 150 × 150 × 99 ≈ 334 million combinations.
-func Pseudonym() string {
-	adj1 := adjectives[rand.IntN(len(adjectives))]
-	adj2 := adjectives[rand.IntN(len(adjectives))]
-	noun := nouns[rand.IntN(len(nouns))]
-	num := rand.IntN(99) + 1
-	return adj1 + " " + adj2 + " " + noun + " " + strconv.Itoa(num)
+func Pseudonym(seed []byte) string {
+	hash := sha256.Sum256(seed)
+	adj1 := adjectives[binary.BigEndian.Uint32(hash[0:4])%uint32(len(adjectives))]
+	adj2 := adjectives[binary.BigEndian.Uint32(hash[4:8])%uint32(len(adjectives))]
+	noun := nouns[binary.BigEndian.Uint32(hash[8:12])%uint32(len(nouns))]
+	num := binary.BigEndian.Uint32(hash[12:16])%99 + 1
+	return adj1 + " " + adj2 + " " + noun + " " + strconv.Itoa(int(num))
 }
