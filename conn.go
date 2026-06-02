@@ -7,11 +7,12 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/kamune-org/kamune/pkg/exchange"
 )
 
 type Conn interface {
-	ReadBytes() ([]byte, error)
-	WriteBytes(data []byte) error
+	exchange.ReadWriter
 	SetDeadline(t time.Time) error
 	Close() error
 }
@@ -209,20 +210,9 @@ func (c *conn) SetDeadline(t time.Time) error      { return c.conn.SetDeadline(t
 func (c *conn) SetReadDeadline(t time.Time) error  { return c.conn.SetReadDeadline(t) }
 func (c *conn) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
 
-type ConnOption func(*conn)
-
-func ConnWithReadTimeout(timeout time.Duration) ConnOption {
-	return func(conn *conn) { conn.readDeadline = timeout }
-}
-
-func ConnWithWriteTimeout(timeout time.Duration) ConnOption {
-	return func(conn *conn) { conn.writeDeadline = timeout }
-}
-
 func newConn(c net.Conn, opts ...ConnOption) *conn {
 	cn := &conn{
 		conn:          c,
-		closed:        false,
 		writeDeadline: 1 * time.Minute,
 		readDeadline:  5 * time.Minute,
 	}
@@ -234,4 +224,12 @@ func newConn(c net.Conn, opts ...ConnOption) *conn {
 	return cn
 }
 
+type ConnOption func(*conn)
 
+func ConnWithReadTimeout(timeout time.Duration) ConnOption {
+	return func(conn *conn) { conn.readDeadline = timeout }
+}
+
+func ConnWithWriteTimeout(timeout time.Duration) ConnOption {
+	return func(conn *conn) { conn.writeDeadline = timeout }
+}

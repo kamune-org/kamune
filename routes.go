@@ -52,31 +52,6 @@ func (r Route) IsValid() bool {
 	return r > RouteInvalid && r <= RouteCloseTransport
 }
 
-// IsHandshakeRoute returns true if the route is part of the handshake process.
-func (r Route) IsHandshakeRoute() bool {
-	switch r {
-	case RouteIdentity,
-		RouteRequestHandshake,
-		RouteAcceptHandshake,
-		RouteFinalizeHandshake,
-		RouteSendChallenge,
-		RouteVerifyChallenge:
-		return true
-	default:
-		return false
-	}
-}
-
-// IsSessionRoute returns true if the route is part of an established session.
-func (r Route) IsSessionRoute() bool {
-	switch r {
-	case RouteExchangeMessages, RouteCloseTransport:
-		return true
-	default:
-		return false
-	}
-}
-
 // ToProto converts the Route to its protobuf enum representation.
 func (r Route) ToProto() pb.Route {
 	switch r {
@@ -123,41 +98,4 @@ func RouteFromProto(r pb.Route) Route {
 	default:
 		return RouteInvalid
 	}
-}
-
-// handshakeRouteOrder defines the expected order of routes during handshake.
-//
-// Note: The initiator/responder orders differ after RouteAcceptHandshake.
-// See `requestHandshake` and `acceptHandshake` in `handshake.go`.
-//
-// Initiator (client):
-//   - sends challenge
-//   - accepts peer's challenge
-var handshakeRouteOrderInitiator = []Route{
-	RouteIdentity,
-	RouteRequestHandshake,
-	RouteAcceptHandshake,
-	RouteSendChallenge,
-	RouteVerifyChallenge,
-}
-
-// Responder (server):
-//   - receives challenge
-//   - verifies (echoes) it
-//   - sends its own challenge
-//   - receives verification
-var handshakeRouteOrderResponder = []Route{
-	RouteIdentity,
-	RouteRequestHandshake,
-	RouteAcceptHandshake,
-	RouteSendChallenge,
-	RouteVerifyChallenge,
-}
-
-// ExpectedRoutes returns the sequence of routes expected during handshake.
-func ExpectedRoutes(isInitiator bool) []Route {
-	if isInitiator {
-		return handshakeRouteOrderInitiator
-	}
-	return handshakeRouteOrderResponder
 }
