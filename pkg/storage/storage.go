@@ -26,6 +26,11 @@ var (
 	settingsBucket    = []byte(store.SettingsBucket)
 	sessionMetaKey    = []byte("name")
 	sessionMetaBucket = "session_meta"
+
+	// valueMagic is prepended to stored chat values to distinguish the
+	// versioned format (sender timestamp embedded in value) from legacy
+	// entries that store raw message data only.
+	valueMagic = []byte("KMNE\x01")
 )
 
 // SessionSummary holds a session ID together with its first and last message
@@ -174,9 +179,13 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 // GetChatHistory returns decrypted chat entries stored under a bucket specific
 // to the session ID. The bucket name used is "chat_<sessionID>" and keys are
 // expected to be 14 bytes total, composed of:
-//   - 8 bytes: UnixNano timestamp (big-endian)
+//   - 8 bytes: UnixNano timestamp (big-endian) — local receive time
 //   - 2 bytes: sender ID (big-endian; 0 means local user, 1 means remote user)
 //   - 4 bytes: random suffix to avoid collision
+//
+// The sender's original timestamp is extracted from the value envelope (5-byte
+// magic + 8-byte timestamp + payload). Results are sorted by timestamp then
+// sender.
 func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	var entries []ChatEntry
 	err := s.store.Query(func(q store.Query) error {
@@ -184,12 +193,14 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 			if len(key) < 14 {
 				continue
 			}
-			nanos := int64(binary.BigEndian.Uint64(key[:8]))
 			sender := Sender(binary.BigEndian.Uint16(key[8:]))
-			ts := time.Unix(0, nanos)
+
+			ts := time.Unix(0, int64(binary.BigEndian.Uint64(value[5:13])))
+			data := value[13:]
+
 			entries = append(entries, ChatEntry{
 				Timestamp: ts,
-				Data:      value,
+				Data:      data,
 				Sender:    sender,
 			})
 		}
@@ -199,6 +210,13 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("querying chat history: %w", err)
 	}
+
+	slices.SortFunc(entries, func(a, b ChatEntry) int {
+		if c := a.Timestamp.Compare(b.Timestamp); c != 0 {
+			return c
+		}
+		return int(a.Sender) - int(b.Sender)
+	})
 
 	return entries, nil
 }
@@ -233,9 +251,10 @@ func (s *Storage) ListSessions() ([]string, error) {
 
 // SessionTimestamps returns the first and last message timestamps for the
 // given session by reading only the first and last keys in its chat bucket.
-// This is an O(1) operation per session (two cursor seeks) and avoids loading
-// every entry. If the bucket is empty or does not exist both timestamps are
-// zero-valued.
+// Note that these are local receive timestamps from the key, not the sender's
+// original timestamps. This is an O(1) operation per session (two cursor
+// seeks) and avoids loading every entry. If the bucket is empty or does not
+// exist both timestamps are zero-valued.
 func (s *Storage) SessionTimestamps(sessionID string) (
 	first, last time.Time, count int, err error,
 ) {
@@ -414,25 +433,44 @@ func (s *Storage) DeleteSession(sessionID string) error {
 	return nil
 }
 
+// AddChatEntry stores a chat message for the given session ID. The message
+// is stored in a bucket named "chat_<sessionID>".
+//
+// Key (14 bytes, ordered by local receive time):
+//   - 8 bytes: local UnixNano timestamp (big-endian) — uses the local clock
+//     to avoid ordering issues from sender clock skew
+//   - 2 bytes: sender ID (0 = local, 1 = peer)
+//   - 4 bytes: random suffix for uniqueness
+//
+// Value (versioned envelope):
+//   - 5 bytes: magic prefix "KMNE\x01"
+//   - 8 bytes: sender's original UnixNano timestamp (big-endian)
+//   - remaining: message payload
+//
+// The ts parameter is the sender's original timestamp and is preserved in
+// the value for display, separate from the ordering key.
 func (s *Storage) AddChatEntry(
 	sessionID string, payload []byte, ts time.Time, sender Sender,
 ) error {
-	if ts.IsZero() {
-		ts = time.Now().UTC()
-	}
 	bucket := []byte("chat_" + sessionID)
 
-	// 8 bytes timestamp + 2 bytes sender identity + 4 bytes random suffix = 14
+	// Key uses local time to avoid clock skew in ordering
 	key := make([]byte, 14)
-	binary.BigEndian.PutUint64(key[:8], uint64(ts.UnixNano()))
+	binary.BigEndian.PutUint64(key[:8], uint64(time.Now().UnixNano()))
 	binary.BigEndian.PutUint16(key[8:], uint16(sender))
 
 	if _, err := rand.Read(key[10:]); err != nil {
 		return fmt.Errorf("generate key suffix: %w", err)
 	}
 
+	// Encode sender timestamp into value for correct display
+	enc := make([]byte, 13+len(payload))
+	copy(enc, valueMagic)
+	binary.BigEndian.PutUint64(enc[5:], uint64(ts.UnixNano()))
+	copy(enc[13:], payload)
+
 	err := s.store.Command(func(c store.Command) error {
-		return c.AddEncrypted(bucket, key, payload)
+		return c.AddEncrypted(bucket, key, enc)
 	})
 	if err != nil {
 		return fmt.Errorf("store chat entry: %w", err)
