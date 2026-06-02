@@ -24,17 +24,19 @@ func NewProgram(p *tea.Program) *Program {
 
 func main() {
 	var dbFlag string
+	var passwordFlag string
 	flag.StringVar(&dbFlag, "db", "", "path to DB file")
+	flag.StringVar(&passwordFlag, "password", "", "relay PSK password")
 	flag.Parse()
 
 	args := flag.Args()
 	if len(args) < 2 {
-		fmt.Println("usage: ./chat -db <path> <mode> [args...]")
+		fmt.Println("usage: ./chat -db <path> -password <psk> <mode> [args...]")
 		fmt.Println("modes:")
 		fmt.Println("  dial <addr>              Direct TCP dial")
 		fmt.Println("  serve <addr>             Direct TCP server")
 		fmt.Println("  history <sessionID>      Print chat history")
-		fmt.Println("  relay-dial <addr> <key>  Dial through relay")
+		fmt.Println("  relay-dial <addr> <token> Dial through relay")
 		fmt.Println("  relay-serve <addr>       Serve through relay")
 		os.Exit(1)
 	}
@@ -71,11 +73,11 @@ func main() {
 		}()
 	case "relay-dial":
 		if len(args) < 3 {
-			fmt.Println("usage: relay-dial <relayAddr> <peerKey>")
+			fmt.Println("usage: relay-dial <relayAddr> <token>")
 			os.Exit(1)
 		}
 		go func() {
-			relayClient(args[1], args[2])
+			relayClient(args[1], args[2], passwordFlag)
 		}()
 	case "relay-serve":
 		if len(args) < 2 {
@@ -83,7 +85,7 @@ func main() {
 			os.Exit(1)
 		}
 		go func() {
-			relayServer(args[1])
+			relayServer(args[1], passwordFlag)
 		}()
 	default:
 		panic(fmt.Errorf("invalid command: %s", mode))

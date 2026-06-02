@@ -6,16 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/relayconn"
-	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-func relayServer(relayAddr string) {
+func relayServer(relayAddr, password string) {
 	store, err := storage.OpenStorage(
 		storage.WithDBPath("./server.db"), storage.WithNoPassphrase(),
 	)
@@ -25,19 +23,18 @@ func relayServer(relayAddr string) {
 	}
 	defer store.Close()
 
-	at, err := store.Attester()
-	if err != nil {
-		errCh <- fmt.Errorf("loading attester: %w", err)
-		return
-	}
-	selfKey := at.MarshalPublicKey()
-
 	ctx := context.Background()
-	listener, err := relayconn.ListenRelay(ctx, relayAddr, selfKey)
+	var relayOpts []relayconn.Option
+	if password != "" {
+		relayOpts = append(relayOpts, relayconn.WithPassword(password))
+	}
+	listener, token, err := relayconn.ListenRelay(ctx, relayAddr, relayOpts...)
 	if err != nil {
 		errCh <- fmt.Errorf("relay listen: %w", err)
 		return
 	}
+
+	fmt.Printf("Share this token with your peer: %x\n", token)
 
 	handler := func(t *kamune.Transport) error {
 		msg, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
@@ -88,8 +85,6 @@ func relayServer(relayAddr string) {
 		return
 	}
 	pk := srv.PublicKey()
-	fp := strings.Join(fingerprint.Emoji(pk), " • ")
-	fmt.Printf("Your emoji fingerprint: %s\n", fp)
 	fmt.Printf("Your base64 public key: %s\n", base64.RawURLEncoding.EncodeToString(pk))
 	fmt.Printf("Starting relay server on %s\n", relayAddr)
 	errCh <- srv.ListenAndServe()

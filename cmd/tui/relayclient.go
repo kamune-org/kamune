@@ -2,21 +2,19 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"log/slog"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/relayconn"
-	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-func relayClient(relayAddr, peerKeyB64 string) {
+func relayClient(relayAddr, tokenHex, password string) {
 	store, err := storage.OpenStorage(
 		storage.WithDBPath("./client.db"), storage.WithNoPassphrase(),
 	)
@@ -26,15 +24,9 @@ func relayClient(relayAddr, peerKeyB64 string) {
 	}
 	defer store.Close()
 
-	at, err := store.Attester()
+	token, err := hex.DecodeString(tokenHex)
 	if err != nil {
-		errCh <- fmt.Errorf("loading attester: %w", err)
-		return
-	}
-	selfKey := at.MarshalPublicKey()
-	peerKey, err := base64.RawURLEncoding.DecodeString(peerKeyB64)
-	if err != nil {
-		errCh <- fmt.Errorf("decode peer key: %w", err)
+		errCh <- fmt.Errorf("decode token: %w", err)
 		return
 	}
 
@@ -49,7 +41,11 @@ func relayClient(relayAddr, peerKeyB64 string) {
 			relayAddr,
 			store,
 			kamune.DialWithFunc(func(addr string) (kamune.Conn, error) {
-				return relayconn.DialRelay(ctx, addr, selfKey, peerKey)
+				var dialOpts []relayconn.Option
+				if password != "" {
+					dialOpts = append(dialOpts, relayconn.WithPassword(password))
+				}
+				return relayconn.DialRelay(ctx, addr, token, dialOpts...)
 			}),
 		)
 		if err != nil {
@@ -66,11 +62,6 @@ func relayClient(relayAddr, peerKeyB64 string) {
 	defer t.Close()
 
 	msg, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
-
-	pk := dialer.PublicKey()
-	fp := strings.Join(fingerprint.Emoji(pk), " • ")
-	fmt.Printf("Your emoji fingerprint: %s\n", fp)
-	fmt.Printf("Your base64 public key: %s\n", base64.RawURLEncoding.EncodeToString(pk))
 
 	p := NewProgram(tea.NewProgram(initialModel(t, store, msg), tea.WithAltScreen()))
 	go func() {
