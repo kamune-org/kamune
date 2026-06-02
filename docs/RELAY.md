@@ -1,4 +1,4 @@
-# Relay Protocol (Token Relay)
+# Relay Protocol
 
 Kamune includes a relay server for NAT traversal. The relay is a **blind
 token-based session switch** — a listener connects, receives a random token,
@@ -144,6 +144,7 @@ disconnects, the message is silently dropped. The Kamune protocol layer
    If no dialer joins within the TTL, the session is cleaned up.
 
 Tokens are:
+
 - **Single-use**: one dialer per token
 - **Time-bound**: TTL enforced server-side
 - **Opaque**: the relay does not embed any peer information in the token
@@ -151,15 +152,15 @@ Tokens are:
 
 ## What the relay learns (and doesn't)
 
-| The relay sees                      | The relay does NOT see          |
-| ----------------------------------- | ------------------------------- |
-| Session S has 2 connections         | Public keys of either peer      |
-| Connection A is in session S        | Identity of any peer            |
-| Session S received a message at T    | Persistent identifier (token is |
-|                                     | ephemeral and single-use)       |
-|                                     | Message content (E2E encrypted) |
-|                                     | Social graph (each token is     |
-|                                     | unique per rendezvous)          |
+| The relay sees                    | The relay does NOT see          |
+| --------------------------------- | ------------------------------- |
+| Session S has 2 connections       | Public keys of either peer      |
+| Connection A is in session S      | Identity of any peer            |
+| Session S received a message at T | Persistent identifier (token is |
+|                                   | ephemeral and single-use)       |
+|                                   | Message content (E2E encrypted) |
+|                                   | Social graph (each token is     |
+|                                   | unique per rendezvous)          |
 
 The relay never learns who any peer is — it sees only that two connections
 share a token, nothing more.
@@ -411,10 +412,10 @@ frames pass through. The relay sees the Worker's IP, not the client's.
 The relay supports restricting which peers can create sessions. Enforcement
 happens inside the HPKE-encrypted channel, before a token is issued.
 
-| Mode | Config                   | Behaviour                                              |
-| ---- | ------------------------ | ------------------------------------------------------ |
-| Open | `password = ""` (default) | Any peer can create sessions and receive tokens       |
-| PSK  | `password = "<secret>"`  | Peer must send `Frame.Auth{psk}` before `Register`     |
+| Mode | Config                    | Behaviour                                          |
+| ---- | ------------------------- | -------------------------------------------------- |
+| Open | `password = ""` (default) | Any peer can create sessions and receive tokens    |
+| PSK  | `password = "<secret>"`   | Peer must send `Frame.Auth{psk}` before `Register` |
 
 ### Open mode (default)
 
