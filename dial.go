@@ -55,7 +55,7 @@ func (d *Dialer) dial(addr string) (Conn, error) {
 	return newConn(c, d.connOpts...), nil
 }
 
-func (d *Dialer) handshake(cn Conn) (*Transport, error) {
+func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 	defer func() {
 		if msg := recover(); msg != nil {
 			slog.Error(
@@ -63,6 +63,8 @@ func (d *Dialer) handshake(cn Conn) (*Transport, error) {
 				slog.Any("message", msg),
 				slog.String("stack", string(debug.Stack())),
 			)
+			cn.Close()
+			err = fmt.Errorf("handshake panic: %v", msg)
 		}
 	}()
 
@@ -111,7 +113,7 @@ func (d *Dialer) handshake(cn Conn) (*Transport, error) {
 	serde := newSignedSerde(peer.PublicKey, d.attest)
 
 	// Step 3: Proceed with the handshake
-	t, err := requestHandshake(ec, serde, d.handshakeOpts)
+	t, err = requestHandshake(ec, serde, d.handshakeOpts)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake: %w", err)
 	}

@@ -44,17 +44,21 @@ type Server struct {
 // It blocks until the listener is closed via [Server.Close] or an
 // unrecoverable error occurs.
 func (s *Server) ListenAndServe() error {
+	s.mu.Lock()
 	if s.closed {
+		s.mu.Unlock()
 		return ErrClosedServer
 	}
 	if s.listener == nil {
 		// defaults to TCP
 		l, err := net.Listen("tcp", s.addr)
 		if err != nil {
+			s.mu.Unlock()
 			return fmt.Errorf("listening tcp: %w", err)
 		}
 		s.listener = &tcpListener{Listener: l, connOpts: s.connOpts}
 	}
+	s.mu.Unlock()
 
 	slog.Info("server started", slog.String("addr", s.addr))
 
@@ -124,7 +128,7 @@ func (l *udpListener) Accept() (Conn, error) {
 	return newConn(c, l.connOpts...), nil
 }
 
-func (s *Server) serve(cn Conn) error {
+func (s *Server) serve(cn Conn) (err error) {
 	defer func() {
 		if msg := recover(); msg != nil {
 			slog.Error(
@@ -132,6 +136,7 @@ func (s *Server) serve(cn Conn) error {
 				slog.Any("message", msg),
 				slog.String("stack", string(debug.Stack())),
 			)
+			err = fmt.Errorf("serve panic: %v", msg)
 		}
 		if err := cn.Close(); err != nil && !errors.Is(err, ErrConnClosed) {
 			slog.Error("close conn", slog.Any("err", err))

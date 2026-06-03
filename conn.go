@@ -22,11 +22,13 @@ type Conn interface {
 //
 // It also implements [net.Conn] interface.
 type conn struct {
-	conn          net.Conn
-	mu            sync.Mutex
-	closed        bool
-	readDeadline  time.Duration
-	writeDeadline time.Duration
+	currentReadDeadline  time.Time
+	currentWriteDeadline time.Time
+	conn                 net.Conn
+	readDeadline         time.Duration
+	writeDeadline        time.Duration
+	mu                   sync.Mutex
+	closed               bool
 }
 
 func (c *conn) Close() error {
@@ -134,10 +136,10 @@ func (c *conn) writeLen(data []byte) (int, error) {
 		return 0, err
 	}
 
-	msgLen := uint16(len(data))
-	if msgLen > maxTransportSize {
+	if len(data) > int(maxTransportSize) {
 		return 0, ErrMessageTooLarge
 	}
+	msgLen := uint16(len(data))
 
 	var lenBuf [2]byte
 	binary.BigEndian.PutUint16(lenBuf[:], msgLen)
@@ -170,15 +172,22 @@ func (c *conn) checkReadDeadline(deadline time.Duration) error {
 	// A non-positive deadline disables timeouts (no deadline).
 	// This makes ConnWithReadTimeout(0) a safe way to disable deadlines.
 	if deadline <= 0 {
-		if err := c.SetReadDeadline(time.Time{}); err != nil {
+		if err := c.conn.SetReadDeadline(time.Time{}); err != nil {
 			return fmt.Errorf("clearing read deadline: %w", err)
 		}
+		c.currentReadDeadline = time.Time{}
 		return nil
 	}
 
-	if err := c.SetReadDeadline(time.Now().Add(deadline)); err != nil {
+	newDeadline := time.Now().Add(deadline)
+	// Respect an existing shorter deadline (e.g. set by Ping).
+	if !c.currentReadDeadline.IsZero() && c.currentReadDeadline.Before(newDeadline) {
+		return nil
+	}
+	if err := c.conn.SetReadDeadline(newDeadline); err != nil {
 		return fmt.Errorf("setting read deadline: %w", err)
 	}
+	c.currentReadDeadline = newDeadline
 	return nil
 }
 
@@ -192,23 +201,49 @@ func (c *conn) checkWriteDeadline(deadline time.Duration) error {
 	// A non-positive deadline disables timeouts (no deadline).
 	// This makes ConnWithWriteTimeout(0) a safe way to disable deadlines.
 	if deadline <= 0 {
-		if err := c.SetWriteDeadline(time.Time{}); err != nil {
+		if err := c.conn.SetWriteDeadline(time.Time{}); err != nil {
 			return fmt.Errorf("clearing write deadline: %w", err)
 		}
+		c.currentWriteDeadline = time.Time{}
 		return nil
 	}
 
-	if err := c.SetWriteDeadline(time.Now().Add(deadline)); err != nil {
+	newDeadline := time.Now().Add(deadline)
+	// Respect an existing shorter deadline.
+	if !c.currentWriteDeadline.IsZero() && c.currentWriteDeadline.Before(newDeadline) {
+		return nil
+	}
+	if err := c.conn.SetWriteDeadline(newDeadline); err != nil {
 		return fmt.Errorf("setting write deadline: %w", err)
 	}
+	c.currentWriteDeadline = newDeadline
 	return nil
 }
 
-func (c *conn) LocalAddr() net.Addr                { return c.conn.LocalAddr() }
-func (c *conn) RemoteAddr() net.Addr               { return c.conn.RemoteAddr() }
-func (c *conn) SetDeadline(t time.Time) error      { return c.conn.SetDeadline(t) }
-func (c *conn) SetReadDeadline(t time.Time) error  { return c.conn.SetReadDeadline(t) }
-func (c *conn) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
+func (c *conn) LocalAddr() net.Addr  { return c.conn.LocalAddr() }
+func (c *conn) RemoteAddr() net.Addr { return c.conn.RemoteAddr() }
+
+func (c *conn) SetDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.currentReadDeadline = t
+	c.currentWriteDeadline = t
+	c.mu.Unlock()
+	return c.conn.SetDeadline(t)
+}
+
+func (c *conn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.currentReadDeadline = t
+	c.mu.Unlock()
+	return c.conn.SetReadDeadline(t)
+}
+
+func (c *conn) SetWriteDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.currentWriteDeadline = t
+	c.mu.Unlock()
+	return c.conn.SetWriteDeadline(t)
+}
 
 func newConn(c net.Conn, opts ...ConnOption) *conn {
 	cn := &conn{

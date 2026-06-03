@@ -25,6 +25,7 @@ type RelayListener struct {
 	cancel    context.CancelFunc
 	closeFn   func()
 	conn      *RelayConn
+	closeOnce sync.Once
 	channelMu sync.Mutex
 	mu        sync.Mutex
 	stopped   atomic.Bool
@@ -160,13 +161,17 @@ func (l *RelayListener) Accept() (kamune.Conn, error) {
 }
 
 func (l *RelayListener) Close() error {
+	l.mu.Lock()
 	if l.conn != nil {
 		l.conn.Close()
 	}
+	l.mu.Unlock()
 	l.cancel()
-	if l.closeFn != nil {
-		l.closeFn()
-	}
+	l.closeOnce.Do(func() {
+		if l.closeFn != nil {
+			l.closeFn()
+		}
+	})
 	return nil
 }
 
@@ -235,9 +240,11 @@ func (l *RelayListener) deliver(msg *pb.Message) {
 		l.mu.Unlock()
 		if stopped {
 			l.cancel()
-			if l.closeFn != nil {
-				l.closeFn()
-			}
+			l.closeOnce.Do(func() {
+				if l.closeFn != nil {
+					l.closeFn()
+				}
+			})
 		}
 	}
 	l.conn = rc
