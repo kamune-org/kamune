@@ -41,6 +41,12 @@ func (t *tokenTracker) Accept() (kamune.Conn, error) {
 	return cn, err
 }
 
+func (t *tokenTracker) Stop() {
+	if s, ok := t.Listener.(interface{ Stop() }); ok {
+		s.Stop()
+	}
+}
+
 func listenRelayTracked(ctx context.Context, a *App, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, error) {
 	listener, tokenHex, err := listenRelay(ctx, relayAddr, password, insecureSkipVerify)
 	if err != nil {

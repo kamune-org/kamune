@@ -657,7 +657,9 @@ func (a *App) markRelayTokenConsumed(token string) {
 		rt := a.relayTokens[idx]
 		a.relayTokens = append(a.relayTokens[:idx], a.relayTokens[idx+1:]...)
 		a.mu.Unlock()
-		rt.listener.Close()
+		if s, ok := rt.listener.(interface{ Stop() }); ok {
+			s.Stop()
+		}
 		runtime.EventsEmit(a.ctx, "relay-tokens", a.getRelayTokens())
 		a.addLogEntry("INFO", "Discarded consumed relay token")
 	}()
