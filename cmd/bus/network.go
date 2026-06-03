@@ -406,6 +406,10 @@ func (a *App) DisconnectSession(sessionID string) error {
 	session.Transport.Close()
 	waitOrTimeout(session.ReceiveDone, "DisconnectSession: "+sessionID)
 
+	if store := a.store(); store != nil {
+		a.loadHistorySessions(store)
+	}
+
 	runtime.EventsEmit(a.ctx, "session-closed", sessionID)
 	a.addLogEntry("INFO", "Disconnected session: "+sessionID)
 
@@ -473,6 +477,10 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		}
 	}
 	a.mu.Unlock()
+
+	if store := a.store(); store != nil {
+		a.loadHistorySessions(store)
+	}
 
 	runtime.EventsEmit(a.ctx, "session-closed", sessionID)
 	a.addLogEntry("INFO", "Peer disconnected: "+sessionID)

@@ -56,6 +56,7 @@ func (a *App) SendMessage(sessionID string, text string) error {
 	}
 
 	runtime.EventsEmit(a.ctx, "message-sent", sessionID, msg)
+	runtime.EventsEmit(a.ctx, "session-updated", sessionID)
 	a.addLogEntry("DEBUG", "Sent message to "+sessionID)
 	return nil
 }
@@ -63,6 +64,26 @@ func (a *App) SendMessage(sessionID string, text string) error {
 func (a *App) receiveMessages(session *liveSession) {
 	defer close(session.ReceiveDone)
 	a.receiveMessagesBlocking(session)
+
+	a.mu.Lock()
+	for i, s := range a.sessions {
+		if s.ID == session.ID {
+			a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)
+			break
+		}
+	}
+	sessionsRemaining := len(a.sessions)
+	a.mu.Unlock()
+
+	if store := a.store(); store != nil {
+		a.loadHistorySessions(store)
+	}
+
+	runtime.EventsEmit(a.ctx, "session-closed", session.ID)
+
+	if sessionsRemaining == 0 {
+		a.setStatus(StatusDisconnected, "Not connected")
+	}
 }
 
 func (a *App) receiveMessagesBlocking(session *liveSession) {
@@ -113,6 +134,7 @@ func (a *App) receiveMessagesBlocking(session *liveSession) {
 		}
 
 		runtime.EventsEmit(a.ctx, "message-received", session.ID, msg)
+		runtime.EventsEmit(a.ctx, "session-updated", session.ID)
 		a.addLogEntry("DEBUG", "Received message from "+session.ID)
 	}
 }
