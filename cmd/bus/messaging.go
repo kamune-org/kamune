@@ -83,6 +83,7 @@ func (a *App) receiveMessages(session *liveSession) {
 
 	if sessionsRemaining == 0 {
 		a.setStatus(StatusDisconnected, "Not connected")
+		a.addLogEntry("INFO", "All sessions disconnected")
 	}
 }
 

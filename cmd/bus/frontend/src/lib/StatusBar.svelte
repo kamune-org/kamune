@@ -11,10 +11,11 @@
     connecting: '#f59e0b',
     connected: '#10b981',
     error: '#ef4444',
+    verifying: '#8b5cf6',
   }[$status.status] || '#5b677d'
 
   $: indicatorText = $status.message || 'Not connected'
-  $: isConnecting = $status.status === 'connecting'
+  $: isConnecting = $status.status === 'connecting' || $status.status === 'verifying'
 </script>
 
 <div class="statusbar">
@@ -22,6 +23,7 @@
     <span
       class="dot"
       class:connecting={isConnecting}
+      class:verifying={$status.status === 'verifying'}
       style="background:{indicatorColor}"
     ></span>
     <span class="status-msg">{indicatorText}</span>
@@ -84,6 +86,10 @@
   }
   .dot.connecting {
     animation: pulse-dot 1.2s ease-in-out infinite;
+  }
+  .dot.verifying {
+    animation: pulse-dot 1.2s ease-in-out infinite;
+    box-shadow: 0 0 8px #8b5cf6;
   }
   .status-msg {
     color: var(--text-secondary);

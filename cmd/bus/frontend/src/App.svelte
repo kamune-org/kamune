@@ -996,10 +996,11 @@
     {/if}
 
     <div class="app-body">
-        <Sidebar
-            {serverActive}
-            {serverLoading}
-            {connectLoading}
+		<Sidebar
+			{serverActive}
+			runningServerTransport={runningServerTransport}
+			{serverLoading}
+			{connectLoading}
             on:startServer={() => {
                 dialogs.update((d) => ({ ...d, showServer: true }));
             }}

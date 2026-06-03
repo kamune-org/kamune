@@ -18,6 +18,8 @@ export function DeleteHistorySession(arg1:string):Promise<void>;
 
 export function DisconnectSession(arg1:string):Promise<void>;
 
+export function ExportLogsToFile():Promise<void>;
+
 export function GenerateRelayToken():Promise<string>;
 
 export function GetDBPath():Promise<string>;
@@ -43,6 +45,8 @@ export function GetRelayToken():Promise<string>;
 export function GetRelayTokens():Promise<Array<main.relayToken>>;
 
 export function GetServerRunning():Promise<boolean>;
+
+export function GetServerTransport():Promise<string>;
 
 export function GetSessionInfo(arg1:string):Promise<Record<string, any>>;
 

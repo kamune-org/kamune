@@ -1,7 +1,7 @@
 <script>
   import { afterUpdate } from 'svelte'
-  import { logEntries } from './stores.js'
-  import { ClearLogs } from '../../wailsjs/go/main/App.js'
+  import { logEntries, toast } from './stores.js'
+  import { ClearLogs, ExportLogsToFile } from '../../wailsjs/go/main/App.js'
 
   let autoScroll = true
   let listEl
@@ -25,6 +25,15 @@
     await ClearLogs()
     logEntries.set([])
   }
+
+  async function exportLogs() {
+    try {
+      await ExportLogsToFile()
+    } catch (e) {
+      toast.set({ message: String(e), type: 'error' })
+      setTimeout(() => toast.set(null), 3000)
+    }
+  }
 </script>
 
 <div class="log-panel">
@@ -46,6 +55,13 @@
           <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
         </svg>
         Clear
+      </button>
+      <button class="log-btn" on:click={exportLogs}>
+        <svg viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
+          <path d="M10 1a1 1 0 011 1v9.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V2a1 1 0 011-1z"/>
+          <path d="M2 17a1 1 0 011 1h14a1 1 0 011-1H2z" opacity=".5"/>
+        </svg>
+        Export
       </button>
     </div>
   </div>

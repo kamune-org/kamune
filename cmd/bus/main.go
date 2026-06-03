@@ -3,11 +3,8 @@ package main
 import (
 	"context"
 	"embed"
-	"io"
-	"log"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -145,28 +142,13 @@ func buildMenu(app *App) *menu.Menu {
 }
 
 func main() {
-	logPath := filepath.Join(os.TempDir(), "kamune-bus.log")
-
-	if fi, err := os.Stat(logPath); err == nil && fi.Size() > 5<<20 {
-		os.Remove(logPath)
-	}
-
-	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		mw := io.MultiWriter(os.Stderr, logFile)
-		slog.SetDefault(slog.New(slog.NewTextHandler(mw, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		})))
-		log.SetOutput(logFile)
-		defer func() { _ = logFile.Close() }()
-		slog.Info("Logger initialized", "path", logPath)
-	} else {
-		slog.Warn("Failed to create log file, using stderr only", "error", err)
-	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})))
 
 	app := NewApp()
 
-	err = wails.Run(&options.App{
+	err := wails.Run(&options.App{
 		Title:     "Bus — Kamune Chat",
 		Width:     1050,
 		Height:    720,

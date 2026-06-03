@@ -71,6 +71,7 @@ const (
 	StatusConnecting   ConnectionStatus = "connecting"
 	StatusConnected    ConnectionStatus = "connected"
 	StatusError        ConnectionStatus = "error"
+	StatusVerifying    ConnectionStatus = "verifying"
 )
 
 var appVersion = "2.0.0"
@@ -886,6 +887,12 @@ func (a *App) GetServerRunning() bool {
 	return a.server != nil
 }
 
+func (a *App) GetServerTransport() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.serverTransportType
+}
+
 func (a *App) GetRelayToken() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -978,7 +985,42 @@ func (a *App) ClearLogs() {
 	a.logMu.Lock()
 	a.logEntries = a.logEntries[:0]
 	a.logMu.Unlock()
-	runtime.EventsEmit(a.ctx, "logs-cleared")
+}
+
+func (a *App) ExportLogsToFile() error {
+	a.logMu.RLock()
+	entries := make([]LogEntryInfo, len(a.logEntries))
+	copy(entries, a.logEntries)
+	a.logMu.RUnlock()
+
+	filePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:          "Export Logs",
+		DefaultFilename: fmt.Sprintf("kamune-logs-%s.txt", time.Now().Format("2006-01-02_150405")),
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Text Files", Pattern: "*.txt"},
+			{DisplayName: "All Files", Pattern: "*"},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("save dialog: %w", err)
+	}
+	if filePath == "" {
+		return nil
+	}
+
+	f, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+	defer f.Close()
+
+	for _, e := range entries {
+		if _, err := fmt.Fprintf(f, "%s [%s] %s\n", e.Timestamp.Format(time.RFC3339), e.Level, e.Message); err != nil {
+			return fmt.Errorf("write: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (a *App) CopyToClipboard(text string) error {

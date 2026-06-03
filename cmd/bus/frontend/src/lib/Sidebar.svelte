@@ -13,6 +13,7 @@
 
   const dispatch = createEventDispatcher()
   export let serverActive = false
+  export let runningServerTransport = ''
   export let serverLoading = false
   export let connectLoading = false
 
@@ -217,7 +218,7 @@
         {/if}
       </div>
 
-      {#if $relayTokens.length > 0 || serverActive}
+      {#if $relayTokens.length > 0 || (serverActive && runningServerTransport === 'relay')}
         <div class="relay-tokens-section">
           <div class="rt-header" on:click={() => tokensExpanded = !tokensExpanded} on:keydown={(e) => { if (e.key === 'Enter') tokensExpanded = !tokensExpanded }} role="button" tabindex="0">
             <svg class="rt-chevron" class:collapsed={!tokensExpanded} viewBox="0 0 20 20" fill="currentColor" width="10" height="10">

@@ -38,6 +38,11 @@ func (a *App) createStrictVerifier() kamune.RemoteVerifier {
 			known = true
 		}
 
+		a.mu.RLock()
+		prevStatus := a.status
+		prevMsg := a.statusMsg
+		a.mu.RUnlock()
+
 		reqID := a.verifIDCounter.Add(1)
 		result := make(chan error, 1)
 
@@ -48,6 +53,9 @@ func (a *App) createStrictVerifier() kamune.RemoteVerifier {
 			hex:    hex,
 		}
 		a.verifMu.Unlock()
+
+		a.setStatus(StatusVerifying, "Verifying fingerprint of "+peer.Name+"...")
+		a.addLogEntry("INFO", "Verifying peer: "+peer.Name)
 
 		runtime.EventsEmit(a.ctx, "verify-peer", map[string]any{
 			"requestID": reqID,
@@ -64,6 +72,8 @@ func (a *App) createStrictVerifier() kamune.RemoteVerifier {
 		if verdict != nil {
 			return verdict
 		}
+
+		a.setStatus(prevStatus, prevMsg)
 
 		if !known {
 			peer.FirstSeen = time.Now()
@@ -89,6 +99,11 @@ func (a *App) createQuickVerifier() kamune.RemoteVerifier {
 		emoji := strings.Join(fingerprint.Emoji(key), " • ")
 		hex := fingerprint.Hex(key)
 
+		a.mu.RLock()
+		prevStatus := a.status
+		prevMsg := a.statusMsg
+		a.mu.RUnlock()
+
 		reqID := a.verifIDCounter.Add(1)
 		result := make(chan error, 1)
 
@@ -99,6 +114,9 @@ func (a *App) createQuickVerifier() kamune.RemoteVerifier {
 			hex:    hex,
 		}
 		a.verifMu.Unlock()
+
+		a.setStatus(StatusVerifying, "Verifying fingerprint of "+peer.Name+"...")
+		a.addLogEntry("INFO", "Verifying peer: "+peer.Name)
 
 		runtime.EventsEmit(a.ctx, "verify-peer", map[string]any{
 			"requestID": reqID,
@@ -115,6 +133,8 @@ func (a *App) createQuickVerifier() kamune.RemoteVerifier {
 		if verdict != nil {
 			return verdict
 		}
+
+		a.setStatus(prevStatus, prevMsg)
 
 		peer.FirstSeen = time.Now()
 		if err := store.StorePeer(peer); err != nil {
@@ -158,6 +178,7 @@ func (a *App) awaitVerification(reqID int64, result chan error) error {
 		a.verifMu.Lock()
 		delete(a.verifRequests, reqID)
 		a.verifMu.Unlock()
+		a.setStatus(StatusError, "Verification timed out")
 		a.addLogEntry("WARN", "Verification timed out for request: "+fmt.Sprintf("%d", reqID))
 		return fmt.Errorf("verification timed out after %v", verificationTimeout)
 	}

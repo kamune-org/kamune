@@ -34,6 +34,10 @@ export function DisconnectSession(arg1) {
   return window['go']['main']['App']['DisconnectSession'](arg1);
 }
 
+export function ExportLogsToFile() {
+  return window['go']['main']['App']['ExportLogsToFile']();
+}
+
 export function GenerateRelayToken() {
   return window['go']['main']['App']['GenerateRelayToken']();
 }
@@ -84,6 +88,10 @@ export function GetRelayTokens() {
 
 export function GetServerRunning() {
   return window['go']['main']['App']['GetServerRunning']();
+}
+
+export function GetServerTransport() {
+  return window['go']['main']['App']['GetServerTransport']();
 }
 
 export function GetSessionInfo(arg1) {

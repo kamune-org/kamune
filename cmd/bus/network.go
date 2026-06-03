@@ -133,7 +133,7 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 	a.mu.Unlock()
 
 	runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
-	runtime.EventsEmit(a.ctx, "server-running", true)
+	runtime.EventsEmit(a.ctx, "server-running", true, transport)
 
 	go func() {
 		defer close(done)
@@ -149,8 +149,9 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 		a.server = nil
 		a.serverTransportType = ""
 		a.mu.Unlock()
-		runtime.EventsEmit(a.ctx, "server-running", false)
+		runtime.EventsEmit(a.ctx, "server-running", false, transport)
 		a.setStatus(StatusDisconnected, "Server stopped")
+		a.addLogEntry("INFO", "Server stopped")
 	}()
 
 	var statusMsg string
@@ -370,6 +371,7 @@ func (a *App) ConnectToServer(addr string, transport string, relayAddr string, t
 		fn, err := dialRelayFunc(relayAddr, token, password, a.insecureTLS)
 		if err != nil {
 			a.setStatus(StatusError, "Failed to prepare relay dial")
+			a.addLogEntry("ERROR", "Relay dial preparation failed: "+err.Error())
 			return "", fmt.Errorf("relay dial func: %w", err)
 		}
 		opts = append(opts, kamune.DialWithFunc(fn))
@@ -440,7 +442,6 @@ func (a *App) ConnectToServer(addr string, transport string, relayAddr string, t
 
 func (a *App) DisconnectSession(sessionID string) error {
 	var session *liveSession
-	var remaining int
 
 	func() {
 		a.mu.Lock()
@@ -452,7 +453,6 @@ func (a *App) DisconnectSession(sessionID string) error {
 				break
 			}
 		}
-		remaining = len(a.sessions)
 	}()
 
 	if session == nil {
@@ -468,11 +468,6 @@ func (a *App) DisconnectSession(sessionID string) error {
 
 	runtime.EventsEmit(a.ctx, "session-closed", sessionID)
 	a.addLogEntry("INFO", "Disconnected session: "+sessionID)
-
-	if remaining == 0 {
-		a.setStatus(StatusDisconnected, "Not connected")
-	}
-
 	return nil
 }
 
@@ -539,7 +534,14 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	}
 
 	runtime.EventsEmit(a.ctx, "session-closed", sessionID)
-	a.addLogEntry("INFO", "Peer disconnected: "+sessionID)
+
+	a.mu.Lock()
+	sessionsRemaining := len(a.sessions)
+	a.mu.Unlock()
+	if sessionsRemaining == 0 {
+		a.setStatus(StatusDisconnected, "Not connected")
+		a.addLogEntry("INFO", "All sessions disconnected")
+	}
 	return nil
 }
 
