@@ -364,6 +364,9 @@
     }
 
     async function handleStopServer() {
+        if (!(await ConfirmStopServer())) {
+            return;
+        }
         try {
             await StopServer();
             await loadSessions();

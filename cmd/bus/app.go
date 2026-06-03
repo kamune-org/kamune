@@ -186,6 +186,12 @@ type App struct {
 	appVersion      string
 	fingerprintFmt  string
 
+	serverAddr      string
+	serverTransport string
+	serverRelayAddr string
+	serverName      string
+	serverPassword  string
+
 	logEntries    []LogEntryInfo
 	logMu         sync.RWMutex
 	logBufferSize int
@@ -194,7 +200,8 @@ type App struct {
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
 
-	insecureMenuItem *menu.MenuItem
+	insecureMenuItem  *menu.MenuItem
+	verifRadioItems   []*menu.MenuItem
 }
 
 func NewApp() *App {
@@ -432,6 +439,14 @@ func (a *App) initFromStorage() {
 				a.mu.Lock()
 				a.verifMode = VerificationMode(mode)
 				a.mu.Unlock()
+
+				for _, item := range a.verifRadioItems {
+					item.Checked = false
+				}
+				if mode >= 0 && mode < len(a.verifRadioItems) {
+					a.verifRadioItems[mode].Checked = true
+				}
+				runtime.MenuUpdateApplicationMenu(a.ctx)
 				runtime.EventsEmit(a.ctx, "verification-mode-changed", mode)
 			}
 		}
@@ -589,7 +604,33 @@ func (a *App) GetVerificationMode() int {
 	return int(a.verifMode)
 }
 
-func (a *App) SetVerificationMode(mode int) {
+func (a *App) SetVerificationMode(mode int) bool {
+	a.mu.RLock()
+	if a.verifMode == VerificationMode(mode) {
+		a.mu.RUnlock()
+		return false
+	}
+	serverRunning := a.server != nil
+	a.mu.RUnlock()
+
+	if serverRunning {
+		result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+			Type:          runtime.QuestionDialog,
+			Title:         "Restart Server?",
+			Message:       "The verification mode change only applies to new client connections. To apply it to incoming server connections as well, the server must restart. This will disconnect all active sessions.",
+			Buttons:       []string{"Restart Server", "Cancel"},
+			DefaultButton: "Cancel",
+			CancelButton:  "Cancel",
+		})
+		if err != nil || result == "Cancel" {
+			return false
+		}
+	}
+
+	a.mu.RLock()
+	oldMode := a.verifMode
+	a.mu.RUnlock()
+
 	a.mu.Lock()
 	a.verifMode = VerificationMode(mode)
 	a.mu.Unlock()
@@ -598,6 +639,27 @@ func (a *App) SetVerificationMode(mode int) {
 	}
 	a.addLogEntry("INFO", "Verification mode set to: "+verifModeName(VerificationMode(mode)))
 	runtime.EventsEmit(a.ctx, "verification-mode-changed", mode)
+
+	if serverRunning {
+		if err := a.restartServer(); err != nil {
+			a.addLogEntry("ERROR", "Failed to restart server after mode change: "+err.Error())
+			a.mu.Lock()
+			a.verifMode = oldMode
+			a.mu.Unlock()
+			if store := a.store(); store != nil {
+				_ = store.SetSettings("bus", "verification_mode", strconv.Itoa(int(oldMode)))
+			}
+			runtime.EventsEmit(a.ctx, "verification-mode-changed", int(oldMode))
+			runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+				Type:    runtime.ErrorDialog,
+				Title:   "Restart Failed",
+				Message: "Failed to restart server. The verification mode has been reverted.\n\nError: " + err.Error(),
+			})
+			return false
+		}
+	}
+
+	return true
 }
 
 func (a *App) GetInsecureTLS() bool {
@@ -606,7 +668,31 @@ func (a *App) GetInsecureTLS() bool {
 	return a.insecureTLS
 }
 
-func (a *App) SetInsecureTLS(enable bool) {
+func (a *App) SetInsecureTLS(enable bool) bool {
+	a.mu.RLock()
+	needsRestart := a.relayListeners != nil
+	a.mu.RUnlock()
+
+	if needsRestart {
+		a.addLogEntry("DEBUG", "Server is using relay — prompting to restart for TLS change")
+
+		result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+			Type:          runtime.QuestionDialog,
+			Title:         "Restart Server?",
+			Message:       "Skip TLS only affects new relay connections. To apply it to the running server, the server must restart. This will disconnect all active sessions.",
+			Buttons:       []string{"Restart Server", "Cancel"},
+			DefaultButton: "Cancel",
+			CancelButton:  "Cancel",
+		})
+		if err != nil || result == "Cancel" {
+			return false
+		}
+	}
+
+	a.mu.RLock()
+	oldVal := a.insecureTLS
+	a.mu.RUnlock()
+
 	a.mu.Lock()
 	a.insecureTLS = enable
 	if a.insecureMenuItem != nil {
@@ -621,8 +707,33 @@ func (a *App) SetInsecureTLS(enable bool) {
 		_ = store.SetSettings("bus", "insecure_tls", val)
 	}
 	a.addLogEntry("DEBUG", "Insecure TLS set to: "+strconv.FormatBool(enable))
-	runtime.EventsEmit(a.ctx, "insecure-tls-changed", enable)
-	runtime.MenuUpdateApplicationMenu(a.ctx)
+
+	if needsRestart {
+		if err := a.restartServer(); err != nil {
+			a.addLogEntry("ERROR", "Failed to restart server after TLS change: "+err.Error())
+			a.mu.Lock()
+			a.insecureTLS = oldVal
+			if a.insecureMenuItem != nil {
+				a.insecureMenuItem.Checked = oldVal
+			}
+			a.mu.Unlock()
+			if store := a.store(); store != nil {
+				val := ""
+				if oldVal {
+					val = "true"
+				}
+				_ = store.SetSettings("bus", "insecure_tls", val)
+			}
+			runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+				Type:    runtime.ErrorDialog,
+				Title:   "Restart Failed",
+				Message: "Failed to restart server. The TLS setting has been reverted.\n\nError: " + err.Error(),
+			})
+			return false
+		}
+	}
+
+	return true
 }
 
 func (a *App) markRelayTokenConsumed(token string) {

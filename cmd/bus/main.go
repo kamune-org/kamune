@@ -28,9 +28,19 @@ func buildMenu(app *App) *menu.Menu {
 	auto := conn.AddRadio("Auto-Accept", false, keys.CmdOrCtrl("2"), nil)
 
 	radioItems := []*menu.MenuItem{strict, quick, auto}
+	app.verifRadioItems = radioItems
 
 	setVerifMode := func(ctx context.Context, mode int) {
-		app.SetVerificationMode(mode)
+		if !app.SetVerificationMode(mode) {
+			// Revert menu to previous radio state
+			prev := app.GetVerificationMode()
+			for _, item := range radioItems {
+				item.Checked = false
+			}
+			radioItems[prev].Checked = true
+			runtime.MenuUpdateApplicationMenu(ctx)
+			return
+		}
 		for _, item := range radioItems {
 			item.Checked = false
 		}
@@ -45,7 +55,14 @@ func buildMenu(app *App) *menu.Menu {
 	conn.AddSeparator()
 
 	insecureItem := conn.AddCheckbox("Skip TLS Verification", app.GetInsecureTLS(), nil, func(_ *menu.CallbackData) {
-		app.SetInsecureTLS(!app.GetInsecureTLS())
+		newVal := !app.GetInsecureTLS()
+		if app.SetInsecureTLS(newVal) {
+			runtime.MenuUpdateApplicationMenu(app.ctx)
+			return
+		}
+		// Cancel or no-op: re-sync native menu to Go state (native checkbox
+		// may have auto-toggled before the callback fired)
+		app.insecureMenuItem.Checked = app.GetInsecureTLS()
 		runtime.MenuUpdateApplicationMenu(app.ctx)
 	})
 	app.insecureMenuItem = insecureItem

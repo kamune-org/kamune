@@ -22,6 +22,14 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 
 	a.setStatus(StatusConnecting, "Starting server...")
 
+	a.mu.Lock()
+	a.serverAddr = addr
+	a.serverTransport = transport
+	a.serverRelayAddr = relayAddr
+	a.serverName = name
+	a.serverPassword = password
+	a.mu.Unlock()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mu.Lock()
 	if a.startCancel != nil {
@@ -69,6 +77,7 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 		a.mu.RUnlock()
 		if cancelled {
 			a.setStatus(StatusDisconnected, "Cancelled")
+			a.addLogEntry("INFO", "Server start cancelled")
 			return "", "", fmt.Errorf("cancelled")
 		}
 		ml := newMultiListener()
@@ -164,6 +173,35 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 	return emoji, firstToken, nil
 }
 
+func (a *App) ConfirmStopServer() bool {
+	a.mu.RLock()
+	sessionCount := len(a.sessions)
+	a.mu.RUnlock()
+
+	if sessionCount == 0 {
+		return true
+	}
+
+	msg := fmt.Sprintf("Stop the server? This will disconnect %d active session", sessionCount)
+	if sessionCount > 1 {
+		msg += "s"
+	}
+	msg += "."
+
+	result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+		Title:         "Stop Server",
+		Message:       msg,
+		Type:          runtime.QuestionDialog,
+		Buttons:       []string{"Stop", "Cancel"},
+		DefaultButton: "Cancel",
+		CancelButton:  "Cancel",
+	})
+	if err != nil || result == "Cancel" || result == "" {
+		return false
+	}
+	return true
+}
+
 func (a *App) StopServer() error {
 	a.setStatus(StatusDisconnected, "Stopping server...")
 	a.addLogEntry("INFO", "Stopping server...")
@@ -200,8 +238,26 @@ func (a *App) StopServer() error {
 		waitOrTimeout(serverDone, "ListenAndServe")
 	}
 
-	a.setStatus(StatusDisconnected, "Server stopped")
 	return nil
+}
+
+func (a *App) restartServer() error {
+	a.mu.RLock()
+	addr := a.serverAddr
+	transport := a.serverTransport
+	relayAddr := a.serverRelayAddr
+	name := a.serverName
+	password := a.serverPassword
+	a.mu.RUnlock()
+
+	a.addLogEntry("INFO", "Restarting server to apply verification mode change")
+
+	if err := a.StopServer(); err != nil {
+		return fmt.Errorf("stop server: %w", err)
+	}
+
+	_, _, err := a.StartServer(addr, transport, relayAddr, name, password)
+	return err
 }
 
 func (a *App) CancelStartServer() {

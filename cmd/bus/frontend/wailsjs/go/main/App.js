@@ -14,6 +14,10 @@ export function ClearLogs() {
   return window['go']['main']['App']['ClearLogs']();
 }
 
+export function ConfirmStopServer() {
+  return window['go']['main']['App']['ConfirmStopServer']();
+}
+
 export function ConnectToServer(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['ConnectToServer'](arg1, arg2, arg3, arg4, arg5, arg6);
 }

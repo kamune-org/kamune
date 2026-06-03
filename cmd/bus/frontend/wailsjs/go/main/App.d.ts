@@ -8,6 +8,8 @@ export function ClearKeychainPassphrase():Promise<void>;
 
 export function ClearLogs():Promise<void>;
 
+export function ConfirmStopServer():Promise<boolean>;
+
 export function ConnectToServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<string>;
 
 export function CopyToClipboard(arg1:string):Promise<void>;
@@ -80,11 +82,11 @@ export function SetDBPath(arg1:string):Promise<void>;
 
 export function SetFingerprintFormat(arg1:string):Promise<void>;
 
-export function SetInsecureTLS(arg1:boolean):Promise<void>;
+export function SetInsecureTLS(arg1:boolean):Promise<boolean>;
 
 export function SetMyName(arg1:string):Promise<void>;
 
-export function SetVerificationMode(arg1:number):Promise<void>;
+export function SetVerificationMode(arg1:number):Promise<boolean>;
 
 export function StartServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
 
