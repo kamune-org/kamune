@@ -26,13 +26,13 @@ Kamune provides `Ed25519_MLKEM768_ChaCha20-Poly1305X` security suite.
 
 ## Modules
 
-| Directory     | Purpose                | Description                                                                                   |
-| ------------- | ---------------------- | --------------------------------------------------------------------------------------------- |
-| `.` (root)    | Core library           | Protocol, transport, cipher suite, session management, router, and storage abstraction        |
-| `cmd/relay/`  | Relay server           | Blind token-based session switch encrypted relay message (WebSocket, TCP, TLS)                |
-| `cmd/daemon/` | JSON-over-stdio daemon | Headless IPC wrapper for integrating kamune into external applications                        |
-| `cmd/tui/`    | Terminal chat client   | Bubble Tea TUI example demonstrating direct and relay-based connections                       |
-| `cmd/bus/`    | Desktop GUI client     | Wails + Svelte desktop app with relay transport UI, session management, and encrypted history |
+| Directory                    | Purpose                | Description                                                                                                                      |
+| ---------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `.` (root)                   | Core library           | Protocol, transport, cipher suite, session management, router, and storage abstraction                                           |
+| [`cmd/bus/`](cmd/bus/)       | Desktop GUI client     | Wails + Svelte desktop app with relay transport UI, session management, and encrypted history                                    |
+| [`cmd/relay/`](cmd/relay/)   | Relay server           | Stateless blind relay that routes encrypted sessions between peers without decrypting traffic — supports WebSocket, TCP, and TLS |
+| [`cmd/daemon/`](cmd/daemon/) | JSON-over-stdio daemon | Headless IPC wrapper for integrating kamune into external applications                                                           |
+| [`cmd/tui/`](cmd/tui/)       | Terminal chat client   | Interactive Bubble Tea TUI with direct TCP, relay, peer verification (emoji/hex fingerprint), and chat history browsing          |
 
 ## Roadmap
 
