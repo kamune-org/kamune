@@ -29,7 +29,7 @@ Kamune provides `Ed25519_MLKEM768_ChaCha20-Poly1305X` security suite.
 | Directory     | Purpose                | Description                                                                                   |
 | ------------- | ---------------------- | --------------------------------------------------------------------------------------------- |
 | `.` (root)    | Core library           | Protocol, transport, cipher suite, session management, router, and storage abstraction        |
-| `cmd/relay/`  | Relay server           | HTTP/WebSocket relay for peer discovery, IP exchange, and message queuing; backed by BadgerDB |
+| `cmd/relay/`  | Relay server           | Blind token-based session switch encrypted relay message (WebSocket, TCP, TLS)                |
 | `cmd/daemon/` | JSON-over-stdio daemon | Headless IPC wrapper for integrating kamune into external applications                        |
 | `cmd/tui/`    | Terminal chat client   | Bubble Tea TUI example demonstrating direct and relay-based connections                       |
 | `cmd/bus/`    | Desktop GUI client     | Wails + Svelte desktop app with relay transport UI, session management, and encrypted history |
