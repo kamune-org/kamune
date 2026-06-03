@@ -4,7 +4,6 @@ go 1.26
 
 require (
 	github.com/coder/websocket v1.8.14
-	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/stretchr/testify v1.11.1
 	github.com/xtaci/kcp-go/v5 v5.6.72
 	go.etcd.io/bbolt v1.4.3
@@ -24,5 +23,4 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	rsc.io/qr v0.2.0 // indirect
 )
