@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"path/filepath"
 	"os/signal"
 	"syscall"
 	"time"
@@ -131,8 +133,11 @@ func Run() error {
 }
 
 func loadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
-	if certFile == "" || keyFile == "" {
-		return nil, fmt.Errorf("tls cert_file and key_file are required")
+	if certFile == "" {
+		certFile = "assets/cert/server.crt"
+	}
+	if keyFile == "" {
+		keyFile = "assets/cert/server.key"
 	}
 
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
@@ -154,6 +159,10 @@ func loadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 }
 
 func generateSelfSignedCert(certFile, keyFile string) (tls.Certificate, error) {
+	if err := os.MkdirAll(filepath.Dir(certFile), 0755); err != nil {
+		return tls.Certificate{}, fmt.Errorf("create cert dir: %w", err)
+	}
+
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("generate key: %w", err)
@@ -176,14 +185,16 @@ func generateSelfSignedCert(certFile, keyFile string) (tls.Certificate, error) {
 		return tls.Certificate{}, fmt.Errorf("create cert: %w", err)
 	}
 
-	if err := os.WriteFile(certFile, der, 0644); err != nil {
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	privBytes := x509.MarshalPKCS1PrivateKey(priv)
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: privBytes})
+
+	if err := os.WriteFile(certFile, certPEM, 0644); err != nil {
 		return tls.Certificate{}, fmt.Errorf("write cert: %w", err)
 	}
-
-	privBytes := x509.MarshalPKCS1PrivateKey(priv)
-	if err := os.WriteFile(keyFile, privBytes, 0600); err != nil {
+	if err := os.WriteFile(keyFile, keyPEM, 0600); err != nil {
 		return tls.Certificate{}, fmt.Errorf("write key: %w", err)
 	}
 
-	return tls.X509KeyPair(der, privBytes)
+	return tls.X509KeyPair(certPEM, keyPEM)
 }

@@ -13,14 +13,14 @@ max_concurrent_sessions = 10_000
 max_message_size = 65536
 
 [tcp]
-enabled = false
+enabled = true
 address = "127.0.0.1:8889"
 
 [tls]
-enabled = false
+enabled = true
 address = "127.0.0.1:8890"
-# cert_file = "server.crt"
-# key_file = "server.key"
+# cert_file = "assets/cert/server.crt"
+# key_file = "assets/cert/server.key"
 
 [rate_limit]
 enabled = true

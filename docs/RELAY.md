@@ -250,8 +250,8 @@ key_file  = "/path/to/key.pem"
 **Auto-generated certificate.** When `cert_file` and `key_file` are specified
 but the files don't exist, the relay generates a self-signed TLS certificate.
 This certificate is valid for 10 years and contains no identifying metadata.
-If `cert_file` or `key_file` is empty, the relay returns an error — you must
-specify paths even for auto-generated certs.
+If `cert_file` or `key_file` is empty, defaults to `assets/cert/server.crt`
+and `assets/certs/server.key` and auto-generates if missing.
 
 Client API:
 
