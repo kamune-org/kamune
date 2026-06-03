@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
@@ -26,6 +27,7 @@ type RelayListener struct {
 	conn      *RelayConn
 	channelMu sync.Mutex
 	mu        sync.Mutex
+	stopped   atomic.Bool
 }
 
 func ListenRelay(
@@ -146,6 +148,9 @@ func listenHandshake(
 }
 
 func (l *RelayListener) Accept() (kamune.Conn, error) {
+	if l.stopped.Load() {
+		return nil, net.ErrClosed
+	}
 	select {
 	case rc := <-l.accept:
 		return rc, nil
@@ -163,6 +168,19 @@ func (l *RelayListener) Close() error {
 		l.closeFn()
 	}
 	return nil
+}
+
+// Stop prevents new connections from being accepted without closing the
+// active connection or the shared exchange channel. The channel and readPump
+// remain alive until the active connection closes naturally, at which point
+// the exchange channel is cleaned up.
+func (l *RelayListener) Stop() {
+	l.stopped.Store(true)
+	select {
+	case rc := <-l.accept:
+		rc.Close()
+	default:
+	}
 }
 
 func (l *RelayListener) readPump() {
@@ -195,10 +213,17 @@ func (l *RelayListener) deliver(msg *pb.Message) {
 	data := msg.GetData()
 
 	l.mu.Lock()
-	defer l.mu.Unlock()
 
+	// Always deliver to an existing connection, even after Stop().
 	if l.conn != nil {
 		l.conn.pushData(data)
+		l.mu.Unlock()
+		return
+	}
+
+	// If stopped and no active connection, drop the data.
+	if l.stopped.Load() {
+		l.mu.Unlock()
 		return
 	}
 
@@ -206,15 +231,25 @@ func (l *RelayListener) deliver(msg *pb.Message) {
 	rc.closeFn = func() {
 		l.mu.Lock()
 		l.conn = nil
+		stopped := l.stopped.Load()
 		l.mu.Unlock()
+		if stopped {
+			l.cancel()
+			if l.closeFn != nil {
+				l.closeFn()
+			}
+		}
 	}
 	l.conn = rc
 	rc.pushData(data)
+	l.mu.Unlock()
 
 	select {
 	case l.accept <- rc:
 	default:
 		slog.Warn("relayconn: accept channel full, dropping session")
+		l.mu.Lock()
 		l.conn = nil
+		l.mu.Unlock()
 	}
 }
