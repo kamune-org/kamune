@@ -176,7 +176,7 @@ type App struct {
 	storeMu      sync.Mutex
 	passphrase   atomic.Value // stores []byte
 	storageReady bool
-	pubKey         []byte
+	pubKey       []byte
 	myName       string
 
 	status          ConnectionStatus
@@ -201,22 +201,22 @@ type App struct {
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
 
-	insecureMenuItem  *menu.MenuItem
-	verifRadioItems   []*menu.MenuItem
+	insecureMenuItem *menu.MenuItem
+	verifRadioItems  []*menu.MenuItem
 }
 
 func NewApp() *App {
 	return &App{
-		sessions:      make([]*liveSession, 0),
-		histSessions:  make([]*historySession, 0),
-		status:        StatusDisconnected,
-		statusMsg:     "Not connected",
-		verifMode:     VerificationModeQuick,
-		appVersion:    appVersion,
+		sessions:       make([]*liveSession, 0),
+		histSessions:   make([]*historySession, 0),
+		status:         StatusDisconnected,
+		statusMsg:      "Not connected",
+		verifMode:      VerificationModeQuick,
+		appVersion:     appVersion,
 		fingerprintFmt: "hex",
-		logBufferSize: 200,
-		logEntries:    make([]LogEntryInfo, 0, 200),
-		verifRequests: make(map[int64]*pendingVerification),
+		logBufferSize:  200,
+		logEntries:     make([]LogEntryInfo, 0, 200),
+		verifRequests:  make(map[int64]*pendingVerification),
 	}
 }
 
@@ -300,6 +300,11 @@ func (a *App) startup(ctx context.Context) {
 		a.passphrase.Store([]byte(nil))
 		keyring.Delete(keychainService, keychainAccount(a.dbPath))
 		a.addLogEntry("WARN", "Keychain passphrase is invalid, clearing and prompting")
+
+	default:
+		if err != nil {
+			a.addLogEntry("WARN", "Keychain lookup failed: "+err.Error())
+		}
 	}
 
 	a.addLogEntry("INFO", "Application started — awaiting passphrase")
@@ -994,7 +999,7 @@ func (a *App) ExportLogsToFile() error {
 	a.logMu.RUnlock()
 
 	filePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:          "Export Logs",
+		Title:           "Export Logs",
 		DefaultFilename: fmt.Sprintf("kamune-logs-%s.txt", time.Now().Format("2006-01-02_150405")),
 		Filters: []runtime.FileFilter{
 			{DisplayName: "Text Files", Pattern: "*.txt"},
@@ -1008,17 +1013,21 @@ func (a *App) ExportLogsToFile() error {
 		return nil
 	}
 
-	f, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-	defer f.Close()
-
-	for _, e := range entries {
-		if _, err := fmt.Fprintf(f, "%s [%s] %s\n", e.Timestamp.Format(time.RFC3339), e.Level, e.Message); err != nil {
-			return fmt.Errorf("write: %w", err)
+	go func() {
+		f, err := os.Create(filePath)
+		if err != nil {
+			a.addLogEntry("ERROR", "Export logs: create file: "+err.Error())
+			return
 		}
-	}
+		defer f.Close()
+
+		for _, e := range entries {
+			if _, err := fmt.Fprintf(f, "%s [%s] %s\n", e.Timestamp.Format(time.RFC3339), e.Level, e.Message); err != nil {
+				a.addLogEntry("ERROR", "Export logs: write: "+err.Error())
+				return
+			}
+		}
+	}()
 
 	return nil
 }

@@ -195,10 +195,16 @@ func (a *App) VerifyResponse(requestID int64, accepted bool) {
 	}
 
 	if accepted {
-		pending.result <- nil
+		select {
+		case pending.result <- nil:
+		default:
+		}
 		a.addLogEntry("INFO", "Accepted peer: "+truncateSessionID(pending.peerID))
 	} else {
-		pending.result <- kamune.ErrVerificationFailed
+		select {
+		case pending.result <- kamune.ErrVerificationFailed:
+		default:
+		}
 		a.addLogEntry("INFO", "Rejected peer: "+truncateSessionID(pending.peerID))
 	}
 }

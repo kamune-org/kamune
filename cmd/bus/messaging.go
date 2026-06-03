@@ -65,15 +65,7 @@ func (a *App) receiveMessages(session *liveSession) {
 	defer close(session.ReceiveDone)
 	a.receiveMessagesBlocking(session)
 
-	a.mu.Lock()
-	for i, s := range a.sessions {
-		if s.ID == session.ID {
-			a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)
-			break
-		}
-	}
-	sessionsRemaining := len(a.sessions)
-	a.mu.Unlock()
+	sessionsRemaining := a.removeSession(session.ID)
 
 	if store := a.store(); store != nil {
 		a.loadHistorySessions(store)

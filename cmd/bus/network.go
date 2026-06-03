@@ -12,7 +12,9 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-func (a *App) StartServer(addr string, transport string, relayAddr string, name string, password string) (string, string, error) {
+func (a *App) StartServer(
+	addr, transport, relayAddr, name, password string,
+) (string, string, error) {
 	a.mu.Lock()
 	if a.server != nil {
 		a.mu.Unlock()
@@ -340,7 +342,9 @@ func (a *App) GetRelayTokens() []relayToken {
 	return a.getRelayTokens()
 }
 
-func (a *App) ConnectToServer(addr string, transport string, relayAddr string, token string, name string, password string) (string, error) {
+func (a *App) ConnectToServer(
+	addr, transport, relayAddr, token, name, password string,
+) (string, error) {
 	a.setStatus(StatusConnecting, "Connecting to "+addr+"...")
 
 	store := a.store()
@@ -520,14 +524,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	defer close(session.ReceiveDone)
 	a.receiveMessagesBlocking(session)
 
-	a.mu.Lock()
-	for i, s := range a.sessions {
-		if s.ID == sessionID {
-			a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)
-			break
-		}
-	}
-	a.mu.Unlock()
+	a.removeSession(sessionID)
 
 	if store := a.store(); store != nil {
 		a.loadHistorySessions(store)
@@ -570,4 +567,16 @@ func (a *App) loadChatHistory(session *liveSession) {
 		}
 	}
 	a.mu.Unlock()
+}
+
+func (a *App) removeSession(sessionID string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i, s := range a.sessions {
+		if s.ID == sessionID {
+			a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)
+			break
+		}
+	}
+	return len(a.sessions)
 }

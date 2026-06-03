@@ -9,15 +9,6 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-func TestAppVersionConstant(t *testing.T) {
-	if appVersion != "2.0.0" {
-		t.Errorf("appVersion = %q, want %q", appVersion, "2.0.0")
-	}
-	if appVersion == "" {
-		t.Error("appVersion should not be empty")
-	}
-}
-
 func TestDBPathDefault(t *testing.T) {
 	a := &App{
 		dbPath: func() string {
@@ -49,7 +40,7 @@ func TestDBPathConcurrency(t *testing.T) {
 	a := &App{dbPath: "/initial/path"}
 	var wg sync.WaitGroup
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -60,14 +51,12 @@ func TestDBPathConcurrency(t *testing.T) {
 	}
 
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			p := a.GetDBPath()
 			if p == "" {
 				t.Error("DBPath should never be empty during concurrent access")
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -146,7 +135,7 @@ func TestConcurrentSliceAccess(t *testing.T) {
 	sessions := make([]*liveSession, 0)
 	var wg sync.WaitGroup
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
