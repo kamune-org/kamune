@@ -10,16 +10,19 @@
         GetMyName,
         GetStatus,
         GetVerificationMode,
-        GetServerRunning,
-        StartServer,
+		GetServerRunning,
+		GetServerTransport,
+		StartServer,
         ConnectToServer,
         StopServer,
+        ConfirmStopServer,
         DisconnectSession,
         SendMessage,
         RefreshHistory,
         DeleteHistorySession,
         SetActiveSession,
         GetStorageReady,
+        GetLogEntries,
         CancelStartServer,
     } from "../wailsjs/go/main/App.js";
     import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime.js";
@@ -56,9 +59,10 @@
     import RenameDialog from "./lib/RenameDialog.svelte";
     import PassphraseDialog from "./lib/PassphraseDialog.svelte";
 
-    let serverActive = false;
+	let serverActive = false;
+	let runningServerTransport = '';
 
-    const TRANSPORTS = ["tcp", "udp", "relay"];
+	const TRANSPORTS = ["tcp", "udp", "relay"];
 
     const LABELS = {
         type: "Type",
@@ -107,40 +111,10 @@
     let showPassphraseDialog = true;
     let passphraseDismissable = false;
 
-    onMount(async () => {
-        const v = await GetVersion();
-        appVersion.set(v);
-
-        const lv = await GetLibraryVersion();
-        libraryVersion.set(lv);
-
-        const mn = await GetMyName();
-        myName.set(mn);
-
-        const s = await GetStatus();
-        status.set(s);
-
-        const fp = await GetFingerprint();
-        fingerprint.set({
-            emoji: fp.emoji,
-            b64: fp.b64,
-            hex: fp.hex,
-            sum: fp.sum,
-        });
-
-        const p = await GetDBPath();
-        dbPath.set(p);
-
-        const vm = await GetVerificationMode();
-        verificationMode.set(vm);
-
-        serverActive = await GetServerRunning();
-
-        await loadSessions();
-        await loadHistory();
-
-        // Clear stale handlers first (Wails EventsOn adds without dedup —
-        // if onMount runs twice, handlers accumulate and events fire 2×)
+    onMount(() => {
+        // 1) Cleanup stale handlers — sync, before any async work
+        //    (Wails EventsOn adds without dedup — if onMount ran before,
+        //     handlers accumulate and events fire 2×)
         EventsOff("status-changed");
         EventsOff("session-new");
         EventsOff("session-closed");
@@ -159,8 +133,11 @@
         EventsOff("verification-mode-changed");
         EventsOff("fingerprint-changed");
         EventsOff("relay-token");
+        EventsOff("local-name-changed");
+        EventsOff("relay-tokens");
         EventsOff("toast");
 
+        // 2) Register handlers — sync, before any async work
         EventsOn("status-changed", (data) => status.set(data));
         EventsOn("session-new", async (data) => {
             await loadSessions();
@@ -217,9 +194,6 @@
                 new Notification(title, { body: message });
             }
         });
-        const ready = await GetStorageReady();
-        showPassphraseDialog = !ready;
-
         EventsOn("storage-ready", () => {
             showPassphraseDialog = false;
         });
@@ -236,8 +210,9 @@
         EventsOn("local-name-changed", (name) => {
             myName.set(name);
         });
-        EventsOn("server-running", (running) => {
+        EventsOn("server-running", (running, transportType) => {
             serverActive = running;
+            runningServerTransport = running ? (transportType || '') : '';
             if (!running) {
                 relayToken.set("");
                 relayTokens.set([]);
@@ -263,10 +238,51 @@
             setTimeout(() => toast.set(null), 2000);
         });
 
-        // Request notification permission
-        if ("Notification" in window && Notification.permission === "default") {
-            Notification.requestPermission();
-        }
+        // 3) Async init — deferred, no race between cleanup and registration
+        (async () => {
+            const v = await GetVersion();
+            appVersion.set(v);
+
+            const lv = await GetLibraryVersion();
+            libraryVersion.set(lv);
+
+            const mn = await GetMyName();
+            myName.set(mn);
+
+            const s = await GetStatus();
+            status.set(s);
+
+            const fp = await GetFingerprint();
+            fingerprint.set({
+                emoji: fp.emoji,
+                b64: fp.b64,
+                hex: fp.hex,
+                sum: fp.sum,
+            });
+
+            const p = await GetDBPath();
+            dbPath.set(p);
+
+            const vm = await GetVerificationMode();
+            verificationMode.set(vm);
+
+            serverActive = await GetServerRunning();
+            runningServerTransport = serverActive ? await GetServerTransport() : '';
+
+            await loadSessions();
+            await loadHistory();
+
+            const existingLogs = await GetLogEntries();
+            logEntries.set(existingLogs);
+
+            const ready = await GetStorageReady();
+            showPassphraseDialog = !ready;
+
+            // Request notification permission
+            if ("Notification" in window && Notification.permission === "default") {
+                Notification.requestPermission();
+            }
+        })();
     });
 
     onDestroy(() => {
