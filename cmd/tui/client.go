@@ -1,106 +1,16 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"log"
-	"log/slog"
-	"net"
-	"strings"
-	"syscall"
-	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kamune-org/kamune"
-	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-func client(addr string) {
-	store, err := storage.OpenStorage(
-		storage.WithDBPath("./client.db"), storage.WithNoPassphrase(),
-	)
+func dial(addr string, store *storage.Storage, verifyFn kamune.RemoteVerifier) (*kamune.Transport, error) {
+	dialer, err := kamune.NewDialer(addr, store, kamune.DialWithRemoteVerifier(verifyFn))
 	if err != nil {
-		errCh <- fmt.Errorf("opening storage: %w", err)
-		return
+		return nil, fmt.Errorf("create dialer: %w", err)
 	}
-	defer store.Close()
-
-	dialer, err := kamune.NewDialer(addr, store)
-	if err != nil {
-		errCh <- fmt.Errorf("create new dialer: %w", err)
-		return
-	}
-
-	fp := strings.Join(fingerprint.Emoji(dialer.PublicKey()), " • ")
-	fmt.Printf("Your emoji fingerprint: %s\n", fp)
-
-	var (
-		t          *kamune.Transport
-		lastErr    error
-		maxRetries = 30
-	)
-	for range maxRetries {
-		var opErr *net.OpError
-		var err error
-		t, err = dialer.Dial()
-		if err == nil {
-			break
-		}
-		if errors.As(err, &opErr) && errors.Is(opErr.Err, syscall.ECONNREFUSED) {
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		log.Printf("dial err: %v", err)
-		time.Sleep(5 * time.Second)
-		lastErr = err
-	}
-	if t == nil {
-		errCh <- fmt.Errorf("dial: max retries exceeded: %w", lastErr)
-		return
-	}
-	defer t.Close()
-
-	msg, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
-	p := NewProgram(tea.NewProgram(initialModel(t, store, msg), tea.WithAltScreen()))
-	go func() {
-		if _, err := p.Run(); err != nil {
-			errCh <- err
-		}
-		stop <- struct{}{}
-	}()
-
-	for {
-		b := kamune.Bytes(nil)
-		metadata, err := t.Receive(b)
-		if err != nil {
-			switch {
-			case errors.Is(err, kamune.ErrPeerDisconnected):
-				fmt.Println("Peer disconnected")
-				p.Quit()
-				return
-			case errors.Is(err, kamune.ErrConnClosed):
-				p.Quit()
-				return
-			case errors.Is(err, kamune.ErrReceiveTimeout):
-				continue
-			default:
-				errCh <- fmt.Errorf("receiving: %w", err)
-				return
-			}
-		}
-		p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
-		if err := store.AddChatEntry(
-			t.SessionID(),
-			b.GetValue(),
-			metadata.Timestamp(),
-			storage.SenderPeer,
-		); err != nil {
-			slog.Error(
-				"failed to persist received chat entry",
-				slog.String("session_id", t.SessionID()),
-				slog.Any("error", err),
-			)
-		}
-	}
+	return dialer.Dial()
 }
