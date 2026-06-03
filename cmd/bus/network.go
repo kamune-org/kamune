@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -21,6 +22,23 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 
 	a.setStatus(StatusConnecting, "Starting server...")
 
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	if a.startCancel != nil {
+		a.startCancel()
+	}
+	a.startCtx = ctx
+	a.startCancel = cancel
+	a.mu.Unlock()
+
+	cleanupStart := func() {
+		a.mu.Lock()
+		a.startCancel = nil
+		a.startCtx = nil
+		a.mu.Unlock()
+	}
+	defer cleanupStart()
+
 	store := a.store()
 	if store == nil {
 		return "", "", fmt.Errorf("storage is not available")
@@ -39,22 +57,45 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 	a.mu.Unlock()
 	_ = store.SetSettings("bus", "local_name", name)
 
-	var relayToken string
+	var firstToken string
 	var opts []kamune.ServerOptions
 	opts = append(opts, kamune.ServeWithRemoteVerifier(a.getVerifier()))
 	opts = append(opts, kamune.ServeWithServerName(name))
 
 	switch transport {
 	case "relay":
-		listener, token, err := listenRelay(relayAddr, password)
+		a.mu.RLock()
+		cancelled := a.startCancel == nil
+		a.mu.RUnlock()
+		if cancelled {
+			a.setStatus(StatusDisconnected, "Cancelled")
+			return "", "", fmt.Errorf("cancelled")
+		}
+		ml := newMultiListener()
+		listener, token, err := listenRelayTracked(context.Background(), a, relayAddr, password, a.insecureTLS)
 		if err != nil {
+			a.mu.RLock()
+			cancelled := a.startCancel == nil
+			a.mu.RUnlock()
+			if cancelled {
+				a.setStatus(StatusDisconnected, "Cancelled")
+				a.addLogEntry("INFO", "Server start cancelled")
+				return "", "", fmt.Errorf("cancelled")
+			}
 			a.setStatus(StatusError, "Failed to connect to relay")
 			a.addLogEntry("ERROR", "Relay listen failed: "+err.Error())
 			return "", "", fmt.Errorf("relay listen: %w", err)
 		}
-		relayToken = token
-		opts = append(opts, kamune.ServeWithListener(listener))
+		if err := ml.Add(listener); err != nil {
+			return "", "", fmt.Errorf("add listener: %w", err)
+		}
+		firstToken = token
+		opts = append(opts, kamune.ServeWithListener(ml))
 		addr = "" // addr is unused with ServeWithListener
+		a.relayAddr = relayAddr
+		a.relayPassword = password
+		a.relayListeners = ml
+		a.relayTokens = []relayToken{{Token: token, listener: listener}}
 	case "udp":
 		opts = append(opts, kamune.ServeWithUDP())
 	default:
@@ -80,7 +121,6 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 	a.server = svr
 	a.serverDone = done
 	a.serverTransportType = transport
-	a.relayToken = relayToken
 	a.mu.Unlock()
 
 	runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
@@ -93,7 +133,10 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 			a.addLogEntry("ERROR", "Server stopped: "+err.Error())
 		}
 		a.mu.Lock()
-		a.relayToken = ""
+		a.relayTokens = nil
+		a.relayAddr = ""
+		a.relayPassword = ""
+		a.relayListeners = nil
 		a.server = nil
 		a.serverTransportType = ""
 		a.mu.Unlock()
@@ -111,12 +154,14 @@ func (a *App) StartServer(addr string, transport string, relayAddr string, name 
 	a.addLogEntry("INFO", "Server started: "+statusMsg)
 	a.loadHistorySessions(store)
 
-	if relayToken != "" {
-		runtime.EventsEmit(a.ctx, "relay-token", relayToken)
-		a.addLogEntry("INFO", "Relay token: "+relayToken)
+	if firstToken != "" {
+		tokens := a.getRelayTokens()
+		runtime.EventsEmit(a.ctx, "relay-token", firstToken)
+		runtime.EventsEmit(a.ctx, "relay-tokens", tokens)
+		a.addLogEntry("INFO", "Relay token: "+firstToken)
 	}
 
-	return emoji, relayToken, nil
+	return emoji, firstToken, nil
 }
 
 func (a *App) StopServer() error {
@@ -127,13 +172,19 @@ func (a *App) StopServer() error {
 	var serverDone chan struct{}
 
 	a.mu.Lock()
+	if a.relayListeners != nil {
+		a.relayListeners.Close()
+		a.relayListeners = nil
+	}
 	if a.server != nil {
 		a.server.Close()
 		a.server = nil
 	}
 	sessions = append([]*liveSession(nil), a.sessions...)
 	a.sessions = nil
-	a.relayToken = ""
+	a.relayTokens = nil
+	a.relayAddr = ""
+	a.relayPassword = ""
 	serverDone = a.serverDone
 	a.serverDone = nil
 	a.mu.Unlock()
@@ -151,6 +202,85 @@ func (a *App) StopServer() error {
 
 	a.setStatus(StatusDisconnected, "Server stopped")
 	return nil
+}
+
+func (a *App) CancelStartServer() {
+	a.mu.Lock()
+	if a.startCancel != nil {
+		a.startCancel()
+		a.startCancel = nil
+		a.startCtx = nil
+	}
+	a.mu.Unlock()
+	a.setStatus(StatusDisconnected, "Cancelled")
+	a.addLogEntry("INFO", "Server start cancelled by user")
+}
+
+func (a *App) GenerateRelayToken() (string, error) {
+	a.mu.Lock()
+	if a.relayListeners == nil {
+		a.mu.Unlock()
+		return "", fmt.Errorf("relay is not configured — start a relay server first")
+	}
+	relayAddr := a.relayAddr
+	password := a.relayPassword
+	a.mu.Unlock()
+
+	listener, token, err := listenRelayTracked(context.Background(), a, relayAddr, password, a.insecureTLS)
+	if err != nil {
+		return "", err
+	}
+
+	a.mu.Lock()
+	if a.relayListeners == nil {
+		a.mu.Unlock()
+		listener.Close()
+		return "", fmt.Errorf("server stopped while generating token")
+	}
+	if err := a.relayListeners.Add(listener); err != nil {
+		a.mu.Unlock()
+		return "", fmt.Errorf("add listener: %w", err)
+	}
+	a.relayTokens = append(a.relayTokens, relayToken{Token: token, listener: listener})
+	tokens := make([]relayToken, len(a.relayTokens))
+	copy(tokens, a.relayTokens)
+	a.mu.Unlock()
+
+	runtime.EventsEmit(a.ctx, "relay-tokens", tokens)
+	a.addLogEntry("INFO", "Generated relay token: "+token)
+	return token, nil
+}
+
+func (a *App) RemoveRelayToken(token string) error {
+	a.mu.Lock()
+	idx := -1
+	for i, t := range a.relayTokens {
+		if t.Token == token {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		a.mu.Unlock()
+		return fmt.Errorf("token not found")
+	}
+
+	rt := a.relayTokens[idx]
+	a.relayTokens = append(a.relayTokens[:idx], a.relayTokens[idx+1:]...)
+	a.mu.Unlock()
+
+	rt.listener.Close()
+
+	tokens := a.getRelayTokens()
+	runtime.EventsEmit(a.ctx, "relay-tokens", tokens)
+	a.addLogEntry("INFO", "Removed relay token: "+token)
+	return nil
+}
+
+func (a *App) GetRelayTokens() []relayToken {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.getRelayTokens()
 }
 
 func (a *App) ConnectToServer(addr string, transport string, relayAddr string, token string, name string, password string) (string, error) {
@@ -181,7 +311,7 @@ func (a *App) ConnectToServer(addr string, transport string, relayAddr string, t
 
 	switch transport {
 	case "relay":
-		fn, err := dialRelayFunc(relayAddr, token, password)
+		fn, err := dialRelayFunc(relayAddr, token, password, a.insecureTLS)
 		if err != nil {
 			a.setStatus(StatusError, "Failed to prepare relay dial")
 			return "", fmt.Errorf("relay dial func: %w", err)

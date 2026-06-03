@@ -43,6 +43,14 @@ func buildMenu(app *App) *menu.Menu {
 	auto.Click = func(_ *menu.CallbackData) { setVerifMode(app.ctx, 2) }
 
 	conn.AddSeparator()
+
+	insecureItem := conn.AddCheckbox("Skip TLS Verification", app.GetInsecureTLS(), nil, func(_ *menu.CallbackData) {
+		app.SetInsecureTLS(!app.GetInsecureTLS())
+		runtime.MenuUpdateApplicationMenu(app.ctx)
+	})
+	app.insecureMenuItem = insecureItem
+
+	conn.AddSeparator()
 	conn.AddText("Forget Saved Passphrase…", nil, func(_ *menu.CallbackData) {
 		answer, err := runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
 			Title:         "Clear Saved Passphrase",

@@ -15,6 +15,7 @@ import (
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
+	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/zalando/go-keyring"
 )
@@ -144,6 +145,12 @@ type pendingVerification struct {
 	hex    string
 }
 
+type relayToken struct {
+	Token    string `json:"token"`
+	Consumed bool   `json:"consumed"`
+	listener kamune.Listener
+}
+
 type App struct {
 	ctx context.Context
 	mu  sync.RWMutex
@@ -153,7 +160,14 @@ type App struct {
 	server              *kamune.Server
 	serverDone          chan struct{}
 	serverTransportType string
-	relayToken          string
+
+	relayAddr      string
+	relayPassword  string
+	relayTokens    []relayToken
+	relayListeners *multiListener
+
+	startCtx    context.Context
+	startCancel context.CancelFunc
 
 	dbPath       string
 	db           *storage.Storage
@@ -167,6 +181,7 @@ type App struct {
 	statusMsg       string
 	activeSessionID string
 	verifMode       VerificationMode
+	insecureTLS     bool
 	appVersion      string
 	fingerprintFmt  string
 
@@ -177,6 +192,8 @@ type App struct {
 	verifMu        sync.Mutex
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
+
+	insecureMenuItem *menu.MenuItem
 }
 
 func NewApp() *App {
@@ -286,6 +303,10 @@ func (a *App) shutdown(ctx context.Context) {
 	var serverDone chan struct{}
 
 	a.mu.Lock()
+	if a.relayListeners != nil {
+		a.relayListeners.Close()
+		a.relayListeners = nil
+	}
 	if a.server != nil {
 		a.server.Close()
 		a.server = nil
@@ -412,6 +433,18 @@ func (a *App) initFromStorage() {
 				a.mu.Unlock()
 				runtime.EventsEmit(a.ctx, "verification-mode-changed", mode)
 			}
+		}
+
+		tlsStr, tlsErr := store.GetSettings("bus", "insecure_tls")
+		if tlsErr == nil && tlsStr == "true" {
+			a.mu.Lock()
+			a.insecureTLS = true
+			if a.insecureMenuItem != nil {
+				a.insecureMenuItem.Checked = true
+			}
+			a.mu.Unlock()
+			runtime.EventsEmit(a.ctx, "insecure-tls-changed", true)
+			runtime.MenuUpdateApplicationMenu(a.ctx)
 		}
 
 		runtime.EventsEmit(a.ctx, "storage-ready")
@@ -566,6 +599,75 @@ func (a *App) SetVerificationMode(mode int) {
 	runtime.EventsEmit(a.ctx, "verification-mode-changed", mode)
 }
 
+func (a *App) GetInsecureTLS() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.insecureTLS
+}
+
+func (a *App) SetInsecureTLS(enable bool) {
+	a.mu.Lock()
+	a.insecureTLS = enable
+	if a.insecureMenuItem != nil {
+		a.insecureMenuItem.Checked = enable
+	}
+	a.mu.Unlock()
+	if store := a.store(); store != nil {
+		val := ""
+		if enable {
+			val = "true"
+		}
+		_ = store.SetSettings("bus", "insecure_tls", val)
+	}
+	a.addLogEntry("DEBUG", "Insecure TLS set to: "+strconv.FormatBool(enable))
+	runtime.EventsEmit(a.ctx, "insecure-tls-changed", enable)
+	runtime.MenuUpdateApplicationMenu(a.ctx)
+}
+
+func (a *App) markRelayTokenConsumed(token string) {
+	a.mu.Lock()
+	for i := range a.relayTokens {
+		if a.relayTokens[i].Token == token && !a.relayTokens[i].Consumed {
+			a.relayTokens[i].Consumed = true
+			break
+		}
+	}
+	tokens := make([]relayToken, len(a.relayTokens))
+	copy(tokens, a.relayTokens)
+	a.mu.Unlock()
+	runtime.EventsEmit(a.ctx, "relay-tokens", tokens)
+
+	// Discard consumed tokens after a brief grace period so the UI can
+	// show the consumed state briefly before it disappears.
+	go func() {
+		time.Sleep(4 * time.Second)
+		a.mu.Lock()
+		idx := -1
+		for i, t := range a.relayTokens {
+			if t.Token == token {
+				idx = i
+				break
+			}
+		}
+		if idx == -1 {
+			a.mu.Unlock()
+			return
+		}
+		rt := a.relayTokens[idx]
+		a.relayTokens = append(a.relayTokens[:idx], a.relayTokens[idx+1:]...)
+		a.mu.Unlock()
+		rt.listener.Close()
+		runtime.EventsEmit(a.ctx, "relay-tokens", a.getRelayTokens())
+		a.addLogEntry("INFO", "Discarded consumed relay token")
+	}()
+}
+
+func (a *App) getRelayTokens() []relayToken {
+	tokens := make([]relayToken, len(a.relayTokens))
+	copy(tokens, a.relayTokens)
+	return tokens
+}
+
 func (a *App) GetFingerprintFormat() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -673,7 +775,10 @@ func (a *App) GetServerRunning() bool {
 func (a *App) GetRelayToken() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.relayToken
+	if len(a.relayTokens) > 0 {
+		return a.relayTokens[len(a.relayTokens)-1].Token
+	}
+	return ""
 }
 
 func (a *App) GetHistorySessions() []HistorySessionInfo {
