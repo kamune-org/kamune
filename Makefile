@@ -14,3 +14,18 @@ gen-proto:
 .PHONY: align-structs
 align-structs:
 	@golangci-lint run --enable=govet --fix
+
+.PHONY: build
+build: relay bus daemon
+
+.PHONY: relay
+relay:
+	go build -o relay ./cmd/relay
+
+.PHONY: bus
+bus:
+	cd cmd/bus && wails build -clean
+
+.PHONY: daemon
+daemon:
+	go build -o daemon ./cmd/daemon
