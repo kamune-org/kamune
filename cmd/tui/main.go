@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/kamune-org/kamune"
 )
 
 var errCh = make(chan error)
@@ -15,7 +14,6 @@ var stop = make(chan struct{})
 
 type Program struct {
 	*tea.Program
-	transport *kamune.Transport
 }
 
 func NewProgram(p *tea.Program) *Program {

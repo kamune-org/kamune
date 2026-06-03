@@ -32,32 +32,38 @@ func relayClient(relayAddr, tokenHex, password string) {
 
 	ctx := context.Background()
 
-	var (
-		t      *kamune.Transport
-		dialer *kamune.Dialer
+	dialer, err := kamune.NewDialer(
+		relayAddr,
+		store,
+		kamune.DialWithFunc(func(addr string) (kamune.Conn, error) {
+			var dialOpts []relayconn.Option
+			if password != "" {
+				dialOpts = append(dialOpts, relayconn.WithPassword(password))
+			}
+			return relayconn.DialRelay(ctx, addr, token, dialOpts...)
+		}),
 	)
-	for {
-		dialer, err = kamune.NewDialer(
-			relayAddr,
-			store,
-			kamune.DialWithFunc(func(addr string) (kamune.Conn, error) {
-				var dialOpts []relayconn.Option
-				if password != "" {
-					dialOpts = append(dialOpts, relayconn.WithPassword(password))
-				}
-				return relayconn.DialRelay(ctx, addr, token, dialOpts...)
-			}),
-		)
-		if err != nil {
-			errCh <- fmt.Errorf("create dialer: %w", err)
-			return
-		}
+	if err != nil {
+		errCh <- fmt.Errorf("create dialer: %w", err)
+		return
+	}
 
+	var (
+		t          *kamune.Transport
+		lastErr    error
+		maxRetries = 30
+	)
+	for range maxRetries {
 		t, err = dialer.Dial()
 		if err == nil {
 			break
 		}
 		log.Printf("relay dial retry: %v", err)
+		lastErr = err
+	}
+	if t == nil {
+		errCh <- fmt.Errorf("dial: max retries exceeded: %w", lastErr)
+		return
 	}
 	defer t.Close()
 
@@ -74,22 +80,22 @@ func relayClient(relayAddr, tokenHex, password string) {
 	for {
 		b := kamune.Bytes(nil)
 		metadata, err := t.Receive(b)
-			if err != nil {
-				switch {
-				case errors.Is(err, kamune.ErrPeerDisconnected):
-					fmt.Println("Peer disconnected")
-					p.Quit()
-					return
-				case errors.Is(err, kamune.ErrConnClosed):
-					p.Quit()
-					return
-				case errors.Is(err, kamune.ErrReceiveTimeout):
-					continue
-				default:
-					errCh <- fmt.Errorf("receiving: %w", err)
-					return
-				}
+		if err != nil {
+			switch {
+			case errors.Is(err, kamune.ErrPeerDisconnected):
+				fmt.Println("Peer disconnected")
+				p.Quit()
+				return
+			case errors.Is(err, kamune.ErrConnClosed):
+				p.Quit()
+				return
+			case errors.Is(err, kamune.ErrReceiveTimeout):
+				continue
+			default:
+				errCh <- fmt.Errorf("receiving: %w", err)
+				return
 			}
+		}
 		p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
 		if err := store.AddChatEntry(
 			t.SessionID(),

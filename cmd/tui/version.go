@@ -38,8 +38,8 @@ func checkMinorMismatch(local, remote string) (string, bool) {
 	if lv.major == rv.major && lv.minor != rv.minor {
 		return fmt.Sprintf(
 			"Minor version mismatch (v%s vs v%s): things may not work as expected",
-			remote,
 			local,
+			remote,
 		), true
 	}
 	return "", false

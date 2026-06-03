@@ -41,7 +41,7 @@ func relayServer(relayAddr, password string) {
 		p := NewProgram(tea.NewProgram(initialModel(t, store, msg), tea.WithAltScreen()))
 		go func() {
 			if _, err := p.Run(); err != nil {
-				panic(err)
+				errCh <- err
 			}
 			stop <- struct{}{}
 		}()

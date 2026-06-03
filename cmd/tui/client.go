@@ -35,8 +35,12 @@ func client(addr string) {
 	fp := strings.Join(fingerprint.Emoji(dialer.PublicKey()), " • ")
 	fmt.Printf("Your emoji fingerprint: %s\n", fp)
 
-	var t *kamune.Transport
-	for {
+	var (
+		t          *kamune.Transport
+		lastErr    error
+		maxRetries = 30
+	)
+	for range maxRetries {
 		var opErr *net.OpError
 		var err error
 		t, err = dialer.Dial()
@@ -49,6 +53,11 @@ func client(addr string) {
 		}
 		log.Printf("dial err: %v", err)
 		time.Sleep(5 * time.Second)
+		lastErr = err
+	}
+	if t == nil {
+		errCh <- fmt.Errorf("dial: max retries exceeded: %w", lastErr)
+		return
 	}
 	defer t.Close()
 
@@ -64,22 +73,22 @@ func client(addr string) {
 	for {
 		b := kamune.Bytes(nil)
 		metadata, err := t.Receive(b)
-			if err != nil {
-				switch {
-				case errors.Is(err, kamune.ErrPeerDisconnected):
-					fmt.Println("Peer disconnected")
-					p.Quit()
-					return
-				case errors.Is(err, kamune.ErrConnClosed):
-					p.Quit()
-					return
-				case errors.Is(err, kamune.ErrReceiveTimeout):
-					continue
-				default:
-					errCh <- fmt.Errorf("receiving: %w", err)
-					return
-				}
+		if err != nil {
+			switch {
+			case errors.Is(err, kamune.ErrPeerDisconnected):
+				fmt.Println("Peer disconnected")
+				p.Quit()
+				return
+			case errors.Is(err, kamune.ErrConnClosed):
+				p.Quit()
+				return
+			case errors.Is(err, kamune.ErrReceiveTimeout):
+				continue
+			default:
+				errCh <- fmt.Errorf("receiving: %w", err)
+				return
 			}
+		}
 		p.Send(NewMessage(metadata.Timestamp(), b.GetValue()))
 		if err := store.AddChatEntry(
 			t.SessionID(),

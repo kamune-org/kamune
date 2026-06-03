@@ -13,9 +13,8 @@ type historyLoaded struct {
 	messages []string
 }
 
-// printHistory opens a local Bolt DB (preferring ./client.db then ./server.db),
-// reads chat entries for the provided session ID, and prints timestamps + message
-// payloads to stdout.
+// printHistory reads chat entries for the provided session ID from a BoltDB
+// file (specified via -db flag) and prints timestamps + message payloads to stdout.
 func printHistory(sessionID, dbPath string) error {
 	if dbPath == "" {
 		return fmt.Errorf("db path must be provided with -db flag")

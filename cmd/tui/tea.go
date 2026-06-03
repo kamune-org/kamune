@@ -70,7 +70,7 @@ func initialModel(t *kamune.Transport, store *storage.Storage, versionWarnings .
 		if w != "" {
 			msgs = append(msgs, lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFD700")).
-				Render("⚠ " + w))
+				Render("⚠ "+w))
 		}
 	}
 
