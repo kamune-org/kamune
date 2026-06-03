@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -806,6 +807,9 @@ func (a *App) GetSessionMessages(sessionID string) []MessageInfo {
 		if s.ID == sessionID {
 			msgs := make([]MessageInfo, len(s.Messages))
 			copy(msgs, s.Messages)
+			sort.SliceStable(msgs, func(i, j int) bool {
+				return msgs[i].Timestamp.Before(msgs[j].Timestamp)
+			})
 			return msgs
 		}
 	}
@@ -994,9 +998,12 @@ func (a *App) GetSessionInfo(sessionID string) map[string]interface{} {
 	for _, hs := range a.histSessions {
 		if hs.ID == sessionID {
 			info := map[string]interface{}{
-				"type":      "history",
-				"name":      hs.Name,
-				"sessionID": hs.ID,
+				"type":         "history",
+				"name":         hs.Name,
+				"sessionID":    hs.ID,
+				"messageCount": hs.MessageCount,
+				"firstMessage": hs.FirstMessage.Format(time.RFC3339),
+				"lastMessage":  hs.LastMessage.Format(time.RFC3339),
 			}
 			return info
 		}
