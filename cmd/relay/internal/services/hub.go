@@ -10,12 +10,17 @@ import (
 )
 
 type Hub struct {
-	sessions *SessionManager
-	password string
+	sessions   *SessionManager
+	password   string
+	maxMsgSize int
 }
 
-func NewHub(sessions *SessionManager, password string) *Hub {
-	return &Hub{sessions: sessions, password: password}
+func NewHub(sessions *SessionManager, password string, maxMsgSize int) *Hub {
+	return &Hub{sessions: sessions, password: password, maxMsgSize: maxMsgSize}
+}
+
+func (h *Hub) MaxMessageSize() int {
+	return h.maxMsgSize
 }
 
 func (h *Hub) Password() string {
@@ -84,7 +89,9 @@ func (h *Hub) handleMessage(sender *exchange.Channel, token []byte, data []byte)
 func (h *Hub) handlePing(ch *exchange.Channel) {
 	pong := &pb.Frame{Kind: &pb.Frame_Pong{Pong: &pb.Pong{}}}
 	b, _ := proto.Marshal(pong)
-	_ = ch.WriteBytes(b)
+	if err := ch.WriteBytes(b); err != nil {
+		slog.Debug("hub: write pong failed", slog.Any("error", err))
+	}
 }
 
 func (h *Hub) Unregister(token []byte) {

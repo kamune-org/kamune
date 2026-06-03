@@ -18,7 +18,7 @@ type Service struct {
 func New(cfg config.Config) (*Service, error) {
 	slog.Info("starting relay service")
 	sessions := NewSessionManager(cfg.Session.TokenTTL, cfg.Session.MaxConcurrentSessions)
-	hub := NewHub(sessions, cfg.Server.Password)
+	hub := NewHub(sessions, cfg.Server.Password, cfg.Session.MaxMessageSize)
 
 	go sessions.cleanupLoop(context.Background())
 

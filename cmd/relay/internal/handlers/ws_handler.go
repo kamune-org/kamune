@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -15,8 +16,6 @@ import (
 )
 
 func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
 	})
@@ -29,9 +28,12 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		conn.SetReadLimit(int64(maxSize))
 	}
 
-	adapter := &wsAdapter{conn: conn, ctx: ctx}
+	acceptCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	adapter := &wsAdapter{conn: conn, ctx: acceptCtx}
 	remoteAddr := clientIP(r)
-	handleRelayConn(ctx, h.service.Hub(), adapter, remoteAddr)
+	handleRelayConn(acceptCtx, h.service.Hub(), adapter, remoteAddr)
 }
 
 func handleRelayConn(

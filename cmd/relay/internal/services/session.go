@@ -87,8 +87,8 @@ func (sm *SessionManager) Join(token []byte, dialer *exchange.Channel) error {
 
 func (sm *SessionManager) Recipient(token []byte, sender *exchange.Channel) (*exchange.Channel, error) {
 	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	sess, ok := sm.sessions[fmt.Sprintf("%x", token)]
-	sm.mu.Unlock()
 
 	if !ok {
 		return nil, ErrTokenNotFound
@@ -162,6 +162,10 @@ func (sm *SessionManager) purgeExpired() {
 	now := time.Now()
 	for key, sess := range sm.sessions {
 		if now.After(sess.expiry) {
+			sess.listener.Close()
+			if sess.dialer != nil {
+				sess.dialer.Close()
+			}
 			delete(sm.sessions, key)
 		}
 	}

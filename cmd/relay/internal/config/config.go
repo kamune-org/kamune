@@ -18,10 +18,10 @@ type Config struct {
 }
 
 type Server struct {
-	Address       string `toml:"address"`
-	Password      string `toml:"password"`
-	ExposeHealth  bool   `toml:"expose_health"`
-	ExposeIP      bool   `toml:"expose_ip"`
+	Address      string `toml:"address"`
+	Password     string `toml:"password"`
+	ExposeHealth bool   `toml:"expose_health"`
+	ExposeIP     bool   `toml:"expose_ip"`
 }
 
 type WS struct {
@@ -51,6 +51,8 @@ type RateLimit struct {
 	TimeWindow time.Duration `toml:"time_window"`
 	Quota      uint64        `toml:"quota"`
 }
+
+// TODO: RateLimit is parsed from config but not yet enforced at runtime.
 
 func New(path string) (Config, error) {
 	cfg := Config{}

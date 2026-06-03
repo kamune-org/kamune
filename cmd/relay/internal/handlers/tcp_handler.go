@@ -25,7 +25,7 @@ func ServeTCP(hub *services.Hub, addr string) error {
 			continue
 		}
 
-		adapter := &tcpAdapter{conn: conn}
+		adapter := &tcpAdapter{conn: conn, maxSize: hub.MaxMessageSize()}
 		go handleRelayConn(context.Background(), hub, adapter, conn.RemoteAddr().String())
 	}
 }
@@ -46,7 +46,7 @@ func ServeTLS(hub *services.Hub, addr string, tlsCfg *tls.Config) error {
 			continue
 		}
 
-		adapter := &tlsAdapter{conn: conn}
+		adapter := &tlsAdapter{conn: conn, maxSize: hub.MaxMessageSize()}
 		go handleRelayConn(context.Background(), hub, adapter, conn.RemoteAddr().String())
 	}
 }

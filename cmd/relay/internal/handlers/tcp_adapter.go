@@ -8,13 +8,17 @@ import (
 )
 
 type tcpAdapter struct {
-	conn net.Conn
+	conn    net.Conn
+	maxSize int
 }
 
 func (t *tcpAdapter) ReadBytes() ([]byte, error) {
 	var length uint16
 	if err := binary.Read(t.conn, binary.BigEndian, &length); err != nil {
 		return nil, err
+	}
+	if t.maxSize > 0 && int(length) > t.maxSize {
+		return nil, io.ErrUnexpectedEOF
 	}
 	data := make([]byte, length)
 	if _, err := io.ReadFull(t.conn, data); err != nil {
@@ -40,13 +44,17 @@ func (t *tcpAdapter) SetDeadline(deadline time.Time) error {
 }
 
 type tlsAdapter struct {
-	conn net.Conn
+	conn    net.Conn
+	maxSize int
 }
 
 func (t *tlsAdapter) ReadBytes() ([]byte, error) {
 	var length uint16
 	if err := binary.Read(t.conn, binary.BigEndian, &length); err != nil {
 		return nil, err
+	}
+	if t.maxSize > 0 && int(length) > t.maxSize {
+		return nil, io.ErrUnexpectedEOF
 	}
 	data := make([]byte, length)
 	if _, err := io.ReadFull(t.conn, data); err != nil {

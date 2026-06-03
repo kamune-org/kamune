@@ -48,11 +48,13 @@ func Run() error {
 		return fmt.Errorf("no transport enabled (enable ws, tcp, or tls)")
 	}
 
+	errCh := make(chan error, 1)
+
 	// TCP listener
 	if cfg.TCP.Enabled {
 		go func() {
 			if err := handlers.ServeTCP(srvc.Hub(), cfg.TCP.Address); err != nil {
-				slog.Error("tcp server error", slog.Any("error", err))
+				errCh <- err
 			}
 		}()
 	}
@@ -66,7 +68,7 @@ func Run() error {
 		}
 		go func() {
 			if err := handlers.ServeTLS(srvc.Hub(), cfg.TLS.Address, tlsCfg); err != nil {
-				slog.Error("tls server error", slog.Any("error", err))
+				errCh <- err
 			}
 		}()
 	}
@@ -92,7 +94,6 @@ func Run() error {
 		}
 	}
 
-	errCh := make(chan error, 1)
 	exitCh := make(chan os.Signal, 1)
 	signal.Notify(exitCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -113,8 +114,8 @@ func Run() error {
 
 	if server == nil {
 		slog.Info("relay running (tcp/tls only)")
-		<-exitCh
-		slog.Info("shutting down", slog.String("signal", (<-exitCh).String()))
+		sig := <-exitCh
+		slog.Info("shutting down", slog.String("signal", sig.String()))
 		return nil
 	}
 
@@ -169,7 +170,7 @@ func generateSelfSignedCert(certFile, keyFile string) (tls.Certificate, error) {
 	}
 
 	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
+		SerialNumber: new(big.Int).SetUint64(uint64(time.Now().UnixNano())),
 		Subject: pkix.Name{
 			CommonName: "Kamune Relay",
 		},
