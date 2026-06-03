@@ -88,6 +88,16 @@ func (d *Daemon) openDaemonStorage(
 	}
 	if noPassphrase {
 		opts = append(opts, storage.WithNoPassphrase())
+	} else {
+		pass := os.Getenv("KAMUNE_DB_PASSPHRASE")
+		if pass == "" {
+			return nil, fmt.Errorf(
+				"KAMUNE_DB_PASSPHRASE not set and db_no_passphrase is false",
+			)
+		}
+		opts = append(opts, storage.WithPassphraseHandler(func() ([]byte, error) {
+			return []byte(pass), nil
+		}))
 	}
 	store, err := storage.OpenStorage(opts...)
 	if err != nil {
@@ -154,6 +164,9 @@ func (d *Daemon) Run() {
 		return
 	}
 
+	// stdin closed without a shutdown command — clean up
+	d.closeStores()
+
 	if err := scanner.Err(); err != nil {
 		slog.Error("stdin scanner error", slog.Any("error", err))
 	}
@@ -205,29 +218,25 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		return
 	}
 
+	srv, err := kamune.NewServer(params.Addr, d.serverHandler, store)
+	if err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("failed to create server: %v", err))
+		d.mu.Lock()
+		d.serverRunning = false
+		d.mu.Unlock()
+		return
+	}
+
+	d.mu.Lock()
+	d.server = srv
+	d.mu.Unlock()
+
 	d.wg.Go(func() {
 		defer func() {
 			if msg := recover(); msg != nil {
 				d.emitError(cmd.ID, fmt.Sprintf("goroutine panic: %v", msg))
-				d.mu.Lock()
-				d.serverRunning = false
-				d.server = nil
-				d.mu.Unlock()
 			}
 		}()
-
-		srv, err := kamune.NewServer(params.Addr, d.serverHandler, store)
-		if err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("failed to create server: %v", err))
-			d.mu.Lock()
-			d.serverRunning = false
-			d.mu.Unlock()
-			return
-		}
-
-		d.mu.Lock()
-		d.server = srv
-		d.mu.Unlock()
 
 		pubkey := srv.PublicKey()
 		d.emit(EvtServerStarted, cmd.ID, MapA{
@@ -263,19 +272,19 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	d.sessions[sessionID] = session
 	d.mu.Unlock()
 
+	defer func() {
+		d.mu.Lock()
+		delete(d.sessions, sessionID)
+		d.mu.Unlock()
+		d.emit(EvtSessionClosed, "", MapS{"session_id": sessionID})
+	}()
+
 	d.emit(EvtSessionStarted, "", MapA{
 		"session_id": sessionID, "is_server": true,
 	})
 
 	// Start receiving messages
 	d.receiveLoop(ctx, sessionID, t)
-
-	// Clean up
-	d.mu.Lock()
-	delete(d.sessions, sessionID)
-	d.mu.Unlock()
-
-	d.emit(EvtSessionClosed, "", MapS{"session_id": sessionID})
 
 	return nil
 }
@@ -313,6 +322,12 @@ func (d *Daemon) handleDial(cmd Command) {
 			return
 		}
 
+		// If shutdown was requested during dial, close and bail out.
+		if d.ctx.Err() != nil {
+			t.Close()
+			return
+		}
+
 		sessionID := t.SessionID()
 		ctx, cancel := context.WithCancel(d.ctx)
 
@@ -328,22 +343,22 @@ func (d *Daemon) handleDial(cmd Command) {
 		d.sessions[sessionID] = session
 		d.mu.Unlock()
 
+		defer func() {
+			d.mu.Lock()
+			delete(d.sessions, sessionID)
+			d.mu.Unlock()
+			d.emit(EvtSessionClosed, "", MapS{"session_id": sessionID})
+		}()
+
 		d.emit(EvtSessionStarted, cmd.ID, MapA{
 			"session_id":  sessionID,
 			"is_server":   false,
 			"remote_addr": params.Addr,
-			"public_key":  base64.StdEncoding.EncodeToString(dialer.PublicKey()),
+			"public_key":  fingerprint.Base64(dialer.PublicKey()),
 		})
 
 		// Start receiving messages
 		d.receiveLoop(ctx, sessionID, t)
-
-		// Clean up
-		d.mu.Lock()
-		delete(d.sessions, sessionID)
-		d.mu.Unlock()
-
-		d.emit(EvtSessionClosed, cmd.ID, MapS{"session_id": sessionID})
 	})
 }
 
@@ -374,6 +389,16 @@ func (d *Daemon) receiveLoop(
 				)
 				return
 			}
+		}
+
+		if metadata.Route() == kamune.RoutePing {
+			if err := t.Pong(b.GetValue()); err != nil {
+				slog.Warn("failed to send pong",
+					slog.String("session_id", sessionID),
+					slog.Any("error", err),
+				)
+			}
+			continue
 		}
 
 		d.emit(EvtMessageReceived, "", MapA{
@@ -471,6 +496,16 @@ func (d *Daemon) handleCloseSession(cmd Command) {
 	})
 }
 
+// closeStores closes all cached storage instances. Safe to call multiple times.
+func (d *Daemon) closeStores() {
+	for path, store := range d.stores {
+		if err := store.Close(); err != nil {
+			slog.Warn("error closing storage", slog.String("path", path), slog.Any("error", err))
+		}
+	}
+	d.stores = nil
+}
+
 // Shutdown gracefully shuts down the daemon
 func (d *Daemon) Shutdown() {
 	d.cancel()
@@ -502,13 +537,7 @@ func (d *Daemon) Shutdown() {
 	// Wait for all goroutines to finish before emitting the response
 	d.wg.Wait()
 
-	// Close all cached storage instances
-	for path, store := range d.stores {
-		if err := store.Close(); err != nil {
-			slog.Warn("error closing storage", slog.String("path", path), slog.Any("error", err))
-		}
-	}
-	d.stores = nil
+	d.closeStores()
 
 	d.emit(EvtResponse, "", MapS{"status": "shutdown"})
 

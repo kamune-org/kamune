@@ -13,7 +13,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/klauspost/reedsolomon v1.14.0 // indirect
-	github.com/mdp/qrterminal/v3 v3.2.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
@@ -26,5 +25,4 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	rsc.io/qr v0.2.0 // indirect
 )
