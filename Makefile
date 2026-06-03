@@ -16,16 +16,16 @@ align-structs:
 	@golangci-lint run --enable=govet --fix
 
 .PHONY: build
-build: relay bus daemon
+build: relay bus
 
 .PHONY: relay
 relay:
-	go build -o relay ./cmd/relay
+	cd cmd/relay && bash scripts/build.sh
 
 .PHONY: bus
 bus:
-	cd cmd/bus && wails build -clean
+	cd cmd/bus && bash scripts/build.sh
 
-.PHONY: daemon
-daemon:
-	go build -o daemon ./cmd/daemon
+# .PHONY: daemon
+# daemon:
+# 	go build -o daemon ./cmd/daemon
