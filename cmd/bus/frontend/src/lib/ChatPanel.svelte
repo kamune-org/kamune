@@ -1,10 +1,10 @@
 <script>
   import { createEventDispatcher, afterUpdate } from 'svelte'
   import {
-    sessions, activeSessionId, sessionMessages, sidebarTab, showWelcome,
+    sessions, historySessions, activeSessionId, sessionMessages, sidebarTab, showWelcome,
     versionWarnings,
   } from './stores.js'
-  import { CopyToClipboard } from '../../wailsjs/go/main/App.js'
+  import { CopyToClipboard, RenameSession, RenameHistorySession } from '../../wailsjs/go/main/App.js'
   import { K } from './keyboard.js'
 
   const dispatch = createEventDispatcher()
@@ -12,12 +12,44 @@
   let messageText = ''
   let messagesEl
   let copiedId = null
+  let editingName = false
+  let editName = ''
 
-  $: activeSession = $sessions.find(s => s.id === $activeSessionId) || null
+  $: activeSession = $sessions.find(s => s.id === $activeSessionId) || $historySessions.find(s => s.id === $activeSessionId) || null
   $: isHistory = $sidebarTab === 'history'
   $: activeMsgs = $activeSessionId
     ? ($sessionMessages[$activeSessionId] || [])
     : []
+
+  function startEdit() {
+    editName = activeSession?.peerName || activeSession?.name || $activeSessionId?.slice(0, 16) || ''
+    editingName = true
+  }
+
+  function selectOnMount(node) {
+    node.select()
+  }
+
+  async function saveName() {
+    const trimmed = editName.trim()
+    if (trimmed && activeSession) {
+      try {
+        if (isHistory) {
+          await RenameHistorySession($activeSessionId, trimmed)
+        } else {
+          await RenameSession($activeSessionId, trimmed)
+        }
+        dispatch('renamed')
+      } catch (e) {
+        console.error('Rename error:', e)
+      }
+    }
+    editingName = false
+  }
+
+  function cancelEdit() {
+    editingName = false
+  }
 
   function handleSend() {
     const text = messageText.trim()
@@ -52,12 +84,29 @@
     <div class="info-bar">
       <div class="info-left">
         <div class="info-avatar" class:history={isHistory}>
-          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
-          </svg>
+          {#if isHistory}
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+            </svg>
+          {:else}
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd" />
+            </svg>
+          {/if}
         </div>
         <div class="info-details">
-          <div class="info-name">{activeSession?.peerName || $activeSessionId?.slice(0, 16)}</div>
+          {#if editingName}
+            <input
+              class="info-name-input"
+              type="text"
+              bind:value={editName}
+              use:selectOnMount
+              on:blur={saveName}
+              on:keydown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') cancelEdit() }}
+            />
+          {:else}
+            <div class="info-name" role="button" tabindex="0" on:click={startEdit} on:keydown={(e) => { if (e.key === 'Enter') startEdit() }}>{activeSession?.peerName || activeSession?.name || $activeSessionId?.slice(0, 16)}</div>
+          {/if}
           <div class="info-sub">
             <span class="badge-type" class:live={!isHistory} class:history={isHistory}>
               {isHistory ? 'HISTORY' : 'LIVE'}
@@ -74,7 +123,13 @@
             <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
           </svg>
         </button>
-        {#if !isHistory}
+        {#if isHistory}
+          <button class="info-btn info-btn-danger" title="Delete" on:click={() => dispatch('deleteHistory', $activeSessionId)}>
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+            </svg>
+          </button>
+        {:else}
           <button class="info-btn info-btn-danger" title="Disconnect" on:click={() => dispatch('disconnect', $activeSessionId)}>
             <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
               <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v6a1 1 0 11-2 0V3a1 1 0 011-1z" clip-rule="evenodd" />
@@ -233,6 +288,24 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
+    cursor: pointer;
+    padding: 1px 3px;
+    border-radius: 4px;
+    transition: background 0.12s;
+  }
+  .info-name:hover {
+    background: var(--bg-hover);
+  }
+  .info-name-input {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--bg-input);
+    border: 1px solid var(--accent-primary);
+    border-radius: 4px;
+    padding: 1px 4px;
+    outline: none;
+    width: 100%;
   }
   .info-sub {
     display: flex;

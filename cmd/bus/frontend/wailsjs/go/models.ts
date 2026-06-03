@@ -169,6 +169,20 @@ export namespace main {
 	        this.message = source["message"];
 	    }
 	}
+	export class relayToken {
+	    token: string;
+	    consumed: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new relayToken(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.token = source["token"];
+	        this.consumed = source["consumed"];
+	    }
+	}
 
 }
 

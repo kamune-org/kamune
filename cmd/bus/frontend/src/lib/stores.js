@@ -27,6 +27,7 @@ export const activeSession = derived(
 
 export const toast = writable(null) // { message, type: 'error'|'info'|'token' }
 export const relayToken = writable('')
+export const relayTokens = writable([])
 
 export const verificationDialog = writable(null)
 export const versionWarnings = writable({})

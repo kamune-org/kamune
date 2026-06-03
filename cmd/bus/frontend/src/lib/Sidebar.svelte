@@ -2,22 +2,67 @@
   import { createEventDispatcher } from 'svelte'
   import {
     sessions, historySessions, activeSessionId, fingerprint,
-    status, sidebarTab, dbPath, myName, relayToken,
+    status, sidebarTab, dbPath, myName, relayTokens, toast,
   } from './stores.js'
-  import { CopyToClipboard, SetMyName } from '../../wailsjs/go/main/App.js'
+  import { CopyToClipboard, SetMyName, GenerateRelayToken, RemoveRelayToken, RenameSession, RenameHistorySession } from '../../wailsjs/go/main/App.js'
 
   function truncateToken(t) {
-    if (t.length <= 16) return t
-    return t.slice(0, 6) + '…' + t.slice(-4)
+    if (t.length <= 20) return t
+    return t.slice(0, 8) + '…' + t.slice(-6)
   }
 
   const dispatch = createEventDispatcher()
   export let serverActive = false
+  export let serverLoading = false
+  export let connectLoading = false
 
   let copied = false
-  let tokenCopied = false
+  let tokensExpanded = true
   let editingName = false
   let editName = ''
+  let ctxMenu = null
+
+  function openCtx(e, id, isHistory, name) {
+    e.preventDefault()
+    ctxMenu = { x: e.clientX, y: e.clientY, id, isHistory, name }
+  }
+
+  function closeCtx() {
+    ctxMenu = null
+  }
+
+  let editingSessionId = null
+  let editSessionName = ''
+  let editingIsHistory = false
+
+  function startRename(id, name, isHistory) {
+    editingSessionId = id
+    editSessionName = name
+    editingIsHistory = isHistory
+  }
+
+  async function saveRename() {
+    const trimmed = editSessionName.trim()
+    if (trimmed && editingSessionId) {
+      try {
+        if (editingIsHistory) {
+          await RenameHistorySession(editingSessionId, trimmed)
+        } else {
+          await RenameSession(editingSessionId, trimmed)
+        }
+        dispatch('renamed')
+      } catch (e) {
+        console.error('Rename error:', e)
+      }
+    }
+    editingSessionId = null
+    editSessionName = ''
+  }
+
+  function cancelRename() {
+    editingSessionId = null
+    editSessionName = ''
+  }
 
   function focusInput(node) {
     node.focus()
@@ -43,6 +88,7 @@
 
   function toggleTab(tab) {
     sidebarTab.set(tab)
+    activeSessionId.set(null)
   }
 
   function handleItemKeydown(e, handler) {
@@ -77,6 +123,12 @@
     } catch (e) {
       console.error('Copy failed:', e)
     }
+  }
+
+  async function handleCopyToken(token) {
+    await CopyToClipboard(token)
+    copied = true
+    setTimeout(() => copied = false, 1200)
   }
 </script>
 
@@ -134,42 +186,84 @@
   <div class="sidebar-content">
     {#if $sidebarTab === 'sessions'}
       <div class="sidebar-actions">
-        <button class="action-btn" class:action-primary={!serverActive} class:action-danger={serverActive} on:click={() => dispatch(serverActive ? 'stopServer' : 'startServer')}>
-          {#if serverActive}
+        {#if serverLoading || connectLoading}
+          <button class="action-btn action-danger" on:click={() => dispatch('cancel')}>
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" />
+              <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
             </svg>
-            Stop Server
-          {:else}
+            Cancel
+          </button>
+        {:else}
+          <button class="action-btn" class:action-primary={!serverActive} class:action-danger={serverActive} on:click={() => dispatch(serverActive ? 'stopServer' : 'startServer')}>
+            {#if serverActive}
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" />
+              </svg>
+              Stop Server
+            {:else}
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+              </svg>
+              Start Server
+            {/if}
+          </button>
+          <button class="action-btn action-secondary" on:click={() => dispatch('connect')}>
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+              <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
+              <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
             </svg>
-            Start Server
-          {/if}
-        </button>
-        <button class="action-btn action-secondary" on:click={() => dispatch('connect')}>
-          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-            <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
-            <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
-          </svg>
-          Connect
-        </button>
+            Connect
+          </button>
+        {/if}
       </div>
 
-      {#if $relayToken}
-        <div class="relay-token-bar" role="button" tabindex="0" on:click={async () => {
-          await CopyToClipboard($relayToken)
-          tokenCopied = true
-          setTimeout(() => tokenCopied = false, 1500)
-        }} on:keydown={(e) => { if (e.key === 'Enter') { e.target.click() } }}>
-          <svg class="rt-icon" viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-            <path d="M8 2a1 1 0 000 2h2a1 1 0 100-2H8z" />
-            <path d="M3 5a2 2 0 012-1 1 1 0 000 2 2 2 0 00-2 2 1 1 0 01-2 0V6a1 1 0 011-1h1zm0 10V8h1a2 2 0 002 2v4a2 2 0 01-2 2H4zm10-9a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" />
-            <path d="M12 2a1 1 0 00-1 1v1h1a2 2 0 012 2v8a2 2 0 01-2 2H8a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 00-1-1H7a3 3 0 00-3 3v10a3 3 0 003 3h6a3 3 0 003-3V6a3 3 0 00-3-3h-1z" />
-          </svg>
-          <span class="rt-label">Relay Token</span>
-          <span class="rt-value">{truncateToken($relayToken)}</span>
-          <span class="rt-copy-hint">{tokenCopied ? 'Copied!' : 'Click to copy'}</span>
+      {#if $relayTokens.length > 0 || serverActive}
+        <div class="relay-tokens-section">
+          <div class="rt-header" on:click={() => tokensExpanded = !tokensExpanded} on:keydown={(e) => { if (e.key === 'Enter') tokensExpanded = !tokensExpanded }} role="button" tabindex="0">
+            <svg class="rt-chevron" class:collapsed={!tokensExpanded} viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
+              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+            <span class="rt-header-label">Relay Tokens</span>
+            <span class="rt-count">{$relayTokens.length}</span>
+            <button class="rt-gen-btn" on:click|stopPropagation={async () => {
+              try {
+                const token = await GenerateRelayToken()
+                if (token) {
+                  toast.set({ message: `Generated token: ${token}`, token, type: 'token' })
+                  setTimeout(() => toast.set(null), 4000)
+                }
+              } catch (e) {
+                toast.set({ message: String(e), type: 'error' })
+                setTimeout(() => toast.set(null), 3000)
+              }
+            }}>
+              <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+                <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+              </svg>
+              Generate
+            </button>
+          </div>
+          {#if tokensExpanded}
+            <div class="rt-list">
+              {#each $relayTokens as rt}
+                <div class="rt-item" class:consumed={rt.consumed}>
+                  <span class="rt-dot" class:filled={rt.consumed}></span>
+                  <span class="rt-item-token" role="button" tabindex="0" on:click={() => handleCopyToken(rt.token)} on:keydown={(e) => { if (e.key === 'Enter') handleCopyToken(rt.token) }}>{truncateToken(rt.token)}</span>
+                  <button class="rt-rm-btn" title="Remove token" on:click|stopPropagation={async () => {
+                    try {
+                      await RemoveRelayToken(rt.token)
+                    } catch (e) {
+                      console.error('Remove token failed:', e)
+                    }
+                  }}>
+                    <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+                      <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
       {/if}
 
@@ -193,6 +287,7 @@
               tabindex="0"
               on:click={() => dispatch('selectSession', session.id)}
               on:keydown={(e) => handleItemKeydown(e, () => dispatch('selectSession', session.id))}
+               on:contextmenu|preventDefault={(e) => openCtx(e, session.id, false, session.peerName)}
             >
               <div class="session-indicator"></div>
               <div class="session-avatar">
@@ -201,7 +296,18 @@
                 </svg>
               </div>
               <div class="session-info">
-                <div class="session-name">{session.peerName}</div>
+                {#if editingSessionId === session.id}
+                  <input
+                    class="session-name-input"
+                    type="text"
+                    bind:value={editSessionName}
+                    use:focusInput
+                    on:blur={saveRename}
+                    on:keydown|stopPropagation={(e) => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') cancelRename() }}
+                  />
+                {:else}
+                  <div class="session-name">{session.peerName}</div>
+                {/if}
                 <div class="session-meta">
                   <span class="meta-msgs">{session.msgCount} msgs</span>
                   <span class="meta-dot">·</span>
@@ -213,23 +319,6 @@
                     <span class="meta-version">v{session.remoteVersion}</span>
                   {/if}
                 </div>
-              </div>
-              <div class="session-actions">
-                <button class="icon-btn" title="Info" on:click|stopPropagation={() => dispatch('showInfo', session.id)}>
-                  <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-                  </svg>
-                </button>
-                <button class="icon-btn" title="Rename" on:click|stopPropagation={() => dispatch('rename', session.id)}>
-                  <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                  </svg>
-                </button>
-                <button class="icon-btn icon-danger" title="Disconnect" on:click|stopPropagation={() => dispatch('disconnect', session.id)}>
-                  <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-                  </svg>
-                </button>
               </div>
             </div>
           {/each}
@@ -265,6 +354,7 @@
               tabindex="0"
               on:click={() => dispatch('selectHistory', hs.id)}
               on:keydown={(e) => handleItemKeydown(e, () => dispatch('selectHistory', hs.id))}
+               on:contextmenu|preventDefault={(e) => openCtx(e, hs.id, true, hs.name || hs.id.slice(0, 16))}
             >
               <div class="session-indicator"></div>
               <div class="session-avatar history">
@@ -273,7 +363,18 @@
                 </svg>
               </div>
               <div class="session-info">
-                <div class="session-name">{hs.name || hs.id.slice(0, 16)}</div>
+                {#if editingSessionId === hs.id}
+                  <input
+                    class="session-name-input"
+                    type="text"
+                    bind:value={editSessionName}
+                    use:focusInput
+                    on:blur={saveRename}
+                    on:keydown|stopPropagation={(e) => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') cancelRename() }}
+                  />
+                {:else}
+                  <div class="session-name">{hs.name || hs.id.slice(0, 16)}</div>
+                {/if}
                 <div class="session-meta">
                   <span class="meta-msgs">{hs.messageCount || '?'} msgs</span>
                   {#if hs.lastMessage}
@@ -282,29 +383,42 @@
                   {/if}
                 </div>
               </div>
-              <div class="session-actions">
-                <button class="icon-btn" title="Info" on:click|stopPropagation={() => dispatch('showInfo', hs.id)}>
-                  <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-                  </svg>
-                </button>
-                <button class="icon-btn" title="Rename" on:click|stopPropagation={() => dispatch('renameHistory', hs.id)}>
-                  <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                  </svg>
-                </button>
-                <button class="icon-btn icon-danger" title="Delete" on:click|stopPropagation={() => dispatch('deleteHistory', hs.id)}>
-                  <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-                  </svg>
-                </button>
-              </div>
             </div>
           {/each}
         {/if}
       </div>
     {/if}
   </div>
+
+  {#if ctxMenu}
+    <div class="ctx-overlay" on:click={closeCtx} on:contextmenu|preventDefault={closeCtx}></div>
+    <div class="ctx-menu" style="left: {ctxMenu.x}px; top: {ctxMenu.y}px;">
+      {#if ctxMenu.isHistory}
+        <button class="ctx-item" on:click={() => { startRename(ctxMenu.id, ctxMenu.name, true); closeCtx() }}>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+          Rename
+        </button>
+        <button class="ctx-item ctx-danger" on:click={() => { dispatch('deleteHistory', ctxMenu.id); closeCtx() }}>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+          Delete
+        </button>
+      {:else}
+        <button class="ctx-item" on:click={() => { startRename(ctxMenu.id, ctxMenu.name, false); closeCtx() }}>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+          Rename
+        </button>
+        <button class="ctx-item ctx-danger" on:click={() => { dispatch('disconnect', ctxMenu.id); closeCtx() }}>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 2a1 1 0 011 1v6a1 1 0 11-2 0V3a1 1 0 011-1z" clip-rule="evenodd" /><path fill-rule="evenodd" d="M4.903 4.903a1 1 0 01.085 1.413A6 6 0 1015.012 6.32a1 1 0 111.328-1.498 8 8 0 11-13.35 5.178 8 8 0 012.412-5.912 1 1 0 011.413-.085z" clip-rule="evenodd" /></svg>
+          Disconnect
+        </button>
+      {/if}
+      <div class="ctx-divider"></div>
+      <button class="ctx-item" on:click={() => { dispatch('showInfo', ctxMenu.id); closeCtx() }}>
+        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
+        Session Info
+      </button>
+    </div>
+  {/if}
 
   <div class="sidebar-footer">
     <div class="fingerprint-card" class:clickable={!!$fingerprint.emoji} role="button" tabindex="0" on:click={copyFingerprint} on:keydown={(e) => handleItemKeydown(e, copyFingerprint)} title={$fingerprint.emoji ? 'Click to copy fingerprint' : ''}>
@@ -570,6 +684,19 @@
     text-overflow: ellipsis;
     line-height: 1.3;
   }
+  .session-name-input {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: var(--bg-input);
+    border: 1px solid var(--accent-primary);
+    border-radius: 4px;
+    padding: 1px 4px;
+    outline: none;
+    width: auto;
+    min-width: 40px;
+    max-width: 100%;
+  }
   .session-meta {
     font-size: 11px;
     color: var(--text-muted);
@@ -606,35 +733,6 @@
     font-family: var(--font-mono);
     font-size: 10px;
     color: var(--text-timestamp);
-  }
-
-  .session-actions {
-    display: none;
-    gap: 1px;
-    flex-shrink: 0;
-  }
-  .session-item:hover .session-actions {
-    display: flex;
-  }
-
-  .icon-btn {
-    width: 26px;
-    height: 26px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    color: var(--text-muted);
-    border-radius: 6px;
-    transition: all 0.15s;
-  }
-  .icon-btn:hover {
-    background: var(--bg-surface);
-    color: var(--text-secondary);
-  }
-  .icon-btn.icon-danger:hover {
-    background: var(--danger-dim);
-    color: var(--danger);
   }
 
   .empty-state {
@@ -787,52 +885,173 @@
     margin-top: 2px;
   }
 
-  .relay-token-bar {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 5px 8px;
+  .relay-tokens-section {
     margin: 4px 10px;
     background: var(--bg-card);
     border: 1px solid var(--accent-primary-dim);
     border-radius: var(--border-radius);
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
-    font-size: 11px;
-    user-select: none;
-    outline: none;
+    overflow: hidden;
   }
-  .relay-token-bar:hover,
-  .relay-token-bar:focus-visible {
-    border-color: var(--accent-primary);
+  .rt-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s;
+  }
+  .rt-header:hover {
     background: var(--bg-hover);
   }
-  .rt-icon {
-    color: var(--accent-primary);
+  .rt-chevron {
+    color: var(--text-muted);
     flex-shrink: 0;
+    transition: transform 0.15s;
   }
-  .rt-label {
-    font-weight: 600;
-    color: var(--accent-primary);
-    text-transform: uppercase;
+  .rt-chevron.collapsed {
+    transform: rotate(-90deg);
+  }
+  .rt-header-label {
     font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
     letter-spacing: 0.4px;
+    color: var(--accent-primary);
   }
-  .rt-value {
-    font-family: var(--font-mono);
-    color: var(--text-secondary);
-    word-break: break-all;
-  }
-  .rt-copy-hint {
-    margin-left: auto;
+  .rt-count {
     font-size: 9px;
     font-weight: 600;
-    color: var(--text-timestamp);
-    flex-shrink: 0;
-    transition: color 0.15s;
+    color: var(--text-muted);
+    background: var(--bg-hover);
+    border-radius: 8px;
+    padding: 0 5px;
+    line-height: 14px;
   }
-  .rt-copy-hint:has(+ .rt-copied),
-  .rt-copied {
+  .rt-gen-btn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 5px;
+    background: var(--accent-primary);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .rt-gen-btn:hover {
+    background: var(--accent-primary-hover);
+  }
+  .rt-list {
+    max-height: 140px;
+    overflow-y: auto;
+  }
+  .rt-item {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    gap: 4px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .rt-item:last-child {
+    border-bottom: none;
+  }
+  .rt-item.consumed {
+    opacity: 0.5;
+  }
+  .rt-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1.5px solid var(--text-muted);
+    flex-shrink: 0;
+  }
+  .rt-dot.filled {
+    background: var(--text-muted);
+    border-color: var(--text-muted);
+  }
+  .rt-item-token {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.12s;
+    flex: 1;
+  }
+  .rt-item-token:hover {
     color: var(--accent-primary);
+  }
+  .rt-rm-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    cursor: pointer;
+    transition: all 0.12s;
+    flex-shrink: 0;
+  }
+  .rt-rm-btn:hover {
+    background: var(--danger-dim);
+    color: var(--danger);
+  }
+  .ctx-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+  }
+  .ctx-menu {
+    position: fixed;
+    z-index: 1000;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: var(--shadow-lg);
+    min-width: 170px;
+    padding: 4px;
+    animation: fadeIn 0.1s ease-out;
+  }
+  .ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: none;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s;
+  }
+  .ctx-item:hover {
+    background: var(--bg-hover);
+  }
+  .ctx-item svg {
+    flex-shrink: 0;
+    opacity: 0.6;
+  }
+  .ctx-danger {
+    color: var(--danger);
+  }
+  .ctx-danger:hover {
+    background: var(--danger-dim);
+  }
+  .ctx-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 3px 6px;
   }
 </style>
