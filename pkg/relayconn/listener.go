@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
@@ -29,14 +30,17 @@ type RelayListener struct {
 	channelMu sync.Mutex
 	mu        sync.Mutex
 	stopped   atomic.Bool
+	ttl       time.Duration
 }
+
+func (l *RelayListener) TTL() time.Duration { return l.ttl }
 
 func ListenRelay(
 	ctx context.Context, relayAddr string, opts ...Option,
-) (*RelayListener, []byte, error) {
+) (*RelayListener, []byte, time.Duration, error) {
 	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("relay ws dial: %w", err)
+		return nil, nil, 0, fmt.Errorf("relay ws dial: %w", err)
 	}
 	adapter := &wsAdapter{conn: ws, ctx: ctx}
 	return listenHandshake(ctx, adapter, func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") }, opts...)
@@ -44,7 +48,7 @@ func ListenRelay(
 
 func ListenRelayWSS(
 	ctx context.Context, relayAddr string, tlsCfg *tls.Config, opts ...Option,
-) (*RelayListener, []byte, error) {
+) (*RelayListener, []byte, time.Duration, error) {
 	dopts := &websocket.DialOptions{
 		HTTPClient: &http.Client{
 			Transport: &http.Transport{
@@ -54,7 +58,7 @@ func ListenRelayWSS(
 	}
 	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("relay wss dial: %w", err)
+		return nil, nil, 0, fmt.Errorf("relay wss dial: %w", err)
 	}
 	adapter := &wsAdapter{conn: ws, ctx: ctx}
 	return listenHandshake(ctx, adapter, func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") }, opts...)
@@ -62,11 +66,11 @@ func ListenRelayWSS(
 
 func ListenRelayTCP(
 	ctx context.Context, relayAddr string, opts ...Option,
-) (*RelayListener, []byte, error) {
+) (*RelayListener, []byte, time.Duration, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", relayAddr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("tcp dial: %w", err)
+		return nil, nil, 0, fmt.Errorf("tcp dial: %w", err)
 	}
 	adapter := &tcpAdapter{conn: conn}
 	return listenHandshake(ctx, adapter, func() { conn.Close() }, opts...)
@@ -74,22 +78,21 @@ func ListenRelayTCP(
 
 func ListenRelayTLS(
 	ctx context.Context, relayAddr string, tlsCfg *tls.Config, opts ...Option,
-) (*RelayListener, []byte, error) {
+) (*RelayListener, []byte, time.Duration, error) {
 	var d net.Dialer
 	conn, err := tls.DialWithDialer(&d, "tcp", relayAddr, tlsCfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("tls dial: %w", err)
+		return nil, nil, 0, fmt.Errorf("tls dial: %w", err)
 	}
 	adapter := &tlsAdapter{conn: conn}
 	return listenHandshake(ctx, adapter, func() { conn.Close() }, opts...)
 }
-
 func listenHandshake(
 	ctx context.Context,
 	rw exchange.ReadWriter,
 	closeFn func(),
 	opts ...Option,
-) (*RelayListener, []byte, error) {
+) (*RelayListener, []byte, time.Duration, error) {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
@@ -98,13 +101,13 @@ func listenHandshake(
 	ch, err := exchange.Initiate(rw)
 	if err != nil {
 		closeFn()
-		return nil, nil, fmt.Errorf("hpke initiate: %w", err)
+		return nil, nil, 0, fmt.Errorf("hpke initiate: %w", err)
 	}
 
 	if o.password != "" {
 		if err := sendAuth(ch, o.password); err != nil {
 			ch.Close()
-			return nil, nil, err
+			return nil, nil, 0, err
 		}
 	}
 
@@ -116,24 +119,25 @@ func listenHandshake(
 	regBytes, _ := proto.Marshal(registerFrame)
 	if err := ch.WriteBytes(regBytes); err != nil {
 		ch.Close()
-		return nil, nil, fmt.Errorf("send register: %w", err)
+		return nil, nil, 0, fmt.Errorf("send register: %w", err)
 	}
 
 	relayBytes, err := ch.ReadBytes()
 	if err != nil {
 		ch.Close()
-		return nil, nil, fmt.Errorf("read registered: %w", err)
+		return nil, nil, 0, fmt.Errorf("read registered: %w", err)
 	}
 	var relayFrame pb.Frame
 	if err := proto.Unmarshal(relayBytes, &relayFrame); err != nil {
 		ch.Close()
-		return nil, nil, fmt.Errorf("unmarshal registered: %w", err)
+		return nil, nil, 0, fmt.Errorf("unmarshal registered: %w", err)
 	}
 	token := relayFrame.GetRegistered().GetToken()
 	if token == nil {
 		ch.Close()
-		return nil, nil, fmt.Errorf("relay returned empty token")
+		return nil, nil, 0, fmt.Errorf("relay returned empty token")
 	}
+	ttl := time.Duration(relayFrame.GetRegistered().GetTtlSeconds()) * time.Second
 
 	ctx, cancel := context.WithCancel(ctx)
 	l := &RelayListener{
@@ -142,10 +146,11 @@ func listenHandshake(
 		ctx:     ctx,
 		cancel:  cancel,
 		closeFn: func() { ch.Close() },
+		ttl:     ttl,
 	}
 
 	go l.readPump()
-	return l, token, nil
+	return l, token, ttl, nil
 }
 
 func (l *RelayListener) Accept() (kamune.Conn, error) {

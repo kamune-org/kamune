@@ -213,7 +213,8 @@ func (x *Register) GetToken() []byte {
 
 type Registered struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Token         []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"` // session token assigned by relay
+	Token         []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`                              // session token assigned by relay
+	TtlSeconds    uint32                 `protobuf:"varint,2,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"` // token validity duration in seconds (0 = unknown)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -253,6 +254,13 @@ func (x *Registered) GetToken() []byte {
 		return x.Token
 	}
 	return nil
+}
+
+func (x *Registered) GetTtlSeconds() uint32 {
+	if x != nil {
+		return x.TtlSeconds
+	}
+	return 0
 }
 
 type Message struct {
@@ -431,10 +439,12 @@ const file_pb_relay_proto_rawDesc = "" +
 	"\x04auth\x18\x06 \x01(\v2\x0f.relayconn.AuthH\x00R\x04authB\x06\n" +
 	"\x04kind\" \n" +
 	"\bRegister\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\fR\x05token\"\"\n" +
+	"\x05token\x18\x01 \x01(\fR\x05token\"C\n" +
 	"\n" +
 	"Registered\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\fR\x05token\"\x1d\n" +
+	"\x05token\x18\x01 \x01(\fR\x05token\x12\x1f\n" +
+	"\vttl_seconds\x18\x02 \x01(\rR\n" +
+	"ttlSeconds\"\x1d\n" +
 	"\aMessage\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"\x06\n" +
 	"\x04Ping\"\x06\n" +

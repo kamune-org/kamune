@@ -19,7 +19,8 @@ message Register {
 }
 
 message Registered {
-  bytes token = 1;  // session token assigned by relay
+  bytes  token       = 1;  // session token assigned by relay
+  uint32 ttl_seconds = 2;  // token validity duration in seconds (0 = unknown)
 }
 
 message Message {
