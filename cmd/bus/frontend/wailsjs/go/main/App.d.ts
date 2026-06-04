@@ -54,6 +54,8 @@ export function GetSessionMessages(arg1:string):Promise<Array<main.MessageInfo>>
 
 export function GetSessions():Promise<Array<main.SessionInfo>>;
 
+export function GetShareInfo():Promise<main.ShareInfo>;
+
 export function GetStatus():Promise<main.StatusInfo>;
 
 export function GetStorageReady():Promise<boolean>;
@@ -75,6 +77,8 @@ export function RemoveRelayToken(arg1:string):Promise<void>;
 export function RenameHistorySession(arg1:string,arg2:string):Promise<void>;
 
 export function RenameSession(arg1:string,arg2:string):Promise<void>;
+
+export function SaveCardPNG(arg1:string):Promise<void>;
 
 export function SendMessage(arg1:string,arg2:string):Promise<void>;
 

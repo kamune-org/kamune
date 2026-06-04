@@ -106,6 +106,10 @@ export function GetSessions() {
   return window['go']['main']['App']['GetSessions']();
 }
 
+export function GetShareInfo() {
+  return window['go']['main']['App']['GetShareInfo']();
+}
+
 export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
@@ -148,6 +152,10 @@ export function RenameHistorySession(arg1, arg2) {
 
 export function RenameSession(arg1, arg2) {
   return window['go']['main']['App']['RenameSession'](arg1, arg2);
+}
+
+export function SaveCardPNG(arg1) {
+  return window['go']['main']['App']['SaveCardPNG'](arg1);
 }
 
 export function SendMessage(arg1, arg2) {

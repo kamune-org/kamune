@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"os"
@@ -153,6 +154,23 @@ type relayToken struct {
 	TTL       time.Duration `json:"ttl"`
 	ExpiresAt time.Time     `json:"expiresAt"`
 	listener  kamune.Listener
+}
+
+type ShareInfo struct {
+	URL              string          `json:"url"`
+	Transport        string          `json:"transport"`
+	Address          string          `json:"address"`
+	Port             string          `json:"port"`
+	FingerprintEmoji string          `json:"fingerprintEmoji"`
+	FingerprintHex   string          `json:"fingerprintHex"`
+	RelayInfo        *ShareRelayInfo `json:"relayInfo,omitempty"`
+}
+
+type ShareRelayInfo struct {
+	Address  string `json:"address"`
+	Scheme   string `json:"scheme"`
+	Token    string `json:"token"`
+	Password bool   `json:"password"`
 }
 
 type App struct {
@@ -1040,6 +1058,36 @@ func (a *App) CopyToClipboard(text string) error {
 
 func (a *App) SendNotification(title, message string) {
 	runtime.EventsEmit(a.ctx, "notification", title, message)
+}
+
+func (a *App) SaveCardPNG(dataURL string) error {
+	const prefix = "data:image/png;base64,"
+	if !strings.HasPrefix(dataURL, prefix) {
+		return fmt.Errorf("invalid data URL")
+	}
+	data, err := base64.StdEncoding.DecodeString(dataURL[len(prefix):])
+	if err != nil {
+		return fmt.Errorf("decode base64: %w", err)
+	}
+
+	filePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Save Connection Card",
+		DefaultFilename: fmt.Sprintf("kamune-connection-card-%s.png", time.Now().Format("2006-01-02_150405")),
+		Filters: []runtime.FileFilter{
+			{DisplayName: "PNG Images", Pattern: "*.png"},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("save dialog: %w", err)
+	}
+	if filePath == "" {
+		return nil
+	}
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	return nil
 }
 
 func (a *App) ToggleFullscreen() {

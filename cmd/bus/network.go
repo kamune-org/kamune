@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -579,4 +580,119 @@ func (a *App) removeSession(sessionID string) int {
 		}
 	}
 	return len(a.sessions)
+}
+
+func (a *App) GetShareInfo() (*ShareInfo, error) {
+	a.mu.RLock()
+	if a.server == nil {
+		a.mu.RUnlock()
+		return nil, fmt.Errorf("server is not running")
+	}
+	transport := a.serverTransportType
+	serverAddr := a.serverAddr
+	pubKey := a.pubKey
+	relayAddr := a.relayAddr
+	relayPassword := a.relayPassword
+	insecureTLS := a.insecureTLS
+	a.mu.RUnlock()
+
+	emoji := strings.Join(fingerprint.Emoji(pubKey), " • ")
+	hexFP := fingerprint.Hex(pubKey)
+
+	var (
+		address   string
+		port      string
+		relayInfo *ShareRelayInfo
+		urlStr    string
+	)
+
+	switch transport {
+	case "tcp", "udp":
+		host, p, autoDetect := parseServerAddr(serverAddr)
+		port = p
+		if autoDetect {
+			ip, err := detectLocalIP()
+			if err != nil {
+				return nil, fmt.Errorf("detect local IP: %w", err)
+			}
+			address = ip
+		} else {
+			address = host
+		}
+		urlStr = fmt.Sprintf("%s://%s:%s", transport, address, port)
+
+	case "relay":
+		listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, relayPassword, insecureTLS)
+		if err != nil {
+			return nil, fmt.Errorf("generate relay token: %w", err)
+		}
+
+		a.mu.Lock()
+		if a.relayListeners == nil {
+			a.mu.Unlock()
+			listener.Close()
+			return nil, fmt.Errorf("server stopped while generating token")
+		}
+		if err := a.relayListeners.Add(listener); err != nil {
+			a.mu.Unlock()
+			listener.Close()
+			return nil, fmt.Errorf("add listener: %w", err)
+		}
+		a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, ExpiresAt: time.Now().Add(ttl), listener: listener})
+		tokens := make([]relayToken, len(a.relayTokens))
+		copy(tokens, a.relayTokens)
+		a.mu.Unlock()
+
+		runtime.EventsEmit(a.ctx, "relay-tokens", tokens)
+		a.addLogEntry("INFO", "Share card: generated relay token: "+token)
+
+		scheme, host, _ := parseRelayAddr(relayAddr)
+		relayInfo = &ShareRelayInfo{
+			Address:  host,
+			Scheme:   scheme,
+			Token:    token,
+			Password: relayPassword != "",
+		}
+		urlStr = fmt.Sprintf("relay://%s?token=%s&scheme=%s", host, token, scheme)
+		if relayPassword != "" {
+			urlStr += "&password=1"
+		}
+
+	default:
+		return nil, fmt.Errorf("unknown transport: %s", transport)
+	}
+
+	return &ShareInfo{
+		URL:              urlStr,
+		Transport:        transport,
+		Address:          address,
+		Port:             port,
+		FingerprintEmoji: emoji,
+		FingerprintHex:   hexFP,
+		RelayInfo:        relayInfo,
+	}, nil
+}
+
+func parseServerAddr(addr string) (host, port string, autoDetect bool) {
+	h, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", "", false
+	}
+	if h == "" || h == "0.0.0.0" {
+		return "", p, true
+	}
+	return h, p, false
+}
+
+func detectLocalIP() (string, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", err
+	}
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			return ipnet.IP.String(), nil
+		}
+	}
+	return "", fmt.Errorf("no non-loopback IPv4 address found")
 }
