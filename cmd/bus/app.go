@@ -74,7 +74,7 @@ const (
 	StatusVerifying    ConnectionStatus = "verifying"
 )
 
-var appVersion = "2.0.0"
+var appVersion = "dev"
 
 type VerificationMode int
 

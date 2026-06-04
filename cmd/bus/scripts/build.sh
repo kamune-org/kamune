@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_NAME="bus"
-VERSION="${BUS_VERSION:-2.0.0}"
+VERSION="${BUS_VERSION:-2.1.0}"
 
 # Append commit hash and dirty flag
 COMMIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"

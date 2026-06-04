@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_NAME="relay"
-VERSION="${RELAY_VERSION:-1.0.0}"
+VERSION="${RELAY_VERSION:-1.1.0}"
 
 # Append commit hash and dirty flag
 COMMIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"

@@ -5,7 +5,7 @@ go 1.26
 replace github.com/kamune-org/kamune => ../../
 
 require (
-	github.com/kamune-org/kamune v0.4.0
+	github.com/kamune-org/kamune v0.5.0
 	github.com/wailsapp/wails/v2 v2.12.0
 	github.com/zalando/go-keyring v0.2.8
 )
