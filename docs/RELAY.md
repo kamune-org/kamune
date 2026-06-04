@@ -461,7 +461,7 @@ When enabled, each connection is limited to `quota` registrations per
 
 ```toml
 [server]
-address = "127.0.0.1:8888"   # HTTP/WS listen address
+address = "127.0.0.1:8888"    # HTTP/WS listen address
 password = ""                 # PSK password, empty = open mode
 expose_health = true          # expose /health endpoint
 expose_ip = true              # expose /ip endpoint
@@ -488,4 +488,81 @@ max_message_size = 65536      # Maximum message payload size (bytes)
 enabled = true                # Enable rate limiting
 time_window = "1m"            # Rate limit window
 quota = 20                    # Max registrations per window
+```
+
+## Security Considerations
+
+The relay is a blind session switch — it makes no trust decisions about who
+can create or join sessions (beyond optional PSK auth). This section documents
+known attack vectors and the current level of protection.
+
+### Attack vectors
+
+#### Token exhaustion (resource exhaustion)
+
+An attacker can create tokens in rapid succession by opening many HPKE
+connections and sending `Register{token: nil}`. Each unpaired token occupies
+a slot in the in-memory session map until its TTL expires (default: 5 min).
+If the attacker fills all `max_concurrent_sessions` slots, legitimate users
+cannot create sessions until expired tokens are purged.
+
+**Current defenses:**
+
+| Defense                               | Status                                                     |
+| ------------------------------------- | ---------------------------------------------------------- |
+| `max_concurrent_sessions` cap         | ✅ Enforced — `Create()` rejects at capacity               |
+| Token TTL + `purgeExpired()` 30s loop | ✅ Enforced — expired tokens freed every 30s               |
+| Rate limiting (`[rate_limit]`)        | ⚠️ Parsed from config, **not yet enforced** (TODO in code) |
+| Per-IP rate limiting                  | ❌ Not implemented                                         |
+
+The main gap is the unenforced rate limit. Without it, a single connection
+can exhaust the session map in seconds, wait for TTL purge, and repeat.
+
+#### Session hoarding
+
+An attacker who controls both ends of a session (listener + dialer) can hold
+a session open until its TTL expires. The TTL serves double duty:
+
+1. **Token offer window** — how long the receiver has to scan a QR and join
+2. **Session max lifetime** — how long a paired session lives before forced
+   disconnect
+
+This means:
+
+- Raising TTL for share card usability (longer offer window) also gives
+  attackers longer-lived sessions
+- A paired session at rest (no messages) still consumes a slot until TTL
+
+**Proposed solutions:**
+
+| #   | Mitigation                                                                                                                                                                       | Prevents                                              | Effort                                                             |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
+| 1   | **Activate rate limiting** — enforce the existing `[rate_limit]` config on token creation                                                                                        | Rapid token fill                                      | Low — wire existing parser into `handleRelayConn`                  |
+| 2   | **Separate offer TTL from session max lifetime** — `token_ttl` controls how long a token is valid before a dialer joins; `session_ttl` (new) controls max duration after pairing | Session hoarding, flexibility for share cards         | Medium — new config field, extend `session` struct                 |
+| 3   | **Idle session timeout** — close sessions with no message activity for N minutes                                                                                                 | Zombie sessions that hold slots without communicating | Medium — track `lastActivity` in `session`, check in `cleanupLoop` |
+| 4   | **Per-IP concurrent session cap** — optional limit below the global `max_concurrent_sessions`                                                                                    | Single IP exhausting all slots                        | Low — track IP → count in `SessionManager`                         |
+
+### Status summary
+
+| Protection                                     | Status                                          |
+| ---------------------------------------------- | ----------------------------------------------- |
+| Token TTL                                      | ✅ Enforced (configurable, default 5 min)       |
+| Paired session timeout                         | ✅ Bound by same TTL (dual-purpose — see above) |
+| Max concurrent sessions                        | ✅ Enforced (configurable, default 10K)         |
+| Max message size                               | ✅ Enforced (configurable, default 64 KB)       |
+| PSK auth                                       | ✅ Enforced (constant-time compare)             |
+| Rate limiting (global)                         | ⚠️ Config parsed, not enforced                  |
+| Per-IP rate limiting                           | ❌                                              |
+| Per-IP session cap                             | ❌                                              |
+| Idle session timeout                           | ❌                                              |
+| Session max lifetime (separate from offer TTL) | ❌                                              |
+
+These gaps are known and tracked. Mitigations 1 (activate rate limiting) and 2
+(separate offer/session TTL) are the highest priority — both are low-to-medium
+effort and close the two primary attack vectors described above. Items 3 and 4
+are defensive hardening for public relay deployments. Each mitigation is
+independent and can be implemented separately without protocol changes.
+
+```
+
 ```

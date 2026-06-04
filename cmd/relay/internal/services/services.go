@@ -34,6 +34,10 @@ func (s *Service) Hub() *Hub {
 	return s.hub
 }
 
+func (s *Service) TokenTTL() time.Duration {
+	return s.sessions.TTL()
+}
+
 func (s *Service) MaxMessageSize() int {
 	return s.cfg.Session.MaxMessageSize
 }

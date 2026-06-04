@@ -161,12 +161,13 @@ func (sm *SessionManager) purgeExpired() {
 
 	now := time.Now()
 	for key, sess := range sm.sessions {
-		if now.After(sess.expiry) {
+		if now.After(sess.expiry) && sess.dialer == nil {
 			sess.listener.Close()
-			if sess.dialer != nil {
-				sess.dialer.Close()
-			}
 			delete(sm.sessions, key)
 		}
 	}
+}
+
+func (sm *SessionManager) TTL() time.Duration {
+	return sm.ttl
 }

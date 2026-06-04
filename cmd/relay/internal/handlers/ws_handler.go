@@ -99,6 +99,7 @@ func handleRelayConn(
 	}
 
 	var token []byte
+	var ttlSeconds uint32
 
 	if len(register.Token) == 0 {
 		token, err = hub.RegisterListener(ch)
@@ -107,6 +108,7 @@ func handleRelayConn(
 			ch.Close()
 			return
 		}
+		ttlSeconds = uint32(hub.TokenTTL().Seconds())
 	} else {
 		token = register.Token
 		err = hub.RegisterDialer(ch, token)
@@ -119,7 +121,7 @@ func handleRelayConn(
 
 	registered := &pb.Frame{
 		Kind: &pb.Frame_Registered{
-			Registered: &pb.Registered{Token: token},
+			Registered: &pb.Registered{Token: token, TtlSeconds: ttlSeconds},
 		},
 	}
 	b, _ := proto.Marshal(registered)

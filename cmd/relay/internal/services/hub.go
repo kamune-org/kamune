@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
@@ -17,6 +18,10 @@ type Hub struct {
 
 func NewHub(sessions *SessionManager, password string, maxMsgSize int) *Hub {
 	return &Hub{sessions: sessions, password: password, maxMsgSize: maxMsgSize}
+}
+
+func (h *Hub) TokenTTL() time.Duration {
+	return h.sessions.TTL()
 }
 
 func (h *Hub) MaxMessageSize() int {
