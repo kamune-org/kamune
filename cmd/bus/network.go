@@ -83,7 +83,7 @@ func (a *App) StartServer(
 			return "", "", fmt.Errorf("cancelled")
 		}
 		ml := newMultiListener()
-		listener, token, err := listenRelayTracked(context.Background(), a, relayAddr, password, a.insecureTLS)
+		listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, password, a.insecureTLS)
 		if err != nil {
 			a.mu.RLock()
 			cancelled := a.startCancel == nil
@@ -106,7 +106,7 @@ func (a *App) StartServer(
 		a.relayAddr = relayAddr
 		a.relayPassword = password
 		a.relayListeners = ml
-		a.relayTokens = []relayToken{{Token: token, listener: listener}}
+		a.relayTokens = []relayToken{{Token: token, TTL: ttl, ExpiresAt: time.Now().Add(ttl), listener: listener}}
 	case "udp":
 		opts = append(opts, kamune.ServeWithUDP())
 	default:
@@ -285,7 +285,7 @@ func (a *App) GenerateRelayToken() (string, error) {
 	password := a.relayPassword
 	a.mu.Unlock()
 
-	listener, token, err := listenRelayTracked(context.Background(), a, relayAddr, password, a.insecureTLS)
+	listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, password, a.insecureTLS)
 	if err != nil {
 		return "", err
 	}
@@ -300,7 +300,7 @@ func (a *App) GenerateRelayToken() (string, error) {
 		a.mu.Unlock()
 		return "", fmt.Errorf("add listener: %w", err)
 	}
-	a.relayTokens = append(a.relayTokens, relayToken{Token: token, listener: listener})
+	a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, ExpiresAt: time.Now().Add(ttl), listener: listener})
 	tokens := make([]relayToken, len(a.relayTokens))
 	copy(tokens, a.relayTokens)
 	a.mu.Unlock()

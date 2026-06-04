@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/relayconn"
@@ -29,30 +31,63 @@ func wrapRelayError(scheme, host string, password bool, err error) error {
 
 type tokenTracker struct {
 	kamune.Listener
-	token string
-	app   *App
+	token      string
+	ttl        time.Duration
+	expiresAt  time.Time
+	app        *App
+	expiryOnce sync.Once
+	expiryFn   func()
 }
 
 func (t *tokenTracker) Accept() (kamune.Conn, error) {
 	cn, err := t.Listener.Accept()
 	if err == nil {
+		t.cancelExpiry()
 		t.app.markRelayTokenConsumed(t.token)
 	}
 	return cn, err
 }
 
 func (t *tokenTracker) Stop() {
+	t.cancelExpiry()
 	if s, ok := t.Listener.(interface{ Stop() }); ok {
 		s.Stop()
 	}
 }
 
-func listenRelayTracked(ctx context.Context, a *App, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, error) {
-	listener, tokenHex, err := listenRelay(ctx, relayAddr, password, insecureSkipVerify)
-	if err != nil {
-		return nil, "", err
+func (t *tokenTracker) cancelExpiry() {
+	t.expiryOnce.Do(func() {
+		if t.expiryFn != nil {
+			t.expiryFn()
+		}
+	})
+}
+
+func startExpiryTimer(t *tokenTracker) {
+	if t.ttl <= 0 {
+		return
 	}
-	return &tokenTracker{Listener: listener, token: tokenHex, app: a}, tokenHex, nil
+	timer := time.AfterFunc(t.ttl, func() {
+		t.Stop()
+		t.app.addLogEntry("INFO", "Relay token expired: "+t.token)
+	})
+	t.expiryFn = func() { timer.Stop() }
+}
+
+func listenRelayTracked(ctx context.Context, a *App, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, time.Duration, error) {
+	listener, tokenHex, ttl, err := listenRelay(ctx, relayAddr, password, insecureSkipVerify)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	tracker := &tokenTracker{
+		Listener:  listener,
+		token:     tokenHex,
+		ttl:       ttl,
+		expiresAt: time.Now().Add(ttl),
+		app:       a,
+	}
+	startExpiryTimer(tracker)
+	return tracker, tokenHex, ttl, nil
 }
 
 func parseRelayAddr(addr string) (scheme, host string, insecureOverride *bool) {
@@ -87,9 +122,9 @@ func parseInsecureFlag(s string) (host string, override *bool) {
 	return s, nil
 }
 
-func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, error) {
+func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, time.Duration, error) {
 	if strings.TrimSpace(relayAddr) == "" {
-		return nil, "", errors.New("relay server address is required")
+		return nil, "", 0, errors.New("relay server address is required")
 	}
 
 	var opts []relayconn.Option
@@ -105,22 +140,23 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 	var (
 		listener *relayconn.RelayListener
 		token    []byte
+		ttl      time.Duration
 		err      error
 	)
 	switch scheme {
 	case "tcp":
-		listener, token, err = relayconn.ListenRelayTCP(ctx, host, opts...)
+		listener, token, ttl, err = relayconn.ListenRelayTCP(ctx, host, opts...)
 	case "wss":
-		listener, token, err = relayconn.ListenRelayWSS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+		listener, token, ttl, err = relayconn.ListenRelayWSS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
 	case "tls":
-		listener, token, err = relayconn.ListenRelayTLS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+		listener, token, ttl, err = relayconn.ListenRelayTLS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
 	default:
-		listener, token, err = relayconn.ListenRelay(ctx, host, opts...)
+		listener, token, ttl, err = relayconn.ListenRelay(ctx, host, opts...)
 	}
 	if err != nil {
-		return nil, "", wrapRelayError(scheme, host, password != "", err)
+		return nil, "", 0, wrapRelayError(scheme, host, password != "", err)
 	}
-	return listener, hex.EncodeToString(token), nil
+	return listener, hex.EncodeToString(token), ttl, nil
 }
 
 func dialRelayFunc(relayAddr, tokenHex, password string, insecureSkipVerify bool) (func(string) (kamune.Conn, error), error) {

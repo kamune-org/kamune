@@ -148,9 +148,11 @@ type pendingVerification struct {
 }
 
 type relayToken struct {
-	Token    string `json:"token"`
-	Consumed bool   `json:"consumed"`
-	listener kamune.Listener
+	Token     string        `json:"token"`
+	Consumed  bool          `json:"consumed"`
+	TTL       time.Duration `json:"ttl"`
+	ExpiresAt time.Time     `json:"expiresAt"`
+	listener  kamune.Listener
 }
 
 type App struct {
