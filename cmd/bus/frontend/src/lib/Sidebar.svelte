@@ -11,6 +11,15 @@
     return t.slice(0, 8) + '…' + t.slice(-6)
   }
 
+  function formatExpiry(rt) {
+    if (rt.consumed || !rt.expiresAt) return ''
+    const remaining = new Date(rt.expiresAt).getTime() - Date.now()
+    if (remaining <= 0) return 'expired'
+    if (remaining < 60000) return Math.ceil(remaining / 1000) + 's'
+    if (remaining < 3600000) return Math.ceil(remaining / 60000) + 'm'
+    return Math.ceil(remaining / 3600000) + 'h'
+  }
+
   const dispatch = createEventDispatcher()
   export let serverActive = false
   export let runningServerTransport = ''
@@ -247,9 +256,13 @@
           {#if tokensExpanded}
             <div class="rt-list">
               {#each $relayTokens as rt}
+                {@const expiry = formatExpiry(rt)}
                 <div class="rt-item" class:consumed={rt.consumed}>
                   <span class="rt-dot" class:filled={rt.consumed}></span>
                   <span class="rt-item-token" role="button" tabindex="0" on:click={() => handleCopyToken(rt.token)} on:keydown={(e) => { if (e.key === 'Enter') handleCopyToken(rt.token) }}>{truncateToken(rt.token)}</span>
+                  {#if expiry}
+                    <span class="rt-expiry" class:expired={expiry === 'expired'}>{expiry}</span>
+                  {/if}
                   <button class="rt-rm-btn" title="Remove token" on:click|stopPropagation={async () => {
                     try {
                       await RemoveRelayToken(rt.token)
@@ -986,6 +999,16 @@
   }
   .rt-item-token:hover {
     color: var(--accent-primary);
+  }
+  .rt-expiry {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: 6px;
+    flex-shrink: 0;
+  }
+  .rt-expiry.expired {
+    color: var(--danger);
   }
   .rt-rm-btn {
     display: inline-flex;

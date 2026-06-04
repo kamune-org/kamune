@@ -172,6 +172,8 @@ export namespace main {
 	export class relayToken {
 	    token: string;
 	    consumed: boolean;
+	    ttl: number;
+	    expiresAt: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new relayToken(source);
@@ -181,6 +183,8 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.token = source["token"];
 	        this.consumed = source["consumed"];
+	        this.ttl = source["ttl"] ?? 0;
+	        this.expiresAt = source["expiresAt"] ?? "";
 	    }
 	}
 
