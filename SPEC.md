@@ -628,12 +628,12 @@ The `Enigma` wrapper provides XChaCha20-Poly1305 AEAD encryption:
 
 ### 7.5 Key Hierarchy Summary
 
-| Phase            | Key Material                   | Derivation                                                                     |
-| ---------------- | ------------------------------ | ------------------------------------------------------------------------------ | --------------- | ------------------- |
-| Exchange         | HPKE Sender/Recipient contexts | HPKE internal key schedule (MLKEM768-X25519 + HKDF-SHA512 + ChaCha20-Poly1305) |
-| Handshake        | 32-byte shared secret          | MLKEM768 Encapsulate/Decapsulate                                               |
-| Cipher keys      | 32-byte per-direction keys     | HKDF-SHA512(secret, salt, domainInfo)                                          |
-| Challenge tokens | 32-byte tokens                 | HKDF-SHA512(secret, nil, sessionID + "                                         | " + dirInfo + " | " + transcriptHash) |
+| Phase            | Key Material                   | Derivation                                                                         |
+| ---------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
+| Exchange         | HPKE Sender/Recipient contexts | HPKE internal key schedule (MLKEM768-X25519 + HKDF-SHA512 + ChaCha20-Poly1305)     |
+| Handshake        | 32-byte shared secret          | MLKEM768 Encapsulate/Decapsulate                                                   |
+| Cipher keys      | 32-byte per-direction keys     | HKDF-SHA512(secret, salt, domainInfo)                                              |
+| Challenge tokens | 32-byte tokens                 | `HKDF-SHA512(secret, nil, sessionID + " \| " + dirInfo + " \| " + transcriptHash)` |
 
 ---
 
