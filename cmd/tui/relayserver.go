@@ -18,7 +18,7 @@ func relayServe(relayAddr, password string, store *storage.Storage, verifyFn kam
 		relayOpts = append(relayOpts, relayconn.WithPassword(password))
 	}
 
-	listener, token, err := relayconn.ListenRelay(ctx, relayAddr, relayOpts...)
+	listener, token, _, err := relayconn.ListenRelay(ctx, relayAddr, relayOpts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("relay listen: %w", err)
 	}
