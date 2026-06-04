@@ -9,7 +9,7 @@ import (
 
 // AppVersion is the semantic version of the kamune protocol/library.
 // Sub-modules may override this via ldflags or init() before package init.
-var AppVersion = "0.4.0"
+var AppVersion = "0.5.0"
 
 var localSemver semver
 

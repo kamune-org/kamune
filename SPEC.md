@@ -1,6 +1,6 @@
 # Kamune Protocol Specification
 
-**Version:** 0.4.0
+**Version:** 0.5.0
 
 **Status:** Experimental
 
@@ -299,7 +299,7 @@ Initiator (Client)                          Responder (Server)
      fingerprint of their public key, base64-encoded).
    - `PublicKey`: The initiator's identity public key (Ed25519),
      serialized in PKIX/DER format.
-   - `AppVersion`: The initiator's application semver (e.g. `"0.4.0"`).
+   - `AppVersion`: The initiator's application semver (e.g. `"0.5.0"`).
    - The `SignedTransport` envelope's `Signature` is computed over the
      serialized `Introduce` message using the initiator's private key.
 
