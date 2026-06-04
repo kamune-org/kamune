@@ -137,8 +137,8 @@
 
   async function handleCopyToken(token) {
     await CopyToClipboard(token)
-    copied = true
-    setTimeout(() => copied = false, 1200)
+    toast.set({ message: 'Copied!', type: 'info' })
+    setTimeout(() => toast.set(null), 2000)
   }
 </script>
 

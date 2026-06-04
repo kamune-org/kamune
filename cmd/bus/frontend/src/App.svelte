@@ -231,7 +231,7 @@
                 token,
                 type: "token",
             });
-            setTimeout(() => toast.set(null), 15000);
+            setTimeout(() => toast.set(null), 4000);
         });
         EventsOn("relay-tokens", (tokens) => {
             relayTokens.set(tokens || []);
@@ -401,7 +401,7 @@
                     token,
                     type: "token",
                 });
-                setTimeout(() => toast.set(null), 15000);
+                setTimeout(() => toast.set(null), 4000);
             }
         } catch (e) {
             alert("Failed to start server: " + e);
