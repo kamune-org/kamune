@@ -141,6 +141,7 @@
         EventsOff("toast");
         EventsOff("show-share-card");
         EventsOff("show-import-url");
+        EventsOff("import-from-clipboard");
 
         // 2) Register handlers — sync, before any async work
         EventsOn("status-changed", (data) => status.set(data));
@@ -261,6 +262,26 @@
             dialogs.update((d) => ({ ...d, showImport: true }));
         });
 
+        EventsOn("import-from-clipboard", (urlStr) => {
+            try {
+                const url = new URL(urlStr);
+                const transport = url.protocol.slice(0, -1);
+                if (!transport) throw new Error('Unknown transport');
+                connectTransport = transport;
+                if (transport === "relay") {
+                    connectRelayAddr = url.host;
+                    connectRelayScheme = url.searchParams.get('scheme') || 'ws';
+                    connectPeerKey = url.searchParams.get('token') || '';
+                } else {
+                    connectServerAddr2 = url.host;
+                }
+                dialogs.update((d) => ({ ...d, showConnect: true }));
+            } catch {
+                toast.set({ message: "Invalid connection URL in clipboard", type: "error" });
+                setTimeout(() => toast.set(null), 3000);
+            }
+        });
+
         // 3) Async init — deferred, no race between cleanup and registration
         (async () => {
             const v = await GetVersion();
@@ -332,6 +353,7 @@
         EventsOff("toast");
         EventsOff("show-share-card");
         EventsOff("show-import-url");
+        EventsOff("import-from-clipboard");
     });
 
     async function loadSessions() {

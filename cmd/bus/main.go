@@ -20,16 +20,18 @@ var assets embed.FS
 
 func buildMenu(app *App) *menu.Menu {
 	conn := menu.NewMenu()
-	strict := conn.AddRadio("Strict", false, keys.CmdOrCtrl("0"), nil)
-	quick := conn.AddRadio("Quick", true, keys.CmdOrCtrl("1"), nil)
-	auto := conn.AddRadio("Auto-Accept", false, keys.CmdOrCtrl("2"), nil)
+
+	// Verification Mode submenu
+	verifSub := menu.NewMenu()
+	strict := verifSub.AddRadio("Strict", false, keys.CmdOrCtrl("0"), nil)
+	quick := verifSub.AddRadio("Quick", true, keys.CmdOrCtrl("1"), nil)
+	auto := verifSub.AddRadio("Auto-Accept", false, keys.CmdOrCtrl("2"), nil)
 
 	radioItems := []*menu.MenuItem{strict, quick, auto}
 	app.verifRadioItems = radioItems
 
 	setVerifMode := func(ctx context.Context, mode int) {
 		if !app.SetVerificationMode(mode) {
-			// Revert menu to previous radio state
 			prev := app.GetVerificationMode()
 			for _, item := range radioItems {
 				item.Checked = false
@@ -49,6 +51,12 @@ func buildMenu(app *App) *menu.Menu {
 	quick.Click = func(_ *menu.CallbackData) { setVerifMode(app.ctx, 1) }
 	auto.Click = func(_ *menu.CallbackData) { setVerifMode(app.ctx, 2) }
 
+	conn.Append(&menu.MenuItem{
+		Label:   "Verification Mode",
+		Type:    menu.SubmenuType,
+		SubMenu: verifSub,
+	})
+
 	conn.AddSeparator()
 
 	insecureItem := conn.AddCheckbox("Skip TLS Verification", app.GetInsecureTLS(), nil, func(_ *menu.CallbackData) {
@@ -57,15 +65,66 @@ func buildMenu(app *App) *menu.Menu {
 			runtime.MenuUpdateApplicationMenu(app.ctx)
 			return
 		}
-		// Cancel or no-op: re-sync native menu to Go state (native checkbox
-		// may have auto-toggled before the callback fired)
 		app.insecureMenuItem.Checked = app.GetInsecureTLS()
 		runtime.MenuUpdateApplicationMenu(app.ctx)
 	})
 	app.insecureMenuItem = insecureItem
 
 	conn.AddSeparator()
-	conn.AddText("Forget Saved Passphrase…", nil, func(_ *menu.CallbackData) {
+
+	conn.AddText("Share Connection Card…", keys.CmdOrCtrl("e"), func(_ *menu.CallbackData) {
+		runtime.EventsEmit(app.ctx, "show-share-card")
+	})
+
+	conn.AddText("Import from Clipboard", nil, func(_ *menu.CallbackData) {
+		text, err := runtime.ClipboardGetText(app.ctx)
+		if err != nil || text == "" {
+			app.SendNotification("Clipboard", "No connection URL found in clipboard")
+			return
+		}
+		runtime.EventsEmit(app.ctx, "import-from-clipboard", text)
+	})
+
+	conn.AddText("Import Connection URL…", keys.CmdOrCtrl("i"), func(_ *menu.CallbackData) {
+		runtime.EventsEmit(app.ctx, "show-import-url")
+	})
+
+	view := menu.NewMenu()
+	view.AddText("Toggle Full Screen", keys.Key("f11"), func(_ *menu.CallbackData) {
+		app.ToggleFullscreen()
+	})
+
+	idMenu := menu.NewMenu()
+	idMenu.AddText("Copy as Hex", nil, func(_ *menu.CallbackData) {
+		fp := app.GetFingerprint()
+		if fp["hex"] == "" {
+			app.SendNotification("Identity", "No identity key — start a server first")
+			return
+		}
+		_ = app.CopyToClipboard(fp["hex"])
+		runtime.EventsEmit(app.ctx, "toast", "Copied! (Hex)", "info")
+	})
+	idMenu.AddText("Copy as Sum", nil, func(_ *menu.CallbackData) {
+		fp := app.GetFingerprint()
+		if fp["sum"] == "" {
+			app.SendNotification("Identity", "No identity key — start a server first")
+			return
+		}
+		_ = app.CopyToClipboard(fp["sum"])
+		runtime.EventsEmit(app.ctx, "toast", "Copied! (Sum)", "info")
+	})
+	idMenu.AddText("Copy as Base64", nil, func(_ *menu.CallbackData) {
+		fp := app.GetFingerprint()
+		if fp["b64"] == "" {
+			app.SendNotification("Identity", "No identity key — start a server first")
+			return
+		}
+		_ = app.CopyToClipboard(fp["b64"])
+		runtime.EventsEmit(app.ctx, "toast", "Copied! (Base64)", "info")
+	})
+
+	idMenu.AddSeparator()
+	idMenu.AddText("Forget Saved Passphrase…", nil, func(_ *menu.CallbackData) {
 		answer, err := runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
 			Title:         "Clear Saved Passphrase",
 			Message:       "Remove the passphrase for the current database from your system keychain?\n\nThe passphrase will be requested again on next startup.",
@@ -78,44 +137,10 @@ func buildMenu(app *App) *menu.Menu {
 			return
 		}
 		if err := app.ClearKeychainPassphrase(); err != nil {
-			app.SendNotification("Keychain", "No saved passphrase to forget.")
+			app.SendNotification("Identity", "No saved passphrase to forget.")
 		} else {
-			app.SendNotification("Keychain", "Saved passphrase removed from keychain.")
+			app.SendNotification("Identity", "Saved passphrase removed from keychain.")
 		}
-	})
-
-	view := menu.NewMenu()
-	view.AddText("Toggle Full Screen", keys.Key("f11"), func(_ *menu.CallbackData) {
-		app.ToggleFullscreen()
-	})
-
-	fpMenu := menu.NewMenu()
-	fpMenu.AddText("Copy as Hex", nil, func(_ *menu.CallbackData) {
-		fp := app.GetFingerprint()
-		if fp["hex"] == "" {
-			app.SendNotification("Fingerprint", "No identity key — start a server first")
-			return
-		}
-		_ = app.CopyToClipboard(fp["hex"])
-		runtime.EventsEmit(app.ctx, "toast", "Copied! (Hex)", "info")
-	})
-	fpMenu.AddText("Copy as Sum", nil, func(_ *menu.CallbackData) {
-		fp := app.GetFingerprint()
-		if fp["sum"] == "" {
-			app.SendNotification("Fingerprint", "No identity key — start a server first")
-			return
-		}
-		_ = app.CopyToClipboard(fp["sum"])
-		runtime.EventsEmit(app.ctx, "toast", "Copied! (Sum)", "info")
-	})
-	fpMenu.AddText("Copy as Base64", nil, func(_ *menu.CallbackData) {
-		fp := app.GetFingerprint()
-		if fp["b64"] == "" {
-			app.SendNotification("Fingerprint", "No identity key — start a server first")
-			return
-		}
-		_ = app.CopyToClipboard(fp["b64"])
-		runtime.EventsEmit(app.ctx, "toast", "Copied! (Base64)", "info")
 	})
 
 	m := menu.NewMenu()
@@ -132,9 +157,9 @@ func buildMenu(app *App) *menu.Menu {
 		SubMenu: view,
 	})
 	m.Append(&menu.MenuItem{
-		Label:   "Fingerprint",
+		Label:   "Identity",
 		Type:    menu.SubmenuType,
-		SubMenu: fpMenu,
+		SubMenu: idMenu,
 	})
 	m.Append(menu.WindowMenu())
 
