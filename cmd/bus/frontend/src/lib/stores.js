@@ -30,10 +30,12 @@ export const relayToken = writable('')
 export const relayTokens = writable([])
 
 export const verificationDialog = writable(null)
+export const shareDialog = writable(null)
 export const versionWarnings = writable({})
 export const dialogs = writable({
   showServer: false,
   showConnect: false,
+  showImport: false,
   showSessionInfo: null,
   showRename: null,
   showRenameType: null,

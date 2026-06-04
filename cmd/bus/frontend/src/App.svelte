@@ -41,6 +41,7 @@
         sidebarTab,
         logPanelOpen,
         verificationDialog,
+        shareDialog,
         dialogs,
         toast,
         versionWarnings,
@@ -58,6 +59,8 @@
     import VerifyDialog from "./lib/VerifyDialog.svelte";
     import RenameDialog from "./lib/RenameDialog.svelte";
     import PassphraseDialog from "./lib/PassphraseDialog.svelte";
+    import ShareDialog from "./lib/ShareDialog.svelte";
+    import ImportDialog from "./lib/ImportDialog.svelte";
 
 	let serverActive = false;
 	let runningServerTransport = '';
@@ -136,6 +139,8 @@
         EventsOff("local-name-changed");
         EventsOff("relay-tokens");
         EventsOff("toast");
+        EventsOff("show-share-card");
+        EventsOff("show-import-url");
 
         // 2) Register handlers — sync, before any async work
         EventsOn("status-changed", (data) => status.set(data));
@@ -238,6 +243,24 @@
             setTimeout(() => toast.set(null), 2000);
         });
 
+        EventsOn("show-share-card", async () => {
+            const { GetShareInfo } = await import("../wailsjs/go/main/App.js");
+            try {
+                const info = await GetShareInfo();
+                shareDialog.set(info);
+            } catch (e) {
+                toast.set({
+                    message: "Start a server first to share a connection card",
+                    type: "warning",
+                });
+                setTimeout(() => toast.set(null), 4000);
+            }
+        });
+
+        EventsOn("show-import-url", () => {
+            dialogs.update((d) => ({ ...d, showImport: true }));
+        });
+
         // 3) Async init — deferred, no race between cleanup and registration
         (async () => {
             const v = await GetVersion();
@@ -307,6 +330,8 @@
         EventsOff("relay-token");
         EventsOff("relay-tokens");
         EventsOff("toast");
+        EventsOff("show-share-card");
+        EventsOff("show-import-url");
     });
 
     async function loadSessions() {
@@ -502,6 +527,7 @@
             ...d,
             showServer: false,
             showConnect: false,
+            showImport: false,
             showSessionInfo: null,
             showRename: null,
             showRenameType: null,
@@ -995,6 +1021,40 @@
         </div>
     {/if}
 
+    {#if $shareDialog}
+        <ShareDialog
+            data={$shareDialog}
+            on:close={() => shareDialog.set(null)}
+            on:toast={(e) => {
+                toast.set(e.detail);
+                setTimeout(() => toast.set(null), 2000);
+            }}
+        />
+    {/if}
+
+    {#if $dialogs.showImport}
+        <ImportDialog
+            on:import={(e) => {
+                const { transport, host, scheme, token } = e.detail;
+                connectTransport = transport;
+                if (transport === "relay") {
+                    connectRelayAddr = host;
+                    connectRelayScheme = scheme || "ws";
+                    connectPeerKey = token;
+                } else {
+                    connectServerAddr2 = host;
+                }
+                dialogs.update((d) => ({
+                    ...d,
+                    showImport: false,
+                    showConnect: true,
+                }));
+            }}
+            on:close={() =>
+                dialogs.update((d) => ({ ...d, showImport: false }))}
+        />
+    {/if}
+
     <div class="app-body">
 		<Sidebar
 			{serverActive}
@@ -1090,6 +1150,7 @@
     <div
         class="toast"
         class:toast-error={$toast.type === "error"}
+        class:toast-warning={$toast.type === "warning"}
         class:toast-token={$toast.type === "token"}
         class:toast-info={$toast.type === "info"}
         on:click={() => toast.set(null)}
@@ -1470,6 +1531,10 @@
     .toast.toast-error {
         border-color: var(--danger);
         color: var(--danger);
+    }
+    .toast.toast-warning {
+        border-color: var(--warning);
+        color: var(--warning);
     }
     .toast.toast-token {
         border-color: var(--accent-primary);
