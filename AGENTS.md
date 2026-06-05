@@ -32,10 +32,17 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 ## Commits
 
 - Format: `<module>: <lowercase description>` — e.g. `bus: fix duplicate Wails events`, `kamune: add ErrReceiveTimeout sentinel`
-- Root module changes use `kamune:`; multi-module changes use comma-separated names like `bus,tui,daemon:`
-- Commits must be small and focused — one logical change per commit
-- Subject line must be 72 characters or fewer
-- Never commit or push without prompting the user first
+- Root module changes use `kamune:`; multi-module should be used sparsely. These
+  changes use comma-separated names like `bus,tui,daemon:`
+- Existing modules are: `kamune`, `bus`, `relay`, `tui` and `daemon`.
+- Use `docs` exclusively for changes to markdown files. Stand-alone files, like
+  readme or Makefile, may get their own prefix if the commit change include only
+  that file.
+- `relayconn` package is an outlier. Its changes should be committed separately,
+  with the package name as prefix.
+- Commits must be small and focused — one logical change per commit.
+- Subject line must be 72 characters or fewer.
+- **Important**: Never commit or push without prompting the user first.
 
 ## Architecture notes
 
