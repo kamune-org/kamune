@@ -2,7 +2,7 @@
 
 ![Go version](https://img.shields.io/badge/Go-1.26-00ADD8)
 [![Go Report Card](https://goreportcard.com/badge/github.com/kamune-org/kamune)](https://goreportcard.com/report/github.com/kamune-org/kamune)
-![GitHub release](https://img.shields.io/github/v/release/kamune-org/kamune)
+[![GitHub release](https://img.shields.io/github/v/release/kamune-org/kamune)](https://github.com/kamune-org/kamune/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Communication over untrusted networks.
