@@ -72,21 +72,21 @@ func buildMenu(app *App) *menu.Menu {
 
 	conn.AddSeparator()
 
-	conn.AddText("Share Connection Card…", keys.CmdOrCtrl("e"), func(_ *menu.CallbackData) {
+	conn.AddText("Share Connection", keys.CmdOrCtrl("e"), func(_ *menu.CallbackData) {
 		runtime.EventsEmit(app.ctx, "show-share-card")
 	})
 
-	conn.AddText("Import from Clipboard", nil, func(_ *menu.CallbackData) {
+	conn.AddText("Import Connection", keys.CmdOrCtrl("i"), func(_ *menu.CallbackData) {
+		runtime.EventsEmit(app.ctx, "show-import-url")
+	})
+
+	conn.AddText("Import from Clipboard", keys.Combo("i", keys.CmdOrCtrlKey, keys.ShiftKey), func(_ *menu.CallbackData) {
 		text, err := runtime.ClipboardGetText(app.ctx)
 		if err != nil || text == "" {
 			app.SendNotification("Clipboard", "No connection URL found in clipboard")
 			return
 		}
 		runtime.EventsEmit(app.ctx, "import-from-clipboard", text)
-	})
-
-	conn.AddText("Import Connection URL…", keys.CmdOrCtrl("i"), func(_ *menu.CallbackData) {
-		runtime.EventsEmit(app.ctx, "show-import-url")
 	})
 
 	view := menu.NewMenu()

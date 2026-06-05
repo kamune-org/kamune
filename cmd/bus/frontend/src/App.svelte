@@ -1015,6 +1015,15 @@
                         <span><kbd>{K("S")}</kbd></span><span
                             >Toggle server</span
                         >
+                        <span><kbd>{K("E")}</kbd></span><span
+                            >Share connection</span
+                        >
+                        <span><kbd>{K("I")}</kbd></span><span
+                            >Import connection</span
+                        >
+                        <span><kbd>{K("I+shift")}</kbd></span><span
+                            >Import from clipboard</span
+                        >
                         <span><kbd>{K("H")}</kbd></span><span>History tab</span>
                         <span><kbd>{K("R")}</kbd></span><span
                             >Refresh history</span
