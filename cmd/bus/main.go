@@ -59,19 +59,6 @@ func buildMenu(app *App) *menu.Menu {
 
 	conn.AddSeparator()
 
-	insecureItem := conn.AddCheckbox("Skip TLS Verification", app.GetInsecureTLS(), nil, func(_ *menu.CallbackData) {
-		newVal := !app.GetInsecureTLS()
-		if app.SetInsecureTLS(newVal) {
-			runtime.MenuUpdateApplicationMenu(app.ctx)
-			return
-		}
-		app.insecureMenuItem.Checked = app.GetInsecureTLS()
-		runtime.MenuUpdateApplicationMenu(app.ctx)
-	})
-	app.insecureMenuItem = insecureItem
-
-	conn.AddSeparator()
-
 	conn.AddText("Share Connection", keys.CmdOrCtrl("e"), func(_ *menu.CallbackData) {
 		runtime.EventsEmit(app.ctx, "show-share-card")
 	})

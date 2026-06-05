@@ -203,7 +203,6 @@ type App struct {
 	statusMsg       string
 	activeSessionID string
 	verifMode       VerificationMode
-	insecureTLS     bool
 	appVersion      string
 	fingerprintFmt  string
 
@@ -221,7 +220,6 @@ type App struct {
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
 
-	insecureMenuItem *menu.MenuItem
 	verifRadioItems  []*menu.MenuItem
 }
 
@@ -477,18 +475,6 @@ func (a *App) initFromStorage() {
 			}
 		}
 
-		tlsStr, tlsErr := store.GetSettings("bus", "insecure_tls")
-		if tlsErr == nil && tlsStr == "true" {
-			a.mu.Lock()
-			a.insecureTLS = true
-			if a.insecureMenuItem != nil {
-				a.insecureMenuItem.Checked = true
-			}
-			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "insecure-tls-changed", true)
-			runtime.MenuUpdateApplicationMenu(a.ctx)
-		}
-
 		runtime.EventsEmit(a.ctx, "storage-ready")
 		runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
 		a.addLogEntry("INFO", "Loaded fingerprint from existing identity")
@@ -680,80 +666,6 @@ func (a *App) SetVerificationMode(mode int) bool {
 				Type:    runtime.ErrorDialog,
 				Title:   "Restart Failed",
 				Message: "Failed to restart server. The verification mode has been reverted.\n\nError: " + err.Error(),
-			})
-			return false
-		}
-	}
-
-	return true
-}
-
-func (a *App) GetInsecureTLS() bool {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.insecureTLS
-}
-
-func (a *App) SetInsecureTLS(enable bool) bool {
-	a.mu.RLock()
-	needsRestart := a.relayListeners != nil
-	a.mu.RUnlock()
-
-	if needsRestart {
-		a.addLogEntry("DEBUG", "Server is using relay — prompting to restart for TLS change")
-
-		result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-			Type:          runtime.QuestionDialog,
-			Title:         "Restart Server?",
-			Message:       "Skip TLS only affects new relay connections. To apply it to the running server, the server must restart. This will disconnect all active sessions.",
-			Buttons:       []string{"Restart Server", "Cancel"},
-			DefaultButton: "Cancel",
-			CancelButton:  "Cancel",
-		})
-		if err != nil || result == "Cancel" {
-			return false
-		}
-	}
-
-	a.mu.RLock()
-	oldVal := a.insecureTLS
-	a.mu.RUnlock()
-
-	a.mu.Lock()
-	a.insecureTLS = enable
-	if a.insecureMenuItem != nil {
-		a.insecureMenuItem.Checked = enable
-	}
-	a.mu.Unlock()
-	if store := a.store(); store != nil {
-		val := ""
-		if enable {
-			val = "true"
-		}
-		_ = store.SetSettings("bus", "insecure_tls", val)
-	}
-	a.addLogEntry("DEBUG", "Insecure TLS set to: "+strconv.FormatBool(enable))
-
-	if needsRestart {
-		if err := a.restartServer(); err != nil {
-			a.addLogEntry("ERROR", "Failed to restart server after TLS change: "+err.Error())
-			a.mu.Lock()
-			a.insecureTLS = oldVal
-			if a.insecureMenuItem != nil {
-				a.insecureMenuItem.Checked = oldVal
-			}
-			a.mu.Unlock()
-			if store := a.store(); store != nil {
-				val := ""
-				if oldVal {
-					val = "true"
-				}
-				_ = store.SetSettings("bus", "insecure_tls", val)
-			}
-			runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-				Type:    runtime.ErrorDialog,
-				Title:   "Restart Failed",
-				Message: "Failed to restart server. The TLS setting has been reverted.\n\nError: " + err.Error(),
 			})
 			return false
 		}

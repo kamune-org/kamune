@@ -32,8 +32,6 @@ export function GetHistoryMessages(arg1:string):Promise<Array<main.MessageInfo>>
 
 export function GetHistorySessions():Promise<Array<main.HistorySessionInfo>>;
 
-export function GetInsecureTLS():Promise<boolean>;
-
 export function GetLibraryVersion():Promise<string>;
 
 export function GetLogEntries():Promise<Array<main.LogEntryInfo>>;
@@ -89,8 +87,6 @@ export function SetActiveSession(arg1:string):Promise<void>;
 export function SetDBPath(arg1:string):Promise<void>;
 
 export function SetFingerprintFormat(arg1:string):Promise<void>;
-
-export function SetInsecureTLS(arg1:boolean):Promise<boolean>;
 
 export function SetMyName(arg1:string):Promise<void>;
 

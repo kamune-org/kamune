@@ -102,10 +102,12 @@
     let serverRelayAddr = "";
     let serverRelayScheme = "tcp";
     let serverRelayPassword = "";
+    let serverRelayInsecure = false;
     let connectRelayAddr = "";
     let connectRelayScheme = "tcp";
     let connectRelayPassword = "";
     let connectPeerKey = "";
+    let connectRelayInsecure = false;
     let serverError = "";
     let connectError = "";
 
@@ -272,6 +274,7 @@
                     connectRelayAddr = url.host;
                     connectRelayScheme = url.searchParams.get('scheme') || 'ws';
                     connectPeerKey = url.searchParams.get('token') || '';
+                    connectRelayInsecure = url.searchParams.get('insecure') === 'true';
                 } else {
                     connectServerAddr2 = url.host;
                 }
@@ -383,7 +386,7 @@
                 serverTransport === "relay" ? "" : connectServerAddr.trim();
             const relayAddr =
                 serverTransport === "relay"
-                    ? `${serverRelayScheme}://${serverRelayAddr.trim()}`
+                    ? `${serverRelayScheme}://${serverRelayAddr.trim()}${serverRelayInsecure ? '?insecure=true' : ''}`
                     : "";
             const relayPw =
                 serverTransport === "relay" ? serverRelayPassword : "";
@@ -459,7 +462,7 @@
                 connectTransport === "relay" ? "" : connectServerAddr2.trim();
             const relayAddr =
                 connectTransport === "relay"
-                    ? `${connectRelayScheme}://${connectRelayAddr.trim()}`
+                    ? `${connectRelayScheme}://${connectRelayAddr.trim()}${connectRelayInsecure ? '?insecure=true' : ''}`
                     : "";
             const peerKey =
                 connectTransport === "relay" ? connectPeerKey.trim() : "";
@@ -723,6 +726,12 @@
                             placeholder="Relay password (if required)"
                             class="dialog-input"
                         />
+                        {#if serverRelayScheme === 'wss' || serverRelayScheme === 'tls'}
+                            <label class="insecure-option">
+                                <input type="checkbox" bind:checked={serverRelayInsecure} />
+                                Skip TLS verification
+                            </label>
+                        {/if}
                     {/if}
                     {#if serverError}
                         <p class="dialog-error">{serverError}</p>
@@ -831,6 +840,12 @@
                             placeholder="Relay password (if required)"
                             class="dialog-input"
                         />
+                        {#if connectRelayScheme === 'wss' || connectRelayScheme === 'tls'}
+                            <label class="insecure-option">
+                                <input type="checkbox" bind:checked={connectRelayInsecure} />
+                                Skip TLS verification
+                            </label>
+                        {/if}
                     {/if}
                     {#if connectError}
                         <p class="dialog-error">{connectError}</p>
@@ -1066,12 +1081,13 @@
     {#if $dialogs.showImport}
         <ImportDialog
             on:import={(e) => {
-                const { transport, host, scheme, token } = e.detail;
+                const { transport, host, scheme, token, insecure } = e.detail;
                 connectTransport = transport;
                 if (transport === "relay") {
                     connectRelayAddr = host;
                     connectRelayScheme = scheme || "ws";
                     connectPeerKey = token;
+                    connectRelayInsecure = insecure || false;
                 } else {
                     connectServerAddr2 = host;
                 }
@@ -1596,5 +1612,18 @@
     }
     .toast-copy:hover {
         background: var(--accent-primary-hover);
+    }
+    .insecure-option {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 6px 0;
+        width: 100%;
+    }
+    .insecure-option input {
+        accent-color: var(--accent-primary);
     }
 </style>

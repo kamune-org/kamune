@@ -24,6 +24,7 @@
         host: url.host,
         scheme: url.searchParams.get('scheme') || '',
         token: url.searchParams.get('token') || '',
+        insecure: url.searchParams.get('insecure') === 'true',
       })
     } catch {
       error = 'Invalid connection URL'

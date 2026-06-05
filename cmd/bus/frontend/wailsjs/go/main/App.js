@@ -62,10 +62,6 @@ export function GetHistorySessions() {
   return window['go']['main']['App']['GetHistorySessions']();
 }
 
-export function GetInsecureTLS() {
-  return window['go']['main']['App']['GetInsecureTLS']();
-}
-
 export function GetLibraryVersion() {
   return window['go']['main']['App']['GetLibraryVersion']();
 }
@@ -176,10 +172,6 @@ export function SetDBPath(arg1) {
 
 export function SetFingerprintFormat(arg1) {
   return window['go']['main']['App']['SetFingerprintFormat'](arg1);
-}
-
-export function SetInsecureTLS(arg1) {
-  return window['go']['main']['App']['SetInsecureTLS'](arg1);
 }
 
 export function SetMyName(arg1) {

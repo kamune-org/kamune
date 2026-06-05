@@ -84,7 +84,7 @@ func (a *App) StartServer(
 			return "", "", fmt.Errorf("cancelled")
 		}
 		ml := newMultiListener()
-		listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, password, a.insecureTLS)
+		listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, password, false)
 		if err != nil {
 			a.mu.RLock()
 			cancelled := a.startCancel == nil
@@ -286,7 +286,7 @@ func (a *App) GenerateRelayToken() (string, error) {
 	password := a.relayPassword
 	a.mu.Unlock()
 
-	listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, password, a.insecureTLS)
+	listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, password, false)
 	if err != nil {
 		return "", err
 	}
@@ -373,7 +373,7 @@ func (a *App) ConnectToServer(
 
 	switch transport {
 	case "relay":
-		fn, err := dialRelayFunc(relayAddr, token, password, a.insecureTLS)
+		fn, err := dialRelayFunc(relayAddr, token, password, false)
 		if err != nil {
 			a.setStatus(StatusError, "Failed to prepare relay dial")
 			a.addLogEntry("ERROR", "Relay dial preparation failed: "+err.Error())
@@ -593,7 +593,6 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 	pubKey := a.pubKey
 	relayAddr := a.relayAddr
 	relayPassword := a.relayPassword
-	insecureTLS := a.insecureTLS
 	a.mu.RUnlock()
 
 	emoji := strings.Join(fingerprint.Emoji(pubKey), " • ")
@@ -622,7 +621,7 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 		urlStr = fmt.Sprintf("%s://%s:%s", transport, address, port)
 
 	case "relay":
-		listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, relayPassword, insecureTLS)
+		listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, relayPassword, false)
 		if err != nil {
 			return nil, fmt.Errorf("generate relay token: %w", err)
 		}
