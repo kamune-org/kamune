@@ -50,9 +50,8 @@ type RateLimit struct {
 	Enabled    bool          `toml:"enabled"`
 	TimeWindow time.Duration `toml:"time_window"`
 	Quota      uint64        `toml:"quota"`
+	MaxEntries int           `toml:"max_entries"`
 }
-
-// TODO: RateLimit is parsed from config but not yet enforced at runtime.
 
 func New(path string) (Config, error) {
 	cfg := Config{}

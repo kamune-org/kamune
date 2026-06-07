@@ -5,19 +5,35 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/kamune-org/kamune/cmd/relay/internal/ratelimit"
 	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 	"google.golang.org/protobuf/proto"
 )
 
 type Hub struct {
-	sessions   *SessionManager
-	password   string
-	maxMsgSize int
+	sessions    *SessionManager
+	password    string
+	maxMsgSize  int
+	rateLimiter *ratelimit.RateLimiter
 }
 
-func NewHub(sessions *SessionManager, password string, maxMsgSize int) *Hub {
-	return &Hub{sessions: sessions, password: password, maxMsgSize: maxMsgSize}
+func NewHub(
+	sessions *SessionManager,
+	password string,
+	maxMsgSize int,
+	rateLimiter *ratelimit.RateLimiter,
+) *Hub {
+	return &Hub{
+		sessions:    sessions,
+		password:    password,
+		maxMsgSize:  maxMsgSize,
+		rateLimiter: rateLimiter,
+	}
+}
+
+func (h *Hub) RateLimiter() *ratelimit.RateLimiter {
+	return h.rateLimiter
 }
 
 func (h *Hub) TokenTTL() time.Duration {
@@ -42,6 +58,17 @@ func (h *Hub) RegisterDialer(ch *exchange.Channel, token []byte) error {
 
 func (h *Hub) ReadPump(ctx context.Context, ch *exchange.Channel, token []byte) {
 	defer h.sessions.ClosePeerChannel(token, ch)
+
+	cancelCh := make(chan struct{})
+	defer close(cancelCh)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			ch.Close()
+		case <-cancelCh:
+		}
+	}()
 
 	for {
 		data, err := ch.ReadBytes()

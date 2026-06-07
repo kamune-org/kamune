@@ -26,3 +26,4 @@ address = "127.0.0.1:8890"
 enabled = true
 time_window = "1m"
 quota = 20
+# max_entries = 100000  # max unique IPs tracked (default: max_concurrent_sessions)

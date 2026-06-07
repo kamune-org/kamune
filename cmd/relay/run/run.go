@@ -15,8 +15,9 @@ import (
 	"math/big"
 	"net/http"
 	"os"
-	"path/filepath"
 	"os/signal"
+	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,8 +27,6 @@ import (
 )
 
 func Run() error {
-	ctx := context.Background()
-
 	var cfgPath string
 	flag.StringVar(&cfgPath, "config", "assets/config.toml", "config path")
 	flag.Parse()
@@ -48,29 +47,36 @@ func Run() error {
 		return fmt.Errorf("no transport enabled (enable ws, tcp, or tls)")
 	}
 
-	errCh := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 3)
+	var wg sync.WaitGroup
 
 	// TCP listener
 	if cfg.TCP.Enabled {
-		go func() {
-			if err := handlers.ServeTCP(srvc.Hub(), cfg.TCP.Address); err != nil {
+		wg.Go(func() {
+			err := handlers.ServeTCP(ctx, srvc.Hub(), cfg.TCP.Address)
+			if err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 
-	// TLS listener
+	// TLS listener + TLS config for HTTP/WS
 	var tlsCfg *tls.Config
 	if cfg.TLS.Enabled {
 		tlsCfg, err = loadTLSConfig(cfg.TLS.CertFile, cfg.TLS.KeyFile)
 		if err != nil {
 			return fmt.Errorf("load tls config: %w", err)
 		}
-		go func() {
-			if err := handlers.ServeTLS(srvc.Hub(), cfg.TLS.Address, tlsCfg); err != nil {
+
+		wg.Go(func() {
+			err := handlers.ServeTLS(ctx, srvc.Hub(), cfg.TLS.Address, tlsCfg)
+			if err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 
 	// HTTP/WS server
@@ -90,45 +96,43 @@ func Run() error {
 			Handler:      mux,
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
-			TLSConfig:    tlsCfg,
 		}
+
+		wg.Go(func() {
+			slog.Info("starting http relay", slog.String("address", server.Addr))
+			if tlsCfg != nil {
+				server.TLSConfig = tlsCfg
+				err := server.ListenAndServeTLS("", "")
+				if err != nil && !errors.Is(err, http.ErrServerClosed) {
+					errCh <- err
+				}
+			} else {
+				err := server.ListenAndServe()
+				if err != nil && !errors.Is(err, http.ErrServerClosed) {
+					errCh <- err
+				}
+			}
+		})
 	}
 
 	exitCh := make(chan os.Signal, 1)
 	signal.Notify(exitCh, syscall.SIGINT, syscall.SIGTERM)
 
-	if server != nil {
-		go func() {
-			slog.Info("starting http relay", slog.String("address", server.Addr))
-			if server.TLSConfig != nil {
-				if err := server.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					errCh <- err
-				}
-			} else {
-				if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					errCh <- err
-				}
-			}
-		}()
-	}
-
-	if server == nil {
-		slog.Info("relay running (tcp/tls only)")
-		sig := <-exitCh
-		slog.Info("shutting down", slog.String("signal", sig.String()))
-		return nil
-	}
-
 	select {
 	case err := <-errCh:
+		cancel()
 		return fmt.Errorf("starting server: %w", err)
 	case sig := <-exitCh:
 		slog.Info("shutting down", slog.String("signal", sig.String()))
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if err := server.Shutdown(ctx); err != nil {
-			return fmt.Errorf("server shutdown: %w", err)
+		cancel()
+		if server != nil {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			if err := server.Shutdown(shutdownCtx); err != nil {
+				return fmt.Errorf("server shutdown: %w", err)
+			}
 		}
+		wg.Wait()
 		return nil
 	}
 }

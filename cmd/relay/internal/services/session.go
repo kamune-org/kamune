@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -141,7 +142,7 @@ func (sm *SessionManager) Len() int {
 	return len(sm.sessions)
 }
 
-func (sm *SessionManager) cleanupLoop(ctx interface{ Done() <-chan struct{} }) {
+func (sm *SessionManager) cleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 

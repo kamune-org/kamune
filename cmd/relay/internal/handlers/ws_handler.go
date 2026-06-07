@@ -5,7 +5,6 @@ import (
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/coder/websocket"
 
@@ -28,16 +27,19 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		conn.SetReadLimit(int64(maxSize))
 	}
 
-	acceptCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	adapter := &wsAdapter{conn: conn, ctx: acceptCtx}
+	adapter := &wsAdapter{conn: conn, ctx: context.Background()}
 	remoteAddr := clientIP(r)
-	handleRelayConn(acceptCtx, h.service.Hub(), adapter, remoteAddr)
+
+	if rl := h.service.Hub().RateLimiter(); rl != nil && !rl.Allow(remoteAddr) {
+		slog.Warn("rate limit exceeded", slog.String("remote", remoteAddr))
+		conn.Close(websocket.StatusPolicyViolation, "rate limit exceeded")
+		return
+	}
+
+	handleRelayConn(h.service.Hub(), adapter, remoteAddr)
 }
 
 func handleRelayConn(
-	ctx context.Context,
 	hub *services.Hub,
 	rw exchange.ReadWriter,
 	remoteAddr string,
@@ -135,6 +137,6 @@ func handleRelayConn(
 		slog.Bool("listener", len(register.Token) == 0),
 	)
 
-	hub.ReadPump(ctx, ch, token)
+	hub.ReadPump(context.Background(), ch, token)
 	hub.Unregister(token)
 }

@@ -3,13 +3,43 @@ package handlers
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"log/slog"
 	"net"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
 )
 
-func ServeTCP(hub *services.Hub, addr string) error {
+func acceptLoop(ctx context.Context, listener net.Listener, hub *services.Hub) {
+	go func() {
+		<-ctx.Done()
+		listener.Close()
+	}()
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			slog.Error("accept failed", slog.Any("error", err))
+			continue
+		}
+
+		adapter := &rawTCPAdapter{conn: conn, maxSize: hub.MaxMessageSize()}
+		remoteAddr := conn.RemoteAddr().String()
+
+		if rl := hub.RateLimiter(); rl != nil && !rl.Allow(extractIP(remoteAddr)) {
+			slog.Warn("rate limit exceeded", slog.String("remote", remoteAddr))
+			conn.Close()
+			continue
+		}
+
+		go handleRelayConn(hub, adapter, remoteAddr)
+	}
+}
+
+func ServeTCP(ctx context.Context, hub *services.Hub, addr string) error {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -17,20 +47,11 @@ func ServeTCP(hub *services.Hub, addr string) error {
 	defer listener.Close()
 
 	slog.Info("tcp relay listening", slog.String("address", addr))
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			slog.Error("tcp: accept failed", slog.Any("error", err))
-			continue
-		}
-
-		adapter := &tcpAdapter{conn: conn, maxSize: hub.MaxMessageSize()}
-		go handleRelayConn(context.Background(), hub, adapter, conn.RemoteAddr().String())
-	}
+	acceptLoop(ctx, listener, hub)
+	return nil
 }
 
-func ServeTLS(hub *services.Hub, addr string, tlsCfg *tls.Config) error {
+func ServeTLS(ctx context.Context, hub *services.Hub, addr string, tlsCfg *tls.Config) error {
 	listener, err := tls.Listen("tcp", addr, tlsCfg)
 	if err != nil {
 		return err
@@ -38,15 +59,6 @@ func ServeTLS(hub *services.Hub, addr string, tlsCfg *tls.Config) error {
 	defer listener.Close()
 
 	slog.Info("tls relay listening", slog.String("address", addr))
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			slog.Error("tls: accept failed", slog.Any("error", err))
-			continue
-		}
-
-		adapter := &tlsAdapter{conn: conn, maxSize: hub.MaxMessageSize()}
-		go handleRelayConn(context.Background(), hub, adapter, conn.RemoteAddr().String())
-	}
+	acceptLoop(ctx, listener, hub)
+	return nil
 }
