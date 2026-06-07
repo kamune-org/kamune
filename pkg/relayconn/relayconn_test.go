@@ -330,8 +330,12 @@ func TestRelayConnWriteRead(t *testing.T) {
 	)
 	go func() {
 		ch, err := exchange.Accept(&tcpAdapter{conn: s})
-		serverOK <- err
+		if err != nil {
+			serverOK <- err
+			return
+		}
 		serverCh = ch
+		serverOK <- err
 	}()
 
 	clientCh, err := exchange.Initiate(&tcpAdapter{conn: c})
@@ -411,8 +415,12 @@ func TestRelayConnDeadline(t *testing.T) {
 	)
 	go func() {
 		ch, err := exchange.Accept(&tcpAdapter{conn: s})
-		serverOK <- err
+		if err != nil {
+			serverOK <- err
+			return
+		}
 		serverCh = ch
+		serverOK <- err
 	}()
 	clientCh, err := exchange.Initiate(&tcpAdapter{conn: c})
 	if err != nil {
