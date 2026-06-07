@@ -9,8 +9,8 @@ identities or message content.
 ## Design Goals
 
 - **Blind**: the relay never sees public keys, identities, or message content
-- **Stateless**: no storage, no queues, no offline messages (tokens are
-  ephemeral in-memory state)
+- **Stateless**: no persistent storage, no queues, no offline messages
+  (tokens and rate limit counters are ephemeral in-memory state)
 - **Zero metadata**: no social graph, no presence tracking, no persistent
   identifiers across connections
 - **Out-of-band rendezvous**: the only thing peers exchange is a short random
@@ -508,15 +508,17 @@ cannot create sessions until expired tokens are purged.
 
 **Current defenses:**
 
-| Defense                               | Status                                                     |
-| ------------------------------------- | ---------------------------------------------------------- |
-| `max_concurrent_sessions` cap         | ✅ Enforced — `Create()` rejects at capacity               |
-| Token TTL + `purgeExpired()` 30s loop | ✅ Enforced — expired tokens freed every 30s               |
-| Rate limiting (`[rate_limit]`)        | ⚠️ Parsed from config, **not yet enforced** (TODO in code) |
-| Per-IP rate limiting                  | ❌ Not implemented                                         |
+| Defense                               | Status                                                       |
+| ------------------------------------- | ------------------------------------------------------------ |
+| `max_concurrent_sessions` cap         | ✅ Enforced — `Create()` rejects at capacity                 |
+| Token TTL + `purgeExpired()` 30s loop | ✅ Enforced — expired tokens freed every 30s                 |
+| Rate limiting (`[rate_limit]`)        | ✅ Enforced — sliding window counter per IP, reject at quota |
+| Per-IP rate limiting                  | ✅ Enforced — each IP tracked independently                  |
 
-The main gap is the unenforced rate limit. Without it, a single connection
-can exhaust the session map in seconds, wait for TTL purge, and repeat.
+Rate limiting is checked after connection accept but before HPKE key
+exchange, so rate-limited clients are rejected without wasting asymmetric
+crypto. See [Rate limiting implementation](#rate-limiting-implementation)
+below for details.
 
 #### Session hoarding
 
@@ -535,33 +537,89 @@ This means:
 
 **Proposed solutions:**
 
-| #   | Mitigation                                                                                                                                                                       | Prevents                                              | Effort                                                             |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
-| 1   | **Activate rate limiting** — enforce the existing `[rate_limit]` config on token creation                                                                                        | Rapid token fill                                      | Low — wire existing parser into `handleRelayConn`                  |
-| 2   | **Separate offer TTL from session max lifetime** — `token_ttl` controls how long a token is valid before a dialer joins; `session_ttl` (new) controls max duration after pairing | Session hoarding, flexibility for share cards         | Medium — new config field, extend `session` struct                 |
-| 3   | **Idle session timeout** — close sessions with no message activity for N minutes                                                                                                 | Zombie sessions that hold slots without communicating | Medium — track `lastActivity` in `session`, check in `cleanupLoop` |
-| 4   | **Per-IP concurrent session cap** — optional limit below the global `max_concurrent_sessions`                                                                                    | Single IP exhausting all slots                        | Low — track IP → count in `SessionManager`                         |
+| #   | Mitigation                                                                                                                                                            | Prevents                                              | Effort                                                             |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
+| 1   | **Rate limiting** — sliding window counter per IP, enforced before registration                                                                                       | Rapid token fill                                      | ✅ Implemented — see below                                         |
+| 2   | **Separate offer TTL from session max lifetime** — `token_ttl` controls token validity before a dialer joins; `session_ttl` (new) controls max duration after pairing | Session hoarding, flexibility for share cards         | Medium — new config field, extend `session` struct                 |
+| 3   | **Idle session timeout** — close sessions with no message activity for N minutes                                                                                      | Zombie sessions that hold slots without communicating | Medium — track `lastActivity` in `session`, check in `cleanupLoop` |
+| 4   | **Per-IP concurrent session cap** — optional limit below the global `max_concurrent_sessions`                                                                         | Single IP exhausting all slots                        | Low — track IP → count in `SessionManager`                         |
 
 ### Status summary
 
-| Protection                                     | Status                                          |
-| ---------------------------------------------- | ----------------------------------------------- |
-| Token TTL                                      | ✅ Enforced (configurable, default 5 min)       |
-| Paired session timeout                         | ✅ Bound by same TTL (dual-purpose — see above) |
-| Max concurrent sessions                        | ✅ Enforced (configurable, default 10K)         |
-| Max message size                               | ✅ Enforced (configurable, default 64 KB)       |
-| PSK auth                                       | ✅ Enforced (constant-time compare)             |
-| Rate limiting (global)                         | ⚠️ Config parsed, not enforced                  |
-| Per-IP rate limiting                           | ❌                                              |
-| Per-IP session cap                             | ❌                                              |
-| Idle session timeout                           | ❌                                              |
-| Session max lifetime (separate from offer TTL) | ❌                                              |
+| Protection                                     | Status                                               |
+| ---------------------------------------------- | ---------------------------------------------------- |
+| Token TTL                                      | ✅ Enforced (configurable, default 5 min)            |
+| Paired session timeout                         | ✅ Bound by same TTL (dual-purpose — see above)      |
+| Max concurrent sessions                        | ✅ Enforced (configurable, default 10K)              |
+| Max message size                               | ✅ Enforced (configurable, default 64 KB)            |
+| PSK auth                                       | ✅ Enforced (constant-time compare)                  |
+| Rate limiting (global + per-IP)                | ✅ Enforced — sliding window, `hashicorp/golang-lru` |
+| Per-IP session cap                             | ❌                                                   |
+| Idle session timeout                           | ❌                                                   |
+| Session max lifetime (separate from offer TTL) | ❌                                                   |
 
-These gaps are known and tracked. Mitigations 1 (activate rate limiting) and 2
-(separate offer/session TTL) are the highest priority — both are low-to-medium
-effort and close the two primary attack vectors described above. Items 3 and 4
-are defensive hardening for public relay deployments. Each mitigation is
-independent and can be implemented separately without protocol changes.
+Mitigation 1 (rate limiting) is implemented. The remaining items are
+defensive hardening for public relay deployments, each independent and
+implementable without protocol changes.
+
+### Rate limiting implementation
+
+Rate limiting lives in `internal/ratelimit/` and is the first line of defense
+against token exhaustion (rapid `RegisterListener` calls).
+
+**Algorithm:** Sliding window counter with sub-window buckets. The time window
+(e.g. 1 minute) is divided into 10 equal buckets (e.g. 6 s each). On each
+registration attempt:
+
+1. Advance the cursor by elapsed time / bucket duration, zeroing stale buckets
+2. Sum all 10 bucket counters
+3. If sum ≥ quota → deny; else increment current bucket → allow
+
+This avoids the O(n) timestamp iteration of a pure sliding window log while
+providing sub-window precision (worst case: 1 bucket's worth of overcount).
+
+**Storage:** `hashicorp/golang-lru/v2/expirable` — a bounded, TTL-aware LRU.
+Each IP maps to a `*entry` struct holding the sliding window state. Entries
+auto-evict after `2 × time_window` of inactivity. The LRU size is capped at
+`max_concurrent_sessions` to prevent memory exhaustion under IP spoofing.
+
+**Concurrency:** A single `sync.Mutex` guards the RateLimiter. Every `Allow()`
+call mutates state (sub-window counters, timestamp), so `RWMutex` would promote
+to write on every path anyway. The lock is per-connection-attempt (held for
+~100 ns), well before any asymmetric crypto, so contention is negligible.
+
+**Placement in the connection lifecycle:**
+
+```
+TCP/TLS accept / WS upgrade
+        ↓
+Extract client IP (proxy-aware for WS)
+        ↓
+    ┌─────────────────-┐
+    │ Rate limit check │ ← reject with close + log warning
+    └────────────────-─┘
+        ↓
+HPKE key exchange (expensive — attacker burns CPU per attempt)
+        ↓
+Authentication (if PSK configured)
+        ↓
+Registration (listener: token create / dialer: token join)
+        ↓
+Read pump (message forwarding)
+```
+
+**Keying:** By IP address. For WebSocket connections, IP is extracted via
+proxy headers (`X-Real-IP`, `X-Forwarded-For`, `True-Client-IP`, etc.)
+through `clientIP()`. For TCP/TLS, the raw `RemoteAddr` is used, with the
+port stripped.
+
+**Tests:** `ratelimit_test.go` runs under `go test -race` and covers:
+
+- Single IP stays within quota
+- Single IP blocked after exceeding quota
+- Counter resets after window elapses
+- Multiple IPs are independent
+- Concurrent goroutines for same IP maintain correct count
 
 ```
 
