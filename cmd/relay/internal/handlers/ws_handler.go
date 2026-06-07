@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -27,7 +28,13 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		conn.SetReadLimit(int64(maxSize))
 	}
 
-	adapter := &wsAdapter{conn: conn, ctx: context.Background()}
+	adapterCtx := context.Background()
+	if timeout := h.service.Hub().HandshakeTimeout(); timeout > 0 {
+		var cancel context.CancelFunc
+		adapterCtx, cancel = context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+	}
+	adapter := &wsAdapter{conn: conn, ctx: adapterCtx}
 	remoteAddr := clientIP(r)
 
 	if rl := h.service.Hub().RateLimiter(); rl != nil && !rl.Allow(remoteAddr) {
@@ -49,6 +56,7 @@ func handleRelayConn(
 		slog.Error("relay: hpke accept failed", slog.Any("error", err))
 		return
 	}
+	ch.SetDeadline(time.Time{})
 
 	needAuth := hub.Password() != ""
 

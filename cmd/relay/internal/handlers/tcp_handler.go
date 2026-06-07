@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"time"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
 )
@@ -33,6 +34,10 @@ func acceptLoop(ctx context.Context, listener net.Listener, hub *services.Hub) {
 			slog.Warn("rate limit exceeded", slog.String("remote", remoteAddr))
 			conn.Close()
 			continue
+		}
+
+		if timeout := hub.HandshakeTimeout(); timeout > 0 {
+			conn.SetDeadline(time.Now().Add(timeout))
 		}
 
 		go handleRelayConn(hub, adapter, remoteAddr)
