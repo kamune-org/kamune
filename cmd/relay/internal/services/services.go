@@ -18,7 +18,25 @@ type Service struct {
 
 func New(cfg config.Config) (*Service, error) {
 	slog.Info("starting relay service")
-	sessions := NewSessionManager(cfg.Session.TokenTTL, cfg.Session.MaxConcurrentSessions)
+
+	sessionTTL := cfg.Session.SessionTTL
+	if sessionTTL < 0 {
+		sessionTTL = 0
+	}
+
+	handshakeTimeout := cfg.Session.HandshakeTimeout
+	switch {
+	case handshakeTimeout > 0:
+		// explicit value — use as-is
+	case handshakeTimeout < 0:
+		// negative means explicitly disabled
+		handshakeTimeout = 0
+	default:
+		// zero / unset — default to 10s
+		handshakeTimeout = 10 * time.Second
+	}
+
+	sessions := NewSessionManager(cfg.Session.TokenTTL, cfg.Session.MaxConcurrentSessions, sessionTTL)
 
 	var rl *ratelimit.RateLimiter
 	if cfg.RateLimit.Enabled {
@@ -42,9 +60,16 @@ func New(cfg config.Config) (*Service, error) {
 		)
 	}
 
-	hub := NewHub(sessions, cfg.Server.Password, cfg.Session.MaxMessageSize, rl)
+	hub := NewHub(sessions, cfg.Server.Password, cfg.Session.MaxMessageSize, rl, handshakeTimeout)
 
 	go sessions.cleanupLoop(context.Background())
+
+	if sessionTTL > 0 {
+		slog.Info("session ttl enabled", slog.Duration("ttl", sessionTTL))
+	}
+	if handshakeTimeout > 0 {
+		slog.Info("handshake timeout enabled", slog.Duration("timeout", handshakeTimeout))
+	}
 
 	return &Service{
 		hub:       hub,
