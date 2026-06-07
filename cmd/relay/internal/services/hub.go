@@ -12,10 +12,11 @@ import (
 )
 
 type Hub struct {
-	sessions    *SessionManager
-	password    string
-	maxMsgSize  int
-	rateLimiter *ratelimit.RateLimiter
+	sessions         *SessionManager
+	password         string
+	maxMsgSize       int
+	rateLimiter      *ratelimit.RateLimiter
+	handshakeTimeout time.Duration
 }
 
 func NewHub(
@@ -23,17 +24,23 @@ func NewHub(
 	password string,
 	maxMsgSize int,
 	rateLimiter *ratelimit.RateLimiter,
+	handshakeTimeout time.Duration,
 ) *Hub {
 	return &Hub{
-		sessions:    sessions,
-		password:    password,
-		maxMsgSize:  maxMsgSize,
-		rateLimiter: rateLimiter,
+		sessions:         sessions,
+		password:         password,
+		maxMsgSize:       maxMsgSize,
+		rateLimiter:      rateLimiter,
+		handshakeTimeout: handshakeTimeout,
 	}
 }
 
 func (h *Hub) RateLimiter() *ratelimit.RateLimiter {
 	return h.rateLimiter
+}
+
+func (h *Hub) HandshakeTimeout() time.Duration {
+	return h.handshakeTimeout
 }
 
 func (h *Hub) TokenTTL() time.Duration {

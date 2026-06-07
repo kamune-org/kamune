@@ -42,6 +42,8 @@ type TLS struct {
 
 type Session struct {
 	TokenTTL              time.Duration `toml:"token_ttl"`
+	SessionTTL            time.Duration `toml:"session_ttl"`
+	HandshakeTimeout      time.Duration `toml:"handshake_timeout"`
 	MaxConcurrentSessions int           `toml:"max_concurrent_sessions"`
 	MaxMessageSize        int           `toml:"max_message_size"`
 }

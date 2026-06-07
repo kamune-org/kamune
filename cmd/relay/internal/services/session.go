@@ -20,24 +20,27 @@ var (
 )
 
 type session struct {
-	token    [16]byte
-	listener *exchange.Channel
-	dialer   *exchange.Channel
-	expiry   time.Time
+	token         [16]byte
+	listener      *exchange.Channel
+	dialer        *exchange.Channel
+	expiry        time.Time
+	sessionExpiry time.Time
 }
 
 type SessionManager struct {
-	mu       sync.Mutex
-	sessions map[string]*session
-	ttl      time.Duration
-	maxConns int
+	mu         sync.Mutex
+	sessions   map[string]*session
+	ttl        time.Duration
+	sessionTTL time.Duration
+	maxConns   int
 }
 
-func NewSessionManager(ttl time.Duration, maxConns int) *SessionManager {
+func NewSessionManager(ttl time.Duration, maxConns int, sessionTTL time.Duration) *SessionManager {
 	return &SessionManager{
-		sessions: make(map[string]*session),
-		ttl:      ttl,
-		maxConns: maxConns,
+		sessions:   make(map[string]*session),
+		ttl:        ttl,
+		sessionTTL: sessionTTL,
+		maxConns:   maxConns,
 	}
 }
 
@@ -83,6 +86,9 @@ func (sm *SessionManager) Join(token []byte, dialer *exchange.Channel) error {
 	}
 
 	sess.dialer = dialer
+	if sm.sessionTTL > 0 {
+		sess.sessionExpiry = time.Now().Add(sm.sessionTTL)
+	}
 	return nil
 }
 
@@ -162,8 +168,16 @@ func (sm *SessionManager) purgeExpired() {
 
 	now := time.Now()
 	for key, sess := range sm.sessions {
-		if now.After(sess.expiry) && sess.dialer == nil {
+		switch {
+		case sess.dialer == nil && now.After(sess.expiry):
 			sess.listener.Close()
+			delete(sm.sessions, key)
+
+		case sess.dialer != nil &&
+			!sess.sessionExpiry.IsZero() &&
+			now.After(sess.sessionExpiry):
+			sess.listener.Close()
+			sess.dialer.Close()
 			delete(sm.sessions, key)
 		}
 	}
