@@ -481,6 +481,8 @@ address = "0.0.0.0:443"
 
 [session]
 token_ttl = "5m"              # Token time-to-live (default: 5 minutes)
+# session_ttl = "30m"         # Max lifetime for paired sessions (0 = no limit)
+# handshake_timeout = "10s"   # Max time for HPKE + registration (0 = no limit)
 max_concurrent_sessions = 10000  # Maximum active sessions
 max_message_size = 65536      # Maximum message payload size (bytes)
 
@@ -535,32 +537,30 @@ This means:
   attackers longer-lived sessions
 - A paired session at rest (no messages) still consumes a slot until TTL
 
-**Proposed solutions:**
+**Current defenses:**
 
-| #   | Mitigation                                                                                                                                                            | Prevents                                              | Effort                                                             |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
-| 1   | **Rate limiting** — sliding window counter per IP, enforced before registration                                                                                       | Rapid token fill                                      | ✅ Implemented — see below                                         |
-| 2   | **Separate offer TTL from session max lifetime** — `token_ttl` controls token validity before a dialer joins; `session_ttl` (new) controls max duration after pairing | Session hoarding, flexibility for share cards         | Medium — new config field, extend `session` struct                 |
-| 3   | **Idle session timeout** — close sessions with no message activity for N minutes                                                                                      | Zombie sessions that hold slots without communicating | Medium — track `lastActivity` in `session`, check in `cleanupLoop` |
-| 4   | **Per-IP concurrent session cap** — optional limit below the global `max_concurrent_sessions`                                                                         | Single IP exhausting all slots                        | Low — track IP → count in `SessionManager`                         |
+| #   | Mitigation                                                                                                                                                    | Prevents                                               | Status                                                        |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------- |
+| 1   | **Rate limiting** — sliding window counter per IP, enforced before registration                                                                               | Rapid token fill                                       | ✅ Implemented                                                 |
+| 2   | **Session TTL** — `session_ttl` controls max lifetime after pairing, separate from `token_ttl` (offer window)                                                 | Session hoarding, flexibility for share cards          | ✅ Implemented — configurable, 0 = no limit                   |
+| 3   | **Handshake timeout** — `handshake_timeout` limits time between accept and registration complete; enforced via `net.Conn.SetDeadline` (TCP) or context (WS)   | Slow client DoS holding connection + goroutine slots   | ✅ Implemented — configurable, default 10s                    |
+| 4   | **Per-IP concurrent session cap** — optional limit below the global `max_concurrent_sessions`                                                                 | Single IP exhausting all slots                         | ❌ Not implemented                                            |
 
 ### Status summary
 
-| Protection                                     | Status                                               |
-| ---------------------------------------------- | ---------------------------------------------------- |
-| Token TTL                                      | ✅ Enforced (configurable, default 5 min)            |
-| Paired session timeout                         | ✅ Bound by same TTL (dual-purpose — see above)      |
-| Max concurrent sessions                        | ✅ Enforced (configurable, default 10K)              |
-| Max message size                               | ✅ Enforced (configurable, default 64 KB)            |
-| PSK auth                                       | ✅ Enforced (constant-time compare)                  |
-| Rate limiting (global + per-IP)                | ✅ Enforced — sliding window, `hashicorp/golang-lru` |
-| Per-IP session cap                             | ❌                                                   |
-| Idle session timeout                           | ❌                                                   |
-| Session max lifetime (separate from offer TTL) | ❌                                                   |
+| Protection                                     | Status                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| Token TTL                                      | ✅ Enforced (configurable, default 5 min)                    |
+| Session TTL (paired max lifetime)              | ✅ Enforced (configurable, default 0 = no limit)             |
+| Max concurrent sessions                        | ✅ Enforced (configurable, default 10K)                      |
+| Max message size                               | ✅ Enforced (configurable, default 64 KB)                    |
+| PSK auth                                       | ✅ Enforced (constant-time compare)                          |
+| Rate limiting (global + per-IP)                | ✅ Enforced — sliding window, `hashicorp/golang-lru`         |
+| Handshake timeout (HPKE + registration)        | ✅ Enforced (configurable, default 10s)                      |
+| Per-IP session cap                             | ❌                                                           |
 
-Mitigation 1 (rate limiting) is implemented. The remaining items are
-defensive hardening for public relay deployments, each independent and
-implementable without protocol changes.
+Mitigations 1–3 are implemented. Per-IP session cap remains as
+defensive hardening for public relay deployments.
 
 ### Rate limiting implementation
 
