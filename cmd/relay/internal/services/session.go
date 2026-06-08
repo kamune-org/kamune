@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -18,6 +19,11 @@ var (
 	ErrPeerNotFound   = errors.New("peer not found in session")
 	ErrSessionExpired = errors.New("session expired")
 )
+
+// purgeThreshold is the fill ratio above which the background cleanup
+// loop will purge expired sessions. At 0.8 the background loop runs when
+// the map is 80% full, giving it room to clean up before the hard limit.
+const purgeThreshold = 0.8
 
 type session struct {
 	token         [16]byte
@@ -35,7 +41,9 @@ type SessionManager struct {
 	maxConns   int
 }
 
-func NewSessionManager(ttl time.Duration, maxConns int, sessionTTL time.Duration) *SessionManager {
+func NewSessionManager(
+	ttl time.Duration, maxConns int, sessionTTL time.Duration,
+) *SessionManager {
 	return &SessionManager{
 		sessions:   make(map[string]*session),
 		ttl:        ttl,
@@ -45,6 +53,8 @@ func NewSessionManager(ttl time.Duration, maxConns int, sessionTTL time.Duration
 }
 
 func (sm *SessionManager) Create(listener *exchange.Channel) ([]byte, error) {
+	sm.purgeExpired()
+
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -92,7 +102,9 @@ func (sm *SessionManager) Join(token []byte, dialer *exchange.Channel) error {
 	return nil
 }
 
-func (sm *SessionManager) Recipient(token []byte, sender *exchange.Channel) (*exchange.Channel, error) {
+func (sm *SessionManager) Recipient(
+	token []byte, sender *exchange.Channel,
+) (*exchange.Channel, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sess, ok := sm.sessions[fmt.Sprintf("%x", token)]
@@ -117,22 +129,26 @@ func (sm *SessionManager) Recipient(token []byte, sender *exchange.Channel) (*ex
 // ClosePeerChannel closes the exchange channel of the peer that is NOT the
 // given closed channel. When one peer disconnects, this ensures the other
 // peer's read pump exits rather than blocking forever.
-func (sm *SessionManager) ClosePeerChannel(token []byte, closed *exchange.Channel) {
+func (sm *SessionManager) ClosePeerChannel(
+	token []byte, closed *exchange.Channel,
+) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 	sess, ok := sm.sessions[fmt.Sprintf("%x", token)]
 	if !ok {
+		sm.mu.Unlock()
 		return
 	}
+	var peer *exchange.Channel
 	switch closed {
 	case sess.listener:
-		if sess.dialer != nil {
-			sess.dialer.Close()
-		}
+		peer = sess.dialer
 	case sess.dialer:
-		if sess.listener != nil {
-			sess.listener.Close()
-		}
+		peer = sess.listener
+	}
+	sm.mu.Unlock()
+
+	if peer != nil {
+		peer.Close()
 	}
 }
 
@@ -149,12 +165,19 @@ func (sm *SessionManager) Len() int {
 }
 
 func (sm *SessionManager) cleanupLoop(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
+			sm.mu.Lock()
+			fill := float64(len(sm.sessions)) / float64(sm.maxConns)
+			if fill < purgeThreshold {
+				sm.mu.Unlock()
+				continue
+			}
+			sm.mu.Unlock()
 			sm.purgeExpired()
 		case <-ctx.Done():
 			return
@@ -164,23 +187,39 @@ func (sm *SessionManager) cleanupLoop(ctx context.Context) {
 
 func (sm *SessionManager) purgeExpired() {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	if len(sm.sessions) < sm.maxConns {
+		sm.mu.Unlock()
+		return
+	}
 
+	var wg sync.WaitGroup
 	now := time.Now()
 	for key, sess := range sm.sessions {
 		switch {
 		case sess.dialer == nil && now.After(sess.expiry):
-			sess.listener.Close()
 			delete(sm.sessions, key)
+			wg.Go(func() {
+				if err := sess.listener.Close(); err != nil {
+					slog.Debug("session: close listener", slog.Any("error", err))
+				}
+			})
 
 		case sess.dialer != nil &&
 			!sess.sessionExpiry.IsZero() &&
 			now.After(sess.sessionExpiry):
-			sess.listener.Close()
-			sess.dialer.Close()
 			delete(sm.sessions, key)
+			wg.Go(func() {
+				if err := sess.listener.Close(); err != nil {
+					slog.Debug("session: close listener", slog.Any("error", err))
+				}
+				if err := sess.dialer.Close(); err != nil {
+					slog.Debug("session: close dialer", slog.Any("error", err))
+				}
+			})
 		}
 	}
+	sm.mu.Unlock()
+	wg.Wait()
 }
 
 func (sm *SessionManager) TTL() time.Duration {
