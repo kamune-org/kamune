@@ -94,6 +94,10 @@ func (s *Service) TokenTTL() time.Duration {
 	return s.sessions.TTL()
 }
 
+func (s *Service) SessionTTL() time.Duration {
+	return s.sessions.SessionTTL()
+}
+
 func (s *Service) MaxMessageSize() int {
 	return s.cfg.Session.MaxMessageSize
 }

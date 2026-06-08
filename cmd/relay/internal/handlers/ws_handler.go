@@ -110,6 +110,7 @@ func handleRelayConn(
 
 	var token []byte
 	var ttlSeconds uint32
+	var sessionTTLSeconds uint32
 
 	if len(register.Token) == 0 {
 		token, err = hub.RegisterListener(ch)
@@ -128,10 +129,15 @@ func handleRelayConn(
 			return
 		}
 	}
+	sessionTTLSeconds = uint32(hub.SessionTTL().Seconds())
 
 	registered := &pb.Frame{
 		Kind: &pb.Frame_Registered{
-			Registered: &pb.Registered{Token: token, TtlSeconds: ttlSeconds},
+			Registered: &pb.Registered{
+				Token:             token,
+				TtlSeconds:        ttlSeconds,
+				SessionTtlSeconds: sessionTTLSeconds,
+			},
 		},
 	}
 	b, _ := proto.Marshal(registered)

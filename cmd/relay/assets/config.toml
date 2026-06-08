@@ -9,8 +9,8 @@ enabled = true
 
 [session]
 token_ttl = "5m"
-# session_ttl = "30m"          # max lifetime for paired sessions (0 = no limit)
-# handshake_timeout = "10s"    # max time for HPKE + registration (0 = no limit)
+session_ttl = "30m"          # max lifetime for paired sessions (0 = no limit)
+handshake_timeout = "10s"    # max time for HPKE + registration (0 = no limit)
 max_concurrent_sessions = 10_000
 max_message_size = 65536
 

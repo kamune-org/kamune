@@ -47,6 +47,10 @@ func (h *Hub) TokenTTL() time.Duration {
 	return h.sessions.TTL()
 }
 
+func (h *Hub) SessionTTL() time.Duration {
+	return h.sessions.SessionTTL()
+}
+
 func (h *Hub) MaxMessageSize() int {
 	return h.maxMsgSize
 }
