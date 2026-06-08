@@ -212,11 +212,12 @@ func (x *Register) GetToken() []byte {
 }
 
 type Registered struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Token         []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`                              // session token assigned by relay
-	TtlSeconds    uint32                 `protobuf:"varint,2,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"` // token validity duration in seconds (0 = unknown)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Token             []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`                                                     // session token assigned by relay
+	TtlSeconds        uint32                 `protobuf:"varint,2,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`                        // token validity duration in seconds (0 = unknown)
+	SessionTtlSeconds uint32                 `protobuf:"varint,3,opt,name=session_ttl_seconds,json=sessionTtlSeconds,proto3" json:"session_ttl_seconds,omitempty"` // paired session max lifetime (0 = no limit)
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Registered) Reset() {
@@ -259,6 +260,13 @@ func (x *Registered) GetToken() []byte {
 func (x *Registered) GetTtlSeconds() uint32 {
 	if x != nil {
 		return x.TtlSeconds
+	}
+	return 0
+}
+
+func (x *Registered) GetSessionTtlSeconds() uint32 {
+	if x != nil {
+		return x.SessionTtlSeconds
 	}
 	return 0
 }
@@ -439,12 +447,13 @@ const file_pb_relay_proto_rawDesc = "" +
 	"\x04auth\x18\x06 \x01(\v2\x0f.relayconn.AuthH\x00R\x04authB\x06\n" +
 	"\x04kind\" \n" +
 	"\bRegister\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\fR\x05token\"C\n" +
+	"\x05token\x18\x01 \x01(\fR\x05token\"s\n" +
 	"\n" +
 	"Registered\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\fR\x05token\x12\x1f\n" +
 	"\vttl_seconds\x18\x02 \x01(\rR\n" +
-	"ttlSeconds\"\x1d\n" +
+	"ttlSeconds\x12.\n" +
+	"\x13session_ttl_seconds\x18\x03 \x01(\rR\x11sessionTtlSeconds\"\x1d\n" +
 	"\aMessage\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"\x06\n" +
 	"\x04Ping\"\x06\n" +
