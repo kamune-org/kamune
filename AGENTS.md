@@ -66,8 +66,7 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 - All lockable state uses `sync.Mutex`, not `sync.RWMutex`
 - Error sentinels use `Err` prefix, defined in the package they belong to (e.g. `transport.go`, `router.go`, `pkg/storage/storage.go`, `pkg/attest/attest.go`)
 - `ErrPeerDisconnected` returned by `Transport.Receive()` when the remote peer sends `RouteCloseTransport` (graceful close). `ErrConnClosed` indicates an abrupt/network drop.
-- Handlers panic-recovered via `runtime/debug.Stack()` logging
-- Logging uses `log/slog` with structured attributes (`slog.String`, `slog.Any`); the relay module also uses a custom `slogger` package for `slogger.Err` and `slogger.String`
-- No mock framework — tests use real implementations, interfaces, and standard `testing.T`
+- Logging uses `log/slog` with structured attributes (`slog.String`, `slog.Any`)
+- No mock framework — tests use real implementations, interfaces, and standard `testing.T` with `testify`
 - Table-driven tests preferred for multiple cases
 - `internal/` packages are private to root module; sub-modules (relay, chat, bus) have their own `internal/`
