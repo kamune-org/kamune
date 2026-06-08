@@ -178,10 +178,9 @@ func (sm *SessionManager) purgeExpired() {
 
 	var wg sync.WaitGroup
 	now := time.Now()
-	atCapacity := len(sm.sessions) >= sm.maxConns
 	for key, sess := range sm.sessions {
 		switch {
-		case sess.dialer == nil && atCapacity && now.After(sess.expiry):
+		case sess.dialer == nil && now.After(sess.expiry):
 			delete(sm.sessions, key)
 			wg.Go(func() {
 				if err := sess.listener.Close(); err != nil {
