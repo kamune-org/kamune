@@ -8,9 +8,18 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
+	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
-	"google.golang.org/protobuf/proto"
+)
+
+var (
+	_ kamune.Conn = &RelayConn{}
+	_ kamune.Conn = &tcpAdapter{}
+	_ kamune.Conn = &wsAdapter{}
+	_ kamune.Conn = &tlsAdapter{}
 )
 
 // relayListen simulates a relay server for a listener handshake.
@@ -120,23 +129,23 @@ func TestListenHandshake_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	listener, token, ttl, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	result, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer result.Listener.Close()
 
 	if err := <-errCh; err != nil {
 		t.Fatal("relay side:", err)
 	}
-	if string(token) != "test-token" {
-		t.Errorf("token = %q, want %q", token, "test-token")
+	if string(result.Token) != "test-token" {
+		t.Errorf("token = %q, want %q", result.Token, "test-token")
 	}
-	if ttl != 5*time.Minute {
-		t.Errorf("ttl = %v, want %v", ttl, 5*time.Minute)
+	if result.TTL != 5*time.Minute {
+		t.Errorf("ttl = %v, want %v", result.TTL, 5*time.Minute)
 	}
-	if listener.TTL() != 5*time.Minute {
-		t.Errorf("TTL() = %v, want %v", listener.TTL(), 5*time.Minute)
+	if result.Listener.TTL() != 5*time.Minute {
+		t.Errorf("TTL() = %v, want %v", result.Listener.TTL(), 5*time.Minute)
 	}
 }
 
@@ -151,7 +160,7 @@ func TestListenHandshake_EmptyToken(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, _, _, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	_, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
 	if err == nil || err.Error() != "relay returned empty token" {
 		t.Fatalf("expected 'relay returned empty token', got %v", err)
 	}
@@ -180,7 +189,7 @@ func TestListenHandshake_BadUnmarshal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, _, _, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	_, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -197,20 +206,74 @@ func TestListenHandshake_WithAuth(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	listener, token, ttl, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() }, WithPassword("sekret"))
+	result, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() }, WithPassword("sekret"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer result.Listener.Close()
 
 	if err := <-errCh; err != nil {
 		t.Fatal("relay side:", err)
 	}
-	if string(token) != "auth-token" {
-		t.Errorf("token = %q, want %q", token, "auth-token")
+	if string(result.Token) != "auth-token" {
+		t.Errorf("token = %q, want %q", result.Token, "auth-token")
 	}
-	if ttl != time.Minute {
-		t.Errorf("ttl = %v, want %v", ttl, time.Minute)
+	if result.TTL != time.Minute {
+		t.Errorf("ttl = %v, want %v", result.TTL, time.Minute)
+	}
+}
+
+func TestListenHandshake_SessionTTL(t *testing.T) {
+	c, s := net.Pipe()
+	defer c.Close()
+	defer s.Close()
+
+	errCh := make(chan error, 1)
+	go func() {
+		rw := &tcpAdapter{conn: s}
+		ch, err := exchange.Accept(rw)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		defer ch.Close()
+		if _, err := ch.ReadBytes(); err != nil {
+			errCh <- err
+			return
+		}
+		registered := &pb.Frame{
+			Kind: &pb.Frame_Registered{
+				Registered: &pb.Registered{
+					Token:             []byte("sttl-token"),
+					TtlSeconds:        300,
+					SessionTtlSeconds: 1800,
+				},
+			},
+		}
+		b, _ := proto.Marshal(registered)
+		errCh <- ch.WriteBytes(b)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer result.Listener.Close()
+
+	if err := <-errCh; err != nil {
+		t.Fatal("relay side:", err)
+	}
+	if string(result.Token) != "sttl-token" {
+		t.Errorf("token = %q, want %q", result.Token, "sttl-token")
+	}
+	if result.TTL != 5*time.Minute {
+		t.Errorf("TTL = %v, want %v", result.TTL, 5*time.Minute)
+	}
+	if result.SessionTTL != 30*time.Minute {
+		t.Errorf("SessionTTL = %v, want %v", result.SessionTTL, 30*time.Minute)
 	}
 }
 
@@ -278,15 +341,15 @@ func TestListenAccept_AfterStop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	l, _, _, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	result, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer result.Listener.Close()
 	<-errCh
 
-	l.Stop()
-	_, err = l.Accept()
+	result.Listener.Stop()
+	_, err = result.Listener.Accept()
 	if err != net.ErrClosed {
 		t.Fatalf("Accept() after Stop: got %v, want net.ErrClosed", err)
 	}
@@ -303,14 +366,14 @@ func TestListenAccept_AfterClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	l, _, _, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	result, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
 	if err != nil {
 		t.Fatal(err)
 	}
 	<-errCh
 
-	l.Close()
-	_, err = l.Accept()
+	result.Listener.Close()
+	_, err = result.Listener.Accept()
 	if err != net.ErrClosed {
 		t.Fatalf("Accept() after Close: got %v, want net.ErrClosed", err)
 	}
@@ -351,9 +414,7 @@ func TestRelayConnWriteRead(t *testing.T) {
 	// Create RelayConn on client side. readPump starts later to avoid pipe
 	// contention (net.Pipe requires concurrent read/write).
 	var mu sync.Mutex
-	ctx, connCancel := context.WithCancel(context.Background())
-	defer connCancel()
-	rc := newRelayConn(ctx, clientCh, &mu)
+	rc := newRelayConn(t.Context(), clientCh, &mu)
 	rc.closeFn = func() { clientCh.Close() }
 	defer rc.Close()
 
@@ -433,9 +494,7 @@ func TestRelayConnDeadline(t *testing.T) {
 	defer serverCh.Close()
 
 	var mu sync.Mutex
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	rc := newRelayConn(ctx, clientCh, &mu)
+	rc := newRelayConn(t.Context(), clientCh, &mu)
 	rc.closeFn = func() { clientCh.Close() }
 	go rc.readPump()
 	defer rc.Close()
@@ -449,9 +508,7 @@ func TestRelayConnDeadline(t *testing.T) {
 }
 
 func TestRelayConnCloseIdempotent(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	rc := newRelayConn(ctx, nil, nil)
+	rc := newRelayConn(t.Context(), nil, nil)
 
 	rc.Close()
 	rc.Close() // second close must not panic

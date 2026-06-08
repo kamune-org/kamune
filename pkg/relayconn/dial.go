@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
@@ -15,32 +16,50 @@ import (
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 )
 
-func DialRelay(ctx context.Context, relayAddr string, token []byte, opts ...Option) (*RelayConn, error) {
+func DialRelay(
+	ctx context.Context, relayAddr string, token []byte, opts ...Option,
+) (*RelayConn, error) {
 	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
 	if err != nil {
 		return nil, fmt.Errorf("relay ws dial: %w", err)
 	}
-	adapter := &wsAdapter{conn: ws, ctx: ctx}
-	return relayHandshake(ctx, adapter, token, func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") }, opts...)
+	return relayHandshake(
+		ctx,
+		&wsAdapter{conn: ws, ctx: ctx},
+		token,
+		func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") },
+		opts...,
+	)
 }
 
-func DialRelayWSS(ctx context.Context, relayAddr string, token []byte, tlsCfg *tls.Config, opts ...Option) (*RelayConn, error) {
+func DialRelayWSS(
+	ctx context.Context,
+	relayAddr string,
+	token []byte,
+	tlsCfg *tls.Config,
+	opts ...Option,
+) (*RelayConn, error) {
 	dopts := &websocket.DialOptions{
 		HTTPClient: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: tlsCfg,
-			},
+			Transport: &http.Transport{TLSClientConfig: tlsCfg},
 		},
 	}
 	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
 	if err != nil {
 		return nil, fmt.Errorf("relay wss dial: %w", err)
 	}
-	adapter := &wsAdapter{conn: ws, ctx: ctx}
-	return relayHandshake(ctx, adapter, token, func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") }, opts...)
+	return relayHandshake(
+		ctx,
+		&wsAdapter{conn: ws, ctx: ctx},
+		token,
+		func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") },
+		opts...,
+	)
 }
 
-func DialRelayTCP(ctx context.Context, relayAddr string, token []byte, opts ...Option) (*RelayConn, error) {
+func DialRelayTCP(
+	ctx context.Context, relayAddr string, token []byte, opts ...Option,
+) (*RelayConn, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", relayAddr)
 	if err != nil {
@@ -50,7 +69,13 @@ func DialRelayTCP(ctx context.Context, relayAddr string, token []byte, opts ...O
 	return relayHandshake(ctx, adapter, token, func() { conn.Close() }, opts...)
 }
 
-func DialRelayTLS(ctx context.Context, relayAddr string, token []byte, tlsCfg *tls.Config, opts ...Option) (*RelayConn, error) {
+func DialRelayTLS(
+	ctx context.Context,
+	relayAddr string,
+	token []byte,
+	tlsCfg *tls.Config,
+	opts ...Option,
+) (*RelayConn, error) {
 	var d net.Dialer
 	conn, err := tls.DialWithDialer(&d, "tcp", relayAddr, tlsCfg)
 	if err != nil {
@@ -66,7 +91,7 @@ func relayHandshake(
 	token []byte,
 	closeFn func(),
 	opts ...Option,
-) (*RelayConn, error) {
+) (_ *RelayConn, retErr error) {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
@@ -77,46 +102,48 @@ func relayHandshake(
 		closeFn()
 		return nil, fmt.Errorf("hpke initiate: %w", err)
 	}
+	defer func() {
+		if retErr != nil {
+			ch.Close()
+		}
+	}()
 
 	if o.password != "" {
 		if err := sendAuth(ch, o.password); err != nil {
-			ch.Close()
 			return nil, err
 		}
 	}
 
 	registerFrame := &pb.Frame{
-		Kind: &pb.Frame_Register{
-			Register: &pb.Register{Token: token},
-		},
+		Kind: &pb.Frame_Register{Register: &pb.Register{Token: token}},
 	}
 	regBytes, err := proto.Marshal(registerFrame)
 	if err != nil {
-		ch.Close()
 		return nil, fmt.Errorf("marshal register: %w", err)
 	}
 	if err := ch.WriteBytes(regBytes); err != nil {
-		ch.Close()
 		return nil, fmt.Errorf("send register: %w", err)
 	}
 
 	relayBytes, err := ch.ReadBytes()
 	if err != nil {
-		ch.Close()
 		return nil, fmt.Errorf("read registered: %w", err)
 	}
 	var relayFrame pb.Frame
 	if err := proto.Unmarshal(relayBytes, &relayFrame); err != nil {
-		ch.Close()
 		return nil, fmt.Errorf("unmarshal registered: %w", err)
 	}
 	if relayFrame.GetRegistered() == nil {
-		ch.Close()
-		return nil, fmt.Errorf("unexpected frame: expected registered, got %T", relayFrame.Kind)
+		return nil, fmt.Errorf(
+			"unexpected frame: expected registered, got %T", relayFrame.Kind,
+		)
 	}
 
 	var mu sync.Mutex
 	rc := newRelayConn(ctx, ch, &mu)
+	reg := relayFrame.GetRegistered()
+	rc.ttl = time.Duration(reg.GetTtlSeconds()) * time.Second
+	rc.sessionTTL = time.Duration(reg.GetSessionTtlSeconds()) * time.Second
 	rc.closeFn = func() { ch.Close() }
 
 	go rc.readPump()

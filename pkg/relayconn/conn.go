@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kamune-org/kamune/pkg/exchange"
@@ -25,7 +24,12 @@ type RelayConn struct {
 	buf        [][]byte
 	bufMu      sync.Mutex
 	deadlineMu sync.Mutex
+	ttl        time.Duration
+	sessionTTL time.Duration
 }
+
+func (c *RelayConn) TTL() time.Duration        { return c.ttl }
+func (c *RelayConn) SessionTTL() time.Duration { return c.sessionTTL }
 
 func newRelayConn(
 	ctx context.Context, ch *exchange.Channel, channelMu *sync.Mutex,
@@ -85,13 +89,7 @@ func (rc *RelayConn) ReadBytes() ([]byte, error) {
 }
 
 func (rc *RelayConn) WriteBytes(data []byte) error {
-	frame := &pb.Frame{
-		Kind: &pb.Frame_Msg{
-			Msg: &pb.Message{
-				Data: data,
-			},
-		},
-	}
+	frame := &pb.Frame{Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: data}}}
 	b, err := proto.Marshal(frame)
 	if err != nil {
 		return err
@@ -150,23 +148,3 @@ func (rc *RelayConn) readPump() {
 		}
 	}
 }
-
-type wsAdapter struct {
-	conn *websocket.Conn
-	ctx  context.Context
-}
-
-func (w *wsAdapter) ReadBytes() ([]byte, error) {
-	_, data, err := w.conn.Read(w.ctx)
-	return data, err
-}
-
-func (w *wsAdapter) WriteBytes(data []byte) error {
-	return w.conn.Write(w.ctx, websocket.MessageBinary, data)
-}
-
-func (w *wsAdapter) Close() error {
-	return w.conn.Close(websocket.StatusNormalClosure, "closed")
-}
-
-func (w *wsAdapter) SetDeadline(time.Time) error { return nil }
