@@ -20,11 +20,6 @@ var (
 	ErrSessionExpired = errors.New("session expired")
 )
 
-// purgeThreshold is the fill ratio above which the background cleanup
-// loop will purge expired sessions. At 0.8 the background loop runs when
-// the map is 80% full, giving it room to clean up before the hard limit.
-const purgeThreshold = 0.8
-
 type session struct {
 	token         [16]byte
 	listener      *exchange.Channel
@@ -165,19 +160,12 @@ func (sm *SessionManager) Len() int {
 }
 
 func (sm *SessionManager) cleanupLoop(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			sm.mu.Lock()
-			fill := float64(len(sm.sessions)) / float64(sm.maxConns)
-			if fill < purgeThreshold {
-				sm.mu.Unlock()
-				continue
-			}
-			sm.mu.Unlock()
 			sm.purgeExpired()
 		case <-ctx.Done():
 			return
@@ -187,16 +175,13 @@ func (sm *SessionManager) cleanupLoop(ctx context.Context) {
 
 func (sm *SessionManager) purgeExpired() {
 	sm.mu.Lock()
-	if len(sm.sessions) < sm.maxConns {
-		sm.mu.Unlock()
-		return
-	}
 
 	var wg sync.WaitGroup
 	now := time.Now()
+	atCapacity := len(sm.sessions) >= sm.maxConns
 	for key, sess := range sm.sessions {
 		switch {
-		case sess.dialer == nil && now.After(sess.expiry):
+		case sess.dialer == nil && atCapacity && now.After(sess.expiry):
 			delete(sm.sessions, key)
 			wg.Go(func() {
 				if err := sess.listener.Close(); err != nil {
@@ -224,4 +209,8 @@ func (sm *SessionManager) purgeExpired() {
 
 func (sm *SessionManager) TTL() time.Duration {
 	return sm.ttl
+}
+
+func (sm *SessionManager) SessionTTL() time.Duration {
+	return sm.sessionTTL
 }
