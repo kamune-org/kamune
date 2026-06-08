@@ -86,7 +86,16 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) viewChat() string {
-	return m.vp.View() + "\n\n" + m.ta.View()
+	var header string
+	if !m.sessionExpiry.IsZero() {
+		remaining := time.Until(m.sessionExpiry)
+		if remaining > 0 {
+			header = m.s.muted.Render(fmt.Sprintf("Session expires in %s", remaining.Round(time.Second))) + "\n"
+		} else {
+			header = m.s.err.Render("Session expired") + "\n"
+		}
+	}
+	return header + m.vp.View() + "\n\n" + m.ta.View()
 }
 
 

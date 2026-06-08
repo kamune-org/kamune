@@ -40,8 +40,9 @@ const (
 )
 
 type connectedMsg struct {
-	transport *kamune.Transport
-	isServer  bool
+	transport  *kamune.Transport
+	isServer   bool
+	sessionTTL time.Duration
 }
 
 type connectFailedMsg struct {
@@ -57,8 +58,11 @@ type verifyRequest struct {
 }
 
 type relayReadyMsg struct {
-	token []byte
+	token      []byte
+	sessionTTL time.Duration
 }
+
+type tickMsg time.Time
 
 type chatMessageMsg struct {
 	sender storage.Sender
@@ -140,7 +144,9 @@ type model struct {
 	srv        *kamune.Server
 	doneCh     chan struct{}
 	connCh     chan *kamune.Transport
-	relayToken []byte
+	relayToken       []byte
+	relaySessionTTL  time.Duration
+	sessionExpiry    time.Time
 
 	// Verify
 	verifyReq *verifyRequest
@@ -174,6 +180,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case connectedMsg:
 		m.transport = msg.transport
+		if msg.sessionTTL > 0 {
+			m.relaySessionTTL = msg.sessionTTL
+		}
 		return m.enterChat()
 	case connectFailedMsg:
 		if m.state != stateConnecting {
@@ -190,8 +199,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.verifyReq = &msg
 		m.state = stateVerify
 		return m, nil
+	case tickMsg:
+		if m.state == stateChat && !m.sessionExpiry.IsZero() {
+			return m, tickCountdown()
+		}
+		return m, nil
 	case relayReadyMsg:
 		m.relayToken = msg.token
+		m.relaySessionTTL = msg.sessionTTL
 		return m, nil
 	case chatMessageMsg:
 		return m.handleChatMessage(msg), nil
@@ -351,14 +366,14 @@ func (m *model) startConnect() tea.Cmd {
 		addr := m.inputs[0].Value()
 		token := m.inputs[1].Value()
 		go func() {
-			t, err := relayDial(addr, token, "", m.store, vfn)
+			t, sessionTTL, err := relayDial(addr, token, "", m.store, vfn)
 			if err != nil {
 				m.program.Send(connectFailedMsg{err})
 				return
 			}
 			warn, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
 			m.versionWarn = warn
-			m.program.Send(connectedMsg{transport: t})
+			m.program.Send(connectedMsg{transport: t, sessionTTL: sessionTTL})
 		}()
 		return nil
 
@@ -369,13 +384,13 @@ func (m *model) startConnect() tea.Cmd {
 		m.doneCh = doneCh
 		addr := m.inputs[0].Value()
 		go func() {
-			srv, token, err := relayServe(addr, "", m.store, vfn, connCh, doneCh)
+			srv, token, sessionTTL, err := relayServe(addr, "", m.store, vfn, connCh, doneCh)
 			if err != nil {
 				m.program.Send(connectFailedMsg{err})
 				return
 			}
 			m.srv = srv
-			m.program.Send(relayReadyMsg{token: token})
+			m.program.Send(relayReadyMsg{token: token, sessionTTL: sessionTTL})
 		}()
 		return waitConn(m.connCtx, connCh, true)
 	}
@@ -393,8 +408,17 @@ func waitConn(ctx context.Context, connCh <-chan *kamune.Transport, isServer boo
 	}
 }
 
+func tickCountdown() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
 func (m *model) enterChat() (tea.Model, tea.Cmd) {
 	m.state = stateChat
+	if m.mode == modeRelayServe && m.relaySessionTTL > 0 {
+		m.sessionExpiry = time.Now().Add(m.relaySessionTTL)
+	}
 	m.ta = textarea.New()
 	m.ta.Placeholder = "Send a message..."
 	m.ta.Focus()
@@ -438,6 +462,9 @@ func (m *model) enterChat() (tea.Model, tea.Cmd) {
 	m.vp.SetContent("Session ID is " + m.transport.SessionID() + ". Loading history…")
 
 	m.startReceiving()
+	if !m.sessionExpiry.IsZero() {
+		return m, tea.Batch(loadChatHistory(m), tickCountdown())
+	}
 	return m, loadChatHistory(m)
 }
 
@@ -511,16 +538,18 @@ func (m *model) handleChatMessage(msg chatMessageMsg) *model {
 	m.messages = append(m.messages, prefix+m.s.peerText.Render(msg.text))
 	m.vp.SetContent(renderChatContent(m))
 	m.vp.GotoBottom()
-	if err := m.store.AddChatEntry(
-		m.transport.SessionID(),
-		[]byte(msg.text),
-		msg.time,
-		storage.SenderPeer,
-	); err != nil {
-		slog.Error("failed to persist received chat entry",
-			slog.String("session_id", m.transport.SessionID()),
-			slog.Any("error", err),
-		)
+	if m.store != nil {
+		if err := m.store.AddChatEntry(
+			m.transport.SessionID(),
+			[]byte(msg.text),
+			msg.time,
+			storage.SenderPeer,
+		); err != nil {
+			slog.Error("failed to persist received chat entry",
+				slog.String("session_id", m.transport.SessionID()),
+				slog.Any("error", err),
+			)
+		}
 	}
 	return m
 }
@@ -537,6 +566,8 @@ func (m *model) cancelConnect() {
 	m.connCh = nil
 	m.doneCh = nil
 	m.relayToken = nil
+	m.relaySessionTTL = 0
+	m.sessionExpiry = time.Time{}
 }
 
 func (m *model) cleanup() {
@@ -558,4 +589,6 @@ func (m *model) cleanup() {
 	}
 	m.connCh = nil
 	m.relayToken = nil
+	m.relaySessionTTL = 0
+	m.sessionExpiry = time.Time{}
 }

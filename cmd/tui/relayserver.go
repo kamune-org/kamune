@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/relayconn"
@@ -11,24 +12,24 @@ import (
 
 func relayServe(relayAddr, password string, store *storage.Storage, verifyFn kamune.RemoteVerifier,
 	connCh chan<- *kamune.Transport, doneCh <-chan struct{},
-) (*kamune.Server, []byte, error) {
+) (*kamune.Server, []byte, time.Duration, error) {
 	ctx := context.Background()
 	var relayOpts []relayconn.Option
 	if password != "" {
 		relayOpts = append(relayOpts, relayconn.WithPassword(password))
 	}
 
-	listener, token, _, err := relayconn.ListenRelay(ctx, relayAddr, relayOpts...)
+	result, err := relayconn.ListenRelay(ctx, relayAddr, relayOpts...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("relay listen: %w", err)
+		return nil, nil, 0, fmt.Errorf("relay listen: %w", err)
 	}
 
 	srv, err := serve("", store, verifyFn, connCh, doneCh,
-		kamune.ServeWithListener(listener),
+		kamune.ServeWithListener(result.Listener),
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 
-	return srv, token, nil
+	return srv, result.Token, result.SessionTTL, nil
 }
