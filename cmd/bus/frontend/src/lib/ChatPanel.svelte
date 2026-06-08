@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher, afterUpdate } from 'svelte'
+  import { createEventDispatcher, afterUpdate, onDestroy } from 'svelte'
   import {
     sessions, historySessions, activeSessionId, sessionMessages, sidebarTab, showWelcome,
     versionWarnings,
@@ -20,6 +20,31 @@
   $: activeMsgs = $activeSessionId
     ? ($sessionMessages[$activeSessionId] || [])
     : []
+
+  let countdownNow = Date.now()
+  let countdownTimer
+
+  function stopCountdown() {
+    clearInterval(countdownTimer)
+  }
+
+  $: if ($activeSessionId && !isHistory && activeSession?.sessionTTL && activeSession?.sessionStartedAt) {
+    clearInterval(countdownTimer)
+    countdownNow = Date.now()
+    countdownTimer = setInterval(() => { countdownNow = Date.now() }, 1000)
+  } else {
+    clearInterval(countdownTimer)
+  }
+
+  $: remainingMs = (activeSession?.sessionTTL && activeSession?.sessionStartedAt)
+    ? (new Date(activeSession.sessionStartedAt).getTime() + activeSession.sessionTTL / 1000000 - countdownNow)
+    : 0
+
+  $: countdownLabel = remainingMs > 0
+    ? (() => { const s = Math.ceil(remainingMs / 1000); const m = Math.floor(s / 60); return m > 0 ? `${m}m ${s % 60}s` : `${s}s` })()
+    : 'expired'
+
+  onDestroy(() => clearInterval(countdownTimer))
 
   function startEdit() {
     editName = activeSession?.peerName || activeSession?.name || $activeSessionId?.slice(0, 16) || ''
@@ -113,6 +138,16 @@
             </span>
             {#if !isHistory}
               <span class="info-meta">{activeSession?.msgCount} messages</span>
+              {#if activeSession?.sessionTTL > 0}
+                <span class="countdown-sep">·</span>
+                <span class="countdown-ttl" class:expired={remainingMs <= 0}>
+                  {#if remainingMs > 0}
+                    expires {countdownLabel}
+                  {:else}
+                    expired
+                  {/if}
+                </span>
+              {/if}
             {/if}
           </div>
         </div>
@@ -331,6 +366,18 @@
   .info-meta {
     font-size: 11px;
     color: var(--text-muted);
+  }
+  .countdown-sep {
+    color: var(--border-color);
+    font-size: 11px;
+  }
+  .countdown-ttl {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--accent-secondary);
+  }
+  .countdown-ttl.expired {
+    color: var(--danger);
   }
   .info-actions {
     display: flex;

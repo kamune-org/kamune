@@ -33,6 +33,7 @@ type tokenTracker struct {
 	kamune.Listener
 	token      string
 	ttl        time.Duration
+	sessionTTL time.Duration
 	expiresAt  time.Time
 	app        *App
 	expiryOnce sync.Once
@@ -74,20 +75,21 @@ func startExpiryTimer(t *tokenTracker) {
 	t.expiryFn = func() { timer.Stop() }
 }
 
-func listenRelayTracked(ctx context.Context, a *App, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, time.Duration, error) {
-	listener, tokenHex, ttl, err := listenRelay(ctx, relayAddr, password, insecureSkipVerify)
+func listenRelayTracked(ctx context.Context, a *App, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, time.Duration, time.Duration, error) {
+	listener, tokenHex, ttl, sessionTTL, err := listenRelay(ctx, relayAddr, password, insecureSkipVerify)
 	if err != nil {
-		return nil, "", 0, err
+		return nil, "", 0, 0, err
 	}
 	tracker := &tokenTracker{
-		Listener:  listener,
-		token:     tokenHex,
-		ttl:       ttl,
-		expiresAt: time.Now().Add(ttl),
-		app:       a,
+		Listener:   listener,
+		token:      tokenHex,
+		ttl:        ttl,
+		sessionTTL: sessionTTL,
+		expiresAt:  time.Now().Add(ttl),
+		app:        a,
 	}
 	startExpiryTimer(tracker)
-	return tracker, tokenHex, ttl, nil
+	return tracker, tokenHex, ttl, sessionTTL, nil
 }
 
 func parseRelayAddr(addr string) (scheme, host string, insecureOverride *bool) {
@@ -122,9 +124,9 @@ func parseInsecureFlag(s string) (host string, override *bool) {
 	return s, nil
 }
 
-func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, time.Duration, error) {
+func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, time.Duration, time.Duration, error) {
 	if strings.TrimSpace(relayAddr) == "" {
-		return nil, "", 0, errors.New("relay server address is required")
+		return nil, "", 0, 0, errors.New("relay server address is required")
 	}
 
 	var opts []relayconn.Option
@@ -137,29 +139,29 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 		insecureSkipVerify = *insecureOverride
 	}
 
-	var (
-		listener *relayconn.RelayListener
-		token    []byte
-		ttl      time.Duration
-		err      error
-	)
+	var result *relayconn.ListenResult
+	var err error
 	switch scheme {
 	case "tcp":
-		listener, token, ttl, err = relayconn.ListenRelayTCP(ctx, host, opts...)
+		result, err = relayconn.ListenRelayTCP(ctx, host, opts...)
 	case "wss":
-		listener, token, ttl, err = relayconn.ListenRelayWSS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+		result, err = relayconn.ListenRelayWSS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
 	case "tls":
-		listener, token, ttl, err = relayconn.ListenRelayTLS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+		result, err = relayconn.ListenRelayTLS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
 	default:
-		listener, token, ttl, err = relayconn.ListenRelay(ctx, host, opts...)
+		result, err = relayconn.ListenRelay(ctx, host, opts...)
 	}
 	if err != nil {
-		return nil, "", 0, wrapRelayError(scheme, host, password != "", err)
+		return nil, "", 0, 0, wrapRelayError(scheme, host, password != "", err)
 	}
-	return listener, hex.EncodeToString(token), ttl, nil
+	return result.Listener, hex.EncodeToString(result.Token), result.TTL, result.SessionTTL, nil
 }
 
 func dialRelayFunc(relayAddr, tokenHex, password string, insecureSkipVerify bool) (func(string) (kamune.Conn, error), error) {
+	return dialRelayFuncWithSessionTTL(relayAddr, tokenHex, password, insecureSkipVerify, nil)
+}
+
+func dialRelayFuncWithSessionTTL(relayAddr, tokenHex, password string, insecureSkipVerify bool, sessionTTL *time.Duration) (func(string) (kamune.Conn, error), error) {
 	if strings.TrimSpace(relayAddr) == "" {
 		return nil, errors.New("relay server address is required")
 	}
@@ -199,6 +201,11 @@ func dialRelayFunc(relayAddr, tokenHex, password string, insecureSkipVerify bool
 		}
 		if err != nil {
 			return nil, wrapRelayError(scheme, host, password != "", err)
+		}
+		if sessionTTL != nil {
+			if rc, ok := conn.(*relayconn.RelayConn); ok {
+				*sessionTTL = rc.SessionTTL()
+			}
 		}
 		return conn, nil
 	}, nil

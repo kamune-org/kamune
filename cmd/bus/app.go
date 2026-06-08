@@ -86,13 +86,15 @@ const (
 )
 
 type SessionInfo struct {
-	ID            string    `json:"id"`
-	PeerName      string    `json:"peerName"`
-	IsServer      bool      `json:"isServer"`
-	MsgCount      int       `json:"msgCount"`
-	LastActivity  time.Time `json:"lastActivity"`
-	TransportType string    `json:"transportType"`
-	RemoteVersion string    `json:"remoteVersion"`
+	ID               string        `json:"id"`
+	PeerName         string        `json:"peerName"`
+	IsServer         bool          `json:"isServer"`
+	MsgCount         int           `json:"msgCount"`
+	LastActivity     time.Time     `json:"lastActivity"`
+	TransportType    string        `json:"transportType"`
+	RemoteVersion    string        `json:"remoteVersion"`
+	SessionTTL       time.Duration `json:"sessionTTL"`
+	SessionStartedAt time.Time     `json:"sessionStartedAt"`
 }
 
 type HistorySessionInfo struct {
@@ -122,15 +124,17 @@ type LogEntryInfo struct {
 }
 
 type liveSession struct {
-	ID            string
-	PeerName      string
-	RemoteVersion string
-	Transport     *kamune.Transport
-	Messages      []MessageInfo
-	LastActivity  time.Time
-	ReceiveDone   chan struct{}
-	IsServer      bool
-	TransportType string
+	ID               string
+	PeerName         string
+	RemoteVersion    string
+	Transport        *kamune.Transport
+	Messages         []MessageInfo
+	LastActivity     time.Time
+	ReceiveDone      chan struct{}
+	IsServer         bool
+	TransportType    string
+	SessionTTL       time.Duration
+	SessionStartedAt time.Time
 }
 
 type historySession struct {
@@ -149,11 +153,12 @@ type pendingVerification struct {
 }
 
 type relayToken struct {
-	Token     string        `json:"token"`
-	Consumed  bool          `json:"consumed"`
-	TTL       time.Duration `json:"ttl"`
-	ExpiresAt time.Time     `json:"expiresAt"`
-	listener  kamune.Listener
+	Token      string        `json:"token"`
+	Consumed   bool          `json:"consumed"`
+	TTL        time.Duration `json:"ttl"`
+	SessionTTL time.Duration `json:"sessionTtl"`
+	ExpiresAt  time.Time     `json:"expiresAt"`
+	listener   kamune.Listener
 }
 
 type ShareInfo struct {
@@ -183,10 +188,11 @@ type App struct {
 	serverDone          chan struct{}
 	serverTransportType string
 
-	relayAddr      string
-	relayPassword  string
-	relayTokens    []relayToken
-	relayListeners *multiListener
+	relayAddr       string
+	relayPassword   string
+	relaySessionTTL time.Duration
+	relayTokens     []relayToken
+	relayListeners  *multiListener
 
 	startCtx    context.Context
 	startCancel context.CancelFunc
@@ -220,7 +226,7 @@ type App struct {
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
 
-	verifRadioItems  []*menu.MenuItem
+	verifRadioItems []*menu.MenuItem
 }
 
 func NewApp() *App {
@@ -806,13 +812,15 @@ func (a *App) GetSessions() []SessionInfo {
 	result := make([]SessionInfo, 0, len(a.sessions))
 	for _, s := range a.sessions {
 		result = append(result, SessionInfo{
-			ID:            s.ID,
-			PeerName:      s.PeerName,
-			IsServer:      s.IsServer,
-			MsgCount:      len(s.Messages),
-			LastActivity:  s.LastActivity,
-			TransportType: s.TransportType,
-			RemoteVersion: s.RemoteVersion,
+			ID:               s.ID,
+			PeerName:         s.PeerName,
+			IsServer:         s.IsServer,
+			MsgCount:         len(s.Messages),
+			LastActivity:     s.LastActivity,
+			TransportType:    s.TransportType,
+			RemoteVersion:    s.RemoteVersion,
+			SessionTTL:       s.SessionTTL,
+			SessionStartedAt: s.SessionStartedAt,
 		})
 	}
 	return result

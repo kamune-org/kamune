@@ -121,6 +121,9 @@ export namespace main {
 	    lastActivity: any;
 	    transportType: string;
 	    remoteVersion: string;
+	    sessionTTL: number;
+	    // Go type: time
+	    sessionStartedAt: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new SessionInfo(source);
@@ -135,6 +138,8 @@ export namespace main {
 	        this.lastActivity = this.convertValues(source["lastActivity"], null);
 	        this.transportType = source["transportType"];
 	        this.remoteVersion = source["remoteVersion"];
+	        this.sessionTTL = source["sessionTTL"];
+	        this.sessionStartedAt = this.convertValues(source["sessionStartedAt"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -234,6 +239,7 @@ export namespace main {
 	    token: string;
 	    consumed: boolean;
 	    ttl: number;
+	    sessionTtl: number;
 	    // Go type: time
 	    expiresAt: any;
 	
@@ -246,6 +252,7 @@ export namespace main {
 	        this.token = source["token"];
 	        this.consumed = source["consumed"];
 	        this.ttl = source["ttl"];
+	        this.sessionTtl = source["sessionTtl"];
 	        this.expiresAt = this.convertValues(source["expiresAt"], null);
 	    }
 	

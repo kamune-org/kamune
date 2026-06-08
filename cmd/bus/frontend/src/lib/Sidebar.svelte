@@ -20,6 +20,14 @@
     return Math.ceil(remaining / 3600000) + 'h'
   }
 
+  function formatSessionTTL(rt) {
+    if (!rt.sessionTtl || rt.sessionTtl <= 0) return ''
+    const d = rt.sessionTtl / 1000000000
+    if (d < 60) return Math.round(d) + 's'
+    if (d < 3600) return Math.round(d / 60) + 'm'
+    return Math.round(d / 3600) + 'h'
+  }
+
   const dispatch = createEventDispatcher()
   export let serverActive = false
   export let runningServerTransport = ''
@@ -257,11 +265,15 @@
             <div class="rt-list">
               {#each $relayTokens as rt}
                 {@const expiry = formatExpiry(rt)}
+                {@const sessionTTL = formatSessionTTL(rt)}
                 <div class="rt-item" class:consumed={rt.consumed}>
                   <span class="rt-dot" class:filled={rt.consumed}></span>
                   <span class="rt-item-token" role="button" tabindex="0" on:click={() => handleCopyToken(rt.token)} on:keydown={(e) => { if (e.key === 'Enter') handleCopyToken(rt.token) }}>{truncateToken(rt.token)}</span>
                   {#if expiry}
                     <span class="rt-expiry" class:expired={expiry === 'expired'}>{expiry}</span>
+                  {/if}
+                  {#if sessionTTL}
+                    <span class="rt-session-ttl">session {sessionTTL}</span>
                   {/if}
                   <button class="rt-rm-btn" title="Remove token" on:click|stopPropagation={async () => {
                     try {
@@ -1009,6 +1021,13 @@
   }
   .rt-expiry.expired {
     color: var(--danger);
+  }
+  .rt-session-ttl {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--accent-secondary);
+    margin-left: 4px;
+    flex-shrink: 0;
   }
   .rt-rm-btn {
     display: inline-flex;

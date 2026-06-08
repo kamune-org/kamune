@@ -84,7 +84,7 @@ func (a *App) StartServer(
 			return "", "", fmt.Errorf("cancelled")
 		}
 		ml := newMultiListener()
-		listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, password, false)
+		listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, password, false)
 		if err != nil {
 			a.mu.RLock()
 			cancelled := a.startCancel == nil
@@ -106,8 +106,9 @@ func (a *App) StartServer(
 		addr = "" // addr is unused with ServeWithListener
 		a.relayAddr = relayAddr
 		a.relayPassword = password
+		a.relaySessionTTL = sessionTTL
 		a.relayListeners = ml
-		a.relayTokens = []relayToken{{Token: token, TTL: ttl, ExpiresAt: time.Now().Add(ttl), listener: listener}}
+		a.relayTokens = []relayToken{{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), listener: listener}}
 	case "udp":
 		opts = append(opts, kamune.ServeWithUDP())
 	default:
@@ -286,7 +287,7 @@ func (a *App) GenerateRelayToken() (string, error) {
 	password := a.relayPassword
 	a.mu.Unlock()
 
-	listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, password, false)
+	listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, password, false)
 	if err != nil {
 		return "", err
 	}
@@ -301,7 +302,7 @@ func (a *App) GenerateRelayToken() (string, error) {
 		a.mu.Unlock()
 		return "", fmt.Errorf("add listener: %w", err)
 	}
-	a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, ExpiresAt: time.Now().Add(ttl), listener: listener})
+	a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), listener: listener})
 	tokens := make([]relayToken, len(a.relayTokens))
 	copy(tokens, a.relayTokens)
 	a.mu.Unlock()
@@ -371,9 +372,10 @@ func (a *App) ConnectToServer(
 
 	opts = append(opts, kamune.DialWithClientName(name))
 
+	var sessionTTL time.Duration
 	switch transport {
 	case "relay":
-		fn, err := dialRelayFunc(relayAddr, token, password, false)
+		fn, err := dialRelayFuncWithSessionTTL(relayAddr, token, password, false, &sessionTTL)
 		if err != nil {
 			a.setStatus(StatusError, "Failed to prepare relay dial")
 			a.addLogEntry("ERROR", "Relay dial preparation failed: "+err.Error())
@@ -404,14 +406,16 @@ func (a *App) ConnectToServer(
 	sessionID := t.SessionID()
 	peer := t.RemotePeer()
 	session := &liveSession{
-		ID:            sessionID,
-		PeerName:      peer.Name,
-		RemoteVersion: peer.AppVersion,
-		Transport:     t,
-		Messages:      make([]MessageInfo, 0),
-		LastActivity:  time.Now(),
-		ReceiveDone:   make(chan struct{}),
-		TransportType: transport,
+		ID:               sessionID,
+		PeerName:         peer.Name,
+		RemoteVersion:    peer.AppVersion,
+		Transport:        t,
+		Messages:         make([]MessageInfo, 0),
+		LastActivity:     time.Now(),
+		ReceiveDone:      make(chan struct{}),
+		TransportType:    transport,
+		SessionTTL:       sessionTTL,
+		SessionStartedAt: time.Now(),
 	}
 
 	a.loadChatHistory(session)
@@ -426,13 +430,15 @@ func (a *App) ConnectToServer(
 	a.mu.Unlock()
 
 	info := SessionInfo{
-		ID:            session.ID,
-		PeerName:      session.PeerName,
-		IsServer:      false,
-		MsgCount:      len(session.Messages),
-		LastActivity:  session.LastActivity,
-		TransportType: session.TransportType,
-		RemoteVersion: peer.AppVersion,
+		ID:               session.ID,
+		PeerName:         session.PeerName,
+		IsServer:         false,
+		MsgCount:         len(session.Messages),
+		LastActivity:     session.LastActivity,
+		TransportType:    session.TransportType,
+		RemoteVersion:    peer.AppVersion,
+		SessionTTL:       sessionTTL,
+		SessionStartedAt: time.Now(),
 	}
 	runtime.EventsEmit(a.ctx, "session-new", info)
 	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
@@ -486,16 +492,23 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 
 	sessionID := t.SessionID()
 	peer := t.RemotePeer()
+
+	a.mu.RLock()
+	relaySessionTTL := a.relaySessionTTL
+	a.mu.RUnlock()
+
 	session := &liveSession{
-		ID:            sessionID,
-		PeerName:      peer.Name,
-		RemoteVersion: peer.AppVersion,
-		Transport:     t,
-		Messages:      make([]MessageInfo, 0),
-		LastActivity:  time.Now(),
-		ReceiveDone:   make(chan struct{}),
-		IsServer:      true,
-		TransportType: transport,
+		ID:               sessionID,
+		PeerName:         peer.Name,
+		RemoteVersion:    peer.AppVersion,
+		Transport:        t,
+		Messages:         make([]MessageInfo, 0),
+		LastActivity:     time.Now(),
+		ReceiveDone:      make(chan struct{}),
+		IsServer:         true,
+		TransportType:    transport,
+		SessionTTL:       relaySessionTTL,
+		SessionStartedAt: time.Now(),
 	}
 
 	a.loadChatHistory(session)
@@ -510,13 +523,15 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	a.mu.Unlock()
 
 	info := SessionInfo{
-		ID:            session.ID,
-		PeerName:      session.PeerName,
-		IsServer:      true,
-		MsgCount:      len(session.Messages),
-		LastActivity:  session.LastActivity,
-		TransportType: session.TransportType,
-		RemoteVersion: peer.AppVersion,
+		ID:               session.ID,
+		PeerName:         session.PeerName,
+		IsServer:         true,
+		MsgCount:         len(session.Messages),
+		LastActivity:     session.LastActivity,
+		TransportType:    session.TransportType,
+		RemoteVersion:    peer.AppVersion,
+		SessionTTL:       relaySessionTTL,
+		SessionStartedAt: time.Now(),
 	}
 	runtime.EventsEmit(a.ctx, "session-new", info)
 	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
@@ -621,7 +636,7 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 		urlStr = fmt.Sprintf("%s://%s:%s", transport, address, port)
 
 	case "relay":
-		listener, token, ttl, err := listenRelayTracked(context.Background(), a, relayAddr, relayPassword, false)
+		listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, relayPassword, false)
 		if err != nil {
 			return nil, fmt.Errorf("generate relay token: %w", err)
 		}
@@ -637,7 +652,7 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 			listener.Close()
 			return nil, fmt.Errorf("add listener: %w", err)
 		}
-		a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, ExpiresAt: time.Now().Add(ttl), listener: listener})
+		a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), listener: listener})
 		tokens := make([]relayToken, len(a.relayTokens))
 		copy(tokens, a.relayTokens)
 		a.mu.Unlock()
