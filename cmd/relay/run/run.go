@@ -27,6 +27,9 @@ import (
 )
 
 func Run() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var cfgPath string
 	flag.StringVar(&cfgPath, "config", "assets/config.toml", "config path")
 	flag.Parse()
@@ -36,7 +39,7 @@ func Run() error {
 		return fmt.Errorf("new config: %w", err)
 	}
 
-	srvc, err := services.New(cfg)
+	srvc, err := services.New(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("new service: %w", err)
 	}
@@ -46,9 +49,6 @@ func Run() error {
 	if !cfg.WS.Enabled && !cfg.TCP.Enabled && !cfg.TLS.Enabled {
 		return fmt.Errorf("no transport enabled (enable ws, tcp, or tls)")
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	errCh := make(chan error, 3)
 	var wg sync.WaitGroup
