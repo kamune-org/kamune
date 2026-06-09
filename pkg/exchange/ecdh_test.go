@@ -17,11 +17,11 @@ func TestECDH(t *testing.T) {
 	a.NoError(err)
 	a.NotNil(p2)
 
-	secretP1, err := p1.Exchange(p2.MarshalPublicKey())
+	secretP1, err := p1.Exchange(p2.PublicKey.Bytes())
 	a.NoError(err)
 	a.NotNil(secretP1)
 
-	secretP2, err := p2.Exchange(p1.MarshalPublicKey())
+	secretP2, err := p2.Exchange(p1.PublicKey.Bytes())
 	a.NoError(err)
 	a.NotNil(secretP2)
 

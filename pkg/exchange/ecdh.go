@@ -25,13 +25,9 @@ func (e *ECDH) MarshalPrivateKey() []byte {
 }
 
 func (e *ECDH) Exchange(remote []byte) ([]byte, error) {
-	key, err := x509.ParsePKIXPublicKey(remote)
+	pub, err := ecdh.X25519().NewPublicKey(remote)
 	if err != nil {
 		return nil, fmt.Errorf("parsing key: %w", err)
-	}
-	pub, ok := key.(*ecdh.PublicKey)
-	if !ok {
-		return nil, ErrInvalidKey
 	}
 	secret, err := e.privateKey.ECDH(pub)
 	if err != nil {
@@ -60,14 +56,9 @@ func RestoreECDH(privBytes, pubBytes []byte) (*ECDH, error) {
 	}
 
 	// Parse the public key
-	pubKeyInterface, err := x509.ParsePKIXPublicKey(pubBytes)
+	pubKey, err := ecdh.X25519().NewPublicKey(pubBytes)
 	if err != nil {
 		return nil, fmt.Errorf("parsing public key: %w", err)
-	}
-
-	pubKey, ok := pubKeyInterface.(*ecdh.PublicKey)
-	if !ok {
-		return nil, ErrInvalidKey
 	}
 
 	return &ECDH{
