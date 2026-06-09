@@ -6,6 +6,8 @@
 
 **Suite:** `Ed25519_MLKEM768_ChaCha20-Poly1305X`
 
+**Authors:** kamune core team
+
 ---
 
 ## Table of Contents
@@ -49,7 +51,7 @@ When the session ends, a **Session Teardown** phase sends a close notification
 before closing the transport, allowing peers to distinguish a graceful
 disconnect from a network failure.
 
-The default cipher suite is `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`.
+The current cipher suite is `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`.
 
 <picture>
   <img alt="Protocol Overview" src="assets/diagrams/protocol-overview.svg">
