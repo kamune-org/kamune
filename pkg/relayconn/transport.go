@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 )
 
+// tcpAdapter wraps a net.Conn with length-prefixed framing (uint16 BE).
 type tcpAdapter struct {
 	conn net.Conn
 }
@@ -48,6 +49,7 @@ func (t *tcpAdapter) SetDeadline(deadline time.Time) error {
 	return t.conn.SetDeadline(deadline)
 }
 
+// tlsAdapter wraps a tls.Conn with length-prefixed framing (uint16 BE).
 type tlsAdapter struct {
 	conn *tls.Conn
 }
@@ -84,6 +86,7 @@ func (t *tlsAdapter) SetDeadline(deadline time.Time) error {
 	return t.conn.SetDeadline(deadline)
 }
 
+// wsAdapter wraps a WebSocket connection as an exchange.ReadWriter.
 type wsAdapter struct {
 	conn *websocket.Conn
 	ctx  context.Context

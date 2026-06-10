@@ -85,6 +85,9 @@ func DialRelayTLS(
 	return relayHandshake(ctx, adapter, token, func() { conn.Close() }, opts...)
 }
 
+// relayHandshake performs the dialer side of the relay protocol:
+// HPKE key exchange, optional PSK auth, registration with token,
+// and starting the readPump goroutine.
 func relayHandshake(
 	ctx context.Context,
 	rw exchange.ReadWriter,

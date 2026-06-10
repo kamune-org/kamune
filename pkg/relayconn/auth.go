@@ -9,6 +9,8 @@ import (
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 )
 
+// sendAuth performs the PSK authentication handshake with the relay
+// server: it sends the password and awaits an Auth acknowledgement frame.
 func sendAuth(ch *exchange.Channel, password string) error {
 	auth := &pb.Frame{
 		Kind: &pb.Frame_Auth{

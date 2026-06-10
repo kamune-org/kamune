@@ -13,6 +13,10 @@ import (
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 )
 
+// RelayConn implements Conn for relay-mediated connections. It buffers
+// incoming data from a readPump goroutine and exposes ReadBytes/WriteBytes
+// for the kamune protocol. Deadline support uses a timer+channel pattern
+// to unblock ReadBytes on timeout or cancellation.
 type RelayConn struct {
 	deadline   time.Time
 	ctx        context.Context
@@ -124,6 +128,10 @@ func (rc *RelayConn) pushData(data []byte) {
 	}
 }
 
+// readPump continuously reads frames from the exchange channel and
+// dispatches them: message frames are pushed into the read buffer,
+// ping frames receive an automatic pong reply. On read error or
+// context cancellation the pump exits and cancels the context.
 func (rc *RelayConn) readPump() {
 	defer rc.cancel()
 	for {
