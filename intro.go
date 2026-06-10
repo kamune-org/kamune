@@ -16,6 +16,9 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
+// defaultRemoteVerifier prompts the user to accept or reject a peer
+// connection. New peers are stored on acceptance; known peers display
+// their first-seen timestamp.
 func defaultRemoteVerifier(store *storage.Storage, peer *storage.Peer) error {
 	key := peer.PublicKey
 	fmt.Printf("Received a connection request from %q.\n", peer.Name)

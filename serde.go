@@ -76,6 +76,9 @@ func (s *signedSerde) deserialize(
 	return &Metadata{st.GetMetadata()}, nil
 }
 
+// readSignedTransport reads raw bytes from a Conn and unmarshals them
+// into a SignedTransport protobuf message, without signature verification.
+// Signature verification is deferred to the serde for each direction.
 func readSignedTransport(c Conn) (*pb.SignedTransport, error) {
 	payload, err := c.ReadBytes()
 	if err != nil {

@@ -221,14 +221,6 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	return entries, nil
 }
 
-// AddChatEntry stores a chat message for the given session ID. The message
-// is stored in a bucket named "chat_<sessionID>" and the key begins with an
-// 8-byte big-endian uint64 representation of the timestamp's UnixNano value.
-// 2 bytes are used for the sender identity. Currently, 0 means local user, 1
-// means remote user. To avoid collisions when two messages have the same
-// timestamp, a 4-byte random suffix is appended to the key to avoid collision.
-// The session ID is used as the bucket name, which scopes entries per session.
-// If the provided timestamp is zero, the current time is used.
 // ListSessions returns a list of session IDs that have chat history stored.
 // Session IDs are extracted from bucket names with the "chat_" prefix.
 func (s *Storage) ListSessions() ([]string, error) {

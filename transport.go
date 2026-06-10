@@ -16,6 +16,8 @@ import (
 
 const pingDataSize = 8
 
+// isTimeout reports whether err is a deadline/timeout error, either from
+// os.ErrDeadlineExceeded or from a net.Error with Timeout() true.
 func isTimeout(err error) bool {
 	switch {
 	case errors.Is(err, os.ErrDeadlineExceeded):

@@ -1,3 +1,6 @@
+// Package enigma provides symmetric encryption primitives for the kamune
+// protocol. It wraps XChaCha20-Poly1305 AEAD with keys derived via HKDF-SHA512,
+// and provides a helper for generating random base32-encoded text.
 package enigma
 
 import (
@@ -69,6 +72,9 @@ func Derive(key, salt, info []byte, size int) ([]byte, error) {
 	return d, nil
 }
 
+// Text returns a random base32 string of length l (using a custom alphabet
+// that excludes ambiguous characters like 0/O/1/I). Each byte is generated
+// cryptographically and then mapped into the alphabet.
 func Text(l int) string {
 	src := make([]byte, l)
 	_, _ = rand.Read(src)

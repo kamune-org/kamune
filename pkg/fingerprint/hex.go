@@ -2,6 +2,8 @@ package fingerprint
 
 const hex = "0123456789ABCDEF"
 
+// Hex returns an uppercase colon-separated hex representation of b
+// (e.g. "AB:CD:EF").
 func Hex(b []byte) string {
 	if len(b) == 0 {
 		return ""

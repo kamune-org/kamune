@@ -7,6 +7,8 @@ import (
 	"fmt"
 )
 
+// ECDH wraps an X25519 key pair for Diffie-Hellman key exchange. The public
+// key is exported; the private key is kept internal.
 type ECDH struct {
 	PublicKey  *ecdh.PublicKey
 	privateKey *ecdh.PrivateKey
@@ -37,6 +39,7 @@ func (e *ECDH) Exchange(remote []byte) ([]byte, error) {
 	return secret, nil
 }
 
+// NewECDH generates a new X25519 key pair.
 func NewECDH() (*ECDH, error) {
 	key, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {

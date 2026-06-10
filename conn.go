@@ -11,6 +11,8 @@ import (
 	"github.com/kamune-org/kamune/pkg/exchange"
 )
 
+// Conn is the abstract transport connection used by the kamune protocol.
+// It extends exchange.ReadWriter with deadline and close operations.
 type Conn interface {
 	exchange.ReadWriter
 	SetDeadline(t time.Time) error
@@ -245,6 +247,7 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
+// newConn wraps a net.Conn with framing, deadlines, and functional options.
 func newConn(c net.Conn, opts ...ConnOption) *conn {
 	cn := &conn{
 		conn:          c,

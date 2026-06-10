@@ -1,3 +1,6 @@
+// Package attest provides Ed25519 identity management for the kamune protocol.
+// It handles key generation, signing, verification, and serialization
+// (PKIX/SPKI for public keys, PKCS8 for private keys).
 package attest
 
 import (
