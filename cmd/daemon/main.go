@@ -4,7 +4,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -16,6 +15,7 @@ import (
 const (
 	version          = "1.0.0"
 	maxScanTokenSize = 1024 * 1024 // 1MB
+	channelTimeout   = 5 * time.Second
 )
 
 type (
@@ -31,14 +31,27 @@ type CMD string
 
 // Command types
 const (
-	CmdOpenStorage     CMD = "open_storage"
-	CmdSubmitPassphrase CMD = "submit_passphrase"
-	CmdStartServer     CMD = "start_server"
-	CmdDial            CMD = "dial"
-	CmdSendMessage     CMD = "send_message"
-	CmdListSessions    CMD = "list_sessions"
-	CmdCloseSession    CMD = "close_session"
-	CmdShutdown        CMD = "shutdown"
+	CmdOpenStorage         CMD = "open_storage"
+	CmdSubmitPassphrase    CMD = "submit_passphrase"
+	CmdStartServer         CMD = "start_server"
+	CmdStopServer          CMD = "stop_server"
+	CmdRestartServer       CMD = "restart_server"
+	CmdCancelStartServer   CMD = "cancel_start_server"
+	CmdGetServerStatus     CMD = "get_server_status"
+	CmdGetStatus           CMD = "get_status"
+	CmdDial                CMD = "dial"
+	CmdSendMessage         CMD = "send_message"
+	CmdListSessions        CMD = "list_sessions"
+	CmdCloseSession        CMD = "close_session"
+	CmdRenameSession       CMD = "rename_session"
+	CmdGenerateRelayToken  CMD = "generate_relay_token"
+	CmdRemoveRelayToken    CMD = "remove_relay_token"
+	CmdListRelayTokens     CMD = "list_relay_tokens"
+	CmdGetShareInfo        CMD = "get_share_info"
+	CmdVerifyResponse      CMD = "verify_response"
+	CmdSetVerificationMode CMD = "set_verification_mode"
+	CmdGetVerificationMode CMD = "get_verification_mode"
+	CmdShutdown            CMD = "shutdown"
 )
 
 // Evt represents events
@@ -46,14 +59,24 @@ type Evt string
 
 // Event types
 const (
-	EvtReady           Evt = "ready"
-	EvtServerStarted   Evt = "server_started"
-	EvtSessionStarted  Evt = "session_started"
-	EvtSessionClosed   Evt = "session_closed"
-	EvtMessageReceived Evt = "message_received"
-	EvtMessageSent     Evt = "message_sent"
-	EvtError           Evt = "error"
-	EvtResponse        Evt = "response"
+	EvtReady             Evt = "ready"
+	EvtServerStarted     Evt = "server_started"
+	EvtServerStopped     Evt = "server_stopped"
+	EvtServerRunning     Evt = "server_running"
+	EvtServerStartCancel Evt = "server_start_cancelled"
+	EvtSessionStarted    Evt = "session_started"
+	EvtSessionClosed     Evt = "session_closed"
+	EvtSessionUpdated    Evt = "session_updated"
+	EvtMessageReceived   Evt = "message_received"
+	EvtMessageSent       Evt = "message_sent"
+	EvtStatusChanged     Evt = "status_changed"
+	EvtFingerprintChange Evt = "fingerprint_changed"
+	EvtVersionWarning    Evt = "version_warning"
+	EvtRelayToken        Evt = "relay_token"
+	EvtRelayTokens       Evt = "relay_tokens"
+	EvtVerifyPeer        Evt = "verify_peer"
+	EvtError             Evt = "error"
+	EvtResponse          Evt = "response"
 )
 
 // Command represents an incoming command from stdin
@@ -72,12 +95,39 @@ type Event struct {
 	ID   ID     `json:"id,omitempty"`
 }
 
-// SessionInfo contains information about a session
+// VerificationMode controls peer verification behaviour.
+type VerificationMode int
+
+const (
+	VerificationModeStrict     VerificationMode = 0
+	VerificationModeQuick      VerificationMode = 1
+	VerificationModeAutoAccept VerificationMode = 2
+)
+
+// ConnectionStatus is the daemon's high-level connection state.
+type ConnectionStatus string
+
+const (
+	StatusDisconnected ConnectionStatus = "disconnected"
+	StatusConnecting   ConnectionStatus = "connecting"
+	StatusConnected    ConnectionStatus = "connected"
+	StatusVerifying    ConnectionStatus = "verifying"
+	StatusError        ConnectionStatus = "error"
+)
+
+// SessionInfo is the public session shape returned by get_sessions and
+// emitted in session_started / session_closed events.
 type SessionInfo struct {
-	SessionID  string `json:"session_id"`
-	RemoteAddr string `json:"remote_addr,omitempty"`
-	CreatedAt  string `json:"created_at"`
-	IsServer   bool   `json:"is_server"`
+	SessionID        string        `json:"session_id"`
+	PeerName         string        `json:"peer_name"`
+	IsServer         bool          `json:"is_server"`
+	MsgCount         int           `json:"msg_count"`
+	LastActivity     time.Time     `json:"last_activity,omitempty"`
+	TransportType    string        `json:"transport_type,omitempty"`
+	RemoteVersion    string        `json:"remote_version,omitempty"`
+	SessionTTL       time.Duration `json:"session_ttl_ns"`
+	SessionStartedAt time.Time     `json:"session_started_at"`
+	RemoteAddr       string        `json:"remote_addr,omitempty"`
 }
 
 // MessageInfo is a single chat message in a session's history.
@@ -87,9 +137,18 @@ type MessageInfo struct {
 	IsLocal   bool      `json:"is_local"`
 }
 
+// relayToken is one active or consumed relay token.
+type relayToken struct {
+	Token      string        `json:"token"`
+	Consumed   bool          `json:"consumed"`
+	TTL        time.Duration `json:"ttl_ns"`
+	SessionTTL time.Duration `json:"session_ttl_ns"`
+	ExpiresAt  time.Time     `json:"expires_at"`
+	listener   kamune.Listener
+}
+
 // liveSession wraps a kamune.Transport with metadata. Mirrors bus.liveSession
-// (cmd/bus/app.go:126-138). Extra fields are added now so later phases don't
-// need to touch this struct again.
+// (cmd/bus/app.go:126-138).
 type liveSession struct {
 	ID               string
 	PeerName         string
@@ -99,7 +158,6 @@ type liveSession struct {
 	Messages         []MessageInfo
 	LastActivity     time.Time
 	ReceiveDone      chan struct{}
-	cancelFunc       context.CancelFunc
 	IsServer         bool
 	TransportType    string
 	SessionTTL       time.Duration

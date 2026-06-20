@@ -145,7 +145,11 @@ func TestEventSerialization(t *testing.T) {
 func TestStartServerParams(t *testing.T) {
 	a := assert.New(t)
 	params := StartServerParams{
-		Addr: "127.0.0.1:9000",
+		Addr:      "127.0.0.1:9000",
+		Transport: "relay",
+		RelayAddr: "wss://relay.example.com:8443",
+		Password:  "secret",
+		Name:      "CrimsonOtter",
 	}
 
 	data, err := json.Marshal(params)
@@ -156,12 +160,21 @@ func TestStartServerParams(t *testing.T) {
 	a.NoError(err, "failed to unmarshal params")
 
 	a.Equal(params.Addr, decoded.Addr, "Addr mismatch")
+	a.Equal(params.Transport, decoded.Transport, "Transport mismatch")
+	a.Equal(params.RelayAddr, decoded.RelayAddr, "RelayAddr mismatch")
+	a.Equal(params.Password, decoded.Password, "Password mismatch")
+	a.Equal(params.Name, decoded.Name, "Name mismatch")
 }
 
 func TestDialParams(t *testing.T) {
 	a := assert.New(t)
 	params := DialParams{
-		Addr: "192.168.1.10:9000",
+		Addr:      "relay.example.com:8443",
+		Transport: "relay",
+		RelayAddr: "wss://relay.example.com:8443",
+		Token:     "deadbeef",
+		Password:  "secret",
+		Name:      "CrimsonOtter",
 	}
 
 	data, err := json.Marshal(params)
@@ -172,6 +185,11 @@ func TestDialParams(t *testing.T) {
 	a.NoError(err, "failed to unmarshal params")
 
 	a.Equal(params.Addr, decoded.Addr, "Addr mismatch")
+	a.Equal(params.Transport, decoded.Transport, "Transport mismatch")
+	a.Equal(params.RelayAddr, decoded.RelayAddr, "RelayAddr mismatch")
+	a.Equal(params.Token, decoded.Token, "Token mismatch")
+	a.Equal(params.Password, decoded.Password, "Password mismatch")
+	a.Equal(params.Name, decoded.Name, "Name mismatch")
 }
 
 func TestOpenStorageParams(t *testing.T) {
@@ -229,6 +247,115 @@ func TestMessageInfo(t *testing.T) {
 	a.Equal(msg.IsLocal, decoded.IsLocal, "IsLocal mismatch")
 }
 
+func TestRenameSessionParams(t *testing.T) {
+	a := assert.New(t)
+	params := RenameSessionParams{
+		SessionID: "abc123",
+		Name:      "Alice",
+	}
+
+	data, err := json.Marshal(params)
+	a.NoError(err, "failed to marshal params")
+
+	var decoded RenameSessionParams
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal params")
+
+	a.Equal(params.SessionID, decoded.SessionID, "SessionID mismatch")
+	a.Equal(params.Name, decoded.Name, "Name mismatch")
+}
+
+func TestRemoveRelayTokenParams(t *testing.T) {
+	a := assert.New(t)
+	params := RemoveRelayTokenParams{
+		Token: "deadbeefcafebabe",
+	}
+
+	data, err := json.Marshal(params)
+	a.NoError(err, "failed to marshal params")
+
+	var decoded RemoveRelayTokenParams
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal params")
+
+	a.Equal(params.Token, decoded.Token, "Token mismatch")
+}
+
+func TestVerifyResponseParams(t *testing.T) {
+	a := assert.New(t)
+	params := VerifyResponseParams{
+		RequestID: 42,
+		Accepted:  true,
+	}
+
+	data, err := json.Marshal(params)
+	a.NoError(err, "failed to marshal params")
+
+	var decoded VerifyResponseParams
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal params")
+
+	a.Equal(params.RequestID, decoded.RequestID, "RequestID mismatch")
+	a.Equal(params.Accepted, decoded.Accepted, "Accepted mismatch")
+}
+
+func TestSetVerificationModeParams(t *testing.T) {
+	a := assert.New(t)
+	params := SetVerificationModeParams{
+		Mode: int(VerificationModeStrict),
+	}
+
+	data, err := json.Marshal(params)
+	a.NoError(err, "failed to marshal params")
+
+	var decoded SetVerificationModeParams
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal params")
+
+	a.Equal(params.Mode, decoded.Mode, "Mode mismatch")
+}
+
+func TestVerificationModeConstants(t *testing.T) {
+	a := assert.New(t)
+	a.Equal(VerificationMode(0), VerificationModeStrict, "Strict mismatch")
+	a.Equal(VerificationMode(1), VerificationModeQuick, "Quick mismatch")
+	a.Equal(VerificationMode(2), VerificationModeAutoAccept, "AutoAccept mismatch")
+}
+
+func TestConnectionStatusConstants(t *testing.T) {
+	a := assert.New(t)
+	a.Equal(ConnectionStatus("disconnected"), StatusDisconnected)
+	a.Equal(ConnectionStatus("connecting"), StatusConnecting)
+	a.Equal(ConnectionStatus("connected"), StatusConnected)
+	a.Equal(ConnectionStatus("verifying"), StatusVerifying)
+	a.Equal(ConnectionStatus("error"), StatusError)
+}
+
+func TestRelayToken(t *testing.T) {
+	a := assert.New(t)
+	expires := time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC)
+	tok := relayToken{
+		Token:      "deadbeef",
+		Consumed:   false,
+		TTL:        time.Hour,
+		SessionTTL: 30 * time.Minute,
+		ExpiresAt:  expires,
+	}
+
+	data, err := json.Marshal(tok)
+	a.NoError(err, "failed to marshal relayToken")
+
+	var decoded relayToken
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal relayToken")
+
+	a.Equal(tok.Token, decoded.Token, "Token mismatch")
+	a.Equal(tok.Consumed, decoded.Consumed, "Consumed mismatch")
+	a.Equal(tok.TTL, decoded.TTL, "TTL mismatch")
+	a.Equal(tok.SessionTTL, decoded.SessionTTL, "SessionTTL mismatch")
+	a.True(tok.ExpiresAt.Equal(decoded.ExpiresAt), "ExpiresAt mismatch")
+}
+
 func TestSendMessageParams(t *testing.T) {
 	a := assert.New(t)
 	message := "Hello, World!"
@@ -255,11 +382,18 @@ func TestSendMessageParams(t *testing.T) {
 
 func TestSessionInfo(t *testing.T) {
 	a := assert.New(t)
+	ts := time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC)
 	info := SessionInfo{
-		SessionID:  "test-session-id",
-		RemoteAddr: "192.168.1.10:9000",
-		IsServer:   true,
-		CreatedAt:  "2024-01-15T10:00:00Z",
+		SessionID:        "test-session-id",
+		PeerName:         "CrimsonOtter",
+		IsServer:         true,
+		MsgCount:         42,
+		LastActivity:     ts,
+		TransportType:    "relay",
+		RemoteVersion:    "0.5.0",
+		SessionTTL:       time.Hour,
+		SessionStartedAt: ts,
+		RemoteAddr:       "192.168.1.10:9000",
 	}
 
 	data, err := json.Marshal(info)
@@ -270,9 +404,15 @@ func TestSessionInfo(t *testing.T) {
 	a.NoError(err, "failed to unmarshal session info")
 
 	a.Equal(info.SessionID, decoded.SessionID, "SessionID mismatch")
-	a.Equal(info.RemoteAddr, decoded.RemoteAddr, "RemoteAddr mismatch")
+	a.Equal(info.PeerName, decoded.PeerName, "PeerName mismatch")
 	a.Equal(info.IsServer, decoded.IsServer, "IsServer mismatch")
-	a.Equal(info.CreatedAt, decoded.CreatedAt, "CreatedAt mismatch")
+	a.Equal(info.MsgCount, decoded.MsgCount, "MsgCount mismatch")
+	a.True(info.LastActivity.Equal(decoded.LastActivity), "LastActivity mismatch")
+	a.Equal(info.TransportType, decoded.TransportType, "TransportType mismatch")
+	a.Equal(info.RemoteVersion, decoded.RemoteVersion, "RemoteVersion mismatch")
+	a.Equal(info.SessionTTL, decoded.SessionTTL, "SessionTTL mismatch")
+	a.True(info.SessionStartedAt.Equal(decoded.SessionStartedAt), "SessionStartedAt mismatch")
+	a.Equal(info.RemoteAddr, decoded.RemoteAddr, "RemoteAddr mismatch")
 }
 
 func TestDaemonNew(t *testing.T) {
@@ -289,14 +429,27 @@ func TestDaemonNew(t *testing.T) {
 func TestCommandConstants(t *testing.T) {
 	a := assert.New(t)
 	expectedCommands := map[string]CMD{
-		"open_storage":      CmdOpenStorage,
-		"submit_passphrase": CmdSubmitPassphrase,
-		"start_server":      CmdStartServer,
-		"dial":              CmdDial,
-		"send_message":      CmdSendMessage,
-		"list_sessions":     CmdListSessions,
-		"close_session":     CmdCloseSession,
-		"shutdown":          CmdShutdown,
+		"open_storage":          CmdOpenStorage,
+		"submit_passphrase":     CmdSubmitPassphrase,
+		"start_server":          CmdStartServer,
+		"stop_server":           CmdStopServer,
+		"restart_server":        CmdRestartServer,
+		"cancel_start_server":   CmdCancelStartServer,
+		"get_server_status":     CmdGetServerStatus,
+		"get_status":            CmdGetStatus,
+		"dial":                  CmdDial,
+		"send_message":          CmdSendMessage,
+		"list_sessions":         CmdListSessions,
+		"close_session":         CmdCloseSession,
+		"rename_session":        CmdRenameSession,
+		"generate_relay_token":  CmdGenerateRelayToken,
+		"remove_relay_token":    CmdRemoveRelayToken,
+		"list_relay_tokens":     CmdListRelayTokens,
+		"get_share_info":        CmdGetShareInfo,
+		"verify_response":       CmdVerifyResponse,
+		"set_verification_mode": CmdSetVerificationMode,
+		"get_verification_mode": CmdGetVerificationMode,
+		"shutdown":              CmdShutdown,
 	}
 
 	for expected, actual := range expectedCommands {
@@ -306,16 +459,25 @@ func TestCommandConstants(t *testing.T) {
 
 func TestEventConstants(t *testing.T) {
 	a := assert.New(t)
-	// Verify event constants are defined correctly
 	expectedEvents := map[string]Evt{
-		"ready":            EvtReady,
-		"server_started":   EvtServerStarted,
-		"session_started":  EvtSessionStarted,
-		"session_closed":   EvtSessionClosed,
-		"message_received": EvtMessageReceived,
-		"message_sent":     EvtMessageSent,
-		"error":            EvtError,
-		"response":         EvtResponse,
+		"ready":                  EvtReady,
+		"server_started":         EvtServerStarted,
+		"server_stopped":         EvtServerStopped,
+		"server_running":         EvtServerRunning,
+		"server_start_cancelled": EvtServerStartCancel,
+		"session_started":        EvtSessionStarted,
+		"session_closed":         EvtSessionClosed,
+		"session_updated":        EvtSessionUpdated,
+		"message_received":       EvtMessageReceived,
+		"message_sent":           EvtMessageSent,
+		"status_changed":         EvtStatusChanged,
+		"fingerprint_changed":    EvtFingerprintChange,
+		"version_warning":        EvtVersionWarning,
+		"relay_token":            EvtRelayToken,
+		"relay_tokens":           EvtRelayTokens,
+		"verify_peer":            EvtVerifyPeer,
+		"error":                  EvtError,
+		"response":               EvtResponse,
 	}
 
 	for expected, actual := range expectedEvents {
@@ -372,4 +534,14 @@ func TestParseCommand(t *testing.T) {
 			a.Equal(tt.wantID, cmd.ID, "ID mismatch")
 		})
 	}
+}
+
+func TestTruncateSessionID(t *testing.T) {
+	a := assert.New(t)
+	a.Equal("short", truncateSessionID("short"), "short ID should be unchanged")
+	a.Equal(
+		"abcdefgh...wxyz",
+		truncateSessionID("abcdefghijklmnopqrstuvwxyz"),
+		"long ID should be truncated to first8...last4",
+	)
 }

@@ -14,12 +14,21 @@ type SubmitPassphraseParams struct {
 
 // StartServerParams contains parameters for starting a server.
 type StartServerParams struct {
-	Addr string `json:"addr"`
+	Addr      string `json:"addr"`
+	Transport string `json:"transport,omitempty"` // "tcp" (default), "udp", "relay"
+	RelayAddr string `json:"relay_addr,omitempty"`
+	Password  string `json:"password,omitempty"`
+	Name      string `json:"name,omitempty"`
 }
 
 // DialParams contains parameters for dialing a remote server.
 type DialParams struct {
-	Addr string `json:"addr"`
+	Addr      string `json:"addr"`
+	Transport string `json:"transport,omitempty"` // "tcp" (default), "udp", "relay"
+	RelayAddr string `json:"relay_addr,omitempty"`
+	Token     string `json:"token,omitempty"`
+	Password  string `json:"password,omitempty"`
+	Name      string `json:"name,omitempty"`
 }
 
 // SendMessageParams contains parameters for sending a message
@@ -31,4 +40,26 @@ type SendMessageParams struct {
 // CloseSessionParams contains parameters for closing a session
 type CloseSessionParams struct {
 	SessionID string `json:"session_id"`
+}
+
+// RenameSessionParams renames a live session in memory.
+type RenameSessionParams struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name"`
+}
+
+// RemoveRelayTokenParams removes an active relay token.
+type RemoveRelayTokenParams struct {
+	Token string `json:"token"`
+}
+
+// VerifyResponseParams answers a pending verify_peer event.
+type VerifyResponseParams struct {
+	RequestID int64 `json:"request_id"`
+	Accepted  bool  `json:"accepted"`
+}
+
+// SetVerificationModeParams sets the peer verification mode.
+type SetVerificationModeParams struct {
+	Mode int `json:"mode"`
 }

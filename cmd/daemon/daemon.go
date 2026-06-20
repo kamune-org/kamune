@@ -3,35 +3,57 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/kamune-org/kamune"
-	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // Daemon manages the kamune server and client connections
 type Daemon struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	mu            sync.RWMutex
 	sessions      map[string]*liveSession
 	server        *kamune.Server
+	serverDone    chan struct{}
 	serverRunning bool
 	pubKey        []byte
 	myName        string
 	dbPath        string
+	verifMode     VerificationMode
+
+	verifMu        sync.Mutex
+	verifRequests  map[int64]*pendingVerification
+	verifIDCounter atomic.Int64
+
+	serverAddr      string
+	serverTransport string
+	serverRelayAddr string
+	serverName      string
+	serverPassword  string
+
+	relayAddr       string
+	relayPassword   string
+	relaySessionTTL time.Duration
+	relayTokens     []relayToken
+	relayListeners  *multiListener
+
+	startCtx    context.Context
+	startCancel context.CancelFunc
+
+	status    ConnectionStatus
+	statusMsg string
 
 	output   *json.Encoder
 	outputMu sync.Mutex
@@ -48,10 +70,14 @@ type Daemon struct {
 func NewDaemon() *Daemon {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Daemon{
-		sessions: make(map[string]*liveSession),
-		output:   json.NewEncoder(os.Stdout),
-		ctx:      ctx,
-		cancel:   cancel,
+		sessions:      make(map[string]*liveSession),
+		output:        json.NewEncoder(os.Stdout),
+		ctx:           ctx,
+		cancel:        cancel,
+		verifMode:     VerificationModeQuick,
+		status:        StatusDisconnected,
+		statusMsg:     "Not connected",
+		verifRequests: make(map[int64]*pendingVerification),
 	}
 }
 
@@ -93,10 +119,16 @@ func (d *Daemon) addLogEntry(level, msg string) {
 	slog.Log(d.ctx, lvl, msg)
 }
 
-// markRelayTokenConsumed is a stub; the full implementation (updating
-// relayTokens, scheduling removal, emitting relay_tokens) lands in Phase 4.
-func (d *Daemon) markRelayTokenConsumed(token string) {
-	slog.Debug("relay token consumed", slog.String("token", token))
+// setStatus updates the daemon's connection status and emits status_changed.
+func (d *Daemon) setStatus(status ConnectionStatus, msg string) {
+	d.mu.Lock()
+	d.status = status
+	d.statusMsg = msg
+	d.mu.Unlock()
+
+	d.emit(EvtStatusChanged, "", MapS{
+		"status": string(status), "message": msg,
+	})
 }
 
 // store returns the single shared storage instance, or nil if not open.
@@ -246,6 +278,16 @@ func (d *Daemon) handleCommand(cmd Command) {
 		d.handleSubmitPassphrase(cmd)
 	case CmdStartServer:
 		d.handleStartServer(cmd)
+	case CmdStopServer:
+		d.handleStopServer(cmd)
+	case CmdRestartServer:
+		d.handleRestartServer(cmd)
+	case CmdCancelStartServer:
+		d.handleCancelStartServer(cmd)
+	case CmdGetServerStatus:
+		d.handleGetServerStatus(cmd)
+	case CmdGetStatus:
+		d.handleGetStatus(cmd)
 	case CmdDial:
 		d.handleDial(cmd)
 	case CmdSendMessage:
@@ -254,6 +296,22 @@ func (d *Daemon) handleCommand(cmd Command) {
 		d.handleListSessions(cmd)
 	case CmdCloseSession:
 		d.handleCloseSession(cmd)
+	case CmdRenameSession:
+		d.handleRenameSession(cmd)
+	case CmdGenerateRelayToken:
+		d.handleGenerateRelayToken(cmd)
+	case CmdRemoveRelayToken:
+		d.handleRemoveRelayToken(cmd)
+	case CmdListRelayTokens:
+		d.handleListRelayTokens(cmd)
+	case CmdGetShareInfo:
+		d.handleGetShareInfo(cmd)
+	case CmdVerifyResponse:
+		d.handleVerifyResponse(cmd)
+	case CmdSetVerificationMode:
+		d.handleSetVerificationMode(cmd)
+	case CmdGetVerificationMode:
+		d.handleGetVerificationMode(cmd)
 	case CmdShutdown:
 		d.Shutdown()
 	default:
@@ -276,9 +334,28 @@ func (d *Daemon) handleOpenStorage(cmd Command) {
 		d.emitError(cmd.ID, fmt.Sprintf("failed to open storage: %v", err))
 		return
 	}
+
+	d.loadPersistedSettings()
+
 	d.emit(EvtResponse, cmd.ID, MapS{
 		"status": "opened", "storage_path": params.StoragePath,
 	})
+}
+
+// loadPersistedSettings reads daemon settings from the store and applies them.
+// Called after open_storage / submit_passphrase.
+func (d *Daemon) loadPersistedSettings() {
+	store := d.store()
+	if store == nil {
+		return
+	}
+	if modeStr, err := store.GetSettings("daemon", "verification_mode"); err == nil && modeStr != "" {
+		if mode, err := strconv.Atoi(modeStr); err == nil {
+			d.mu.Lock()
+			d.verifMode = VerificationMode(mode)
+			d.mu.Unlock()
+		}
+	}
 }
 
 // handleSubmitPassphrase re-opens storage with a new passphrase. Requires a
@@ -318,308 +395,9 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	d.db = store
 	d.storeMu.Unlock()
 
+	d.loadPersistedSettings()
+
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "opened"})
-}
-
-// handleStartServer starts a kamune server
-func (d *Daemon) handleStartServer(cmd Command) {
-	var params StartServerParams
-	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
-		return
-	}
-
-	if !d.requireStorage(cmd.ID) {
-		return
-	}
-
-	d.mu.Lock()
-	if d.serverRunning {
-		d.mu.Unlock()
-		d.emitError(cmd.ID, "server already running")
-		return
-	}
-	d.serverRunning = true
-	d.mu.Unlock()
-
-	srv, err := kamune.NewServer(params.Addr, d.serverHandler, d.store())
-	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("failed to create server: %v", err))
-		d.mu.Lock()
-		d.serverRunning = false
-		d.mu.Unlock()
-		return
-	}
-
-	d.mu.Lock()
-	d.server = srv
-	d.mu.Unlock()
-
-	d.wg.Go(func() {
-		defer func() {
-			if msg := recover(); msg != nil {
-				d.emitError(cmd.ID, fmt.Sprintf("goroutine panic: %v", msg))
-			}
-		}()
-
-		pubkey := srv.PublicKey()
-		d.emit(EvtServerStarted, cmd.ID, MapA{
-			"addr":       params.Addr,
-			"public_key": fingerprint.Base64(pubkey),
-			"emoji":      fingerprint.Emoji(pubkey),
-		})
-
-		if err := srv.ListenAndServe(); err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("listen and serve error: %v", err))
-		}
-
-		d.mu.Lock()
-		d.serverRunning = false
-		d.server = nil
-		d.mu.Unlock()
-	})
-}
-
-// serverHandler handles incoming server connections
-func (d *Daemon) serverHandler(t *kamune.Transport) error {
-	sessionID := t.SessionID()
-	ctx, cancel := context.WithCancel(d.ctx)
-
-	session := &liveSession{
-		ID:               sessionID,
-		Transport:        t,
-		IsServer:         true,
-		SessionStartedAt: time.Now(),
-		cancelFunc:       cancel,
-		ReceiveDone:      make(chan struct{}),
-	}
-
-	d.mu.Lock()
-	d.sessions[sessionID] = session
-	d.mu.Unlock()
-
-	defer func() {
-		d.mu.Lock()
-		delete(d.sessions, sessionID)
-		d.mu.Unlock()
-		d.emit(EvtSessionClosed, "", MapS{"session_id": sessionID})
-	}()
-
-	d.emit(EvtSessionStarted, "", MapA{
-		"session_id": sessionID, "is_server": true,
-	})
-
-	// Start receiving messages
-	d.receiveLoop(ctx, sessionID, t)
-
-	return nil
-}
-
-// handleDial dials a remote kamune server
-func (d *Daemon) handleDial(cmd Command) {
-	var params DialParams
-	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
-		return
-	}
-
-	if !d.requireStorage(cmd.ID) {
-		return
-	}
-
-	d.wg.Go(func() {
-		defer func() {
-			if msg := recover(); msg != nil {
-				d.emitError(cmd.ID, fmt.Sprintf("goroutine panic: %v", msg))
-			}
-		}()
-
-		dialer, err := kamune.NewDialer(params.Addr, d.store())
-		if err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("failed to create dialer: %v", err))
-			return
-		}
-
-		t, err := dialer.Dial()
-		if err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("failed to dial: %v", err))
-			return
-		}
-
-		// If shutdown was requested during dial, close and bail out.
-		if d.ctx.Err() != nil {
-			t.Close()
-			return
-		}
-
-		sessionID := t.SessionID()
-		ctx, cancel := context.WithCancel(d.ctx)
-
-		session := &liveSession{
-			ID:               sessionID,
-			Transport:        t,
-			IsServer:         false,
-			RemoteAddr:       params.Addr,
-			SessionStartedAt: time.Now(),
-			cancelFunc:       cancel,
-			ReceiveDone:      make(chan struct{}),
-		}
-
-		d.mu.Lock()
-		d.sessions[sessionID] = session
-		d.mu.Unlock()
-
-		defer func() {
-			d.mu.Lock()
-			delete(d.sessions, sessionID)
-			d.mu.Unlock()
-			d.emit(EvtSessionClosed, "", MapS{"session_id": sessionID})
-		}()
-
-		d.emit(EvtSessionStarted, cmd.ID, MapA{
-			"session_id":  sessionID,
-			"is_server":   false,
-			"remote_addr": params.Addr,
-			"public_key":  fingerprint.Base64(dialer.PublicKey()),
-		})
-
-		// Start receiving messages
-		d.receiveLoop(ctx, sessionID, t)
-	})
-}
-
-// receiveLoop continuously receives messages from a transport
-func (d *Daemon) receiveLoop(
-	ctx context.Context, sessionID string, t *kamune.Transport,
-) {
-	b := kamune.Bytes(nil)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		metadata, err := t.Receive(b)
-		if err != nil {
-			switch {
-			case errors.Is(err, kamune.ErrPeerDisconnected):
-				return
-			case errors.Is(err, kamune.ErrConnClosed):
-				return
-			case errors.Is(err, kamune.ErrReceiveTimeout):
-				continue
-			default:
-				d.emitError(
-					"", fmt.Sprintf("receive error on session %s: %v", sessionID, err),
-				)
-				return
-			}
-		}
-
-		if metadata.Route() == kamune.RoutePing {
-			if err := t.Pong(b.GetValue()); err != nil {
-				slog.Warn("failed to send pong",
-					slog.String("session_id", sessionID),
-					slog.Any("error", err),
-				)
-			}
-			continue
-		}
-
-		d.emit(EvtMessageReceived, "", MapA{
-			"session_id":  sessionID,
-			"data_base64": base64.StdEncoding.EncodeToString(b.GetValue()),
-			"timestamp":   metadata.Timestamp().Format(time.RFC3339Nano),
-		})
-	}
-}
-
-// handleSendMessage sends a message on an existing session
-func (d *Daemon) handleSendMessage(cmd Command) {
-	var params SendMessageParams
-	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
-		return
-	}
-
-	d.mu.RLock()
-	session, ok := d.sessions[params.SessionID]
-	d.mu.RUnlock()
-
-	if !ok {
-		d.emitError(
-			cmd.ID, fmt.Sprintf("session not found: %s", params.SessionID),
-		)
-		return
-	}
-
-	data, err := base64.StdEncoding.DecodeString(params.DataBase64)
-	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid base64 data: %v", err))
-		return
-	}
-
-	metadata, err := session.Transport.Send(
-		kamune.Bytes(data), kamune.RouteExchangeMessages,
-	)
-	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("failed to send message: %v", err))
-		return
-	}
-
-	d.emit(EvtMessageSent, cmd.ID, MapA{
-		"session_id": params.SessionID,
-		"timestamp":  metadata.Timestamp().Format(time.RFC3339Nano),
-	})
-}
-
-// handleListSessions returns a list of active sessions
-func (d *Daemon) handleListSessions(cmd Command) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	sessions := make([]SessionInfo, 0, len(d.sessions))
-	for id, s := range d.sessions {
-		sessions = append(sessions, SessionInfo{
-			SessionID:  id,
-			RemoteAddr: s.RemoteAddr,
-			IsServer:   s.IsServer,
-			CreatedAt:  s.SessionStartedAt.Format(time.RFC3339),
-		})
-	}
-
-	d.emit(EvtResponse, cmd.ID, MapA{"sessions": sessions})
-}
-
-// handleCloseSession closes a specific session
-func (d *Daemon) handleCloseSession(cmd Command) {
-	var params CloseSessionParams
-	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
-		return
-	}
-
-	d.mu.Lock()
-	session, ok := d.sessions[params.SessionID]
-	if !ok {
-		d.mu.Unlock()
-		d.emitError(
-			cmd.ID, fmt.Sprintf("session not found: %s", params.SessionID),
-		)
-		return
-	}
-	delete(d.sessions, params.SessionID)
-	d.mu.Unlock()
-
-	session.cancelFunc()
-	if err := session.Transport.Close(); err != nil {
-		slog.Warn("error closing transport", slog.Any("error", err))
-	}
-
-	d.emit(EvtResponse, cmd.ID, MapS{
-		"status": "closed", "session_id": params.SessionID,
-	})
 }
 
 // Shutdown gracefully shuts down the daemon
@@ -627,6 +405,12 @@ func (d *Daemon) Shutdown() {
 	d.cancel()
 
 	d.mu.Lock()
+
+	// Close relay listeners
+	if d.relayListeners != nil {
+		d.relayListeners.Close()
+		d.relayListeners = nil
+	}
 
 	// Close server listener first so ListenAndServe returns
 	if d.server != nil {
@@ -638,7 +422,6 @@ func (d *Daemon) Shutdown() {
 
 	// Close all sessions
 	for id, session := range d.sessions {
-		session.cancelFunc()
 		if err := session.Transport.Close(); err != nil {
 			slog.Warn(
 				"error closing session",
@@ -648,9 +431,20 @@ func (d *Daemon) Shutdown() {
 		}
 	}
 	d.sessions = make(map[string]*liveSession)
-	d.mu.Unlock()
 
-	// Wait for all goroutines to finish before emitting the response
+	if d.serverDone != nil {
+		done := d.serverDone
+		d.serverDone = nil
+		d.mu.Unlock()
+		select {
+		case <-done:
+		case <-time.After(channelTimeout):
+			slog.Warn("Timeout waiting for ListenAndServe")
+		}
+	} else {
+		d.mu.Unlock()
+	}
+
 	d.wg.Wait()
 
 	d.closeStore()

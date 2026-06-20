@@ -14,8 +14,6 @@ import (
 	"github.com/kamune-org/kamune/pkg/relayconn"
 )
 
-var errRelayCloseHint = errors.New("the relay server closed the connection — check the password and token")
-
 func wrapRelayError(scheme, host string, password bool, err error) error {
 	var hint string
 	if strings.Contains(err.Error(), "received close frame") {
