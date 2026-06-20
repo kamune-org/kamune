@@ -31,12 +31,14 @@ type CMD string
 
 // Command types
 const (
-	CmdStartServer  CMD = "start_server"
-	CmdDial         CMD = "dial"
-	CmdSendMessage  CMD = "send_message"
-	CmdListSessions CMD = "list_sessions"
-	CmdCloseSession CMD = "close_session"
-	CmdShutdown     CMD = "shutdown"
+	CmdOpenStorage     CMD = "open_storage"
+	CmdSubmitPassphrase CMD = "submit_passphrase"
+	CmdStartServer     CMD = "start_server"
+	CmdDial            CMD = "dial"
+	CmdSendMessage     CMD = "send_message"
+	CmdListSessions    CMD = "list_sessions"
+	CmdCloseSession    CMD = "close_session"
+	CmdShutdown        CMD = "shutdown"
 )
 
 // Evt represents events
@@ -78,13 +80,30 @@ type SessionInfo struct {
 	IsServer   bool   `json:"is_server"`
 }
 
-// Session wraps a kamune.Transport with metadata
-type Session struct {
-	CreatedAt  time.Time
-	Transport  *kamune.Transport
-	cancelFunc context.CancelFunc
-	RemoteAddr string
-	IsServer   bool
+// MessageInfo is a single chat message in a session's history.
+type MessageInfo struct {
+	Text      string    `json:"text"`
+	Timestamp time.Time `json:"timestamp"`
+	IsLocal   bool      `json:"is_local"`
+}
+
+// liveSession wraps a kamune.Transport with metadata. Mirrors bus.liveSession
+// (cmd/bus/app.go:126-138). Extra fields are added now so later phases don't
+// need to touch this struct again.
+type liveSession struct {
+	ID               string
+	PeerName         string
+	RemoteVersion    string
+	RemoteAddr       string
+	Transport        *kamune.Transport
+	Messages         []MessageInfo
+	LastActivity     time.Time
+	ReceiveDone      chan struct{}
+	cancelFunc       context.CancelFunc
+	IsServer         bool
+	TransportType    string
+	SessionTTL       time.Duration
+	SessionStartedAt time.Time
 }
 
 func main() {

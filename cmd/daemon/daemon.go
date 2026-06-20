@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -21,25 +22,34 @@ import (
 
 // Daemon manages the kamune server and client connections
 type Daemon struct {
-	ctx           context.Context
-	sessions      map[string]*Session
-	server        *kamune.Server
-	output        *json.Encoder
-	cancel        context.CancelFunc
+	ctx      context.Context
+	cancel   context.CancelFunc
+
 	mu            sync.RWMutex
-	outputMu      sync.Mutex
+	sessions      map[string]*liveSession
+	server        *kamune.Server
 	serverRunning bool
-	wg            sync.WaitGroup
-	stores        map[string]*storage.Storage
+	pubKey        []byte
+	myName        string
+	dbPath        string
+
+	output   *json.Encoder
+	outputMu sync.Mutex
+
+	storeMu sync.Mutex
+	db      *storage.Storage
+
+	passphrase atomic.Value
+
+	wg sync.WaitGroup
 }
 
 // NewDaemon creates a new daemon instance
 func NewDaemon() *Daemon {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Daemon{
-		sessions: make(map[string]*Session),
+		sessions: make(map[string]*liveSession),
 		output:   json.NewEncoder(os.Stdout),
-		stores:   make(map[string]*storage.Storage),
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -66,45 +76,100 @@ func (d *Daemon) emitError(correlationID ID, errMsg string) {
 	d.emit(EvtError, correlationID, MapS{"error": errMsg})
 }
 
-// openDaemonStorage opens or reuses a cached storage for the given path and
-// no-passphrase flag.
-func (d *Daemon) openDaemonStorage(
-	storagePath string, noPassphrase bool,
-) (*storage.Storage, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// addLogEntry logs a message at the given level. The daemon has no in-app log
+// buffer or Wails event surface, so this is a thin slog wrapper.
+func (d *Daemon) addLogEntry(level, msg string) {
+	var lvl slog.Level
+	switch level {
+	case "DEBUG":
+		lvl = slog.LevelDebug
+	case "WARN":
+		lvl = slog.LevelWarn
+	case "ERROR":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
+	}
+	slog.Log(d.ctx, lvl, msg)
+}
 
-	key := storagePath
-	if noPassphrase {
-		key += "?nopp"
+// markRelayTokenConsumed is a stub; the full implementation (updating
+// relayTokens, scheduling removal, emitting relay_tokens) lands in Phase 4.
+func (d *Daemon) markRelayTokenConsumed(token string) {
+	slog.Debug("relay token consumed", slog.String("token", token))
+}
+
+// store returns the single shared storage instance, or nil if not open.
+func (d *Daemon) store() *storage.Storage {
+	d.storeMu.Lock()
+	defer d.storeMu.Unlock()
+	return d.db
+}
+
+// closeStore closes the shared storage if open. Safe to call multiple times.
+func (d *Daemon) closeStore() {
+	d.storeMu.Lock()
+	defer d.storeMu.Unlock()
+	if d.db != nil {
+		if err := d.db.Close(); err != nil {
+			slog.Warn("error closing storage", slog.Any("error", err))
+		}
+		d.db = nil
 	}
-	if store, ok := d.stores[key]; ok {
-		return store, nil
+}
+
+// requireStorage emits a "not opened" error and returns false if storage is
+// not open. Callers should `return` immediately when this returns false.
+func (d *Daemon) requireStorage(cmdID ID) bool {
+	if d.store() == nil {
+		d.emitError(cmdID, "storage not opened — call open_storage first")
+		return false
 	}
+	return true
+}
+
+// openStorage closes any existing storage and opens a new one at the given
+// path with the given passphrase mode. For passphrase mode, the passphrase
+// is read from KAMUNE_DB_PASSPHRASE.
+func (d *Daemon) openStorage(params OpenStorageParams) error {
+	d.closeStore()
 
 	var opts []storage.StorageOption
-	if storagePath != "" {
-		opts = append(opts, storage.WithDBPath(storagePath))
+	if params.StoragePath != "" {
+		opts = append(opts, storage.WithDBPath(params.StoragePath))
 	}
-	if noPassphrase {
+
+	if params.DBNoPassphrase {
 		opts = append(opts, storage.WithNoPassphrase())
 	} else {
 		pass := os.Getenv("KAMUNE_DB_PASSPHRASE")
 		if pass == "" {
-			return nil, fmt.Errorf(
-				"KAMUNE_DB_PASSPHRASE not set and db_no_passphrase is false",
+			return fmt.Errorf(
+				"KAMUNE_DB_PASSPHRASE not set and db_no_passphrase is false; " +
+					"use submit_passphrase to provide one",
 			)
 		}
+		d.passphrase.Store([]byte(pass))
 		opts = append(opts, storage.WithPassphraseHandler(func() ([]byte, error) {
-			return []byte(pass), nil
+			p, _ := d.passphrase.Load().([]byte)
+			return p, nil
 		}))
 	}
+
 	store, err := storage.OpenStorage(opts...)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	d.stores[key] = store
-	return store, nil
+
+	d.storeMu.Lock()
+	d.db = store
+	d.storeMu.Unlock()
+
+	d.mu.Lock()
+	d.dbPath = params.StoragePath
+	d.mu.Unlock()
+
+	return nil
 }
 
 // Run starts the daemon's main loop
@@ -165,7 +230,7 @@ func (d *Daemon) Run() {
 	}
 
 	// stdin closed without a shutdown command — clean up
-	d.closeStores()
+	d.closeStore()
 
 	if err := scanner.Err(); err != nil {
 		slog.Error("stdin scanner error", slog.Any("error", err))
@@ -175,6 +240,10 @@ func (d *Daemon) Run() {
 // handleCommand processes a single command
 func (d *Daemon) handleCommand(cmd Command) {
 	switch cmd.CMD {
+	case CmdOpenStorage:
+		d.handleOpenStorage(cmd)
+	case CmdSubmitPassphrase:
+		d.handleSubmitPassphrase(cmd)
 	case CmdStartServer:
 		d.handleStartServer(cmd)
 	case CmdDial:
@@ -192,11 +261,75 @@ func (d *Daemon) handleCommand(cmd Command) {
 	}
 }
 
+// handleOpenStorage opens the single shared storage.
+func (d *Daemon) handleOpenStorage(cmd Command) {
+	var params OpenStorageParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+	if params.StoragePath == "" {
+		d.emitError(cmd.ID, "storage_path is required")
+		return
+	}
+	if err := d.openStorage(params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("failed to open storage: %v", err))
+		return
+	}
+	d.emit(EvtResponse, cmd.ID, MapS{
+		"status": "opened", "storage_path": params.StoragePath,
+	})
+}
+
+// handleSubmitPassphrase re-opens storage with a new passphrase. Requires a
+// prior open_storage call (so d.dbPath is set).
+func (d *Daemon) handleSubmitPassphrase(cmd Command) {
+	var params SubmitPassphraseParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	d.mu.RLock()
+	dbPath := d.dbPath
+	d.mu.RUnlock()
+
+	if dbPath == "" {
+		d.emitError(cmd.ID, "storage not opened — call open_storage first")
+		return
+	}
+
+	d.closeStore()
+	d.passphrase.Store([]byte(params.Passphrase))
+
+	store, err := storage.OpenStorage(
+		storage.WithDBPath(dbPath),
+		storage.WithPassphraseHandler(func() ([]byte, error) {
+			p, _ := d.passphrase.Load().([]byte)
+			return p, nil
+		}),
+	)
+	if err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("failed to open storage: %v", err))
+		return
+	}
+
+	d.storeMu.Lock()
+	d.db = store
+	d.storeMu.Unlock()
+
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "opened"})
+}
+
 // handleStartServer starts a kamune server
 func (d *Daemon) handleStartServer(cmd Command) {
 	var params StartServerParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
 		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	if !d.requireStorage(cmd.ID) {
 		return
 	}
 
@@ -209,16 +342,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	d.serverRunning = true
 	d.mu.Unlock()
 
-	store, err := d.openDaemonStorage(params.StoragePath, params.DBNoPassphrase)
-	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("failed to open storage: %v", err))
-		d.mu.Lock()
-		d.serverRunning = false
-		d.mu.Unlock()
-		return
-	}
-
-	srv, err := kamune.NewServer(params.Addr, d.serverHandler, store)
+	srv, err := kamune.NewServer(params.Addr, d.serverHandler, d.store())
 	if err != nil {
 		d.emitError(cmd.ID, fmt.Sprintf("failed to create server: %v", err))
 		d.mu.Lock()
@@ -261,11 +385,13 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	sessionID := t.SessionID()
 	ctx, cancel := context.WithCancel(d.ctx)
 
-	session := &Session{
-		Transport:  t,
-		IsServer:   true,
-		CreatedAt:  time.Now(),
-		cancelFunc: cancel,
+	session := &liveSession{
+		ID:               sessionID,
+		Transport:        t,
+		IsServer:         true,
+		SessionStartedAt: time.Now(),
+		cancelFunc:       cancel,
+		ReceiveDone:      make(chan struct{}),
 	}
 
 	d.mu.Lock()
@@ -297,9 +423,7 @@ func (d *Daemon) handleDial(cmd Command) {
 		return
 	}
 
-	store, err := d.openDaemonStorage(params.StoragePath, params.DBNoPassphrase)
-	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("failed to open storage: %v", err))
+	if !d.requireStorage(cmd.ID) {
 		return
 	}
 
@@ -310,7 +434,7 @@ func (d *Daemon) handleDial(cmd Command) {
 			}
 		}()
 
-		dialer, err := kamune.NewDialer(params.Addr, store)
+		dialer, err := kamune.NewDialer(params.Addr, d.store())
 		if err != nil {
 			d.emitError(cmd.ID, fmt.Sprintf("failed to create dialer: %v", err))
 			return
@@ -331,12 +455,14 @@ func (d *Daemon) handleDial(cmd Command) {
 		sessionID := t.SessionID()
 		ctx, cancel := context.WithCancel(d.ctx)
 
-		session := &Session{
-			Transport:  t,
-			IsServer:   false,
-			RemoteAddr: params.Addr,
-			CreatedAt:  time.Now(),
-			cancelFunc: cancel,
+		session := &liveSession{
+			ID:               sessionID,
+			Transport:        t,
+			IsServer:         false,
+			RemoteAddr:       params.Addr,
+			SessionStartedAt: time.Now(),
+			cancelFunc:       cancel,
+			ReceiveDone:      make(chan struct{}),
 		}
 
 		d.mu.Lock()
@@ -459,7 +585,7 @@ func (d *Daemon) handleListSessions(cmd Command) {
 			SessionID:  id,
 			RemoteAddr: s.RemoteAddr,
 			IsServer:   s.IsServer,
-			CreatedAt:  s.CreatedAt.Format(time.RFC3339),
+			CreatedAt:  s.SessionStartedAt.Format(time.RFC3339),
 		})
 	}
 
@@ -496,16 +622,6 @@ func (d *Daemon) handleCloseSession(cmd Command) {
 	})
 }
 
-// closeStores closes all cached storage instances. Safe to call multiple times.
-func (d *Daemon) closeStores() {
-	for path, store := range d.stores {
-		if err := store.Close(); err != nil {
-			slog.Warn("error closing storage", slog.String("path", path), slog.Any("error", err))
-		}
-	}
-	d.stores = nil
-}
-
 // Shutdown gracefully shuts down the daemon
 func (d *Daemon) Shutdown() {
 	d.cancel()
@@ -531,13 +647,13 @@ func (d *Daemon) Shutdown() {
 			)
 		}
 	}
-	d.sessions = make(map[string]*Session)
+	d.sessions = make(map[string]*liveSession)
 	d.mu.Unlock()
 
 	// Wait for all goroutines to finish before emitting the response
 	d.wg.Wait()
 
-	d.closeStores()
+	d.closeStore()
 
 	d.emit(EvtResponse, "", MapS{"status": "shutdown"})
 

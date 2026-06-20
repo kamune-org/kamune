@@ -1,17 +1,25 @@
 package main
 
-// StartServerParams contains parameters for starting a server
-type StartServerParams struct {
-	Addr           string `json:"addr"`
+// OpenStorageParams contains parameters for opening the single shared storage.
+type OpenStorageParams struct {
 	StoragePath    string `json:"storage_path"`
 	DBNoPassphrase bool   `json:"db_no_passphrase"`
 }
 
-// DialParams contains parameters for dialing a remote server
+// SubmitPassphraseParams contains parameters for re-opening storage with a
+// new passphrase. Requires a prior open_storage call.
+type SubmitPassphraseParams struct {
+	Passphrase string `json:"passphrase"`
+}
+
+// StartServerParams contains parameters for starting a server.
+type StartServerParams struct {
+	Addr string `json:"addr"`
+}
+
+// DialParams contains parameters for dialing a remote server.
 type DialParams struct {
-	Addr           string `json:"addr"`
-	StoragePath    string `json:"storage_path"`
-	DBNoPassphrase bool   `json:"db_no_passphrase"`
+	Addr string `json:"addr"`
 }
 
 // SendMessageParams contains parameters for sending a message

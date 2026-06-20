@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -144,9 +145,7 @@ func TestEventSerialization(t *testing.T) {
 func TestStartServerParams(t *testing.T) {
 	a := assert.New(t)
 	params := StartServerParams{
-		Addr:           "127.0.0.1:9000",
-		StoragePath:    "/tmp/test.db",
-		DBNoPassphrase: true,
+		Addr: "127.0.0.1:9000",
 	}
 
 	data, err := json.Marshal(params)
@@ -157,16 +156,12 @@ func TestStartServerParams(t *testing.T) {
 	a.NoError(err, "failed to unmarshal params")
 
 	a.Equal(params.Addr, decoded.Addr, "Addr mismatch")
-	a.Equal(params.StoragePath, decoded.StoragePath, "StoragePath mismatch")
-	a.Equal(params.DBNoPassphrase, decoded.DBNoPassphrase, "DBNoPassphrase mismatch")
 }
 
 func TestDialParams(t *testing.T) {
 	a := assert.New(t)
 	params := DialParams{
-		Addr:           "192.168.1.10:9000",
-		StoragePath:    "/tmp/client.db",
-		DBNoPassphrase: false,
+		Addr: "192.168.1.10:9000",
 	}
 
 	data, err := json.Marshal(params)
@@ -177,8 +172,61 @@ func TestDialParams(t *testing.T) {
 	a.NoError(err, "failed to unmarshal params")
 
 	a.Equal(params.Addr, decoded.Addr, "Addr mismatch")
+}
+
+func TestOpenStorageParams(t *testing.T) {
+	a := assert.New(t)
+	params := OpenStorageParams{
+		StoragePath:    "/tmp/test.db",
+		DBNoPassphrase: true,
+	}
+
+	data, err := json.Marshal(params)
+	a.NoError(err, "failed to marshal params")
+
+	var decoded OpenStorageParams
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal params")
+
 	a.Equal(params.StoragePath, decoded.StoragePath, "StoragePath mismatch")
 	a.Equal(params.DBNoPassphrase, decoded.DBNoPassphrase, "DBNoPassphrase mismatch")
+}
+
+func TestSubmitPassphraseParams(t *testing.T) {
+	a := assert.New(t)
+	params := SubmitPassphraseParams{
+		Passphrase: "correct horse battery staple",
+	}
+
+	data, err := json.Marshal(params)
+	a.NoError(err, "failed to marshal params")
+
+	var decoded SubmitPassphraseParams
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal params")
+
+	a.Equal(params.Passphrase, decoded.Passphrase, "Passphrase mismatch")
+}
+
+func TestMessageInfo(t *testing.T) {
+	a := assert.New(t)
+	ts := time.Date(2026, 6, 21, 10, 30, 0, 0, time.UTC)
+	msg := MessageInfo{
+		Text:      "Hello, World!",
+		Timestamp: ts,
+		IsLocal:   true,
+	}
+
+	data, err := json.Marshal(msg)
+	a.NoError(err, "failed to marshal MessageInfo")
+
+	var decoded MessageInfo
+	err = json.Unmarshal(data, &decoded)
+	a.NoError(err, "failed to unmarshal MessageInfo")
+
+	a.Equal(msg.Text, decoded.Text, "Text mismatch")
+	a.True(msg.Timestamp.Equal(decoded.Timestamp), "Timestamp mismatch")
+	a.Equal(msg.IsLocal, decoded.IsLocal, "IsLocal mismatch")
 }
 
 func TestSendMessageParams(t *testing.T) {
@@ -240,14 +288,15 @@ func TestDaemonNew(t *testing.T) {
 
 func TestCommandConstants(t *testing.T) {
 	a := assert.New(t)
-	// Verify command constants are defined correctly
 	expectedCommands := map[string]CMD{
-		"start_server":  CmdStartServer,
-		"dial":          CmdDial,
-		"send_message":  CmdSendMessage,
-		"list_sessions": CmdListSessions,
-		"close_session": CmdCloseSession,
-		"shutdown":      CmdShutdown,
+		"open_storage":      CmdOpenStorage,
+		"submit_passphrase": CmdSubmitPassphrase,
+		"start_server":      CmdStartServer,
+		"dial":              CmdDial,
+		"send_message":      CmdSendMessage,
+		"list_sessions":     CmdListSessions,
+		"close_session":     CmdCloseSession,
+		"shutdown":          CmdShutdown,
 	}
 
 	for expected, actual := range expectedCommands {
