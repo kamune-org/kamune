@@ -315,6 +315,116 @@ func TestSetVerificationModeParams(t *testing.T) {
 	a.Equal(params.Mode, decoded.Mode, "Mode mismatch")
 }
 
+func TestGetHistoryMessagesParams(t *testing.T) {
+	a := assert.New(t)
+	params := GetHistoryMessagesParams{SessionID: "abc123"}
+	data, err := json.Marshal(params)
+	a.NoError(err)
+	var decoded GetHistoryMessagesParams
+	a.NoError(json.Unmarshal(data, &decoded))
+	a.Equal(params.SessionID, decoded.SessionID)
+}
+
+func TestLoadHistoryParams(t *testing.T) {
+	a := assert.New(t)
+	params := LoadHistoryParams{SessionID: "abc123"}
+	data, err := json.Marshal(params)
+	a.NoError(err)
+	var decoded LoadHistoryParams
+	a.NoError(json.Unmarshal(data, &decoded))
+	a.Equal(params.SessionID, decoded.SessionID)
+}
+
+func TestRenameHistorySessionParams(t *testing.T) {
+	a := assert.New(t)
+	params := RenameHistorySessionParams{SessionID: "abc123", Name: "Alice"}
+	data, err := json.Marshal(params)
+	a.NoError(err)
+	var decoded RenameHistorySessionParams
+	a.NoError(json.Unmarshal(data, &decoded))
+	a.Equal(params.SessionID, decoded.SessionID)
+	a.Equal(params.Name, decoded.Name)
+}
+
+func TestDeleteHistorySessionParams(t *testing.T) {
+	a := assert.New(t)
+	params := DeleteHistorySessionParams{SessionID: "abc123"}
+	data, err := json.Marshal(params)
+	a.NoError(err)
+	var decoded DeleteHistorySessionParams
+	a.NoError(json.Unmarshal(data, &decoded))
+	a.Equal(params.SessionID, decoded.SessionID)
+}
+
+func TestDeletePeerParams(t *testing.T) {
+	a := assert.New(t)
+	params := DeletePeerParams{PublicKey: "deadbeef"}
+	data, err := json.Marshal(params)
+	a.NoError(err)
+	var decoded DeletePeerParams
+	a.NoError(json.Unmarshal(data, &decoded))
+	a.Equal(params.PublicKey, decoded.PublicKey)
+}
+
+func TestSetMyNameParams(t *testing.T) {
+	a := assert.New(t)
+	params := SetMyNameParams{Name: "CrimsonOtter"}
+	data, err := json.Marshal(params)
+	a.NoError(err)
+	var decoded SetMyNameParams
+	a.NoError(json.Unmarshal(data, &decoded))
+	a.Equal(params.Name, decoded.Name)
+}
+
+func TestHistorySessionInfo(t *testing.T) {
+	a := assert.New(t)
+	ts := time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC)
+	info := HistorySessionInfo{
+		ID: "abc123", Name: "Alice", MessageCount: 10,
+		FirstMessage: ts, LastMessage: ts, Loaded: true,
+	}
+	data, err := json.Marshal(info)
+	a.NoError(err)
+	var decoded HistorySessionInfo
+	a.NoError(json.Unmarshal(data, &decoded))
+	a.Equal(info.ID, decoded.ID)
+	a.Equal(info.Name, decoded.Name)
+	a.Equal(info.MessageCount, decoded.MessageCount)
+	a.Equal(info.Loaded, decoded.Loaded)
+	a.True(info.FirstMessage.Equal(decoded.FirstMessage))
+}
+
+func TestPeerInfo(t *testing.T) {
+	a := assert.New(t)
+	ts := time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC)
+	info := PeerInfo{
+		Name: "Bob", AppVersion: "0.5.0",
+		FirstSeen: ts, LastSeen: ts, PublicKey: "deadbeef",
+	}
+	data, err := json.Marshal(info)
+	a.NoError(err)
+	var decoded PeerInfo
+	a.NoError(json.Unmarshal(data, &decoded))
+	a.Equal(info.Name, decoded.Name)
+	a.Equal(info.AppVersion, decoded.AppVersion)
+	a.Equal(info.PublicKey, decoded.PublicKey)
+}
+
+func TestFingerprintInfo(t *testing.T) {
+	a := assert.New(t)
+	info := FingerprintInfo{
+		Emoji: "🦊 • 🐱", B64: "abc", Hex: "def", Sum: "ghi",
+	}
+	data, err := json.Marshal(info)
+	a.NoError(err)
+	var decoded FingerprintInfo
+	a.NoError(json.Unmarshal(data, &decoded))
+	a.Equal(info.Emoji, decoded.Emoji)
+	a.Equal(info.B64, decoded.B64)
+	a.Equal(info.Hex, decoded.Hex)
+	a.Equal(info.Sum, decoded.Sum)
+}
+
 func TestVerificationModeConstants(t *testing.T) {
 	a := assert.New(t)
 	a.Equal(VerificationMode(0), VerificationModeStrict, "Strict mismatch")
@@ -429,27 +539,40 @@ func TestDaemonNew(t *testing.T) {
 func TestCommandConstants(t *testing.T) {
 	a := assert.New(t)
 	expectedCommands := map[string]CMD{
-		"open_storage":          CmdOpenStorage,
-		"submit_passphrase":     CmdSubmitPassphrase,
-		"start_server":          CmdStartServer,
-		"stop_server":           CmdStopServer,
-		"restart_server":        CmdRestartServer,
-		"cancel_start_server":   CmdCancelStartServer,
-		"get_server_status":     CmdGetServerStatus,
-		"get_status":            CmdGetStatus,
-		"dial":                  CmdDial,
-		"send_message":          CmdSendMessage,
-		"list_sessions":         CmdListSessions,
-		"close_session":         CmdCloseSession,
-		"rename_session":        CmdRenameSession,
-		"generate_relay_token":  CmdGenerateRelayToken,
-		"remove_relay_token":    CmdRemoveRelayToken,
-		"list_relay_tokens":     CmdListRelayTokens,
-		"get_share_info":        CmdGetShareInfo,
-		"verify_response":       CmdVerifyResponse,
-		"set_verification_mode": CmdSetVerificationMode,
-		"get_verification_mode": CmdGetVerificationMode,
-		"shutdown":              CmdShutdown,
+		"open_storage":           CmdOpenStorage,
+		"submit_passphrase":      CmdSubmitPassphrase,
+		"start_server":           CmdStartServer,
+		"stop_server":            CmdStopServer,
+		"restart_server":         CmdRestartServer,
+		"cancel_start_server":    CmdCancelStartServer,
+		"get_server_status":      CmdGetServerStatus,
+		"get_status":             CmdGetStatus,
+		"dial":                   CmdDial,
+		"send_message":           CmdSendMessage,
+		"list_sessions":          CmdListSessions,
+		"close_session":          CmdCloseSession,
+		"rename_session":         CmdRenameSession,
+		"generate_relay_token":   CmdGenerateRelayToken,
+		"remove_relay_token":     CmdRemoveRelayToken,
+		"list_relay_tokens":      CmdListRelayTokens,
+		"get_share_info":         CmdGetShareInfo,
+		"verify_response":        CmdVerifyResponse,
+		"set_verification_mode":  CmdSetVerificationMode,
+		"get_verification_mode":  CmdGetVerificationMode,
+		"get_history_sessions":   CmdGetHistorySessions,
+		"get_history_messages":   CmdGetHistoryMessages,
+		"load_history":           CmdLoadHistory,
+		"rename_history_session": CmdRenameHistorySession,
+		"delete_history_session": CmdDeleteHistorySession,
+		"refresh_history":        CmdRefreshHistory,
+		"list_peers":             CmdListPeers,
+		"delete_peer":            CmdDeletePeer,
+		"get_fingerprint":        CmdGetFingerprint,
+		"get_my_name":            CmdGetMyName,
+		"set_my_name":            CmdSetMyName,
+		"get_version":            CmdGetVersion,
+		"get_library_version":    CmdGetLibraryVersion,
+		"shutdown":               CmdShutdown,
 	}
 
 	for expected, actual := range expectedCommands {
@@ -476,6 +599,9 @@ func TestEventConstants(t *testing.T) {
 		"relay_token":            EvtRelayToken,
 		"relay_tokens":           EvtRelayTokens,
 		"verify_peer":            EvtVerifyPeer,
+		"history_updated":        EvtHistoryUpdated,
+		"history_loaded":         EvtHistoryLoaded,
+		"local_name_changed":     EvtLocalNameChanged,
 		"error":                  EvtError,
 		"response":               EvtResponse,
 	}

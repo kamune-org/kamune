@@ -31,27 +31,40 @@ type CMD string
 
 // Command types
 const (
-	CmdOpenStorage         CMD = "open_storage"
-	CmdSubmitPassphrase    CMD = "submit_passphrase"
-	CmdStartServer         CMD = "start_server"
-	CmdStopServer          CMD = "stop_server"
-	CmdRestartServer       CMD = "restart_server"
-	CmdCancelStartServer   CMD = "cancel_start_server"
-	CmdGetServerStatus     CMD = "get_server_status"
-	CmdGetStatus           CMD = "get_status"
-	CmdDial                CMD = "dial"
-	CmdSendMessage         CMD = "send_message"
-	CmdListSessions        CMD = "list_sessions"
-	CmdCloseSession        CMD = "close_session"
-	CmdRenameSession       CMD = "rename_session"
-	CmdGenerateRelayToken  CMD = "generate_relay_token"
-	CmdRemoveRelayToken    CMD = "remove_relay_token"
-	CmdListRelayTokens     CMD = "list_relay_tokens"
-	CmdGetShareInfo        CMD = "get_share_info"
-	CmdVerifyResponse      CMD = "verify_response"
-	CmdSetVerificationMode CMD = "set_verification_mode"
-	CmdGetVerificationMode CMD = "get_verification_mode"
-	CmdShutdown            CMD = "shutdown"
+	CmdOpenStorage          CMD = "open_storage"
+	CmdSubmitPassphrase     CMD = "submit_passphrase"
+	CmdStartServer          CMD = "start_server"
+	CmdStopServer           CMD = "stop_server"
+	CmdRestartServer        CMD = "restart_server"
+	CmdCancelStartServer    CMD = "cancel_start_server"
+	CmdGetServerStatus      CMD = "get_server_status"
+	CmdGetStatus            CMD = "get_status"
+	CmdDial                 CMD = "dial"
+	CmdSendMessage          CMD = "send_message"
+	CmdListSessions         CMD = "list_sessions"
+	CmdCloseSession         CMD = "close_session"
+	CmdRenameSession        CMD = "rename_session"
+	CmdGenerateRelayToken   CMD = "generate_relay_token"
+	CmdRemoveRelayToken     CMD = "remove_relay_token"
+	CmdListRelayTokens      CMD = "list_relay_tokens"
+	CmdGetShareInfo         CMD = "get_share_info"
+	CmdVerifyResponse       CMD = "verify_response"
+	CmdSetVerificationMode  CMD = "set_verification_mode"
+	CmdGetVerificationMode  CMD = "get_verification_mode"
+	CmdGetHistorySessions   CMD = "get_history_sessions"
+	CmdGetHistoryMessages   CMD = "get_history_messages"
+	CmdLoadHistory          CMD = "load_history"
+	CmdRenameHistorySession CMD = "rename_history_session"
+	CmdDeleteHistorySession CMD = "delete_history_session"
+	CmdRefreshHistory       CMD = "refresh_history"
+	CmdListPeers            CMD = "list_peers"
+	CmdDeletePeer           CMD = "delete_peer"
+	CmdGetFingerprint       CMD = "get_fingerprint"
+	CmdGetMyName            CMD = "get_my_name"
+	CmdSetMyName            CMD = "set_my_name"
+	CmdGetVersion           CMD = "get_version"
+	CmdGetLibraryVersion    CMD = "get_library_version"
+	CmdShutdown             CMD = "shutdown"
 )
 
 // Evt represents events
@@ -75,6 +88,9 @@ const (
 	EvtRelayToken        Evt = "relay_token"
 	EvtRelayTokens       Evt = "relay_tokens"
 	EvtVerifyPeer        Evt = "verify_peer"
+	EvtHistoryUpdated    Evt = "history_updated"
+	EvtHistoryLoaded     Evt = "history_loaded"
+	EvtLocalNameChanged  Evt = "local_name_changed"
 	EvtError             Evt = "error"
 	EvtResponse          Evt = "response"
 )
@@ -130,6 +146,33 @@ type SessionInfo struct {
 	RemoteAddr       string        `json:"remote_addr,omitempty"`
 }
 
+// HistorySessionInfo is the public history session shape.
+type HistorySessionInfo struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	MessageCount int       `json:"message_count"`
+	FirstMessage time.Time `json:"first_message"`
+	LastMessage  time.Time `json:"last_message"`
+	Loaded       bool      `json:"loaded"`
+}
+
+// PeerInfo is the public peer shape returned by list_peers.
+type PeerInfo struct {
+	Name       string    `json:"name"`
+	AppVersion string    `json:"app_version"`
+	FirstSeen  time.Time `json:"first_seen"`
+	LastSeen   time.Time `json:"last_seen"`
+	PublicKey  string    `json:"public_key"` // base64-encoded
+}
+
+// FingerprintInfo is the public fingerprint shape returned by get_fingerprint.
+type FingerprintInfo struct {
+	Emoji string `json:"emoji"`
+	B64   string `json:"b64"`
+	Hex   string `json:"hex"`
+	Sum   string `json:"sum"`
+}
+
 // MessageInfo is a single chat message in a session's history.
 type MessageInfo struct {
 	Text      string    `json:"text"`
@@ -162,6 +205,16 @@ type liveSession struct {
 	TransportType    string
 	SessionTTL       time.Duration
 	SessionStartedAt time.Time
+}
+
+// historySession is the daemon's cached view of a past chat session.
+type historySession struct {
+	ID           string
+	Name         string
+	Loaded       bool
+	MessageCount int
+	FirstMessage time.Time
+	LastMessage  time.Time
 }
 
 func main() {

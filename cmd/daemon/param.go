@@ -63,3 +63,34 @@ type VerifyResponseParams struct {
 type SetVerificationModeParams struct {
 	Mode int `json:"mode"`
 }
+
+// GetHistoryMessagesParams fetches messages for a history session.
+type GetHistoryMessagesParams struct {
+	SessionID string `json:"session_id"`
+}
+
+// LoadHistoryParams marks a history session as loaded.
+type LoadHistoryParams struct {
+	SessionID string `json:"session_id"`
+}
+
+// RenameHistorySessionParams renames a history session.
+type RenameHistorySessionParams struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name"`
+}
+
+// DeleteHistorySessionParams deletes a history session.
+type DeleteHistorySessionParams struct {
+	SessionID string `json:"session_id"`
+}
+
+// DeletePeerParams removes a known peer by its public key.
+type DeletePeerParams struct {
+	PublicKey string `json:"public_key"` // base64-encoded
+}
+
+// SetMyNameParams sets the local display name.
+type SetMyNameParams struct {
+	Name string `json:"name"`
+}

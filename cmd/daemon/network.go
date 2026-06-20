@@ -190,6 +190,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	}
 	d.setStatus(StatusConnected, statusMsg)
 	d.addLogEntry("INFO", "Server started: "+statusMsg)
+	d.loadHistorySessions()
 
 	if firstToken != "" {
 		d.mu.RLock()
@@ -467,6 +468,7 @@ func (d *Daemon) handleDial(cmd Command) {
 		d.addLogEntry("INFO", "Connected to "+params.Addr+" (session: "+sessionID+")")
 
 		d.receiveMessages(session)
+		d.loadHistorySessions()
 	})
 }
 
@@ -519,6 +521,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 
 	d.removeSession(sessionID)
 	d.setStatusIfEmpty(StatusDisconnected, "Not connected")
+	d.loadHistorySessions()
 	d.addLogEntry("INFO", "All sessions disconnected")
 	return nil
 }

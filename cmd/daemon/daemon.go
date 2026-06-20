@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -25,6 +24,7 @@ type Daemon struct {
 
 	mu            sync.RWMutex
 	sessions      map[string]*liveSession
+	histSessions  []*historySession
 	server        *kamune.Server
 	serverDone    chan struct{}
 	serverRunning bool
@@ -71,6 +71,7 @@ func NewDaemon() *Daemon {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Daemon{
 		sessions:      make(map[string]*liveSession),
+		histSessions:  make([]*historySession, 0),
 		output:        json.NewEncoder(os.Stdout),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -312,6 +313,32 @@ func (d *Daemon) handleCommand(cmd Command) {
 		d.handleSetVerificationMode(cmd)
 	case CmdGetVerificationMode:
 		d.handleGetVerificationMode(cmd)
+	case CmdGetHistorySessions:
+		d.handleGetHistorySessions(cmd)
+	case CmdGetHistoryMessages:
+		d.handleGetHistoryMessages(cmd)
+	case CmdLoadHistory:
+		d.handleLoadHistory(cmd)
+	case CmdRenameHistorySession:
+		d.handleRenameHistorySession(cmd)
+	case CmdDeleteHistorySession:
+		d.handleDeleteHistorySession(cmd)
+	case CmdRefreshHistory:
+		d.handleRefreshHistory(cmd)
+	case CmdListPeers:
+		d.handleListPeers(cmd)
+	case CmdDeletePeer:
+		d.handleDeletePeer(cmd)
+	case CmdGetFingerprint:
+		d.handleGetFingerprint(cmd)
+	case CmdGetMyName:
+		d.handleGetMyName(cmd)
+	case CmdSetMyName:
+		d.handleSetMyName(cmd)
+	case CmdGetVersion:
+		d.handleGetVersion(cmd)
+	case CmdGetLibraryVersion:
+		d.handleGetLibraryVersion(cmd)
 	case CmdShutdown:
 		d.Shutdown()
 	default:
@@ -335,27 +362,11 @@ func (d *Daemon) handleOpenStorage(cmd Command) {
 		return
 	}
 
-	d.loadPersistedSettings()
+	d.loadIdentityAndHistory()
 
 	d.emit(EvtResponse, cmd.ID, MapS{
 		"status": "opened", "storage_path": params.StoragePath,
 	})
-}
-
-// loadPersistedSettings reads daemon settings from the store and applies them.
-// Called after open_storage / submit_passphrase.
-func (d *Daemon) loadPersistedSettings() {
-	store := d.store()
-	if store == nil {
-		return
-	}
-	if modeStr, err := store.GetSettings("daemon", "verification_mode"); err == nil && modeStr != "" {
-		if mode, err := strconv.Atoi(modeStr); err == nil {
-			d.mu.Lock()
-			d.verifMode = VerificationMode(mode)
-			d.mu.Unlock()
-		}
-	}
 }
 
 // handleSubmitPassphrase re-opens storage with a new passphrase. Requires a
@@ -395,7 +406,7 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	d.db = store
 	d.storeMu.Unlock()
 
-	d.loadPersistedSettings()
+	d.loadIdentityAndHistory()
 
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "opened"})
 }
