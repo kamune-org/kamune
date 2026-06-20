@@ -63,7 +63,6 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 ## Conventions
 
 - Go 1.26 style (no `//go:build` tags needed for tool directives)
-- All lockable state uses `sync.Mutex`, not `sync.RWMutex`
 - Error sentinels use `Err` prefix, defined in the package they belong to (e.g. `transport.go`, `router.go`, `pkg/storage/storage.go`, `pkg/attest/attest.go`)
 - `ErrPeerDisconnected` returned by `Transport.Receive()` when the remote peer sends `RouteCloseTransport` (graceful close). `ErrConnClosed` indicates an abrupt/network drop.
 - Logging uses `log/slog` with structured attributes (`slog.String`, `slog.Any`)
