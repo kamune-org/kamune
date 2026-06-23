@@ -118,21 +118,37 @@ func Run() error {
 	exitCh := make(chan os.Signal, 1)
 	signal.Notify(exitCh, syscall.SIGINT, syscall.SIGTERM)
 
-	select {
-	case err := <-errCh:
-		cancel()
-		return fmt.Errorf("starting server: %w", err)
-	case sig := <-exitCh:
-		slog.Info("shutting down", slog.String("signal", sig.String()))
+	// shutdown is the canonical teardown sequence used by both the
+	// signal path and the startup-error path. It cancels the context
+	// (which unblocks acceptLoop goroutines for TCP/TLS), shuts down
+	// the HTTP server (which unblocks ListenAndServe), and waits for
+	// every goroutine to exit.
+	shutdown := func() error {
 		cancel()
 		if server != nil {
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			shutdownCtx, shutdownCancel := context.WithTimeout(
+				context.Background(), 5*time.Second,
+			)
 			defer shutdownCancel()
 			if err := server.Shutdown(shutdownCtx); err != nil {
 				return fmt.Errorf("server shutdown: %w", err)
 			}
 		}
 		wg.Wait()
+		return nil
+	}
+
+	select {
+	case err := <-errCh:
+		if sErr := shutdown(); sErr != nil {
+			slog.Error("shutdown after startup failure", slog.Any("error", sErr))
+		}
+		return fmt.Errorf("starting server: %w", err)
+	case sig := <-exitCh:
+		slog.Info("shutting down", slog.String("signal", sig.String()))
+		if err := shutdown(); err != nil {
+			return err
+		}
 		return nil
 	}
 }
@@ -173,8 +189,17 @@ func generateSelfSignedCert(certFile, keyFile string) (tls.Certificate, error) {
 		return tls.Certificate{}, fmt.Errorf("generate key: %w", err)
 	}
 
+	// 128-bit cryptographically random serial, as recommended by
+	// RFC 5280 §4.1.2.2. Avoids collisions when the same process
+	// generates multiple certs within the same nanosecond.
+	serialLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serial, err := rand.Int(rand.Reader, serialLimit)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate serial: %w", err)
+	}
+
 	template := x509.Certificate{
-		SerialNumber: new(big.Int).SetUint64(uint64(time.Now().UnixNano())),
+		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName: "Kamune Relay",
 		},

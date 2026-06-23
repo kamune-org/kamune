@@ -9,16 +9,15 @@ import (
 
 type wsAdapter struct {
 	conn *websocket.Conn
-	ctx  context.Context
 }
 
 func (w *wsAdapter) ReadBytes() ([]byte, error) {
-	_, data, err := w.conn.Read(w.ctx)
+	_, data, err := w.conn.Read(context.Background())
 	return data, err
 }
 
 func (w *wsAdapter) WriteBytes(data []byte) error {
-	return w.conn.Write(w.ctx, websocket.MessageBinary, data)
+	return w.conn.Write(context.Background(), websocket.MessageBinary, data)
 }
 
 func (w *wsAdapter) Close() error {

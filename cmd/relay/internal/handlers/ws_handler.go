@@ -1,10 +1,11 @@
 package handlers
 
 import (
-	"context"
 	"crypto/subtle"
+	"io"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/coder/websocket"
@@ -36,7 +37,7 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	adapter := &wsAdapter{conn: conn, ctx: context.Background()}
+	adapter := &wsAdapter{conn: conn}
 
 	// Handshake timeout is enforced via a connection close, not via the
 	// adapter context: the context would otherwise remain in effect for
@@ -57,12 +58,33 @@ func handleRelayConn(
 	remoteAddr string,
 	handshakeTimer *time.Timer,
 ) {
-	stopHandshakeTimer := func() {
+	// ch is hoisted to function scope so the panic-recovery defer below
+	// can close it regardless of where the panic occurred.
+	var ch *exchange.Channel
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("relay: panic in handler",
+				slog.Any("error", r),
+				slog.String("remote", remoteAddr),
+				slog.String("stack", string(debug.Stack())),
+			)
+		}
+		// Best-effort cleanup so the underlying connection is closed and
+		// the peer's read pump exits even if a panic bypassed the normal
+		// error paths. We close the adapter (if it implements io.Closer)
+		// in addition to the exchange channel, so a panic that occurs
+		// before ch is assigned still results in a closed connection.
+		if ch != nil {
+			_ = ch.Close()
+		}
+		if closer, ok := rw.(io.Closer); ok {
+			_ = closer.Close()
+		}
 		if handshakeTimer != nil {
 			handshakeTimer.Stop()
 		}
-	}
-	defer stopHandshakeTimer()
+	}()
 
 	ch, err := exchange.Accept(rw)
 	if err != nil {
@@ -160,10 +182,14 @@ func handleRelayConn(
 
 	// Handshake completed successfully:
 	//   - Stop the WS handshake timer (if any) so it does not fire later.
+	//     The defer at the top of the function is a safety net for the
+	//     panic path; Stop is idempotent.
 	//   - Clear the TCP/TLS connection deadline so it does not kill the
 	//     session once registration is done. ch.SetDeadline is a no-op for
 	//     the WS adapter, so this is safe for both transports.
-	stopHandshakeTimer()
+	if handshakeTimer != nil {
+		handshakeTimer.Stop()
+	}
 	_ = ch.SetDeadline(time.Time{})
 
 	slog.Info("relay: peer registered",
@@ -171,6 +197,6 @@ func handleRelayConn(
 		slog.Bool("listener", len(register.Token) == 0),
 	)
 
-	hub.ReadPump(context.Background(), ch, token)
+	hub.ReadPump(ch, token)
 	hub.Unregister(token)
 }

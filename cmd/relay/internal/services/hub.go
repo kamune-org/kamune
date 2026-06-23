@@ -1,7 +1,6 @@
 package services
 
 import (
-	"context"
 	"log/slog"
 	"time"
 
@@ -67,19 +66,8 @@ func (h *Hub) RegisterDialer(ch *exchange.Channel, token []byte) error {
 	return h.sessions.Join(token, ch)
 }
 
-func (h *Hub) ReadPump(ctx context.Context, ch *exchange.Channel, token []byte) {
+func (h *Hub) ReadPump(ch *exchange.Channel, token []byte) {
 	defer h.sessions.ClosePeerChannel(token, ch)
-
-	cancelCh := make(chan struct{})
-	defer close(cancelCh)
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			ch.Close()
-		case <-cancelCh:
-		}
-	}()
 
 	for {
 		data, err := ch.ReadBytes()
@@ -104,6 +92,12 @@ func (h *Hub) ReadPump(ctx context.Context, ch *exchange.Channel, token []byte) 
 }
 
 func (h *Hub) handleMessage(sender *exchange.Channel, token []byte, data []byte) {
+	// Recipient is looked up under sm.mu and the write happens after
+	// the lock is released. This is intentional: holding the session
+	// lock across a (potentially blocking) peer write would serialize
+	// all forwarding in the relay on a single mutex. The lookup result
+	// is a stable *Channel pointer; if the peer is closed concurrently,
+	// the write fails and the error path closes the session.
 	recipient, err := h.sessions.Recipient(token, sender)
 	if err != nil {
 		slog.Debug("hub: no recipient", slog.Any("error", err))
@@ -123,9 +117,11 @@ func (h *Hub) handleMessage(sender *exchange.Channel, token []byte, data []byte)
 
 	if err := recipient.WriteBytes(b); err != nil {
 		slog.Debug("hub: write to recipient failed", slog.Any("error", err))
+		// Close both peers so neither side blocks on a half-open
+		// connection waiting for the other to discover the failure.
+		// Channel.Close is idempotent.
 		sender.Close()
-		// ClosePeerChannel + Remove happen in ReadPump's defer once
-		// sender's ReadPump exits from the channel close above.
+		recipient.Close()
 	}
 }
 

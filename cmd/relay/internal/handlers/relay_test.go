@@ -508,5 +508,65 @@ func TestRelay_PingPong(t *testing.T) {
 	}
 }
 
+// panickingRW is a ReadWriter whose first ReadBytes call panics. It is
+// used to verify that handleRelayConn recovers and cleans up the
+// underlying connection.
+type panickingRW struct {
+	conn net.Conn
+}
+
+func (p *panickingRW) ReadBytes() ([]byte, error) {
+	panic("intentional panic from panickingRW")
+}
+
+func (p *panickingRW) WriteBytes([]byte) error { return nil }
+func (p *panickingRW) Close() error            { return p.conn.Close() }
+func (p *panickingRW) SetDeadline(time.Time) error {
+	return p.conn.SetDeadline(time.Time{})
+}
+
+// TestRelay_PanicRecovery verifies that a panic during the handshake
+// (before the exchange.Channel is constructed) is recovered, the
+// underlying connection is closed, and the goroutine returns normally.
+func TestRelay_PanicRecovery(t *testing.T) {
+	hub := newTestHub(t, "", 0)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	// runServer uses runServer-style plumbing but with a custom adapter.
+	// We invoke handleRelayConn directly with a panicking ReadWriter.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handleRelayConn(hub, &panickingRW{conn: server}, "test", nil)
+	}()
+
+	// The other end of the pipe should see the connection close shortly
+	// because the defer in handleRelayConn closes the adapter.
+	readErr := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := client.Read(buf)
+		readErr <- err
+	}()
+
+	select {
+	case err := <-readErr:
+		if err == nil {
+			t.Error("client read returned nil, expected connection close")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("client read did not return (panic recovery should have closed the conn)")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleRelayConn did not return (panic should be recovered)")
+	}
+}
+
 // Ensure we don't accidentally rely on a real ctx that would cancel
 // before the test can run; the package import is here as a marker.

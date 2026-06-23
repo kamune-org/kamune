@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -17,9 +18,13 @@ type Service struct {
 }
 
 func New(ctx context.Context, cfg config.Config) (*Service, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	slog.Info("starting relay service")
 
-	sessionTTL := max(cfg.Session.SessionTTL, 0)
+	sessionTTL := cfg.Session.SessionTTL
 	handshakeTimeout := cfg.Session.HandshakeTimeout
 	switch {
 	case handshakeTimeout > 0:
@@ -41,9 +46,6 @@ func New(ctx context.Context, cfg config.Config) (*Service, error) {
 		maxEntries := cfg.RateLimit.MaxEntries
 		if maxEntries <= 0 {
 			maxEntries = cfg.Session.MaxConcurrentSessions
-			if maxEntries <= 0 {
-				maxEntries = 100000
-			}
 		}
 		rl = ratelimit.New(
 			int(cfg.RateLimit.Quota),
