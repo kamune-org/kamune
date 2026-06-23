@@ -28,13 +28,6 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		conn.SetReadLimit(int64(maxSize))
 	}
 
-	adapterCtx := context.Background()
-	if timeout := h.service.Hub().HandshakeTimeout(); timeout > 0 {
-		var cancel context.CancelFunc
-		adapterCtx, cancel = context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-	}
-	adapter := &wsAdapter{conn: conn, ctx: adapterCtx}
 	remoteAddr := clientIP(r)
 
 	if rl := h.service.Hub().RateLimiter(); rl != nil && !rl.Allow(remoteAddr) {
@@ -43,20 +36,39 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handleRelayConn(h.service.Hub(), adapter, remoteAddr)
+	adapter := &wsAdapter{conn: conn, ctx: context.Background()}
+
+	// Handshake timeout is enforced via a connection close, not via the
+	// adapter context: the context would otherwise remain in effect for
+	// the entire session and kill it after handshake_timeout.
+	var handshakeTimer *time.Timer
+	if timeout := h.service.Hub().HandshakeTimeout(); timeout > 0 {
+		handshakeTimer = time.AfterFunc(timeout, func() {
+			_ = conn.Close(websocket.StatusPolicyViolation, "handshake timeout")
+		})
+	}
+
+	handleRelayConn(h.service.Hub(), adapter, remoteAddr, handshakeTimer)
 }
 
 func handleRelayConn(
 	hub *services.Hub,
 	rw exchange.ReadWriter,
 	remoteAddr string,
+	handshakeTimer *time.Timer,
 ) {
+	stopHandshakeTimer := func() {
+		if handshakeTimer != nil {
+			handshakeTimer.Stop()
+		}
+	}
+	defer stopHandshakeTimer()
+
 	ch, err := exchange.Accept(rw)
 	if err != nil {
 		slog.Error("relay: hpke accept failed", slog.Any("error", err))
 		return
 	}
-	ch.SetDeadline(time.Time{})
 
 	needAuth := hub.Password() != ""
 
@@ -145,6 +157,14 @@ func handleRelayConn(
 		ch.Close()
 		return
 	}
+
+	// Handshake completed successfully:
+	//   - Stop the WS handshake timer (if any) so it does not fire later.
+	//   - Clear the TCP/TLS connection deadline so it does not kill the
+	//     session once registration is done. ch.SetDeadline is a no-op for
+	//     the WS adapter, so this is safe for both transports.
+	stopHandshakeTimer()
+	_ = ch.SetDeadline(time.Time{})
 
 	slog.Info("relay: peer registered",
 		slog.String("remote", remoteAddr),

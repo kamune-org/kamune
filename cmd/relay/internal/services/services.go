@@ -28,8 +28,8 @@ func New(ctx context.Context, cfg config.Config) (*Service, error) {
 		// negative means explicitly disabled
 		handshakeTimeout = 0
 	default:
-		// zero / unset — default to 10s
-		handshakeTimeout = 10 * time.Second
+		// zero / unset — default to 30s
+		handshakeTimeout = 30 * time.Second
 	}
 
 	sessions := NewSessionManager(

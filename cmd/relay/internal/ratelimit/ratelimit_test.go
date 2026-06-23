@@ -92,10 +92,36 @@ func TestConcurrentDifferentIPs(t *testing.T) {
 }
 
 func TestLRUSizeLimit(t *testing.T) {
-	rl := New(1, time.Minute, 2)
-	rl.Allow("1.1.1.1")
-	rl.Allow("2.2.2.2")
-	rl.Allow("3.3.3.3")
+	const quota = 3
+	rl := New(quota, time.Minute, 2)
+
+	// Fill both slots.
+	if !rl.Allow("1.1.1.1") {
+		t.Fatal("first allow for 1.1.1.1 should pass")
+	}
+	if !rl.Allow("2.2.2.2") {
+		t.Fatal("first allow for 2.2.2.2 should pass")
+	}
+
+	// Adding a third key must evict the oldest entry (1.1.1.1).
+	if !rl.Allow("3.3.3.3") {
+		t.Fatal("first allow for 3.3.3.3 should pass")
+	}
+
+	// 1.1.1.1 was evicted; its quota is now reset, so it must accept
+	// up to `quota` requests before denying.
+	for i := 0; i < quota; i++ {
+		if !rl.Allow("1.1.1.1") {
+			t.Fatalf(
+				"allow #%d for evicted 1.1.1.1 should pass (LRU eviction reset the window)",
+				i+1,
+			)
+		}
+	}
+	// ...and the (quota+1)th must be denied.
+	if rl.Allow("1.1.1.1") {
+		t.Fatal("1.1.1.1 should be denied after refilling its quota")
+	}
 }
 
 func TestQuotaOne(t *testing.T) {

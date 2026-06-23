@@ -40,7 +40,11 @@ func acceptLoop(ctx context.Context, listener net.Listener, hub *services.Hub) {
 			conn.SetDeadline(time.Now().Add(timeout))
 		}
 
-		go handleRelayConn(hub, adapter, remoteAddr)
+		// TCP/TLS enforces the handshake timeout via the connection
+		// deadline. The deadline is cleared inside handleRelayConn once
+		// registration completes, so it does not apply to the session
+		// lifetime. No timer is needed.
+		go handleRelayConn(hub, adapter, remoteAddr, nil)
 	}
 }
 
