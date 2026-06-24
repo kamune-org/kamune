@@ -89,11 +89,10 @@ func sendIntroduction(
 		Data:      message,
 		Signature: sig,
 		Metadata:  md,
-		Padding:   padding(maxPadding),
 	}
-	payload, err := proto.Marshal(st)
+	payload, err := padSignedTransport(st)
 	if err != nil {
-		return fmt.Errorf("marshalling transport: %w", err)
+		return fmt.Errorf("padding signed transport: %w", err)
 	}
 
 	if err := conn.WriteBytes(payload); err != nil {

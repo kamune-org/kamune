@@ -7,7 +7,6 @@ import (
 	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
-	mathrand "math/rand/v2"
 	"time"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
@@ -374,13 +373,4 @@ func randomBytes(l int) []byte {
 	buf := make([]byte, l)
 	_, _ = rand.Read(buf)
 	return buf
-}
-
-// padding calls [randomBytes], with at most maxSize len. Note that for length,
-// a pseudo-random generator is used. Since the generated value determines the
-// padding's length, at worst case scenario, attacker can determine the size of
-// each message (data, metadata, signature, etc). The message itself will stay
-// unharmed and secure.
-func padding(maxSize int) []byte {
-	return randomBytes(mathrand.IntN(maxSize))
 }

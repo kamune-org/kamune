@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -115,7 +116,7 @@ func (c *conn) WriteBytes(data []byte) error {
 	return nil
 }
 
-func (c *conn) readLen() (int, error) {
+func (c *conn) readLen() (uint16, error) {
 	if err := c.checkReadDeadline(c.readDeadline); err != nil {
 		return 0, err
 	}
@@ -125,12 +126,7 @@ func (c *conn) readLen() (int, error) {
 		return 0, fmt.Errorf("reading first two bytes: %w", err)
 	}
 
-	msgLen := binary.BigEndian.Uint16(lenBuf[:])
-	if msgLen > maxTransportSize {
-		return 0, ErrMessageTooLarge
-	}
-
-	return int(msgLen), nil
+	return binary.BigEndian.Uint16(lenBuf[:]), nil
 }
 
 func (c *conn) writeLen(data []byte) (int, error) {
@@ -138,7 +134,7 @@ func (c *conn) writeLen(data []byte) (int, error) {
 		return 0, err
 	}
 
-	if len(data) > int(maxTransportSize) {
+	if len(data) > math.MaxUint16 {
 		return 0, ErrMessageTooLarge
 	}
 	msgLen := uint16(len(data))

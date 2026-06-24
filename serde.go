@@ -3,6 +3,7 @@ package kamune
 import (
 	"crypto/rand"
 	"fmt"
+	mathrand "math/rand/v2"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -32,6 +33,9 @@ func (s *signedSerde) serialize(
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshalling message: %w", err)
 	}
+	if len(message) > int(maxTransportSize) {
+		return nil, nil, ErrMessageTooLarge
+	}
 	sig, err := s.attest.Sign(message)
 	if err != nil {
 		return nil, nil, fmt.Errorf("signing: %w", err)
@@ -47,11 +51,10 @@ func (s *signedSerde) serialize(
 		Data:      message,
 		Signature: sig,
 		Metadata:  md,
-		Padding:   padding(maxPadding),
 	}
-	payload, err := proto.Marshal(st)
+	payload, err := padSignedTransport(st)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshalling data: %w", err)
+		return nil, nil, fmt.Errorf("padding signed transport: %w", err)
 	}
 
 	return payload, &Metadata{md}, nil
@@ -89,4 +92,80 @@ func readSignedTransport(c Conn) (*pb.SignedTransport, error) {
 		return nil, fmt.Errorf("unmarshalling transport: %w", err)
 	}
 	return &st, nil
+}
+
+// padSignedTransport marshals st with bucketed padding per §12.7. The natural
+// bucket is the smallest bucket that fits the unpadded size; a random bump
+// (0-3) is applied independently per message and capped at the last bucket. If
+// the unpadded size already exceeds the last bucket, padding is left empty.
+func padSignedTransport(st *pb.SignedTransport) ([]byte, error) {
+	st.Padding = nil
+	baseSize := proto.Size(st)
+	target := selectBucketSize(baseSize)
+	if baseSize >= target {
+		return proto.Marshal(st)
+	}
+	const worstCaseOverhead = 4
+	padLen := max(target-baseSize-worstCaseOverhead, 0)
+	for range 4 {
+		overhead := 1 + varintSize(padLen)
+		newPadLen := max(target-baseSize-overhead, 0)
+		if newPadLen == padLen {
+			break
+		}
+		padLen = newPadLen
+	}
+	st.Padding = randomBytes(padLen)
+	return proto.Marshal(st)
+}
+
+// varintSize returns the number of bytes needed to encode n as a base-128
+// varint (protobuf length prefix).
+func varintSize(n int) int {
+	size := 1
+	for n >= 128 {
+		n >>= 7
+		size++
+	}
+	return size
+}
+
+// naturalBucketIndex returns the index of the smallest bucket whose target size
+// is >= baseSize. If baseSize exceeds all buckets, the last bucket index is
+// returned.
+func naturalBucketIndex(baseSize int) int {
+	for i, size := range paddingBuckets {
+		if baseSize <= size {
+			return i
+		}
+	}
+	return len(paddingBuckets) - 1
+}
+
+// selectBump returns a random bump level (0-3) according to  bumpProbabilities.
+// Index 0 corresponds to "stay", index 3 to "+3".
+func selectBump() int {
+	total := 0
+	for _, p := range bumpProbabilities {
+		total += p
+	}
+	n := mathrand.IntN(total)
+	for i, p := range bumpProbabilities {
+		if n < p {
+			return i
+		}
+		n -= p
+	}
+	return len(bumpProbabilities) - 1
+}
+
+// selectBucketSize returns the padding bucket size for a given base size,
+// applying a random cross-bucket bump capped at the last bucket.
+func selectBucketSize(baseSize int) int {
+	idx := naturalBucketIndex(baseSize)
+	idx += selectBump()
+	if idx >= len(paddingBuckets) {
+		idx = len(paddingBuckets) - 1
+	}
+	return paddingBuckets[idx]
 }
