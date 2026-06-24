@@ -115,8 +115,15 @@ the underlying transport (TCP or UDP/KCP):
 - **Length**: A 2-byte unsigned integer in **big-endian** byte order indicating
   the size of the payload in bytes.
 - **Payload**: The serialized Protobuf message, exactly `Length` bytes long.
-- **Maximum message size**: 50 KiB (51,200 bytes). Messages exceeding this
-  limit MUST be rejected with an error.
+- **Wire format maximum**: 65,535 bytes (uint16 max). The length prefix is a
+  2-byte unsigned integer, so payloads larger than 65,535 bytes cannot be
+  expressed on the wire.
+- **Protocol limit (`maxTransportSize`)**: A separate, smaller value that bounds
+  the user-message size. Defined as `math.MaxUint16 - reservedProtocolOverhead`.
+  See §14 for current values.
+
+Peers MUST reject any frame whose declared length exceeds 65,535 bytes, and MUST
+reject any user message whose size would exceed `maxTransportSize`.
 
 The length prefix is always written and read atomically. The receiver MUST
 perform a full read (`io.ReadFull`) to consume exactly `Length` bytes.
@@ -131,7 +138,7 @@ SignedTransport {
   bytes    Data      = 1;   // Serialized inner message (Protobuf)
   bytes    Signature = 2;   // Digital signature over Data
   Metadata Metadata  = 3;   // Message metadata (ID, timestamp, sequence, route)
-  bytes    Padding   = 4;   // Random padding (0–256 bytes)
+  bytes    Padding   = 4;   // Random padding (0..N bytes; fills frame to wire max)
 }
 ```
 
@@ -144,6 +151,11 @@ SignedTransport {
 - **Metadata**: Contains a unique message ID (random text), a Protobuf
   `Timestamp`, a monotonically increasing sequence number, and the `Route` enum
   identifying the message type and protocol phase.
+- **Padding**: Random bytes appended so that the total wire frame
+  is exactly `math.MaxUint16` bytes. The padding length and
+  contents are randomized to obscure user message size. Padding
+  is part of the signed envelope and is verified alongside the
+  message.
 - **Padding**: Random bytes of length `[0, 256)`, generated uniformly at
   random. Padding serves as a traffic analysis countermeasure by obscuring
   actual message sizes.
@@ -914,9 +926,15 @@ nonce reuse.
 
 ### 12.7 Traffic Analysis Resistance
 
-Random padding (0–256 bytes) is added to every `SignedTransport` message to
-obscure actual message sizes. This provides limited protection against traffic
-analysis.
+The protocol pads every wire frame to exactly `math.MaxUint16` bytes (the wire
+format's hard upper bound). The padding length is randomized so all frames look
+identical on the wire regardless of user message size. This is the strongest
+form of traffic-analysis resistance for message-size channels: an observer
+cannot distinguish a "hi" from a 50 KB file transfer, because both produce
+identical 65,535-byte frames.
+
+The Padding field is part of the `SignedTransport` envelope and is included in
+the signature, so an attacker cannot modify it without detection.
 
 ---
 
@@ -982,42 +1000,43 @@ message Metadata {
 
 ## 14. Constants and Limits
 
-| Constant              | Value                 | Description                                              |
-| --------------------- | --------------------- | -------------------------------------------------------- |
-| `maxTransportSize`    | 51,200 bytes (50 KiB) | Maximum wire message payload size                        |
-| `saltSize`            | 16 bytes              | Size of random salts for key derivation                  |
-| `sessionIDLength`     | 20 characters         | Total session ID length (10 prefix + 10 suffix)          |
-| `challengeSize`       | 32 bytes              | Size of handshake challenge tokens                       |
-| `maxPadding`          | 256 bytes             | Maximum random padding added to messages                 |
-| `nonceSize`           | 24 bytes              | XChaCha20-Poly1305 nonce size                            |
-| `keySize`             | 32 bytes              | ChaCha20-Poly1305 / HKDF output key size                 |
-| `defaultReadTimeout`  | 5 minutes             | Default TCP/KCP read deadline                            |
-| `defaultWriteTimeout` | 1 minute              | Default TCP/KCP write deadline                           |
-| `defaultDialTimeout`  | 10 seconds            | Default connection establishment timeout                 |
-| `defaultPeerExpiry`   | 7 days                | Default peer identity expiration                         |
-| `lengthPrefixSize`    | 2 bytes               | Size of the big-endian message length header             |
-| `sessionPrefixLength` | 10 characters         | Length of the session ID prefix emitted by the initiator |
-| `sessionSuffixLength` | 10 characters         | Length of the session ID suffix emitted by the responder |
-| `handshakeTimeout`    | 30 seconds            | Maximum time for the complete handshake                  |
-| `pingDataSize`        | 8 bytes               | Size of the random token in each ping message            |
+| Constant                   | Value                  | Description                                                                                  |
+| -------------------------- | ---------------------- | -------------------------------------------------------------------------------------------- |
+| `maxTransportSize`         | 53,247 bytes (~52 KiB) | Maximum user-message size. Derived as `math.MaxUint16 - reservedProtocolOverhead`.           |
+| `reservedProtocolOverhead` | 12,288 bytes (12 KiB)  | Protocol's reserved bytes per message for signature + metadata + minimum padding + AEAD tag. |
+| `wireFormatMax`            | 65,535 bytes           | Wire format's hard upper bound (uint16 max).                                                 |
+| `saltSize`                 | 16 bytes               | Size of random salts for key derivation                                                      |
+| `sessionIDLength`          | 20 characters          | Total session ID length (10 prefix + 10 suffix)                                              |
+| `challengeSize`            | 32 bytes               | Size of handshake challenge tokens                                                           |
+| `nonceSize`                | 24 bytes               | XChaCha20-Poly1305 nonce size                                                                |
+| `keySize`                  | 32 bytes               | ChaCha20-Poly1305 / HKDF output key size                                                     |
+| `defaultReadTimeout`       | 5 minutes              | Default TCP/KCP read deadline                                                                |
+| `defaultWriteTimeout`      | 1 minute               | Default TCP/KCP write deadline                                                               |
+| `defaultDialTimeout`       | 10 seconds             | Default connection establishment timeout                                                     |
+| `defaultPeerExpiry`        | 7 days                 | Default peer identity expiration                                                             |
+| `lengthPrefixSize`         | 2 bytes                | Size of the big-endian message length header                                                 |
+| `sessionPrefixLength`      | 10 characters          | Length of the session ID prefix emitted by the initiator                                     |
+| `sessionSuffixLength`      | 10 characters          | Length of the session ID suffix emitted by the responder                                     |
+| `handshakeTimeout`         | 30 seconds             | Maximum time for the complete handshake                                                      |
+| `pingDataSize`             | 8 bytes                | Size of the random token in each ping message                                                |
 
 ---
 
 ## 15. Error Conditions
 
-| Error                   | Condition                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------ |
-| `ErrClosedServer`       | Operation attempted on a closed server.                                                    |
-| `ErrConnClosed`         | Connection has been closed (locally or by peer, abrupt).                                   |
-| `ErrPeerDisconnected`   | Remote peer closed the session gracefully (`ROUTE_CLOSE_TRANSPORT` received).              |
-| `ErrReceiveTimeout`     | Read deadline exceeded (non-fatal; caller may retry).                                      |
-| `ErrInvalidSignature`   | Signature verification failed on a received message.                                       |
-| `ErrVerificationFailed` | Challenge echo did not match the original challenge, or remote verifier rejected the peer. |
-| `ErrMessageTooLarge`    | Message exceeds `maxTransportSize` (50 KiB).                                               |
-| `ErrOutOfSync`          | Sequence number mismatch (duplicate or missing messages).                                  |
-| `ErrUnexpectedRoute`    | Received a route that does not match the expected protocol state.                          |
-| `ErrInvalidRoute`       | Route value is `0` (invalid) or unrecognized.                                              |
-| `ErrVersionMismatch`    | Remote peer's application version is incompatible with local version.                      |
-| `ErrPeerExpired`        | Peer's identity has exceeded the configured expiry duration.                               |
-| `ErrSessionExpired`     | Session state has expired and can no longer be used.                                       |
-| `ErrPeerRejected`       | The remote verifier callback rejected the peer during introduction.                        |
+| Error                   | Condition                                                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `ErrClosedServer`       | Operation attempted on a closed server.                                                                                    |
+| `ErrConnClosed`         | Connection has been closed (locally or by peer, abrupt).                                                                   |
+| `ErrPeerDisconnected`   | Remote peer closed the session gracefully (`ROUTE_CLOSE_TRANSPORT` received).                                              |
+| `ErrReceiveTimeout`     | Read deadline exceeded (non-fatal; caller may retry).                                                                      |
+| `ErrInvalidSignature`   | Signature verification failed on a received message.                                                                       |
+| `ErrVerificationFailed` | Challenge echo did not match the original challenge, or remote verifier rejected the peer.                                 |
+| `ErrMessageTooLarge`    | User message exceeds `maxTransportSize` (~52 KiB), or the payload would overflow the wire format's `math.MaxUint16` limit. |
+| `ErrOutOfSync`          | Sequence number mismatch (duplicate or missing messages).                                                                  |
+| `ErrUnexpectedRoute`    | Received a route that does not match the expected protocol state.                                                          |
+| `ErrInvalidRoute`       | Route value is `0` (invalid) or unrecognized.                                                                              |
+| `ErrVersionMismatch`    | Remote peer's application version is incompatible with local version.                                                      |
+| `ErrPeerExpired`        | Peer's identity has exceeded the configured expiry duration.                                                               |
+| `ErrSessionExpired`     | Session state has expired and can no longer be used.                                                                       |
+| `ErrPeerRejected`       | The remote verifier callback rejected the peer during introduction.                                                        |
