@@ -1,60 +1,64 @@
-// Package relayconn is a client library for the Kamune relay protocol.
+// Package relayconn is the transport layer for the Kamune relay.
 //
-// It provides two symmetric connection roles:
+// The relay forwards opaque, end-to-end-encrypted frames between two
+// peers using a token-based rendezvous. The transport layer is the
+// set of primitives that both sides must agree on for any of that to
+// work: the on-wire framing, the protobuf frame types, and the
+// transport adapters that carry them.
 //
-//   - ListenRelay*  — establishes a listener session with a relay server,
-//     receives an opaque token (and TTL) to share out-of-band with a peer.
-//   - DialRelay*    — establishes a dialer session by presenting a token
-//     obtained from a listener, connecting the two peers through the relay.
+// # Wire format
 //
-// Both roles support four transports:
+// Every frame exchanged by the relay is a length-prefixed payload:
+// two big-endian bytes of length followed by exactly that many bytes
+// of payload. The length is an unsigned 16-bit integer, so the maximum
+// frame size is 64 KB. Framing implements this format for any
+// io.ReadWriteCloser. The default and recommended maximum is
+// DefaultMaxFrameSize (64 KB); both sides of a connection should use
+// the same value to avoid one side accepting frames the other rejects.
 //
-//   - ListenRelay / DialRelay       — WebSocket (ws://)
-//   - ListenRelayWSS / DialRelayWSS — WebSocket Secure (wss://)
-//   - ListenRelayTCP / DialRelayTCP — raw TCP with length-prefixed framing
-//   - ListenRelayTLS / DialRelayTLS — TLS over TCP
+// The protobuf sub-package (relayconn/pb) defines the frame types
+// themselves: Register, Registered, Message, Ping, Pong, and Auth.
+// Consumers of relayconn rarely need to import pb directly — the
+// transport layer handles marshalling.
+//
+// # Transports
+//
+// Three transport adapters are provided, all of which implement the
+// exchange.ReadWriter interface:
+//
+//   - wsAdapter  — WebSocket (ws://, wss://)
+//   - tcpAdapter — raw TCP with length-prefixed framing
+//   - tlsAdapter — TLS over TCP with the same length-prefixed framing
+//
+// The length-prefixed framing is what makes the TCP and TLS adapters
+// interchangeable: once framed, the byte stream is opaque to the
+// transport.
+//
+// # Rendezvous helpers
+//
+// For end-user applications that want to talk to a relay, the package
+// exposes high-level helpers built on top of the transport layer:
+//
+//   - ListenRelay*  — establishes a listener session, returns a token
+//     to share out-of-band with a peer.
+//   - DialRelay*    — presents a token, connects the two peers through
+//     the relay.
+//
+// These return RelayListener (implements kamune.Listener) and
+// RelayConn (implements kamune.Conn) respectively. They support the
+// four transports: ListenRelay/DialRelay (WebSocket),
+// ListenRelayWSS/DialRelayWSS (WebSocket over TLS),
+// ListenRelayTCP/DialRelayTCP (raw TCP), and
+// ListenRelayTLS/DialRelayTLS (TLS over TCP).
 //
 // PSK authentication is optional via WithPassword().
 //
-// Types
+// # Protocol design
 //
-// RelayListener implements the kamune.Listener interface. After a successful
-// ListenRelay* call, the caller obtains the token and TTL, shares the token
-// out-of-band, then calls Accept() to wait for a peer to connect. Stop()
-// halts acceptance without closing an active connection; Close() tears down
-// everything.
-//
-// RelayConn implements the kamune.Conn interface with ReadBytes, WriteBytes,
-// SetDeadline, and Close methods. Both sides can send and receive framed
-// messages through the relay.
-//
-// Wire protocol
-//
-// The pb sub-package (relayconn/pb) defines the protobuf wire format shared
-// with the relay server. Consumers of relayconn never need to import it
-// directly — the client library handles marshalling internally.
-//
-// Location
-//
-// relayconn lives at pkg/relayconn inside the root module rather than as a
-// standalone module or inside the relay server for the following reasons:
-//
-//   - The protobuf types in pb/ are imported by both the relay server
-//     (for parsing the wire format on the server side) and this client
-//     library. Keeping them in a single package avoids creating a separate
-//     protobuf module or duplicating the definitions.
-//
-//   - If relayconn were its own module, every consumer (relay server, bus,
-//     tui) would need an additional require+replace pairing in go.mod.
-//
-//   - If relayconn were inside the relay server module, bus and tui would
-//     import the entire relay server (and its internal packages) just to
-//     use the client library — an inverted dependency that couples
-//     unrelated consumers to server internals.
-//
-//   - As part of the root module, relayconn is available to all sub-modules
-//     through the existing replace directives without adding new ones. The
-//     tradeoff is that relayconn is client-side only, while the root module
-//     primarily exposes the core protocol interfaces (Server, Dialer,
-//     Transport, Conn) and cryptographic primitives.
+// The relay is intentionally "blind": it sees only the framing and
+// the protobuf types, not the contents of Message frames. End-to-end
+// encryption happens inside the relay's wire format (via HPKE in
+// pkg/exchange) and is opaque to the transport layer. The transport
+// layer's job is to move bytes; the cryptographic layer's job is to
+// protect them.
 package relayconn

@@ -3,90 +3,53 @@ package relayconn
 import (
 	"context"
 	"crypto/tls"
-	"encoding/binary"
-	"fmt"
-	"io"
 	"net"
 	"time"
 
 	"github.com/coder/websocket"
 )
 
-// tcpAdapter wraps a net.Conn with length-prefixed framing (uint16 BE).
+// DefaultMaxFrameSize is the default upper bound on a single frame
+// the client will accept. It matches the relay server's default
+// max_message_size and protects the client from a malicious or
+// buggy relay that would otherwise force large allocations.
+const DefaultMaxFrameSize = 65536
+
+// tcpAdapter wraps a net.Conn with the relay's length-prefixed framing.
 type tcpAdapter struct {
-	conn net.Conn
+	f *Framing
 }
 
-func (t *tcpAdapter) ReadBytes() ([]byte, error) {
-	var length uint16
-	if err := binary.Read(t.conn, binary.BigEndian, &length); err != nil {
-		return nil, fmt.Errorf("read length: %w", err)
-	}
-	data := make([]byte, length)
-	if _, err := io.ReadFull(t.conn, data); err != nil {
-		return nil, fmt.Errorf("read data: %w", err)
-	}
-	return data, nil
+func newTCPAdapter(conn net.Conn) *tcpAdapter {
+	return &tcpAdapter{f: NewFraming(conn, DefaultMaxFrameSize)}
 }
 
-func (t *tcpAdapter) WriteBytes(data []byte) error {
-	err := binary.Write(t.conn, binary.BigEndian, uint16(len(data)))
-	if err != nil {
-		return fmt.Errorf("write length: %w", err)
-	}
-	_, err = t.conn.Write(data)
-	if err != nil {
-		return fmt.Errorf("write data: %w", err)
-	}
-	return nil
+func (a *tcpAdapter) ReadBytes() ([]byte, error) { return a.f.ReadBytes() }
+func (a *tcpAdapter) WriteBytes(d []byte) error { return a.f.WriteBytes(d) }
+func (a *tcpAdapter) Close() error              { return a.f.Close() }
+func (a *tcpAdapter) SetDeadline(t time.Time) error {
+	return a.f.SetDeadline(t)
 }
 
-func (t *tcpAdapter) Close() error {
-	return t.conn.Close()
-}
-
-func (t *tcpAdapter) SetDeadline(deadline time.Time) error {
-	return t.conn.SetDeadline(deadline)
-}
-
-// tlsAdapter wraps a tls.Conn with length-prefixed framing (uint16 BE).
+// tlsAdapter wraps a *tls.Conn with the relay's length-prefixed framing.
 type tlsAdapter struct {
-	conn *tls.Conn
+	f *Framing
 }
 
-func (t *tlsAdapter) ReadBytes() ([]byte, error) {
-	var length uint16
-	if err := binary.Read(t.conn, binary.BigEndian, &length); err != nil {
-		return nil, fmt.Errorf("read length: %w", err)
-	}
-	data := make([]byte, length)
-	if _, err := io.ReadFull(t.conn, data); err != nil {
-		return nil, fmt.Errorf("read data: %w", err)
-	}
-	return data, nil
+func newTLSAdapter(conn *tls.Conn) *tlsAdapter {
+	return &tlsAdapter{f: NewFraming(conn, DefaultMaxFrameSize)}
 }
 
-func (t *tlsAdapter) WriteBytes(data []byte) error {
-	err := binary.Write(t.conn, binary.BigEndian, uint16(len(data)))
-	if err != nil {
-		return fmt.Errorf("write length: %w", err)
-	}
-	_, err = t.conn.Write(data)
-	if err != nil {
-		return fmt.Errorf("write data: %w", err)
-	}
-	return nil
-}
-
-func (t *tlsAdapter) Close() error {
-	return t.conn.Close()
-}
-
-func (t *tlsAdapter) SetDeadline(deadline time.Time) error {
-	return t.conn.SetDeadline(deadline)
+func (a *tlsAdapter) ReadBytes() ([]byte, error) { return a.f.ReadBytes() }
+func (a *tlsAdapter) WriteBytes(d []byte) error { return a.f.WriteBytes(d) }
+func (a *tlsAdapter) Close() error              { return a.f.Close() }
+func (a *tlsAdapter) SetDeadline(t time.Time) error {
+	return a.f.SetDeadline(t)
 }
 
 // wsAdapter wraps a WebSocket connection as an exchange.ReadWriter.
+// It carries a context so the listener's lifecycle (Stop/Close) can
+// cancel in-flight reads and writes.
 type wsAdapter struct {
 	conn *websocket.Conn
 	ctx  context.Context

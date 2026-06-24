@@ -89,7 +89,7 @@ func ListenRelayTCP(
 	if err != nil {
 		return nil, fmt.Errorf("tcp dial: %w", err)
 	}
-	adapter := &tcpAdapter{conn: conn}
+	adapter := newTCPAdapter(conn)
 	return listenHandshake(ctx, adapter, func() { conn.Close() }, opts...)
 }
 
@@ -101,7 +101,7 @@ func ListenRelayTLS(
 	if err != nil {
 		return nil, fmt.Errorf("tls dial: %w", err)
 	}
-	adapter := &tlsAdapter{conn: conn}
+	adapter := newTLSAdapter(conn)
 	return listenHandshake(ctx, adapter, func() { conn.Close() }, opts...)
 }
 func listenHandshake(

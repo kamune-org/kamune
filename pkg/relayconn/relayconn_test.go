@@ -31,7 +31,7 @@ func relayListen(
 	ttlSec uint32,
 	errCh chan<- error,
 ) {
-	rw := &tcpAdapter{conn: conn}
+	rw := newTCPAdapter(conn)
 	ch, err := exchange.Accept(rw)
 	if err != nil {
 		errCh <- err
@@ -88,7 +88,7 @@ func relayListen(
 
 // relayDial simulates a relay server for a dial handshake.
 func relayDial(conn net.Conn, errCh chan<- error) {
-	rw := &tcpAdapter{conn: conn}
+	rw := newTCPAdapter(conn)
 	ch, err := exchange.Accept(rw)
 	if err != nil {
 		errCh <- err
@@ -129,7 +129,7 @@ func TestListenHandshake_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	result, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestListenHandshake_EmptyToken(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	_, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
 	if err == nil || err.Error() != "relay returned empty token" {
 		t.Fatalf("expected 'relay returned empty token', got %v", err)
 	}
@@ -173,7 +173,7 @@ func TestListenHandshake_BadUnmarshal(t *testing.T) {
 	defer s.Close()
 
 	go func() {
-		rw := &tcpAdapter{conn: s}
+		rw := newTCPAdapter(s)
 		ch, err := exchange.Accept(rw)
 		if err != nil {
 			t.Errorf("exchange.Accept: %v", err)
@@ -189,7 +189,7 @@ func TestListenHandshake_BadUnmarshal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	_, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -206,7 +206,7 @@ func TestListenHandshake_WithAuth(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() }, WithPassword("sekret"))
+	result, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() }, WithPassword("sekret"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestListenHandshake_SessionTTL(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		rw := &tcpAdapter{conn: s}
+		rw := newTCPAdapter(s)
 		ch, err := exchange.Accept(rw)
 		if err != nil {
 			errCh <- err
@@ -257,7 +257,7 @@ func TestListenHandshake_SessionTTL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	result, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestDialHandshake_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	rc, err := relayHandshake(ctx, &tcpAdapter{conn: c}, []byte("dial-token"), func() { c.Close() })
+	rc, err := relayHandshake(ctx, newTCPAdapter(c), []byte("dial-token"), func() { c.Close() })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestDialHandshake_WrongFrame(t *testing.T) {
 	defer s.Close()
 
 	go func() {
-		rw := &tcpAdapter{conn: s}
+		rw := newTCPAdapter(s)
 		ch, err := exchange.Accept(rw)
 		if err != nil {
 			t.Errorf("exchange.Accept: %v", err)
@@ -322,7 +322,7 @@ func TestDialHandshake_WrongFrame(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := relayHandshake(ctx, &tcpAdapter{conn: c}, []byte("t"), func() { c.Close() })
+	_, err := relayHandshake(ctx, newTCPAdapter(c), []byte("t"), func() { c.Close() })
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -341,7 +341,7 @@ func TestListenAccept_AfterStop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	result, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestListenAccept_AfterClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := listenHandshake(ctx, &tcpAdapter{conn: c}, func() { c.Close() })
+	result, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +392,7 @@ func TestRelayConnWriteRead(t *testing.T) {
 		serverOK = make(chan error, 1)
 	)
 	go func() {
-		ch, err := exchange.Accept(&tcpAdapter{conn: s})
+		ch, err := exchange.Accept(newTCPAdapter(s))
 		if err != nil {
 			serverOK <- err
 			return
@@ -401,7 +401,7 @@ func TestRelayConnWriteRead(t *testing.T) {
 		serverOK <- err
 	}()
 
-	clientCh, err := exchange.Initiate(&tcpAdapter{conn: c})
+		clientCh, err := exchange.Initiate(newTCPAdapter(c))
 	if err != nil {
 		t.Fatal("Initiate:", err)
 	}
@@ -475,7 +475,7 @@ func TestRelayConnDeadline(t *testing.T) {
 		serverOK = make(chan error, 1)
 	)
 	go func() {
-		ch, err := exchange.Accept(&tcpAdapter{conn: s})
+		ch, err := exchange.Accept(newTCPAdapter(s))
 		if err != nil {
 			serverOK <- err
 			return
@@ -483,7 +483,7 @@ func TestRelayConnDeadline(t *testing.T) {
 		serverCh = ch
 		serverOK <- err
 	}()
-	clientCh, err := exchange.Initiate(&tcpAdapter{conn: c})
+		clientCh, err := exchange.Initiate(newTCPAdapter(c))
 	if err != nil {
 		t.Fatal("Initiate:", err)
 	}
@@ -522,7 +522,7 @@ func TestTcpAdapterLengthPrefix(t *testing.T) {
 	defer s.Close()
 
 	go func() {
-		adapter := &tcpAdapter{conn: s}
+		adapter := newTCPAdapter(s)
 		data, err := adapter.ReadBytes()
 		if err != nil {
 			t.Errorf("ReadBytes: %v", err)
@@ -534,7 +534,7 @@ func TestTcpAdapterLengthPrefix(t *testing.T) {
 		adapter.WriteBytes([]byte("world"))
 	}()
 
-	adapter := &tcpAdapter{conn: c}
+	adapter := newTCPAdapter(c)
 	if err := adapter.WriteBytes([]byte("hello")); err != nil {
 		t.Fatal("WriteBytes:", err)
 	}
