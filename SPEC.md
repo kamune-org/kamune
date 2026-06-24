@@ -138,7 +138,7 @@ SignedTransport {
   bytes    Data      = 1;   // Serialized inner message (Protobuf)
   bytes    Signature = 2;   // Digital signature over Data
   Metadata Metadata  = 3;   // Message metadata (ID, timestamp, sequence, route)
-  bytes    Padding   = 4;   // Random padding (0..N bytes; fills frame to wire max)
+  bytes    Padding   = 4;   // Random padding (bucketed; see §12.7)
 }
 ```
 
@@ -151,14 +151,9 @@ SignedTransport {
 - **Metadata**: Contains a unique message ID (random text), a Protobuf
   `Timestamp`, a monotonically increasing sequence number, and the `Route` enum
   identifying the message type and protocol phase.
-- **Padding**: Random bytes appended so that the total wire frame
-  is exactly `math.MaxUint16` bytes. The padding length and
-  contents are randomized to obscure user message size. Padding
-  is part of the signed envelope and is verified alongside the
-  message.
-- **Padding**: Random bytes of length `[0, 256)`, generated uniformly at
-  random. Padding serves as a traffic analysis countermeasure by obscuring
-  actual message sizes.
+- **Padding**: Random bytes that pad the marshaled envelope up to a bucketed
+  target size (see §12.7). Padding is part of the signed envelope and is
+  verified alongside the message.
 
 ### 4.3 Encrypted Messages
 
@@ -926,15 +921,32 @@ nonce reuse.
 
 ### 12.7 Traffic Analysis Resistance
 
-The protocol pads every wire frame to exactly `math.MaxUint16` bytes (the wire
-format's hard upper bound). The padding length is randomized so all frames look
-identical on the wire regardless of user message size. This is the strongest
-form of traffic-analysis resistance for message-size channels: an observer
-cannot distinguish a "hi" from a 50 KB file transfer, because both produce
-identical 65,535-byte frames.
+Every `SignedTransport` envelope MUST be padded to a bucketed target size before
+encryption. Padding is applied uniformly across all routes.
 
-The Padding field is part of the `SignedTransport` envelope and is included in
-the signature, so an attacker cannot modify it without detection.
+**Buckets.** The sender pads the envelope to the smallest bucket that fits
+the serialized size, then probabilistically bumps it up one or more levels.
+
+| Bucket | Target size (pre-encryption)                     |
+| ------ | ------------------------------------------------ |
+| 1      | 512 B                                            |
+| 2      | 1 KB                                             |
+| 3      | 4 KB                                             |
+| 4      | 16 KB                                            |
+| 5      | 32 KB                                            |
+| 6      | 65,495 B (`math.MaxUint16 − encryptionOverhead`) |
+
+**Cross-bucket randomness.** After selecting the natural bucket, the sender
+bumps it with the following probability distribution:
+
+| Bump     | Probability |
+| -------- | ----------- |
+| 0 (stay) | 80%         |
+| +1       | 15%         |
+| +2       | 4%          |
+| +3       | 1%          |
+
+The bump is selected independently per message and capped at bucket 6.
 
 ---
 
@@ -1000,25 +1012,27 @@ message Metadata {
 
 ## 14. Constants and Limits
 
-| Constant                   | Value                  | Description                                                                                  |
-| -------------------------- | ---------------------- | -------------------------------------------------------------------------------------------- |
-| `maxTransportSize`         | 53,247 bytes (~52 KiB) | Maximum user-message size. Derived as `math.MaxUint16 - reservedProtocolOverhead`.           |
-| `reservedProtocolOverhead` | 12,288 bytes (12 KiB)  | Protocol's reserved bytes per message for signature + metadata + minimum padding + AEAD tag. |
-| `wireFormatMax`            | 65,535 bytes           | Wire format's hard upper bound (uint16 max).                                                 |
-| `saltSize`                 | 16 bytes               | Size of random salts for key derivation                                                      |
-| `sessionIDLength`          | 20 characters          | Total session ID length (10 prefix + 10 suffix)                                              |
-| `challengeSize`            | 32 bytes               | Size of handshake challenge tokens                                                           |
-| `nonceSize`                | 24 bytes               | XChaCha20-Poly1305 nonce size                                                                |
-| `keySize`                  | 32 bytes               | ChaCha20-Poly1305 / HKDF output key size                                                     |
-| `defaultReadTimeout`       | 5 minutes              | Default TCP/KCP read deadline                                                                |
-| `defaultWriteTimeout`      | 1 minute               | Default TCP/KCP write deadline                                                               |
-| `defaultDialTimeout`       | 10 seconds             | Default connection establishment timeout                                                     |
-| `defaultPeerExpiry`        | 7 days                 | Default peer identity expiration                                                             |
-| `lengthPrefixSize`         | 2 bytes                | Size of the big-endian message length header                                                 |
-| `sessionPrefixLength`      | 10 characters          | Length of the session ID prefix emitted by the initiator                                     |
-| `sessionSuffixLength`      | 10 characters          | Length of the session ID suffix emitted by the responder                                     |
-| `handshakeTimeout`         | 30 seconds             | Maximum time for the complete handshake                                                      |
-| `pingDataSize`             | 8 bytes                | Size of the random token in each ping message                                                |
+| Constant                   | Value                                  | Description                                                                        |
+| -------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
+| `maxTransportSize`         | 61,439 bytes (~60 KiB)                 | Maximum user-message size. Derived as `math.MaxUint16 - reservedProtocolOverhead`. |
+| `reservedProtocolOverhead` | 4,096 bytes (4 KiB)                    | Reserved bytes per message for signature + metadata + padding + AEAD tag.          |
+| `wireFormatMax`            | 65,535 bytes                           | Wire format's hard upper bound (uint16 max).                                       |
+| `paddingBuckets`           | {512, 1024, 4096, 16384, 32768, 65495} | Bucketed padding target sizes (pre-encryption). See §12.7.                         |
+| `bumpProbabilities`        | {80%, 15%, 4%, 1%}                     | Cross-bucket bump distribution (stay, +1, +2, +3). See §12.7.                      |
+| `saltSize`                 | 16 bytes                               | Size of random salts for key derivation                                            |
+| `sessionIDLength`          | 20 characters                          | Total session ID length (10 prefix + 10 suffix)                                    |
+| `challengeSize`            | 32 bytes                               | Size of handshake challenge tokens                                                 |
+| `nonceSize`                | 24 bytes                               | XChaCha20-Poly1305 nonce size                                                      |
+| `keySize`                  | 32 bytes                               | ChaCha20-Poly1305 / HKDF output key size                                           |
+| `defaultReadTimeout`       | 5 minutes                              | Default TCP/KCP read deadline                                                      |
+| `defaultWriteTimeout`      | 1 minute                               | Default TCP/KCP write deadline                                                     |
+| `defaultDialTimeout`       | 10 seconds                             | Default connection establishment timeout                                           |
+| `defaultPeerExpiry`        | 7 days                                 | Default peer identity expiration                                                   |
+| `lengthPrefixSize`         | 2 bytes                                | Size of the big-endian message length header                                       |
+| `sessionPrefixLength`      | 10 characters                          | Length of the session ID prefix emitted by the initiator                           |
+| `sessionSuffixLength`      | 10 characters                          | Length of the session ID suffix emitted by the responder                           |
+| `handshakeTimeout`         | 30 seconds                             | Maximum time for the complete handshake                                            |
+| `pingDataSize`             | 8 bytes                                | Size of the random token in each ping message                                      |
 
 ---
 
@@ -1032,7 +1046,7 @@ message Metadata {
 | `ErrReceiveTimeout`     | Read deadline exceeded (non-fatal; caller may retry).                                                                      |
 | `ErrInvalidSignature`   | Signature verification failed on a received message.                                                                       |
 | `ErrVerificationFailed` | Challenge echo did not match the original challenge, or remote verifier rejected the peer.                                 |
-| `ErrMessageTooLarge`    | User message exceeds `maxTransportSize` (~52 KiB), or the payload would overflow the wire format's `math.MaxUint16` limit. |
+| `ErrMessageTooLarge`    | User message exceeds `maxTransportSize` (~60 KiB), or the payload would overflow the wire format's `math.MaxUint16` limit. |
 | `ErrOutOfSync`          | Sequence number mismatch (duplicate or missing messages).                                                                  |
 | `ErrUnexpectedRoute`    | Received a route that does not match the expected protocol state.                                                          |
 | `ErrInvalidRoute`       | Route value is `0` (invalid) or unrecognized.                                                                              |
