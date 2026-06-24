@@ -1,44 +1,35 @@
 package handlers
 
 import (
-	"encoding/binary"
-	"io"
 	"net"
 	"time"
+
+	"github.com/kamune-org/kamune/pkg/relayconn"
 )
 
+// rawTCPAdapter wraps a net.Conn with the relay's length-prefixed wire
+// format. It composes a relayconn.Framing that enforces the server's
+// max_message_size so oversized frames are rejected before allocation.
 type rawTCPAdapter struct {
-	conn    net.Conn
-	maxSize int
+	f *relayconn.Framing
 }
 
-func (t *rawTCPAdapter) ReadBytes() ([]byte, error) {
-	var length uint16
-	if err := binary.Read(t.conn, binary.BigEndian, &length); err != nil {
-		return nil, err
-	}
-	if t.maxSize > 0 && int(length) > t.maxSize {
-		return nil, io.ErrUnexpectedEOF
-	}
-	data := make([]byte, length)
-	if _, err := io.ReadFull(t.conn, data); err != nil {
-		return nil, err
-	}
-	return data, nil
+func newRawTCPAdapter(conn net.Conn, maxSize int) *rawTCPAdapter {
+	return &rawTCPAdapter{f: relayconn.NewFraming(conn, maxSize)}
 }
 
-func (t *rawTCPAdapter) WriteBytes(data []byte) error {
-	if err := binary.Write(t.conn, binary.BigEndian, uint16(len(data))); err != nil {
-		return err
-	}
-	_, err := t.conn.Write(data)
-	return err
+func (a *rawTCPAdapter) ReadBytes() ([]byte, error) {
+	return a.f.ReadBytes()
 }
 
-func (t *rawTCPAdapter) Close() error {
-	return t.conn.Close()
+func (a *rawTCPAdapter) WriteBytes(data []byte) error {
+	return a.f.WriteBytes(data)
 }
 
-func (t *rawTCPAdapter) SetDeadline(deadline time.Time) error {
-	return t.conn.SetDeadline(deadline)
+func (a *rawTCPAdapter) Close() error {
+	return a.f.Close()
+}
+
+func (a *rawTCPAdapter) SetDeadline(t time.Time) error {
+	return a.f.SetDeadline(t)
 }

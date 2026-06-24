@@ -33,7 +33,7 @@ func dialClient(
 	token []byte,
 ) (*exchange.Channel, *pb.Registered) {
 	t.Helper()
-	ch, err := exchange.Initiate(&rawTCPAdapter{conn: conn, maxSize: 0})
+	ch, err := exchange.Initiate(newRawTCPAdapter(conn, 0))
 	if err != nil {
 		t.Fatalf("Initiate: %v", err)
 	}
@@ -121,7 +121,7 @@ func runServer(
 ) (stop func()) {
 	serverDone := make(chan struct{})
 	go func() {
-		adapter := &rawTCPAdapter{conn: conn, maxSize: hub.MaxMessageSize()}
+		adapter := newRawTCPAdapter(conn, hub.MaxMessageSize())
 		handleRelayConn(hub, adapter, "test", handshakeTimer)
 		close(serverDone)
 	}()
@@ -293,7 +293,7 @@ func TestRelay_Auth_WrongPSK(t *testing.T) {
 
 	// The client does HPKE Initiate, then sends auth with wrong PSK.
 	// The server should close before we ever see a Registered frame.
-	ch, err := exchange.Initiate(&rawTCPAdapter{conn: client, maxSize: 0})
+	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
 	if err != nil {
 		t.Fatalf("Initiate: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestRelay_Auth_Missing(t *testing.T) {
 	defer stop()
 
 	// Initiate HPKE then send a Register frame without an auth frame.
-	ch, err := exchange.Initiate(&rawTCPAdapter{conn: client, maxSize: 0})
+	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
 	if err != nil {
 		t.Fatalf("Initiate: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestRelay_Auth_NotRequired(t *testing.T) {
 	stop := runServer(hub, server, nil)
 	defer stop()
 
-	ch, err := exchange.Initiate(&rawTCPAdapter{conn: client, maxSize: 0})
+	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
 	if err != nil {
 		t.Fatalf("Initiate: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestRelay_BadRegisterFrame(t *testing.T) {
 	stop := runServer(hub, server, nil)
 	defer stop()
 
-	ch, err := exchange.Initiate(&rawTCPAdapter{conn: client, maxSize: 0})
+	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
 	if err != nil {
 		t.Fatalf("Initiate: %v", err)
 	}
@@ -459,7 +459,7 @@ func TestRelay_BadProtoFrame(t *testing.T) {
 	stop := runServer(hub, server, nil)
 	defer stop()
 
-	ch, err := exchange.Initiate(&rawTCPAdapter{conn: client, maxSize: 0})
+	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
 	if err != nil {
 		t.Fatalf("Initiate: %v", err)
 	}

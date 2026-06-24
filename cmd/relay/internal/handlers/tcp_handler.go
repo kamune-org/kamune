@@ -27,7 +27,7 @@ func acceptLoop(ctx context.Context, listener net.Listener, hub *services.Hub) {
 			continue
 		}
 
-		adapter := &rawTCPAdapter{conn: conn, maxSize: hub.MaxMessageSize()}
+		adapter := newRawTCPAdapter(conn, hub.MaxMessageSize())
 		remoteAddr := conn.RemoteAddr().String()
 
 		if rl := hub.RateLimiter(); rl != nil && !rl.Allow(extractIP(remoteAddr)) {
