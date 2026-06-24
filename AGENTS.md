@@ -62,10 +62,13 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 
 ## Conventions
 
+- Lines should be 80 characters wide or less. Excluding already committed lines,
+  generated files, markdown tables, and test files.
 - Go 1.26 style (no `//go:build` tags needed for tool directives)
 - Error sentinels use `Err` prefix, defined in the package they belong to (e.g. `transport.go`, `router.go`, `pkg/storage/storage.go`, `pkg/attest/attest.go`)
 - `ErrPeerDisconnected` returned by `Transport.Receive()` when the remote peer sends `RouteCloseTransport` (graceful close). `ErrConnClosed` indicates an abrupt/network drop.
 - Logging uses `log/slog` with structured attributes (`slog.String`, `slog.Any`)
-- No mock framework — tests use real implementations, interfaces, and standard `testing.T` with `testify`
+- No mock framework — tests use real implementations, interfaces, and standard
+  `testing.T`. Use `assert` and `require` from `testify` for assertions.
 - Table-driven tests preferred for multiple cases
 - `internal/` packages are private to root module; sub-modules (relay, chat, bus) have their own `internal/`
