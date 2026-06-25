@@ -1,23 +1,98 @@
 # Relay Protocol
 
 Kamune includes a relay server for NAT traversal. The relay is a **blind
-token-based session switch** — a listener connects, receives a random token,
+token-based session switch**: a listener connects, receives a random token,
 shares it out of band, and the dialer connects with that token. The relay
 bridges encrypted frames between the two and learns nothing about their
 identities or message content.
 
+The relay makes no trust decisions beyond an optional pre-shared key. End-to-end
+authentication and encryption are established directly between the two peers;
+the relay is a low-trust message forwarder.
+
 ## Design Goals
 
-- **Blind**: the relay never sees public keys, identities, or message content
-- **Stateless**: no persistent storage, no queues, no offline messages
-  (tokens and rate limit counters are ephemeral in-memory state)
+- **Blind**: the relay never sees public keys, identities, or message content.
+- **Stateless**: no persistent storage, no queues, no offline messages. Tokens,
+  sessions, and rate-limit counters are ephemeral, scoped to the relay process
+  lifetime.
 - **Zero metadata**: no social graph, no presence tracking, no persistent
-  identifiers across connections
+  identifiers across connections.
 - **Out-of-band rendezvous**: the only thing peers exchange is a short random
-  token — no key material, no addresses
-- **Transport-agnostic**: same protocol over WebSocket, raw TCP, or TLS
+  token — no key material, no addresses.
+- **Transport-agnostic**: same protocol over WebSocket, raw TCP, or TLS.
 
-## Relay Protobuf Schema
+## Threat Model
+
+The relay is a **low-trust relay**. Callers must assume:
+
+- A **network attacker** on the path between client and relay can observe
+  connection metadata (timing, sizes, IP pairs) but not message contents.
+- The **relay operator** can deny service, log connection metadata, and observe
+  which connection pairs share a session. They cannot read message contents,
+  identify peers, or persist identity across sessions.
+- A **malicious relay** cannot impersonate either peer: authentication and
+  end-to-end encryption are established directly between the two peers using the
+  rendezvous token alone.
+
+### What the Relay Observes
+
+| The relay observes               | The relay does NOT observe                                |
+| -------------------------------- | --------------------------------------------------------- |
+| Session `S` has 2 connections    | Public keys of either peer                                |
+| Connection `A` is in session `S` | Identity of any peer                                      |
+| Session `S` received a message   | Persistent identifier (token is ephemeral and single-use) |
+|                                  | Message content (E2E encrypted)                           |
+|                                  | Social graph (each token is unique per rendezvous)        |
+
+The relay never learns who any peer is — only that two connections share a
+token, nothing more.
+
+### What a Compromised Relay Can and Cannot Do
+
+If the relay is fully compromised (operator is malicious or the host is
+breached), the attacker can:
+
+- **Deny service** by refusing connections or dropping messages.
+- **Observe metadata** — which IPs connect, when, how much they exchange, which
+  connections share a session.
+- **Inject or reorder messages** _between_ sessions, but never within a session
+  it cannot see (and it can see all of them, by design).
+- **Replay or forge** messages it has previously observed, but the end-to-end
+  cryptographic layer rejects any frame the recipient cannot authenticate, so
+  the only effect is to drop traffic or cause disconnects.
+
+The attacker **cannot**:
+
+- Read message contents (end-to-end encryption is established peer-to-peer via
+  the HPKE exchange).
+- Impersonate a peer (no long-term keys are exchanged with the relay; peers
+  authenticate each other after rendezvous).
+- Decrypt past sessions retroactively (ephemeral keys per session; see
+  [Forward Secrecy](#forward-secrecy)).
+- Persist a peer's identity across separate sessions (tokens are single-use; the
+  relay does not know the same client is back).
+
+## Protocol
+
+### Wire Format
+
+For TCP and TLS transports, every frame is a length-prefixed payload: two
+big-endian bytes of length followed by exactly that many bytes of payload. The
+length is a `uint16`, so the maximum frame size is 64 KB. Both ends of a
+connection MUST agree on the maximum; if they differ, the stricter end will
+reject frames the other would have accepted.
+
+For WebSocket transport, frames are sent as binary WebSocket messages; the
+WebSocket layer's framing replaces the length prefix.
+
+**Design decision:** length-prefixed framing was chosen over delimiter-based
+framing because it allows zero-byte payloads, avoids escaping problems, and
+makes the byte stream resumable. The 64 KB ceiling is a deliberate small-frame
+choice that limits blast radius from a malicious peer; larger messages are split
+by the application layer above the relay.
+
+### Frame Schema
 
 ```protobuf
 syntax = "proto3";
@@ -40,7 +115,9 @@ message Register {
 }
 
 message Registered {
-    bytes token = 1;  // The 16-byte session token
+    bytes  token               = 1;  // The 16-byte session token
+    uint32 ttl_seconds         = 2;  // Token validity (offer window)
+    uint32 session_ttl_seconds = 3;  // Max lifetime of paired session (0 = no limit)
 }
 
 message Message {
@@ -56,29 +133,29 @@ message Auth {
 }
 ```
 
-## Connection Flow
+### Connection Flow
 
-The protocol uses a single oneof frame type for session management.
+#### Listener (creates session)
 
-### Listener (creates session)
-
-1. Establish transport connection (WebSocket, TCP, or TLS).
-2. Perform HPKE key exchange (`exchange.Initiate` — the relay calls `Accept`).
-3. If PSK auth is configured, send `Frame.Auth{psk}` before registering.
+1. Establish a transport connection (WebSocket, TCP, or TLS).
+2. Perform an HPKE key exchange.
+3. If the relay is in PSK mode, send `Frame.Auth{psk}` before registering.
 4. Send `Frame.Register{token: nil}` to request a new session.
-5. Receive `Frame.Registered{token: T}` — T is a random 16-byte token.
-6. Send T to the dialer out of band (QR code, text message, NFC, etc.).
+5. Receive `Frame.Registered{token: T, ttl_seconds, session_ttl_seconds}`. `T`
+   is a random 16-byte token.
+6. Share `T` with the dialer out of band (QR code, text message, NFC, etc.).
 7. Enter read loop. The first incoming `Frame.Message{data}` establishes the
    session — the dialer has arrived.
 
-### Dialer (joins session)
+#### Dialer (joins session)
 
-1. Establish transport connection.
-2. Perform HPKE key exchange (`exchange.Initiate`).
-3. If PSK auth is configured, send `Frame.Auth{psk}` before registering.
+1. Establish a transport connection.
+2. Perform an HPKE key exchange.
+3. If the relay is in PSK mode, send `Frame.Auth{psk}` before registering.
 4. Send `Frame.Register{token: T}` with the token received from the listener.
-5. The relay validates T, joins the dialer to the session, and sends the
-   dialer a `Frame.Registered{token: T}` to confirm.
+5. The relay validates `T`, joins the dialer to the session, and sends the
+   dialer a `Frame.Registered{token: T, ttl_seconds, session_ttl_seconds}` to
+   confirm.
 6. Enter read loop. Messages are now bridged.
 
 ```
@@ -88,178 +165,185 @@ Listener                                    Relay
    ├── HPKE Initiate ────────────────────────►│
    ├── (Auth if PSK) ────────────────────────►│
    ├── Register{token: nil} ─────────────────►│
-   │◄─ Registered{token: T} ─────────────────┤
+   │◄─ Registered{token: T, ttl, session_ttl} ┤
    │                                          │
-   │  (send T to dialer OOB)                  │
+   │  (share T with dialer OOB)               │
    │                                          │
-   │                              Dialer      │
-   │                                 │        │
-   │                                 ├── Connect ─────►│
-   │                                 ├── HPKE Initiate─►│
-   │                                 ├── (Auth if PSK)─►│
-   │                                 ├── Register{T} ──►│
-   │◄════ Message{data} ═══════════════════╝        │
-   │══════ Message{data} ═══════════════════╗        │
-   │                                 ◄══════╝        │
-   │                                 ══════╗          │
+   │                 Dialer                   │
+   │                    │                     │
+   │                    ├── Connect ─────────►│
+   │                    ├── HPKE Initiate ───►│
+   │                    ├── (Auth if PSK) ───►│
+   │                    ├── Register{T} ─────►│
+   │◄══════ Message{data} ═══════════════════╝│
+   │══════ Message{data} ════════════════════►│
 ```
 
-The relay tracks which transport connection belongs to which session. When
-one peer writes a `Frame.Message{data}`, the relay delivers it to the other
-peer in the same session.
+### Token Lifecycle
 
-## Frame Flow
+1. **Issued**: the relay generates `T = crypto/rand` 16 bytes and creates a
+   session. The session has one participant: the listener.
+2. **Consumed**: when a dialer sends `Register{token: T}`, the relay joins the
+   dialer's connection to the session. The token is now consumed — no further
+   peer can join with the same `T`.
+3. **Expired**: if the listener disconnects before a dialer joins, the token is
+   discarded and cannot be used.
+4. **TTL**: tokens have a configurable time-to-live (`token_ttl`, default 5
+   minutes). If no dialer joins within the TTL, the session is cleaned up.
 
-- **Session creation**: `Frame.Register{token: nil}` asks the relay to
-  generate a new random token and create a session. The relay replies with
-  `Frame.Registered{token: T}` containing the 16-byte token.
-- **Session join**: `Frame.Register{token: T}` with a previously issued token
-  adds the sender's connection to the session. The relay replies with
-  `Frame.Registered{token: T}` to confirm.
-- **Message relay**: `Frame.Message{data}` is delivered to the other peer
-  in the session. If the other peer has not yet connected, the message is
-  silently dropped (no queuing).
-- **Ping/Pong**: `Frame.Ping` triggers an automatic `Frame.Pong` response
-  at the relay connection level. The relay and client only respond to Pings;
-  neither side initiates them.
-- **Auth**: `Frame.Auth{psk}` authenticates the peer before registering.
-  Required when the relay is in PSK mode. The relay replies with an empty
-  `Frame.Auth{}` on success or disconnects on failure.
-
-The relay applies no back-pressure, no queuing, no retry — if the recipient
-disconnects, the message is silently dropped. The Kamune protocol layer
-(running inside the encrypted channel) handles reliability.
-
-### Token lifecycle
-
-1. **Issued**: relay generates T = `crypto/rand` 16 bytes, creates an
-   in-memory session, stores T → session mapping. The session has one
-   participant: the listener.
-2. **Consumed**: when a dialer sends `Register{token: T}`, the relay joins
-   the dialer's connection to the session. The token is now consumed — no
-   further peer can join with the same T.
-3. **Expired**: if the listener disconnects before a dialer joins, the
-   token is discarded and cannot be used.
-4. **TTL**: tokens have a configurable time-to-live (default: 5 minutes).
-   If no dialer joins within the TTL, the session is cleaned up.
+**Design decision: 16-byte tokens.** A 16-byte (128-bit) token provides 128 bits
+of entropy, which is more than enough to make guessing infeasible. 16 bytes also
+fits comfortably in a QR code without the dialer needing to scan anything more
+elaborate. Shorter tokens would be QR-friendly but reduce entropy; longer tokens
+buy nothing practical.
 
 Tokens are:
 
-- **Single-use**: one dialer per token
-- **Time-bound**: TTL enforced server-side
-- **Opaque**: the relay does not embed any peer information in the token
-- **Unpredictable**: generated by `crypto/rand`
+- **Single-use**: one dialer per token.
+- **Time-bound**: TTL enforced server-side.
+- **Opaque**: the relay does not embed any peer information in the token.
+- **Unpredictable**: generated by `crypto/rand`.
 
-## What the relay learns (and doesn't)
+### Session Lifetime
 
-| The relay sees                    | The relay does NOT see          |
-| --------------------------------- | ------------------------------- |
-| Session S has 2 connections       | Public keys of either peer      |
-| Connection A is in session S      | Identity of any peer            |
-| Session S received a message at T | Persistent identifier (token is |
-|                                   | ephemeral and single-use)       |
-|                                   | Message content (E2E encrypted) |
-|                                   | Social graph (each token is     |
-|                                   | unique per rendezvous)          |
+A paired session is bounded by `session_ttl` (default 30 minutes;
+`0 = no limit`). After this duration, the relay closes both peers regardless of
+activity. This is independent of `token_ttl`, which controls the offer window
+before pairing.
 
-The relay never learns who any peer is — it sees only that two connections
-share a token, nothing more.
+**Design decision: two-tier TTL.** The token offer window and the session max
+lifetime are conceptually different:
 
-## RelayListener
+- `token_ttl` is a UX concern: how long a share card (QR code) stays valid. It
+  should be short (5 minutes) to minimize the cost of abandoned offers.
+- `session_ttl` is a resource concern: how long a paired session can hold a slot
+  in the relay's session map. It should be long enough for the use case (30
+  minutes is generous) or unlimited (0).
 
-`ListenRelay` connects to the relay and performs the HPKE exchange, then:
+A single TTL would force a compromise that hurts one of these.
 
-1. Sends `Frame.Register{token: nil}` to create a session.
-2. Receives `Frame.Registered{token: T}` and returns T to the caller.
-3. Enters a read loop. When a `Frame.Message{data}` arrives, it creates a
-   new `RelayConn` and pushes it to the accept channel.
-4. The relay token is consumed by the first dialer that presents it.
+### Backpressure and Message Drops
 
-All `RelayConn` instances for the same listener share the underlying relay
-HPKE channel — the relay differentiates sessions by token.
+The relay applies **no back-pressure, no queuing, no retry**. If the recipient
+is absent or slow, the message is silently dropped. The end-to-end Kamune
+protocol layer above the relay is responsible for reliability, ordering, and
+retransmission.
+
+**Design decision: drop, not queue.** Queuing would require:
+
+- Persistent storage (violates the stateless goal).
+- A notion of "session mailbox" (introduces replay windows).
+- Per-recipient ordering state (CPU and memory cost per session).
+
+The chosen design is simpler, more predictable, and has bounded resource cost
+per session. The cost is that messages sent before both peers are connected — or
+while the recipient is processing — are lost. Callers above the relay handle
+this.
+
+### Forward Secrecy
+
+Each session uses fresh HPKE ephemeral keys. A compromised relay — or a future
+compromise of any long-term key — cannot decrypt past sessions, because the keys
+never existed outside that session's lifetime and are destroyed when the session
+ends.
+
+**Design decision: ephemeral per-session keys.** Long-term keys would allow the
+relay to persist identity across sessions (violating zero-metadata) and would
+mean a single key compromise decrypts all sessions ever routed through that
+relay. Ephemeral keys buy both better privacy and better security at the cost of
+slightly more work per handshake.
+
+### Replay Protection
+
+Replay protection is **explicitly out of scope** at the relay layer. The relay
+does not track, deduplicate, or sequence messages. Replay defense is the
+responsibility of the end-to-end Kamune protocol layer, which uses the
+rendezvous token and ML-KEM-768 handshake to establish a fresh session secret
+per rendezvous.
+
+**Design decision: no replay state at the relay.** Replay tracking would require
+keeping per-message state for the entire session lifetime and across sessions
+for the same peer. With ephemeral per-session keys already providing
+session-scoped authentication, the caller can cheaply reject replays above the
+relay.
+
+### Authentication Modes
+
+| Mode | Config                    | Behaviour                                          |
+| ---- | ------------------------- | -------------------------------------------------- |
+| Open | `password = ""` (default) | Any peer can create sessions and receive tokens    |
+| PSK  | `password = "<secret>"`   | Peer must send `Frame.Auth{psk}` before `Register` |
+
+**Design decision: PSK as a deployment-level gate, not per-peer identity.** The
+PSK identifies the _deployment_, not the peer. It prevents drive-by token
+harvesting from a public relay, but it does not authenticate individual peers to
+each other. Peer-to-peer authentication is established end-to-end after the
+rendezvous, using the shared token as a starting point for a key agreement.
+
+In PSK mode, the password is transmitted inside the HPKE-encrypted channel and
+verified with a constant-time comparison. A wrong password closes the connection.
+
+### Rate Limiting
+
+Rate limiting applies per source IP, before the key exchange, so abusive clients
+are rejected without burning the relay's CPU on asymmetric crypto.
+
+| Aspect      | Behavior                                                     |
+| ----------- | ------------------------------------------------------------ |
+| Algorithm   | Sliding window log                                           |
+| Window      | Configurable (default 1 minute)                              |
+| Quota       | Configurable (default 20 registrations per window)           |
+| Keying      | Source IP (proxy-aware for WebSocket)                        |
+| Boundedness | Bounded; defaults to `max_concurrent_sessions`               |
+| TTL         | Per-IP state forgotten after `2 × time_window` of inactivity |
+
+**Design decision: rate-limit by IP, not by token.** Tokens are opaque to the
+rate limiter (a client may not have a token yet — that's the listener case). IP
+is the only stable identity available at connection time.
+
+**Design decision: rate-limit before HPKE.** The whole point of rate limiting is
+to prevent abuse. Putting it after the HPKE handshake would let attackers force
+the relay to do expensive asymmetric crypto on every connection attempt. The
+check is a simple, fast lookup that costs the relay nothing to reject.
+
+**Design decision: sliding window log, not token bucket.** A sliding window log
+gives exact "N events in the last T seconds" semantics with no edge cases at
+window boundaries. The cost is O(N) memory per IP where N is the quota. Since
+the quota is small (default 20), this is fine.
 
 ## Transports
 
-The relay supports three independent transport listeners, each configured
-via its own section in the TOML config. Any combination can be active at once.
+The relay supports three independent transports, each configured via its own
+section in the TOML config. Any combination can be active at once.
 
-The client API takes the relay address and an optional password (for PSK
-mode). No peer key or identity key is needed — the dialer discovers the
-session via the token, and the HPKE exchange generates ephemeral keys per
-connection.
+The client API takes the relay address and an optional password (for PSK mode).
+No peer key or identity key is needed — the dialer discovers the session via the
+token, and the HPKE exchange generates ephemeral keys per connection.
 
 ### WebSocket (`[ws]`)
 
 A WebSocket listener. Shares the HTTP server address from `[server].address`.
-Suitable for permissive networks, local development, and deployments behind
-a CDN.
+Suitable for permissive networks, local development, and deployments behind a
+CDN.
 
-```toml
-[ws]
-enabled = true
-```
-
-When `enabled` is `false`, the WebSocket listener is disabled.
-
-For WebSocket over TLS (`wss://`), provide a TLS config to the client API
-(see TLS section for certificate setup).
-
-Client API:
-
-```go
-relayconn.DialRelay(ctx, addr, token)
-relayconn.DialRelayWSS(ctx, addr, token, tlsCfg)
-relayconn.ListenRelay(ctx, addr)        // returns (*RelayListener, token, error)
-relayconn.ListenRelayWSS(ctx, addr, tlsCfg) // returns (*RelayListener, token, error)
-```
+For WebSocket over TLS (`wss://`), the client uses a configured TLS context
+against the relay's certificate.
 
 ### Raw TCP (`[tcp]`)
 
-A bare TCP listener with length-prefixed framing. No TLS, no HTTP — just
-2-byte big-endian length + payload over a plain TCP stream. Suitable for
-trusted LANs, VPN backends, and development.
-
-```toml
-[tcp]
-enabled = true
-address = "127.0.0.1:8889"
-```
-
-Client API:
-
-```go
-relayconn.DialRelayTCP(ctx, addr, token)
-relayconn.ListenRelayTCP(ctx, addr)  // returns (*RelayListener, token, error)
-```
+A bare TCP listener with length-prefixed framing. No TLS, no HTTP — just 2-byte
+big-endian length + payload over a plain TCP stream. Suitable for trusted LANs,
+VPN backends, and development.
 
 ### TLS (`[tls]`)
 
-A TLS-encrypted TCP listener using the same length-prefixed framing, but
-wrapped in a TLS 1.3 connection. To passive DPI this is indistinguishable
-from any other TLS service on port 443 — no HTTP upgrade, no opcodes, no
-protocol fingerprint.
-
-```toml
-[tls]
-enabled = true
-address = "0.0.0.0:443"
-cert_file = "/path/to/cert.pem"
-key_file  = "/path/to/key.pem"
-```
+A TLS-encrypted TCP listener using the same length-prefixed framing, but wrapped
+in a TLS 1.3 connection. To passive DPI this is indistinguishable from any other
+TLS service on port 443 — no HTTP upgrade, no opcodes, no protocol fingerprint.
 
 **Auto-generated certificate.** When `cert_file` and `key_file` are specified
 but the files don't exist, the relay generates a self-signed TLS certificate.
 This certificate is valid for 10 years and contains no identifying metadata.
-If `cert_file` or `key_file` is empty, defaults to `assets/cert/server.crt`
-and `assets/certs/server.key` and auto-generates if missing.
-
-Client API:
-
-```go
-tlsCfg := &tls.Config{}
-relayconn.DialRelayTLS(ctx, addr, token, tlsCfg)
-relayconn.ListenRelayTLS(ctx, addr, tlsCfg)  // returns (*RelayListener, token, error)
-```
 
 ### Comparison
 
@@ -269,195 +353,32 @@ relayconn.ListenRelayTLS(ctx, addr, tlsCfg)  // returns (*RelayListener, token, 
 | Raw TCP   | Plain TCP, no TLS            | None (visible as raw TCP) | Trusted LAN, VPN             |
 | TLS       | Standard TLS 1.3             | Excellent                 | Production, hostile networks |
 
-### PSK auth
+**Design decision: WebSocket, TCP, and TLS only.** The chosen set covers the
+three main deployment scenarios:
 
-All transport functions accept an optional password via `relayconn.WithPassword`:
+- **WebSocket** for CDN-fronted and permissive networks.
+- **TLS** for stealth on hostile networks.
+- **Raw TCP** for trusted internal deployments.
 
-```go
-relayconn.DialRelay(ctx, addr, token, relayconn.WithPassword("secret"))
-relayconn.ListenRelay(ctx, addr, relayconn.WithPassword("secret"))
-```
+Other transports (QUIC, HTTP/2, gRPC) were considered. QUIC would give better
+NAT-traversal and multiplexing but is visible as QUIC to DPI; gRPC has the same
+problem. Plain TCP is the lowest common denominator for trusted networks.
 
-### Config example: stealth deployment
+### Handshake Timeout
 
-```toml
-[tcp]
-enabled = false
+A configurable `handshake_timeout` (default 30 s) bounds the time between
+connection accept and successful registration. Slow clients that hold a
+connection open without registering are dropped, freeing the slot the relay had
+reserved for them.
 
-[tls]
-enabled = true
-address = "0.0.0.0:443"
-# cert_file and key_file will be auto-generated on first run
-cert_file = "server.crt"
-key_file  = "server.key"
+**Design decision: separate from token_ttl.** Token TTL applies _after_
+successful registration (offer window for the dialer). The handshake timeout
+applies _before_ registration (how long the relay is willing to wait for the
+client to finish HPKE + auth). A client that opens a connection and stalls is a
+different problem from a client that registers successfully but never gets a
+peer to join.
 
-[ws]
-enabled = false
-
-[server]
-password = ""
-expose_health = false
-expose_ip = false
-```
-
-On the wire: TLS 1.3 handshake followed by length-prefixed ciphertext. No
-HTTP requests, no protocol fingerprint beyond "unknown TLS application".
-
-## Deploying Behind a CDN
-
-A CDN proxies traffic between clients and your relay, shielding the relay's
-IP address and providing free TLS termination. This is the recommended
-deployment model for hostile networks.
-
-### How WSS works
-
-`wss://` is the WebSocket equivalent of `https://` — a WebSocket connection
-inside a TLS tunnel. The client performs a standard TLS handshake first,
-then sends the WebSocket upgrade inside the encrypted tunnel. Passive DPI
-sees only the initial TLS handshake.
-
-### CDN deployment flow
-
-```
-                  TLS (CDN cert)         plain WS (private network)
-Client ──wss://relay.cdn.com/ws──► CDN ──ws://relay:8080/ws──► Relay
-  │                                │
-  │‑ Client sees CDN's valid cert  │‑ CDN terminates TLS
-  │‑ Client never sees relay IP    │‑ Forwards upgrade as-is
-  │‑ Blends with millions of       │‑ Connection to origin is
-  │  other CDN sites               │  plain WS on private network
-```
-
-The relay operator does not need a TLS certificate. The CDN provides one.
-The relay listens on `[server] address = "127.0.0.1:8080"` with `[ws] enabled = true`
-— plain WebSocket behind the CDN is perfectly safe.
-
-Use `DialRelayWSS` / `ListenRelayWSS` on the client side with a TLS config
-pointed at the CDN hostname.
-
-### Cloudflare Tunnel (recommended)
-
-[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
-lets the relay make a single outbound connection to Cloudflare, eliminating
-the need for a public IP or open firewall ports entirely:
-
-```
-Client ──wss://relay.cdn.com/ws──► Cloudflare edge
-                                       ▲
-                                       │ outbound tunnel (no open ports)
-                                       │
-                                   Relay (cloudflared on localhost:8080)
-```
-
-- No public IP required — works behind CGNAT, residential ISPs, or firewalls
-- No open ports — only outbound connections
-- Free tier handles unlimited traffic
-- DPI sees traffic to Cloudflare IPs, not the relay
-
-The relay itself needs no changes — it listens on localhost as usual.
-
-### Config for CDN-backed relay
-
-```toml
-[ws]
-enabled = true
-
-[tcp]
-enabled = false
-
-[tls]
-enabled = false
-
-[server]
-address = "127.0.0.1:8080"   # localhost only — CDN connects via tunnel
-password = ""
-expose_health = false
-expose_ip = false
-```
-
-### CDN vs direct TLS comparison
-
-|                     | Direct TLS listener | CDN (Cloudflare)                   | Cloudflare Tunnel         |
-| ------------------- | ------------------- | ---------------------------------- | ------------------------- |
-| Relay IP hidden     | No                  | Yes (CDN IP shown)                 | Yes (no public IP at all) |
-| TLS cert            | Self-signed (auto)  | CDN's valid cert                   | CDN's valid cert          |
-| DPI evasion         | Good (raw TLS)      | Excellent (blends with CF traffic) | Excellent                 |
-| Cost                | Free                | Free                               | Free                      |
-| Open ports required | Yes (port 443)      | Yes (port 443 on origin)           | No (outbound only)        |
-| Setup complexity    | None (auto-cert)    | DNS + proxy toggle                 | Install cloudflared       |
-
-### Cloudflare Workers
-
-[Workers](https://workers.cloudflare.com/) can act as a WebSocket proxy
-between clients and the relay, optionally adding auth, logging, or IP
-filtering at the edge:
-
-```js
-// worker.js — WebSocket proxy (~20 lines)
-export default {
-  async fetch(req) {
-    const url = new URL(req.url);
-    const origin = new URL("wss://relay-origin.example.com");
-    origin.pathname = url.pathname;
-    return fetch(new Request(origin, req));
-  },
-};
-```
-
-The Worker forwards the WebSocket upgrade transparently. All subsequent WS
-frames pass through. The relay sees the Worker's IP, not the client's.
-
-## Access Control
-
-The relay supports restricting which peers can create sessions. Enforcement
-happens inside the HPKE-encrypted channel, before a token is issued.
-
-| Mode | Config                    | Behaviour                                          |
-| ---- | ------------------------- | -------------------------------------------------- |
-| Open | `password = ""` (default) | Any peer can create sessions and receive tokens    |
-| PSK  | `password = "<secret>"`   | Peer must send `Frame.Auth{psk}` before `Register` |
-
-### Open mode (default)
-
-```toml
-[server]
-password = ""
-```
-
-No restrictions. The relay accepts any peer.
-
-### PSK mode
-
-```toml
-[server]
-password = "aB3dF5gH8jK2lQ4wE6rT9yU1iO7pZ0x"
-```
-
-After the HPKE exchange, the peer must send a `Frame.Auth{psk: "..."}`
-frame before `Frame.Register`. The relay verifies the PSK using
-constant-time comparison and closes the connection if incorrect.
-
-On the client side, pass the password via `relayconn.WithPassword`:
-
-```go
-rc, err := relayconn.DialRelay(ctx, addr, token, relayconn.WithPassword(password))
-```
-
-## Rate Limiting
-
-The relay supports optional rate limiting per connection to prevent abuse.
-
-```toml
-[rate_limit]
-enabled = true
-time_window = "1m"
-quota = 20
-```
-
-When enabled, each connection is limited to `quota` registrations per
-`time_window`. Exceeding the quota closes the connection.
-
-## Config Reference
+## Configuration Reference
 
 ```toml
 [server]
@@ -470,157 +391,210 @@ expose_ip = true              # expose /ip endpoint
 enabled = true                # WebSocket listener (shares server address)
 
 [tcp]
-enabled = false               # Raw TCP listener
+enabled = true                # Raw TCP listener
 address = "127.0.0.1:8889"
 
 [tls]
-enabled = false               # TLS listener
+enabled = true                # TLS listener
 address = "0.0.0.0:443"
-# cert_file = "server.crt"    # required (auto-generated if files missing)
-# key_file  = "server.key"    # required (auto-generated if files missing)
+# cert_file = "assets/cert/server.crt"   # auto-generated if missing
+# key_file  = "assets/cert/server.key"   # auto-generated if missing
 
 [session]
-token_ttl = "5m"              # Token time-to-live (default: 5 minutes)
-# session_ttl = "30m"         # Max lifetime for paired sessions (0 = no limit)
-# handshake_timeout = "10s"   # Max time for HPKE + registration (0 = no limit)
-max_concurrent_sessions = 10000  # Maximum active sessions
-max_message_size = 65536      # Maximum message payload size (bytes)
+token_ttl = "5m"              # Token time-to-live (unpaired sessions)
+session_ttl = "30m"           # Max lifetime of paired sessions (0 = no limit)
+handshake_timeout = "30s"     # Max time for HPKE + registration (0 = default 30s)
+max_concurrent_sessions = 10000  # Maximum active sessions (>0 required)
+max_message_size = 65536      # Maximum frame payload in bytes (0 = no limit)
 
 [rate_limit]
-enabled = true                # Enable rate limiting
-time_window = "1m"            # Rate limit window
-quota = 20                    # Max registrations per window
+enabled = true                # Enable per-IP rate limiting
+time_window = "1m"            # Sliding window duration
+quota = 20                    # Max registrations per window per IP
+# max_entries = 100000        # Max unique IPs tracked (default: max_concurrent_sessions)
 ```
 
-## Security Considerations
+### Field Semantics
 
-The relay is a blind session switch — it makes no trust decisions about who
-can create or join sessions (beyond optional PSK auth). This section documents
-known attack vectors and the current level of protection.
+| Field                     | Default | Range  | Behavior on `0`          |
+| ------------------------- | ------- | ------ | ------------------------ |
+| `token_ttl`               | `5m`    | `> 0`  | (rejected)               |
+| `session_ttl`             | `30m`   | `>= 0` | no limit                 |
+| `handshake_timeout`       | `30s`   | `>= 0` | treated as default (30s) |
+| `max_concurrent_sessions` | `10000` | `> 0`  | (rejected)               |
+| `max_message_size`        | `65536` | `>= 0` | no limit                 |
+| `time_window`             | `1m`    | `> 0`  | (rejected)               |
+| `quota`                   | `20`    | `> 0`  | (rejected)               |
 
-### Attack vectors
+### Diagnostics Endpoints
 
-#### Token exhaustion (resource exhaustion)
+When `expose_health = true`, `GET /health` returns:
 
-An attacker can create tokens in rapid succession by opening many HPKE
-connections and sending `Register{token: nil}`. Each unpaired token occupies
-a slot in the in-memory session map until its TTL expires (default: 5 min).
-If the attacker fills all `max_concurrent_sessions` slots, legitimate users
-cannot create sessions until expired tokens are purged.
-
-**Current defenses:**
-
-| Defense                               | Status                                                       |
-| ------------------------------------- | ------------------------------------------------------------ |
-| `max_concurrent_sessions` cap         | ✅ Enforced — `Create()` rejects at capacity                 |
-| Token TTL + `purgeExpired()` 30s loop | ✅ Enforced — expired tokens freed every 30s                 |
-| Rate limiting (`[rate_limit]`)        | ✅ Enforced — sliding window counter per IP, reject at quota |
-| Per-IP rate limiting                  | ✅ Enforced — each IP tracked independently                  |
-
-Rate limiting is checked after connection accept but before HPKE key
-exchange, so rate-limited clients are rejected without wasting asymmetric
-crypto. See [Rate limiting implementation](#rate-limiting-implementation)
-below for details.
-
-#### Session hoarding
-
-An attacker who controls both ends of a session (listener + dialer) can hold
-a session open until its TTL expires. The TTL serves double duty:
-
-1. **Token offer window** — how long the receiver has to scan a QR and join
-2. **Session max lifetime** — how long a paired session lives before forced
-   disconnect
-
-This means:
-
-- Raising TTL for share card usability (longer offer window) also gives
-  attackers longer-lived sessions
-- A paired session at rest (no messages) still consumes a slot until TTL
-
-**Current defenses:**
-
-| #   | Mitigation                                                                                                                                                    | Prevents                                               | Status                                                        |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------- |
-| 1   | **Rate limiting** — sliding window counter per IP, enforced before registration                                                                               | Rapid token fill                                       | ✅ Implemented                                                 |
-| 2   | **Session TTL** — `session_ttl` controls max lifetime after pairing, separate from `token_ttl` (offer window)                                                 | Session hoarding, flexibility for share cards          | ✅ Implemented — configurable, 0 = no limit                   |
-| 3   | **Handshake timeout** — `handshake_timeout` limits time between accept and registration complete; enforced via `net.Conn.SetDeadline` (TCP) or context (WS)   | Slow client DoS holding connection + goroutine slots   | ✅ Implemented — configurable, default 10s                    |
-| 4   | **Per-IP concurrent session cap** — optional limit below the global `max_concurrent_sessions`                                                                 | Single IP exhausting all slots                         | ❌ Not implemented                                            |
-
-### Status summary
-
-| Protection                                     | Status                                                       |
-| ---------------------------------------------- | ------------------------------------------------------------ |
-| Token TTL                                      | ✅ Enforced (configurable, default 5 min)                    |
-| Session TTL (paired max lifetime)              | ✅ Enforced (configurable, default 0 = no limit)             |
-| Max concurrent sessions                        | ✅ Enforced (configurable, default 10K)                      |
-| Max message size                               | ✅ Enforced (configurable, default 64 KB)                    |
-| PSK auth                                       | ✅ Enforced (constant-time compare)                          |
-| Rate limiting (global + per-IP)                | ✅ Enforced — sliding window, `hashicorp/golang-lru`         |
-| Handshake timeout (HPKE + registration)        | ✅ Enforced (configurable, default 10s)                      |
-| Per-IP session cap                             | ❌                                                           |
-
-Mitigations 1–3 are implemented. Per-IP session cap remains as
-defensive hardening for public relay deployments.
-
-### Rate limiting implementation
-
-Rate limiting lives in `internal/ratelimit/` and is the first line of defense
-against token exhaustion (rapid `RegisterListener` calls).
-
-**Algorithm:** Sliding window counter with sub-window buckets. The time window
-(e.g. 1 minute) is divided into 10 equal buckets (e.g. 6 s each). On each
-registration attempt:
-
-1. Advance the cursor by elapsed time / bucket duration, zeroing stale buckets
-2. Sum all 10 bucket counters
-3. If sum ≥ quota → deny; else increment current bucket → allow
-
-This avoids the O(n) timestamp iteration of a pure sliding window log while
-providing sub-window precision (worst case: 1 bucket's worth of overcount).
-
-**Storage:** `hashicorp/golang-lru/v2/expirable` — a bounded, TTL-aware LRU.
-Each IP maps to a `*entry` struct holding the sliding window state. Entries
-auto-evict after `2 × time_window` of inactivity. The LRU size is capped at
-`max_concurrent_sessions` to prevent memory exhaustion under IP spoofing.
-
-**Concurrency:** A single `sync.Mutex` guards the RateLimiter. Every `Allow()`
-call mutates state (sub-window counters, timestamp), so `RWMutex` would promote
-to write on every path anyway. The lock is per-connection-attempt (held for
-~100 ns), well before any asymmetric crypto, so contention is negligible.
-
-**Placement in the connection lifecycle:**
-
-```
-TCP/TLS accept / WS upgrade
-        ↓
-Extract client IP (proxy-aware for WS)
-        ↓
-    ┌─────────────────-┐
-    │ Rate limit check │ ← reject with close + log warning
-    └────────────────-─┘
-        ↓
-HPKE key exchange (expensive — attacker burns CPU per attempt)
-        ↓
-Authentication (if PSK configured)
-        ↓
-Registration (listener: token create / dialer: token join)
-        ↓
-Read pump (message forwarding)
+```json
+{ "status": "ok", "uptime": "1h2m3s", "sessionCount": 12 }
 ```
 
-**Keying:** By IP address. For WebSocket connections, IP is extracted via
-proxy headers (`X-Real-IP`, `X-Forwarded-For`, `True-Client-IP`, etc.)
-through `clientIP()`. For TCP/TLS, the raw `RemoteAddr` is used, with the
-port stripped.
+When `expose_ip = true`, `GET /ip` returns the client's IP as seen by the relay
+(proxy-aware for WebSocket):
 
-**Tests:** `ratelimit_test.go` runs under `go test -race` and covers:
-
-- Single IP stays within quota
-- Single IP blocked after exceeding quota
-- Counter resets after window elapses
-- Multiple IPs are independent
-- Concurrent goroutines for same IP maintain correct count
-
+```json
+{ "ip": "203.0.113.42" }
 ```
 
+**Design decision: opt-in diagnostics.** Both endpoints leak information (relay
+uptime, current load, perceived client IP) that is useful for debugging but is
+metadata a public relay should not expose. Both are off-by-default-friendly in
+the sense that the operator is expected to set them to `false` on public
+deployments.
+
+## Deployment Patterns
+
+### Direct TLS (single host)
+
+A single host runs the relay bound to a public IP on port 443, with self-signed
+(auto-generated) certificates. Simple, no infrastructure dependencies, but the
+relay's IP is exposed.
+
+```toml
+[server]
+address = "127.0.0.1:8888"
+password = ""
+expose_health = false
+expose_ip = false
+
+[ws]
+enabled = false
+
+[tcp]
+enabled = false
+
+[tls]
+enabled = true
+address = "0.0.0.0:443"
 ```
+
+On the wire: TLS 1.3 handshake followed by length-prefixed ciphertext. No HTTP
+requests, no protocol fingerprint beyond "unknown TLS application".
+
+For deployments that need to hide the relay's IP, see the
+[CDN-backed footnote](#cdn-backed-deployments) at the end of this document.
+
+## Known Limits
+
+The relay is designed to be cheap, simple, and predictable. The following are
+known limits, not bugs:
+
+- **Token exhaustion** — an attacker can open many connections and send
+  `Register{token: nil}` to fill the relay's session table until tokens expire.
+  Defenses: `max_concurrent_sessions` cap, automatic cleanup of expired tokens,
+  and the per-IP rate limiter (which runs before HPKE, so attackers do not burn
+  asymmetric crypto).
+- **Session hoarding** — an attacker controlling both ends of a session can hold
+  it open for the full `session_ttl`. `session_ttl` bounds the cost of a hoarded
+  session independently of `token_ttl`.
+- **Handshake stalls** — slow clients can hold connection slots open. The
+  `handshake_timeout` drops them so the slot is freed.
+- **No offline messages, no replay protection** — by design, see
+  [Backpressure and Message Drops](#backpressure-and-message-drops) and
+  [Replay Protection](#replay-protection).
+
+## Operator Responsibilities
+
+The relay operator is responsible for:
+
+- Running behind a CDN or tunnel for IP-hiding in hostile networks.
+- Setting `[server] password` to enable PSK mode if the relay is exposed.
+- Tuning `max_concurrent_sessions`, `token_ttl`, and `session_ttl` to match
+  expected load.
+- Disabling `expose_health` and `expose_ip` on public deployments to avoid
+  leaking connection metadata.
+
+## Footnotes
+
+### CDN-Backed Deployments
+
+A CDN proxies traffic between clients and the relay, shielding the relay's IP
+address and providing free TLS termination. This is the recommended deployment
+model for hostile networks.
+
+#### How WSS Works
+
+`wss://` is the WebSocket equivalent of `https://`: a WebSocket connection
+inside a TLS tunnel. The client performs a standard TLS handshake first, then
+sends the WebSocket upgrade inside the encrypted tunnel. Passive DPI sees only
+the initial TLS handshake.
+
+#### CDN Deployment Flow
+
+```
+                  TLS (CDN cert)         plain WS (private network)
+Client ──wss://relay.cdn.com/ws──► CDN ──ws://relay:8080/ws──► Relay
+  │                                │
+  │‑ Client sees CDN's valid cert  │‑ CDN terminates TLS
+  │‑ Client never sees relay IP    │‑ Forwards upgrade as-is
+  │‑ Blends with millions of       │‑ Connection to origin is
+  │  other CDN sites               │  plain WS on private network
+```
+
+The relay operator does not need a TLS certificate. The CDN provides one. The
+relay listens on `[server] address = "127.0.0.1:8080"` with
+`[ws] enabled = true` — plain WebSocket behind the CDN is perfectly safe.
+Clients use the WebSocket-over-TLS client API against the CDN hostname.
+
+#### Cloudflare Tunnel (recommended)
+
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+lets the relay make a single outbound connection to Cloudflare, eliminating the
+need for a public IP or open firewall ports entirely:
+
+```
+Client ──wss://relay.cdn.com/ws──► Cloudflare edge
+                                       ▲
+                                       │ outbound tunnel (no open ports)
+                                       │
+                                   Relay (cloudflared on localhost:8080)
+```
+
+- No public IP required — works behind CGNAT, residential ISPs, or firewalls.
+- No open ports — only outbound connections.
+- Free tier handles unlimited traffic.
+- DPI sees traffic to Cloudflare IPs, not the relay.
+
+The relay itself needs no changes — it listens on localhost as usual.
+
+#### CDN Config
+
+```toml
+[server]
+address = "127.0.0.1:8080"   # localhost only — CDN connects via tunnel
+password = ""
+expose_health = false
+expose_ip = false
+
+[ws]
+enabled = true
+
+[tcp]
+enabled = false
+
+[tls]
+enabled = false
+```
+
+#### Comparison: Direct TLS vs CDN vs Cloudflare Tunnel
+
+|                     | Direct TLS listener | CDN (Cloudflare)                   | Cloudflare Tunnel         |
+| ------------------- | ------------------- | ---------------------------------- | ------------------------- |
+| Relay IP hidden     | No                  | Yes (CDN IP shown)                 | Yes (no public IP at all) |
+| TLS cert            | Self-signed (auto)  | CDN's valid cert                   | CDN's valid cert          |
+| DPI evasion         | Good (raw TLS)      | Excellent (blends with CF traffic) | Excellent                 |
+| Cost                | Free                | Free                               | Free                      |
+| Open ports required | Yes (port 443)      | Yes (port 443 on origin)           | No (outbound only)        |
+| Setup complexity    | None (auto-cert)    | DNS + proxy toggle                 | Install cloudflared       |
+
+#### Cloudflare Workers
+
+[Cloudflare Workers](https://workers.cloudflare.com/) can act as a WebSocket
+proxy between clients and the relay, optionally adding auth, logging, or IP
+filtering at the edge. The Worker forwards the WebSocket upgrade transparently;
+the relay sees the Worker's IP, not the client's.
