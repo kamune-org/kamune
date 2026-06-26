@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_NAME="bus"
-VERSION="${BUS_VERSION:-2.1.0}"
+VERSION="${BUS_VERSION:-2.2.0}"
 
 # Append commit hash and dirty flag
 COMMIT_HASH="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
@@ -23,6 +23,8 @@ case "$DIST_DIR" in
 	/*) DIST_PATH="$DIST_DIR" ;;
 	*)  DIST_PATH="$REPO_ROOT/$DIST_DIR" ;;
 esac
+
+ZIP_DIR="${BUS_ZIP_DIR:-$REPO_ROOT/dist}"
 
 mkdir -p "$DIST_PATH"
 
@@ -57,6 +59,23 @@ for plat in $PLATFORMS; do
 	fi
 
 done
+
+if command -v zip >/dev/null 2>&1; then
+	mkdir -p "$ZIP_DIR"
+	echo ""
+	echo "==> Creating release zips in $ZIP_DIR ..."
+	for src in "$DIST_PATH"/*; do
+		[ -e "$src" ] || continue
+		binary="$(basename "$src")"
+		zipbase="${binary%.exe}"
+		zipbase="${zipbase%.app}"
+		( cd "$DIST_PATH" && zip -r "$ZIP_DIR/${zipbase}.zip" "$binary" ) >/dev/null
+		echo "  $binary -> ${zipbase}.zip"
+	done
+else
+	echo ""
+	echo "==> Skipping zip step: 'zip' not found in PATH" >&2
+fi
 
 echo ""
 echo "==> Build complete!"
