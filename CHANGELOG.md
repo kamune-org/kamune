@@ -1,3 +1,197 @@
+## v0.5.0
+
+### Core Library
+
+- Add bucketed padding scheme to `SignedTransport` for traffic-analysis
+  resistance; pre-encryption payload lands on a fixed bucket boundary
+  (512 B / 1 KB / 4 KB / 16 KB / 32 KB / 65,495 B) with a probabilistic
+  cross-bucket bump (80/15/4/1). Replace the previous random-length `[0, 256)`
+  padding. Derive `maxTransportSize` as
+  `math.MaxUint16 - reservedProtocolOverhead` and move the `uint16` overflow
+  check into `writeLen`.
+- Add godoc comments across packages: package-level docs for `enigma` and
+  `attest`; docs for every sentinel in `errors.go`, `Conn` / `newConn`,
+  `defaultRemoteVerifier`, the `storage` settings helpers, and the `fingerprint`
+  sub-package. Centralize the per-error rationale in one place.
+- `pkg/exchange`: accept raw 32-byte X25519 public keys in `ECDH.Exchange` and
+  `RestoreECDH`; drop the redundant PKIX parse plus `*ecdh.PublicKey`
+  type-assertion path. Wire format is now exactly what
+  `ecdh.X25519().NewPublicKey` accepts.
+
+### Relay
+
+- Add `cmd/relay/internal/ratelimit` package implementing a sliding-window rate
+  limiter backed by `hashicorp/golang-lru/v2/expirable`; bounded LRU plus TTL
+  auto-eviction at `2 × time_window`. Enforce per-IP at TCP/TLS accept and at
+  the WS upgrade (before HPKE, with a `policy violation` close code). New
+  `[rate_limit] max_entries` config knob defaults to `max_concurrent_sessions`.
+- Add `session_ttl` and `handshake_timeout` to the `[session]` config block;
+  default `handshake_timeout` to 30 s. Thread both through `services.New` →
+  `SessionManager` / `Hub`.
+- Enforce `handshake_timeout` in the TCP handler via `conn.SetDeadline` and in
+  the WS handler via a `time.AfterFunc` that closes with `StatusPolicyViolation`.
+  Stop the WS handshake timer after successful registration.
+- Send `session_ttl_seconds` in the `Registered` response; expose
+  `Hub.SessionTTL()` and `Service.SessionTTL()` accessors.
+- Add per-session `sessionExpiry` to `SessionManager`; cleanup loop purges
+  paired sessions whose expiry is past. Bump the cleanup tick from 30 s to a
+  5-minute interval gated by an 80 % fill ratio. Move `Close()` calls outside
+  the session-manager mutex; pass a cancellable `context.Context` to
+  `cleanupLoop` for deterministic shutdown.
+- Always purge expired unpaired listener sessions on the cleanup tick (drop the
+  `atCapacity` precondition so expired tokens are freed even when the session
+  map is not full).
+- Delegate TCP framing in `cmd/relay/internal/handlers` to `relayconn.Framing`;
+  remove the duplicated length-prefixed read/write code. Rename local
+  `tcpAdapter` → `rawTCPAdapter` to avoid collision with the new
+  `relayconn.tcpAdapter`.
+- Extract length-prefixed wire framing into a dedicated `Framing` type in
+  `pkg/relayconn`; `tcpAdapter` and `tlsAdapter` now compose it via
+  `newTCPAdapter` / `newTLSAdapter`. Add `DefaultMaxFrameSize = 65536` and an
+  `framing_test.go` suite.
+- Add `session_ttl_seconds` to the protobuf `Registered` message and surface it
+  through `RelayListener.SessionTTL()` and `RelayConn.SessionTTL()`. Refactor
+  `DialRelay*` / `ListenRelay*` to return a
+  `*ListenResult{Listener, Token, TTL, SessionTTL}` instead of a 4-tuple.
+  Centralize handshake error cleanup with a single
+  `defer { if retErr != nil { ch.Close() } }` in both `relayHandshake` and
+  `listenHandshake`.
+- Add a `pkg/relayconn` package-level doc comment describing the rendezvous
+  model, the wire format, the transport adapters, and the design rationale. Add
+  `relayconn_test.go` covering listener/dial handshakes (success, empty token,
+  bad unmarshal, auth, session TTL) and read/write with deadlines. Fix a data
+  race in test setup goroutines.
+- Add doc comments to `tcpAdapter`, `tlsAdapter`, `wsAdapter`, `WithPassword`,
+  `sendAuth`, `relayHandshake`, `RelayConn`, and `readPump`.
+- Add `Config.Validate()` rejecting non-positive `max_concurrent_sessions` /
+  `token_ttl` and negative `session_ttl` / `max_message_size`. Wire validation
+  into `services.New` with a wrapped `invalid config:` error.
+- Add panic recovery in `handleRelayConn`; close both sender and recipient on a
+  write failure in `Hub.handleMessage`. Refactor `Run()` shutdown into a reusable
+  `shutdown` closure called from both the signal path and the startup-error path.
+- Randomize self-signed TLS certificate serial numbers.
+- Add a comprehensive test suite: `services/session_test.go` (478 lines) and
+  `handlers/relay_test.go` (512 lines) cover handshake, auth, register, message
+  forwarding, ping/pong, panic recovery, and rate-limiter LRU eviction.
+
+### Bus
+
+- Display session TTL countdown in the chat header and per-token sidebar.
+  Propagate `SessionTTL` and `SessionStartedAt` from `SessionInfo` / `relayToken`
+  through `app.go`, `network.go`, and `relay.go`; bind a 1-second `setInterval`
+  in `ChatPanel.svelte` and a `formatSessionTTL` helper in `Sidebar.svelte`.
+- Add an import-from-clipboard keyboard shortcut (Cmd/Ctrl+Shift+I) to the
+  Connection menu. Rename "Share Connection Card…" → "Share Connection" and
+  "Import Connection URL…" → "Import Connection" (Cmd/Ctrl+I) for consistency;
+  update the on-screen shortcut list in `App.svelte`.
+- Fix relay-token copy hijacking the fingerprint's `Copied` state:
+  `Sidebar.handleCopyToken` now goes through the shared `toast` store. Reduce
+  success-toast TTLs from 15 s → 4 s (server start) and 4 s → 2 s (token copy)
+  so they fade promptly.
+- Replace the global "Skip TLS Verification" menu checkbox with per-dialog
+  checkboxes in the server and connect modals (visible only when the selected
+  scheme is `wss` or `tls`); thread the flag through the connect URL as
+  `?insecure=true`. Drop the `insecure_tls` setting, the `insecureMenuItem`, the
+  `insecureTLS` field on `App`, and the `GetInsecureTLS` / `SetInsecureTLS`
+  bindings. Removes the server-restart prompt that was previously required to
+  apply a TLS change.
+
+### TUI
+
+- Display session TTL countdown in the chat view: relay-serve records
+  `sessionExpiry` on `enterChat`; a 1-second `tickMsg` re-renders the header
+  with the remaining time, switching to "Session expired" once
+  `time.Until(sessionExpiry) <= 0`. Skip the countdown in direct-dial mode and
+  guard `store.AddChatEntry` with a `store != nil` check.
+- Add `tea_test.go` (311 lines) covering the TTL countdown rendering, `enterChat`
+  expiry assignment for relay-serve only, `connectFailedMsg` state transitions,
+  and several other model-level invariants.
+
+### Daemon
+
+- Decouple storage from per-connection lifetime: collapse
+  `stores map[string]*storage.Storage` into a single `db *storage.Storage`
+  guarded by `storeMu`. Add `open_storage` and `submit_passphrase` commands; the
+  former replaces the old per-handler `storagePath` parameter, and the latter
+  re-opens storage with a runtime-supplied passphrase. Rename internal `Session`
+  → `liveSession` and pre-load the bus-style fields.
+- Add the full network + messaging + verification layer: `start_server` /
+  `stop_server` / `restart_server` / `cancel_start_server` / `get_server_status`
+  / `get_status`, `dial` (with relay/TCP/UDP), `send_message`, `list_sessions` /
+  `close_session` / `rename_session`,`generate_relay_token` /
+  `remove_relay_token` / `list_relay_tokens`, `get_share_info`, and
+  `verify_response` / `set_verification_mode` / `get_verification_mode`. The
+  `VerificationMode` enum covers `Strict` (0), `Quick` (1, default), and
+  `AutoAccept` (2). `serverHandler` and the dial path now mirror the bus client.
+- Add `history.go` (387 lines) and the `history_updated` / `history_loaded`
+  events. New commands: `get_history_sessions`, `get_history_messages`,
+  `load_history`, `rename_history_session`, `delete_history_session`,
+  `refresh_history`, `list_peers`, `delete_peer`, `get_fingerprint`,
+  `get_my_name`, `set_my_name`, `get_version`, `get_library_version`. History
+  sessions are cached in `d.histSessions` and refreshed from
+  `store.ListSessionsByRecent()`.
+- Add `cmd/daemon/integration_test.go` (158 lines) that drives the daemon over
+  real stdin/stdout NDJSON and exercises `open_storage` → `dial` (local TCP) →
+  `send_message` → `get_history_sessions` → `get_history_messages` end-to-end.
+- Add `multilistener.go` and `relay.go` (212 lines): a `multiListener` that
+  aggregates multiple `kamune.Listener` instances for concurrent relay tokens,
+  plus the relay listen/dial plumbing (PSK, `?insecure=true` support, address
+  parsing, error wrapping).
+
+### Documentation
+
+- Move `SPEC.md` from the repo root to `docs/SPEC.md`; update `README.md` and
+  `docs/RATCHET.md` cross-references. Revise the moved file: expand the table of
+  contents, correct terminology, fix diagram paths (`assets/diagrams/*.svg`),
+  reformat the wire format and route tables, and add an "Authors: kamune core
+  team" header. Flip the cipher-suite wording from "default" to "current"
+  (`Ed25519_MLKEM768_ChaCha20-Poly1305X`).
+- Restructure §9 (Transport Layer) into four subsections: TCP (default), UDP via
+  KCP, Relay, and a transport-agnostic Connection Contract. The contract makes
+  pluggability a property of the contract itself (any backend expressing a
+  Listener and Dial function is valid) rather than an implementation detail.
+  Update §4.1 to point at §9.4, reword §10.1 / §10.2 "Transport" parameters to
+  "pluggable" with a reference to §9.4, update the §10.3 Connection row
+  cross-reference, and reword the §13 timeout descriptions to "applied to the
+  underlying transport".
+- Document the bucketed padding scheme in `§12.7`: six buckets (512 B / 1 KB /
+  4 KB / 16 KB / 32 KB / 65,495 B), 80/15/4/1 % cross-bucket bump,
+  `paddingBuckets` / `bumpProbabilities` constants, and the
+  `reservedProtocolOverhead` (4 KiB) / `maxTransportSize` (~60 KiB) values.
+  Update the wire format limits in `§3.1` to distinguish `wireFormatMax =
+math.MaxUint16` (65,535 B) from the protocol's `maxTransportSize`.
+- Add a first-draft "Double-Ratchet Implementation Plan" to `docs/RATCHET.md`:
+  locked decisions, package layout under `internal/ratchet/`, the KDF chain /
+  per-message nonce / DH step crypto, the message-epoch DH ratchet, and the
+  out-of-order cache semantics. Update `RATCHET.md` to a second draft with
+  concrete wire types, storage layout, and sender/receiver state machines.
+- Expand `docs/DAEMON.md` from ~50 lines to ~1,300: NDJSON wire format, all 34
+  commands grouped by category, the `SessionInfo` shape, every event, and a
+  pointer to `cmd/daemon/README.md` for build instructions.
+- Update `docs/RELAY.md`: mark rate limiting (sliding-window, per-IP), session
+  TTL, and handshake timeout as implemented in the threat-model mitigations
+  table; document the rate-limiting implementation (sliding-window counter,
+  storage, IP-keyed with proxy-header awareness for WS, accept / WS-upgrade
+  enforcement).
+- Update `AGENTS.md`: add the 80-char line-length convention; clarify the
+  testify usage; expand the commit-conventions list (enumerate existing modules,
+  add the `docs` prefix rule, call out `relayconn` as an outlier, mark the
+  never-commit / push-without-prompting rule as **Important**); drop obsolete
+  rules about `sync.RWMutex` and `slogger`.
+- Update `README.md`: add badges (Go 1.26, Go Report Card, GitHub release, MIT
+  license); make the release badge a hyperlink to the releases page; update the
+  roadmap checklist.
+
+### Miscellaneous
+
+- Refresh the 8 protocol SVG diagrams: cipher-suite, handshake-flow,
+  key-derivation, message-pipeline, protocol-overview, session-phases,
+  storage-hierarchy, wire-format.
+- Update `assets/demo.gif`.
+- Remove `.zed/debug.json` debug launch configurations.
+
+---
+
 ## v0.4.0
 
 ### Core Library
