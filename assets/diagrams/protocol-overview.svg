@@ -1,8 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#0d1117"/>
       <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="stageExch" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#da6d25"/>
     </linearGradient>
     <linearGradient id="stage1" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#58a6ff"/>
@@ -26,6 +30,9 @@
     <filter id="shadow">
       <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.4"/>
     </filter>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f0883e"/>
+    </marker>
     <marker id="arrowBlue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
       <polygon points="0 0, 10 3.5, 0 7" fill="#58a6ff"/>
     </marker>
@@ -38,8 +45,8 @@
   </defs>
 
   <!-- Background -->
-  <rect width="900" height="520" rx="12" fill="url(#bg)"/>
-  <rect x="1" y="1" width="898" height="518" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+  <rect width="900" height="640" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="898" height="638" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
 
   <!-- Title -->
   <text x="450" y="42" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.5">Kamune Protocol Overview</text>
@@ -57,77 +64,97 @@
   <text x="775" y="134" text-anchor="middle" fill="#8b949e" font-size="10">(Server)</text>
 
   <!-- Vertical lifelines -->
-  <line x1="125" y1="148" x2="125" y2="490" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6,4"/>
-  <line x1="775" y1="148" x2="775" y2="490" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <line x1="125" y1="148" x2="125" y2="610" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <line x1="775" y1="148" x2="775" y2="610" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6,4"/>
 
-  <!-- ═══════════════ STAGE 1: Introduction ═══════════════ -->
-  <rect x="230" y="152" width="440" height="95" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.5" filter="url(#shadow)"/>
-  <!-- Stage header -->
-  <rect x="230" y="152" width="440" height="28" rx="10" fill="url(#stage1)" opacity="0.15"/>
-  <rect x="230" y="170" width="440" height="10" fill="url(#stage1)" opacity="0.15"/>
-  <circle cx="250" cy="166" r="5" fill="url(#stage1)"/>
-  <text x="264" y="171" fill="#58a6ff" font-size="12" font-weight="700" letter-spacing="0.8">STAGE 1 — INTRODUCTION</text>
-  <text x="660" y="171" text-anchor="end" fill="#8b949e" font-size="10">Identity Exchange</text>
+  <!-- ═══════════════ STAGE 1: EXCHANGE ═══════════════ -->
+  <rect x="230" y="152" width="440" height="100" rx="10" fill="#0d1117" stroke="#da6d25" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="230" y="152" width="440" height="28" rx="10" fill="url(#stageExch)" opacity="0.15"/>
+  <rect x="230" y="170" width="440" height="10" fill="url(#stageExch)" opacity="0.15"/>
+  <circle cx="250" cy="166" r="5" fill="url(#stageExch)"/>
+  <text x="264" y="171" fill="#f0883e" font-size="12" font-weight="700" letter-spacing="0.8">STAGE 1 — EXCHANGE</text>
+  <text x="660" y="171" text-anchor="end" fill="#8b949e" font-size="10">HPKE Tunnel</text>
+
+  <!-- Arrow: HPKE Public Key -->
+  <line x1="145" y1="194" x2="755" y2="194" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowOrange)" filter="url(#glow)"/>
+  <rect x="324" y="184" width="252" height="20" rx="4" fill="#0d1117"/>
+  <text x="450" y="198" text-anchor="middle" fill="#c9d1d9" font-size="11">HPKE Public Key</text>
+
+  <!-- Arrow: enc + PubKey (merged) -->
+  <line x1="755" y1="218" x2="145" y2="218" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowOrange)" filter="url(#glow)"/>
+  <rect x="324" y="208" width="252" height="20" rx="4" fill="#0d1117"/>
+  <text x="450" y="222" text-anchor="middle" fill="#c9d1d9" font-size="11">enc + HPKE Public Key (merged)</text>
+
+  <!-- Arrow: Ciphertext (enc) -->
+  <line x1="145" y1="242" x2="755" y2="242" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowOrange)" filter="url(#glow)"/>
+  <rect x="324" y="232" width="252" height="20" rx="4" fill="#0d1117"/>
+  <text x="450" y="246" text-anchor="middle" fill="#c9d1d9" font-size="11">Ciphertext (enc)</text>
+
+  <!-- ═══════════════ STAGE 2: INTRODUCTION ═══════════════ -->
+  <rect x="230" y="267" width="440" height="90" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="230" y="267" width="440" height="28" rx="10" fill="url(#stage1)" opacity="0.15"/>
+  <rect x="230" y="285" width="440" height="10" fill="url(#stage1)" opacity="0.15"/>
+  <circle cx="250" cy="281" r="5" fill="url(#stage1)"/>
+  <text x="264" y="286" fill="#58a6ff" font-size="12" font-weight="700" letter-spacing="0.8">STAGE 2 — INTRODUCTION</text>
+  <text x="660" y="286" text-anchor="end" fill="#8b949e" font-size="10">Identity Exchange</text>
 
   <!-- Arrow: Initiator → Responder (Introduce) -->
-  <line x1="145" y1="196" x2="755" y2="196" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrowBlue)" filter="url(#glow)"/>
-  <rect x="340" y="186" width="220" height="20" rx="4" fill="#0d1117"/>
-  <text x="450" y="200" text-anchor="middle" fill="#c9d1d9" font-size="11">PublicKey + Name + Algorithm</text>
+  <line x1="145" y1="311" x2="755" y2="311" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrowBlue)" filter="url(#glow)"/>
+  <rect x="340" y="301" width="220" height="20" rx="4" fill="#0d1117"/>
+  <text x="450" y="315" text-anchor="middle" fill="#c9d1d9" font-size="11">Name + PublicKey + AppVersion</text>
 
   <!-- Arrow: Responder → Initiator (Introduce) -->
-  <line x1="755" y1="226" x2="145" y2="226" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrowBlue)" filter="url(#glow)"/>
-  <rect x="340" y="216" width="220" height="20" rx="4" fill="#0d1117"/>
-  <text x="450" y="230" text-anchor="middle" fill="#c9d1d9" font-size="11">PublicKey + Name + Algorithm</text>
+  <line x1="755" y1="341" x2="145" y2="341" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrowBlue)" filter="url(#glow)"/>
+  <rect x="340" y="331" width="220" height="20" rx="4" fill="#0d1117"/>
+  <text x="450" y="345" text-anchor="middle" fill="#c9d1d9" font-size="11">Name + PublicKey + AppVersion</text>
 
   <!-- Verify labels -->
-  <text x="143" y="215" fill="#58a6ff" font-size="9" font-weight="600">✓ Verify</text>
-  <text x="757" y="215" fill="#58a6ff" font-size="9" font-weight="600">✓ Verify</text>
+  <text x="143" y="330" fill="#58a6ff" font-size="9" font-weight="600">✓ Verify</text>
+  <text x="757" y="330" fill="#58a6ff" font-size="9" font-weight="600">✓ Verify</text>
 
-  <!-- ═══════════════ STAGE 2: Handshake ═══════════════ -->
-  <rect x="230" y="262" width="440" height="125" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.5" filter="url(#shadow)"/>
-  <!-- Stage header -->
-  <rect x="230" y="262" width="440" height="28" rx="10" fill="url(#stage2)" opacity="0.15"/>
-  <rect x="230" y="280" width="440" height="10" fill="url(#stage2)" opacity="0.15"/>
-  <circle cx="250" cy="276" r="5" fill="url(#stage2)"/>
-  <text x="264" y="281" fill="#d2a8ff" font-size="12" font-weight="700" letter-spacing="0.8">STAGE 2 — HANDSHAKE</text>
-  <text x="660" y="281" text-anchor="end" fill="#8b949e" font-size="10">Key Exchange + Challenge</text>
+  <!-- ═══════════════ STAGE 3: HANDSHAKE ═══════════════ -->
+  <rect x="230" y="372" width="440" height="125" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="230" y="372" width="440" height="28" rx="10" fill="url(#stage2)" opacity="0.15"/>
+  <rect x="230" y="390" width="440" height="10" fill="url(#stage2)" opacity="0.15"/>
+  <circle cx="250" cy="386" r="5" fill="url(#stage2)"/>
+  <text x="264" y="391" fill="#d2a8ff" font-size="12" font-weight="700" letter-spacing="0.8">STAGE 3 — HANDSHAKE</text>
+  <text x="660" y="391" text-anchor="end" fill="#8b949e" font-size="10">Key Exchange + Challenge</text>
 
   <!-- Arrow: KEM public key -->
-  <line x1="145" y1="306" x2="755" y2="306" stroke="#d2a8ff" stroke-width="1.5" marker-end="url(#arrowPurple)" filter="url(#glow)"/>
-  <rect x="328" y="296" width="244" height="20" rx="4" fill="#0d1117"/>
-  <text x="450" y="310" text-anchor="middle" fill="#c9d1d9" font-size="11">ML-KEM PubKey + Salt + Prefix</text>
+  <line x1="145" y1="416" x2="755" y2="416" stroke="#d2a8ff" stroke-width="1.5" marker-end="url(#arrowPurple)" filter="url(#glow)"/>
+  <rect x="328" y="406" width="244" height="20" rx="4" fill="#0d1117"/>
+  <text x="450" y="420" text-anchor="middle" fill="#c9d1d9" font-size="11">ML-KEM PubKey + Salt + Prefix</text>
 
   <!-- Arrow: KEM ciphertext -->
-  <line x1="755" y1="333" x2="145" y2="333" stroke="#d2a8ff" stroke-width="1.5" marker-end="url(#arrowPurple)" filter="url(#glow)"/>
-  <rect x="328" y="323" width="244" height="20" rx="4" fill="#0d1117"/>
-  <text x="450" y="337" text-anchor="middle" fill="#c9d1d9" font-size="11">KEM Ciphertext + Salt + Suffix</text>
+  <line x1="755" y1="443" x2="145" y2="443" stroke="#d2a8ff" stroke-width="1.5" marker-end="url(#arrowPurple)" filter="url(#glow)"/>
+  <rect x="328" y="433" width="244" height="20" rx="4" fill="#0d1117"/>
+  <text x="450" y="447" text-anchor="middle" fill="#c9d1d9" font-size="11">KEM Ciphertext + Salt + Suffix</text>
 
   <!-- Challenge arrows -->
-  <line x1="145" y1="356" x2="755" y2="356" stroke="#d2a8ff" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrowPurple)"/>
-  <line x1="755" y1="370" x2="145" y2="370" stroke="#d2a8ff" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrowPurple)"/>
-  <rect x="365" y="353" width="170" height="25" rx="4" fill="#0d1117"/>
-  <text x="450" y="370" text-anchor="middle" fill="#c9d1d9" font-size="10">Mutual Challenge ↔ Verify</text>
+  <line x1="145" y1="466" x2="755" y2="466" stroke="#d2a8ff" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrowPurple)"/>
+  <line x1="755" y1="480" x2="145" y2="480" stroke="#d2a8ff" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrowPurple)"/>
+  <rect x="365" y="463" width="170" height="25" rx="4" fill="#0d1117"/>
+  <text x="450" y="480" text-anchor="middle" fill="#c9d1d9" font-size="10">Mutual Challenge ↔ Verify</text>
 
   <!-- Shared secret label -->
-  <text x="143" y="352" fill="#d2a8ff" font-size="9" font-weight="600">🔑 Secret</text>
-  <text x="757" y="352" fill="#d2a8ff" font-size="9" font-weight="600">🔑 Secret</text>
+  <text x="143" y="462" fill="#d2a8ff" font-size="9" font-weight="600">🔑 Secret</text>
+  <text x="757" y="462" fill="#d2a8ff" font-size="9" font-weight="600">🔑 Secret</text>
 
-  <!-- ═══════════════ STAGE 3: Communication ═══════════════ -->
-  <rect x="230" y="402" width="440" height="85" rx="10" fill="#0d1117" stroke="#238636" stroke-width="1.5" filter="url(#shadow)"/>
-  <!-- Stage header -->
-  <rect x="230" y="402" width="440" height="28" rx="10" fill="url(#stage3)" opacity="0.15"/>
-  <rect x="230" y="420" width="440" height="10" fill="url(#stage3)" opacity="0.15"/>
-  <circle cx="250" cy="416" r="5" fill="url(#stage3)"/>
-  <text x="264" y="421" fill="#7ee787" font-size="12" font-weight="700" letter-spacing="0.8">STAGE 3 — COMMUNICATION</text>
-  <text x="660" y="421" text-anchor="end" fill="#8b949e" font-size="10">Encrypted Messaging</text>
+  <!-- ═══════════════ STAGE 4: COMMUNICATION ═══════════════ -->
+  <rect x="230" y="512" width="440" height="85" rx="10" fill="#0d1117" stroke="#238636" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="230" y="512" width="440" height="28" rx="10" fill="url(#stage3)" opacity="0.15"/>
+  <rect x="230" y="530" width="440" height="10" fill="url(#stage3)" opacity="0.15"/>
+  <circle cx="250" cy="526" r="5" fill="url(#stage3)"/>
+  <text x="264" y="531" fill="#7ee787" font-size="12" font-weight="700" letter-spacing="0.8">STAGE 4 — COMMUNICATION</text>
+  <text x="660" y="531" text-anchor="end" fill="#8b949e" font-size="10">Encrypted Messaging</text>
 
   <!-- Bidirectional encrypted messages -->
-  <line x1="145" y1="447" x2="755" y2="447" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrowGreen)" filter="url(#glow)"/>
-  <line x1="755" y1="467" x2="145" y2="467" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrowGreen)" filter="url(#glow)"/>
-  <rect x="310" y="445" width="280" height="30" rx="4" fill="#0d1117"/>
-  <text x="450" y="458" text-anchor="middle" fill="#c9d1d9" font-size="11">🔒 Sign → Encrypt → Send</text>
-  <text x="450" y="472" text-anchor="middle" fill="#c9d1d9" font-size="11">🔒 Receive → Decrypt → Verify</text>
+  <line x1="145" y1="557" x2="755" y2="557" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrowGreen)" filter="url(#glow)"/>
+  <line x1="755" y1="577" x2="145" y2="577" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrowGreen)" filter="url(#glow)"/>
+  <rect x="310" y="555" width="280" height="30" rx="4" fill="#0d1117"/>
+  <text x="450" y="568" text-anchor="middle" fill="#c9d1d9" font-size="11">🔒 Sign → Encrypt → Send</text>
+  <text x="450" y="582" text-anchor="middle" fill="#c9d1d9" font-size="11">🔒 Receive → Decrypt → Verify</text>
 
   <!-- Legend at bottom -->
-  <text x="450" y="510" text-anchor="middle" fill="#484f58" font-size="10">Ed25519 · ML-KEM-768 · HKDF-SHA512 · XChaCha20-Poly1305</text>
+  <text x="450" y="625" text-anchor="middle" fill="#484f58" font-size="10">Ed25519 · ML-KEM-768 · XChaCha20-Poly1305</text>
 </svg>

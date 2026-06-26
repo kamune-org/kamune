@@ -31,8 +31,8 @@
   <rect width="900" height="500" rx="12" fill="url(#bg)"/>
   <rect x="1" y="1" width="898" height="498" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
   <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="19" font-weight="700" letter-spacing="0.5" style="white-space: pre;">Cipher Suite Architecture</text>
-  <text x="450" y="58" text-anchor="middle" fill="#8b949e" font-size="11" font-family="'SF Mono','Fira Code',monospace" style="white-space: pre;">Ed25519 _ ML-KEM-768 _ HKDF-SHA512 _ XChaCha20-Poly1305</text>
-  <g transform="matrix(1, 0, 0, 1, 47.504124, -7.598606)">
+  <text x="450" y="58" text-anchor="middle" fill="#8b949e" font-size="11" font-family="'SF Mono','Fira Code',monospace" style="white-space: pre;">Ed25519 _ MLKEM768 _ ChaCha20-Poly1305X</text>
+  <g transform="matrix(1, 0, 0, 1, 50, -7.598606)">
     <g>
       <rect x="137.374" y="82.72" width="186.803" height="120" rx="10" fill="#0d1117" stroke="#da6d25" stroke-width="1.5" filter="url(#shadow)" style=""/>
       <rect x="137.374" y="82.72" width="186.803" height="26" rx="10" fill="url(#gSign)" opacity="0.15" style=""/>
@@ -45,25 +45,25 @@
       <text x="234.374" y="170.72" text-anchor="middle" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">Default · Classical</text>
       <rect x="157.374" y="118.72" width="155" height="3" rx="2" fill="url(#gSign)" opacity="0.6"/>
     </g>
-    <line x1="230" y1="202" x2="230" y2="244" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
-    <text x="238" y="225" fill="#6e7681" font-size="8.5" style="white-space: pre;">signs all</text>
-    <text x="238" y="235" fill="#6e7681" font-size="8.5" style="white-space: pre;">messages</text>
+    <line x1="235" y1="202" x2="235" y2="244" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
+    <text x="243" y="225" fill="#6e7681" font-size="8.5" style="white-space: pre;">signs all</text>
+    <text x="243" y="235" fill="#6e7681" font-size="8.5" style="white-space: pre;">messages</text>
   </g>
   <rect x="62" y="192" width="151" height="4" rx="2" fill="none"/>
   <g>
-    <rect x="424.237" y="75.55" width="380" height="120" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.5" filter="url(#shadow)"/>
-    <rect x="424.237" y="75.55" width="380" height="26" rx="10" fill="url(#gKem)" opacity="0.15"/>
-    <rect x="424.237" y="91.55" width="380" height="10" fill="url(#gKem)" opacity="0.15"/>
-    <circle cx="442.237" cy="88.55" r="4.5" fill="url(#gKem)"/>
-    <text x="456.237" y="93.55" fill="#d2a8ff" font-size="11" font-weight="700" letter-spacing="1" style="white-space: pre; font-size: 11px;">KEY ENCAPSULATION</text>
-    <rect x="474.237" y="111.55" width="280" height="68" rx="7" fill="#21262d" stroke="#8b5cf6" stroke-width="1" opacity="0.9"/>
-    <text x="614.237" y="133.55" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600" style="white-space: pre; font-size: 13px;">ML-KEM-768</text>
-    <text x="614.237" y="149.55" text-anchor="middle" fill="#8b949e" font-size="9.5" style="white-space: pre; font-size: 9.5px;">Post-Quantum Key Encapsulation Mechanism</text>
-    <text x="614.237" y="163.55" text-anchor="middle" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">Ephemeral · One-time per session</text>
-    <rect x="474.237" y="111.55" width="280" height="3" rx="2" fill="url(#gKem)" opacity="0.6"/>
-    <line x1="614.237" y1="195.55" x2="614.237" y2="237.55" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
-    <text x="622.237" y="218.55" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">32-byte</text>
-    <text x="622.237" y="228.55" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">shared secret</text>
+    <rect x="430" y="75.55" width="280" height="120" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.5" filter="url(#shadow)"/>
+    <rect x="430" y="75.55" width="280" height="26" rx="10" fill="url(#gKem)" opacity="0.15"/>
+    <rect x="430" y="91.55" width="280" height="10" fill="url(#gKem)" opacity="0.15"/>
+    <circle cx="448" cy="88.55" r="4.5" fill="url(#gKem)"/>
+    <text x="462" y="93.55" fill="#d2a8ff" font-size="11" font-weight="700" letter-spacing="1" style="white-space: pre; font-size: 11px;">KEY ENCAPSULATION</text>
+    <rect x="460" y="111.55" width="220" height="68" rx="7" fill="#21262d" stroke="#8b5cf6" stroke-width="1" opacity="0.9"/>
+    <text x="570" y="133.55" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600" style="white-space: pre; font-size: 13px;">ML-KEM-768</text>
+    <text x="570" y="149.55" text-anchor="middle" fill="#8b949e" font-size="9.5" style="white-space: pre; font-size: 9.5px;">Post-Quantum Key Encapsulation</text>
+    <text x="570" y="163.55" text-anchor="middle" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">Ephemeral · One-time per session</text>
+    <rect x="460" y="111.55" width="220" height="3" rx="2" fill="url(#gKem)" opacity="0.6"/>
+    <line x1="570" y1="195.55" x2="570" y2="237.55" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
+    <text x="578" y="218.55" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">32-byte</text>
+    <text x="578" y="228.55" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">shared secret</text>
   </g>
   <rect x="260" y="252" width="380" height="100" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="260" y="252" width="380" height="26" rx="10" fill="url(#gKdf)" opacity="0.15"/>
@@ -87,7 +87,7 @@
   <text x="450" y="458" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600" style="white-space: pre;">XChaCha20-Poly1305</text>
   <rect x="290" y="438" width="320" height="3" rx="2" fill="url(#gEnc)" opacity="0.6"/>
   <text x="450" y="492" text-anchor="middle" fill="#6e7681" font-size="9" style="white-space: pre; font-size: 9px;">24-byte nonce · 32-byte key · 16-byte auth tag · AEAD</text>
-  <g transform="matrix(1, 0, 0, 1, 90.890427, -0.582317)">
+  <g transform="matrix(1, 0, 0, 1, 55, -0.582317)">
     <text x="30" y="148" fill="#484f58" font-size="9" font-weight="600" transform="matrix(0, -1, 1, 0, -118, 178)" text-anchor="middle" style="white-space: pre; font-size: 9px;">INTRODUCTION</text>
     <text x="30" y="310" fill="#484f58" font-size="9" font-weight="600" transform="matrix(0, -1, 1, 0, -280, 340)" text-anchor="middle" style="white-space: pre; font-size: 9px;">HANDSHAKE</text>
     <text x="30" y="445" fill="#484f58" font-size="9" font-weight="600" transform="matrix(0, -1, 1, 0, -415, 475)" text-anchor="middle" style="white-space: pre; font-size: 9px;">COMMUNICATION</text>
@@ -102,8 +102,4 @@
   <text x="805" y="337" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="600" style="white-space: pre;">🔗 Key Binding</text>
   <rect x="740" y="352" width="130" height="22" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1"/>
   <text x="805" y="367" text-anchor="middle" fill="#7ee787" font-size="9" font-weight="600" style="white-space: pre;">🔒 Confidentiality</text>
-  <line x1="230" y1="270" x2="740" y2="273" stroke="#f0883e" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.4"/>
-  <line x1="670" y1="270" x2="740" y2="303" stroke="#d2a8ff" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.4"/>
-  <line x1="640" y1="310" x2="740" y2="333" stroke="#58a6ff" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.4"/>
-  <line x1="640" y1="450" x2="740" y2="363" stroke="#7ee787" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.4"/>
 </svg>

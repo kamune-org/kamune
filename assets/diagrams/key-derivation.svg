@@ -70,11 +70,11 @@
     <marker id="arrowYellow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
       <polygon points="0 0, 8 3, 0 6" fill="#e3b341"/>
     </marker>
-    <marker id="arrowDownGray" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 3.5 10, 7 0" fill="#8b949e"/>
+    <marker id="arrowDownGray" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#8b949e"/>
     </marker>
-    <marker id="arrowDownPurple" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 3.5 10, 7 0" fill="#d2a8ff"/>
+    <marker id="arrowDownPurple" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#d2a8ff"/>
     </marker>
   </defs>
 
@@ -126,7 +126,7 @@
 
   <!-- Input labels on arrows -->
   <text x="302" y="163" fill="#f0883e" font-size="8" font-weight="600">info</text>
-  <text x="450" y="160" text-anchor="middle" fill="#d2a8ff" font-size="8" font-weight="600">IKM</text>
+  <text x="460" y="153" text-anchor="middle" fill="#d2a8ff" font-size="8" font-weight="600">IKM</text>
   <text x="598" y="163" text-anchor="end" fill="#56d4dd" font-size="8" font-weight="600">salt</text>
 
   <!-- HKDF Box -->
@@ -219,28 +219,28 @@
   <line x1="50" y1="574" x2="850" y2="574" stroke="#21262d" stroke-width="1"/>
 
   <!-- Challenge 1: Client Challenge -->
-  <rect x="45" y="580" width="810" height="42" rx="8" fill="#161b22" stroke="#f778ba" stroke-width="1" opacity="0.9"/>
-  <rect x="45" y="580" width="4" height="42" rx="2" fill="url(#gPink)"/>
+  <rect x="45" y="580" width="810" height="50" rx="8" fill="#161b22" stroke="#f778ba" stroke-width="1" opacity="0.9"/>
+  <rect x="45" y="580" width="4" height="50" rx="2" fill="url(#gPink)"/>
 
-  <text x="62" y="600" fill="#f778ba" font-size="11" font-weight="700">Client Challenge</text>
+  <text x="62" y="598" fill="#f778ba" font-size="11" font-weight="700">Client Challenge</text>
 
-  <text x="290" y="600" fill="#c9d1d9" font-size="10" font-family="'SF Mono','Fira Code',monospace">HKDF(S, nil, SID||"client-to-server", 32)</text>
-  <text x="290" y="614" fill="#6e7681" font-size="8">salt = nil (no salt)</text>
+  <text x="290" y="598" fill="#c9d1d9" font-size="10" font-family="'SF Mono','Fira Code',monospace">HKDF(S, nil, SID||"client-to-server"||transcriptHash, 32)</text>
+  <text x="290" y="614" fill="#6e7681" font-size="8">salt = nil · transcriptHash binds the handshake payloads</text>
 
-  <text x="670" y="600" fill="#8b949e" font-size="10">Initiator's challenge token</text>
+  <text x="670" y="598" fill="#8b949e" font-size="10">Initiator's challenge token</text>
   <text x="670" y="614" fill="#6e7681" font-size="9">Echoed by responder to prove decryption</text>
 
   <!-- Challenge 2: Server Challenge -->
-  <rect x="45" y="628" width="810" height="42" rx="8" fill="#161b22" stroke="#e3b341" stroke-width="1" opacity="0.9"/>
-  <rect x="45" y="628" width="4" height="42" rx="2" fill="url(#gYellow)"/>
+  <rect x="45" y="636" width="810" height="50" rx="8" fill="#161b22" stroke="#e3b341" stroke-width="1" opacity="0.9"/>
+  <rect x="45" y="636" width="4" height="50" rx="2" fill="url(#gYellow)"/>
 
-  <text x="62" y="648" fill="#e3b341" font-size="11" font-weight="700">Server Challenge</text>
+  <text x="62" y="654" fill="#e3b341" font-size="11" font-weight="700">Server Challenge</text>
 
-  <text x="290" y="648" fill="#c9d1d9" font-size="10" font-family="'SF Mono','Fira Code',monospace">HKDF(S, nil, SID||"server-to-client", 32)</text>
-  <text x="290" y="662" fill="#6e7681" font-size="8">salt = nil (no salt)</text>
+  <text x="290" y="654" fill="#c9d1d9" font-size="10" font-family="'SF Mono','Fira Code',monospace">HKDF(S, nil, SID||"server-to-client"||transcriptHash, 32)</text>
+  <text x="290" y="670" fill="#6e7681" font-size="8">salt = nil · transcriptHash binds the handshake payloads</text>
 
-  <text x="670" y="648" fill="#8b949e" font-size="10">Responder's challenge token</text>
-  <text x="670" y="662" fill="#6e7681" font-size="9">Echoed by initiator to prove decryption</text>
+  <text x="670" y="654" fill="#8b949e" font-size="10">Responder's challenge token</text>
+  <text x="670" y="670" fill="#6e7681" font-size="9">Echoed by initiator to prove decryption</text>
 
   <!-- ══════════════════════════════════════════════════════════════ -->
   <!-- FOOTER: Legend and Notes                                      -->

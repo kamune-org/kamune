@@ -68,20 +68,20 @@
     <marker id="arrowTeal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
       <polygon points="0 0, 8 3, 0 6" fill="#56d4dd"/>
     </marker>
-    <marker id="arrowDownGray" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 3.5 10, 7 0" fill="#8b949e"/>
+    <marker id="arrowDownGray" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#8b949e"/>
     </marker>
-    <marker id="arrowDownPurple" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 3.5 10, 7 0" fill="#d2a8ff"/>
+    <marker id="arrowDownPurple" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#d2a8ff"/>
     </marker>
-    <marker id="arrowDownBlue" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 3.5 10, 7 0" fill="#58a6ff"/>
+    <marker id="arrowDownBlue" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#58a6ff"/>
     </marker>
-    <marker id="arrowDownOrange" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 3.5 10, 7 0" fill="#f0883e"/>
+    <marker id="arrowDownOrange" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#f0883e"/>
     </marker>
-    <marker id="arrowDownGreen" markerWidth="7" markerHeight="10" refX="3.5" refY="9" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 3.5 10, 7 0" fill="#7ee787"/>
+    <marker id="arrowDownGreen" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#7ee787"/>
     </marker>
     <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
       <line x1="0" y1="0" x2="0" y2="6" stroke="#30363d" stroke-width="0.8"/>
@@ -235,63 +235,53 @@
   <line x1="450" y1="530" x2="450" y2="558" stroke="#7ee787" stroke-width="1.5"/>
 
   <!-- Horizontal distribution line -->
-  <line x1="110" y1="558" x2="790" y2="558" stroke="#7ee787" stroke-width="1.5"/>
+  <line x1="135" y1="558" x2="765" y2="558" stroke="#7ee787" stroke-width="1.5"/>
 
   <!-- Vertical drops to each bucket -->
-  <line x1="110" y1="558" x2="110" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
-  <line x1="280" y1="558" x2="280" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
-  <line x1="450" y1="558" x2="450" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
-  <line x1="620" y1="558" x2="620" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
-  <line x1="790" y1="558" x2="790" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="135" y1="558" x2="135" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="345" y1="558" x2="345" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="555" y1="558" x2="555" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="765" y1="558" x2="765" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
 
   <!-- "encrypts" label -->
   <rect x="410" y="546" width="80" height="16" rx="4" fill="#0d1117"/>
   <text x="450" y="558" text-anchor="middle" fill="#7ee787" font-size="8.5" font-weight="600">encrypts ↓</text>
 
-  <!-- ═══════ Bucket 1: Peers ═══════ -->
-  <rect x="40" y="586" width="140" height="90" rx="8" fill="#21262d" stroke="#f778ba" stroke-width="1.5" filter="url(#shadow)"/>
-  <rect x="40" y="586" width="140" height="4" rx="2" fill="url(#gPink)"/>
-  <text x="110" y="608" text-anchor="middle" fill="#f778ba" font-size="11" font-weight="700">peers</text>
-  <text x="110" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: SHA3-512(pubKey)</text>
-  <text x="110" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Protobuf Peer</text>
-  <text x="110" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Name, PubKey, Algorithm</text>
-  <text x="110" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">FirstSeen, LastSeen</text>
+  <!-- ═══════ Bucket 1: Local Identity ═══════ -->
+  <rect x="40" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#f778ba" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="40" y="586" width="190" height="4" rx="2" fill="url(#gPink)"/>
+  <text x="135" y="608" text-anchor="middle" fill="#f778ba" font-size="11" font-weight="700">local_identity</text>
+  <text x="135" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: fixed key name</text>
+  <text x="135" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Identity protobuf</text>
+  <text x="135" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Ed25519 private key</text>
+  <text x="135" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">Encrypted with DEK</text>
 
-  <!-- ═══════ Bucket 2: Sessions ═══════ -->
-  <rect x="210" y="586" width="140" height="90" rx="8" fill="#21262d" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
-  <rect x="210" y="586" width="140" height="4" rx="2" fill="url(#gBlue)"/>
-  <text x="280" y="608" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">sessions</text>
-  <text x="280" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: SHA3-512(sessionID)</text>
-  <text x="280" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Protobuf SessionState</text>
-  <text x="280" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">SharedSecret, Salts, Phase</text>
-  <text x="280" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">SeqNums, IsInitiator</text>
+  <!-- ═══════ Bucket 2: Peers ═══════ -->
+  <rect x="250" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="250" y="586" width="190" height="4" rx="2" fill="url(#gBlue)"/>
+  <text x="345" y="608" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">peers</text>
+  <text x="345" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: SHA3-512(pubKey)</text>
+  <text x="345" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Protobuf Peer</text>
+  <text x="345" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Name, PubKey, AppVersion</text>
+  <text x="345" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">FirstSeen, LastSeen</text>
 
-  <!-- ═══════ Bucket 3: PubKey Index ═══════ -->
-  <rect x="380" y="586" width="140" height="90" rx="8" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5" filter="url(#shadow)"/>
-  <rect x="380" y="586" width="140" height="4" rx="2" fill="url(#gPurple)"/>
-  <text x="450" y="608" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">pubkey_index</text>
-  <text x="450" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: SHA3-512(pubKey)</text>
-  <text x="450" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: PubKeySessionIndex</text>
-  <text x="450" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Maps remote pubKey</text>
-  <text x="450" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">→ sessionID for lookup</text>
+  <!-- ═══════ Bucket 3: Session Metadata ═══════ -->
+  <rect x="460" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="460" y="586" width="190" height="4" rx="2" fill="url(#gPurple)"/>
+  <text x="555" y="608" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">session_metadata</text>
+  <text x="555" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: sessionID</text>
+  <text x="555" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: SessionState protobuf</text>
+  <text x="555" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Display name, timestamps</text>
+  <text x="555" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">Encrypted with DEK</text>
 
   <!-- ═══════ Bucket 4: Chat History ═══════ -->
-  <rect x="550" y="586" width="140" height="90" rx="8" fill="#21262d" stroke="#e3b341" stroke-width="1.5" filter="url(#shadow)"/>
-  <rect x="550" y="586" width="140" height="4" rx="2" fill="url(#gYellow)"/>
-  <text x="620" y="608" text-anchor="middle" fill="#e3b341" font-size="10" font-weight="700">chat_&lt;sessionID&gt;</text>
-  <text x="620" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: 14-byte composite</text>
-  <text x="620" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Message payload</text>
-  <text x="620" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">ts(8B) + sender(2B)</text>
-  <text x="620" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">+ random(4B)</text>
-
-  <!-- ═══════ Bucket 5: Handshakes ═══════ -->
-  <rect x="720" y="586" width="140" height="90" rx="8" fill="#21262d" stroke="#56d4dd" stroke-width="1.5" filter="url(#shadow)"/>
-  <rect x="720" y="586" width="140" height="4" rx="2" fill="url(#gTeal)"/>
-  <text x="790" y="608" text-anchor="middle" fill="#56d4dd" font-size="11" font-weight="700">handshakes</text>
-  <text x="790" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: SHA3-512(pubKey)</text>
-  <text x="790" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: HandshakeState</text>
-  <text x="790" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">In-progress handshake</text>
-  <text x="790" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">state for resumption</text>
+  <rect x="670" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#e3b341" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="670" y="586" width="190" height="4" rx="2" fill="url(#gYellow)"/>
+  <text x="765" y="608" text-anchor="middle" fill="#e3b341" font-size="11" font-weight="700">chat_&lt;sessionID&gt;</text>
+  <text x="765" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: 14-byte composite</text>
+  <text x="765" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Message payload protobuf</text>
+  <text x="765" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">ts(8B) + sender(2B)</text>
+  <text x="765" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">+ random(4B)</text>
 
   <!-- ══════════════════════════════════════════════════════════════ -->
   <!-- LEGEND / NOTES                                                -->
@@ -312,5 +302,5 @@
   <text x="636" y="714" fill="#8b949e" font-size="9">DEK (encrypts all data)</text>
 
   <!-- Legend row 2 -->
-  <text x="50" y="734" fill="#6e7681" font-size="9">Database: BoltDB (bbolt) at ~/.config/kamune/db · All sensitive values encrypted with DEK (XChaCha20-Poly1305) · Identity keys stored plaintext in default bucket</text>
+  <text x="50" y="734" fill="#6e7681" font-size="9">Database: BoltDB (bbolt) at ~/.config/kamune/db · All sensitive values encrypted with DEK (XChaCha20-Poly1305)</text>
 </svg>
