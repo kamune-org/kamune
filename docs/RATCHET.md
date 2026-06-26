@@ -10,7 +10,7 @@
 
 ## 1. Motivation
 
-The current `Transport` (`transport.go:30-40`) derives **two static `*enigma.Enigma` instances** once at handshake time and reuses the same AEAD keys for the entire session. The SPEC is explicit (`SPEC.md:892-894`):
+The current `Transport` (`transport.go:30-40`) derives **two static `*enigma.Enigma` instances** once at handshake time and reuses the same AEAD keys for the entire session. The SPEC is explicit (`docs/SPEC.md:892-894`):
 
 > Within a single session, the same symmetric keys are used for all messages (no per-message ratcheting). Forward secrecy is per-session, not per-message.
 
@@ -490,7 +490,7 @@ All tests use real implementations (no mocks) per AGENTS.md.
 
 ---
 
-## 10. Documentation updates (`SPEC.md`)
+## 10. Documentation updates (`docs/SPEC.md`)
 
 - **§4.2 Signed Transport Envelope** — drop the bullets for `ID` and `Timestamp` in `Metadata`. Show the new minimal `Metadata { Route, RatchetIndex, RatchetDH }`. Call out the wire-incompatible hard cut.
 - **§6.8 Ratchet Init (new)** — handshake carries `InitRatchetKey` and `RespRatchetKey`; every outbound message carries the sender's current ratchet pubkey in `Metadata.RatchetDH`.

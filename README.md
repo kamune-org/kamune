@@ -62,7 +62,7 @@ Communication happens in three phases:
 2. **Handshake** — Ephemeral ML-KEM-768 key exchange, session ID derivation, and mutual challenge-response verification.
 3. **Communication** — Signed, encrypted, and sequenced message frames with replay protection.
 
-For a comprehensive technical specification, see [SPEC.md](SPEC.md).
+For a comprehensive technical specification, see [SPEC.md](docs/SPEC.md).
 
 <picture>
   <img alt="Cipher Suite Architecture" src="assets/diagrams/cipher-suite.svg">
