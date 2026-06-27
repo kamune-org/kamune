@@ -85,6 +85,15 @@ func (c Config) Validate() error {
 			c.Session.MaxMessageSize,
 		)
 	}
+	if c.TLS.Enabled {
+		if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
+			return fmt.Errorf(
+				"tls.cert_file and tls.key_file must both be set or "+
+					"both be empty, got cert_file=%q key_file=%q",
+				c.TLS.CertFile, c.TLS.KeyFile,
+			)
+		}
+	}
 	return nil
 }
 

@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // validConfig returns a config that passes Validate. Tests mutate
@@ -121,4 +124,59 @@ func TestConfig_Validate_AllowsZeroMaxMessageSize(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("0 = no limit should be allowed, got %v", err)
 	}
+}
+
+func TestConfig_Validate_AllowsTLSWithoutCerts(t *testing.T) {
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.TLS.Enabled = true
+	cfg.TLS.CertFile = ""
+	cfg.TLS.KeyFile = ""
+	a.NoError(cfg.Validate(),
+		"empty cert/key paths should trigger in-memory cert")
+}
+
+func TestConfig_Validate_AllowsTLSWithBothCertPaths(t *testing.T) {
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.TLS.Enabled = true
+	cfg.TLS.CertFile = "assets/cert/server.crt"
+	cfg.TLS.KeyFile = "assets/cert/server.key"
+	a.NoError(cfg.Validate(), "both paths set should be allowed")
+}
+
+func TestConfig_Validate_RejectsTLSWithOnlyCertFile(t *testing.T) {
+	r := require.New(t)
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.TLS.Enabled = true
+	cfg.TLS.CertFile = "assets/cert/server.crt"
+	cfg.TLS.KeyFile = ""
+	err := cfg.Validate()
+	r.Error(err, "expected error for half-configured TLS")
+	a.Contains(err.Error(), "cert_file")
+	a.Contains(err.Error(), "key_file")
+}
+
+func TestConfig_Validate_RejectsTLSWithOnlyKeyFile(t *testing.T) {
+	r := require.New(t)
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.TLS.Enabled = true
+	cfg.TLS.CertFile = ""
+	cfg.TLS.KeyFile = "assets/cert/server.key"
+	err := cfg.Validate()
+	r.Error(err, "expected error for half-configured TLS")
+	a.Contains(err.Error(), "cert_file")
+	a.Contains(err.Error(), "key_file")
+}
+
+func TestConfig_Validate_IgnoresTLSWhenDisabled(t *testing.T) {
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.TLS.Enabled = false
+	cfg.TLS.CertFile = ""
+	cfg.TLS.KeyFile = "assets/cert/server.key"
+	a.NoError(cfg.Validate(),
+		"disabled TLS should skip cert_file/key_file check")
 }
