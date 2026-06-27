@@ -42,21 +42,19 @@ func New(ctx context.Context, cfg config.Config) (*Service, error) {
 	)
 
 	var rl *ratelimit.RateLimiter
-	if cfg.RateLimit.Enabled {
-		maxEntries := cfg.RateLimit.MaxEntries
-		if maxEntries <= 0 {
-			maxEntries = cfg.Session.MaxConcurrentSessions
-		}
+	if cfg.RateLimit.IsEnabled() {
+		// max_entries bounds the per-IP LRU cache. 0 means unbounded
+		// (LRU mechanism off).
 		rl = ratelimit.New(
 			int(cfg.RateLimit.Quota),
 			cfg.RateLimit.TimeWindow,
-			maxEntries,
+			cfg.RateLimit.MaxEntries,
 		)
 		slog.Info(
 			"rate limiting enabled",
 			slog.Int("quota", int(cfg.RateLimit.Quota)),
 			slog.Duration("window", cfg.RateLimit.TimeWindow),
-			slog.Int("max_entries", maxEntries),
+			slog.Int("max_entries", cfg.RateLimit.MaxEntries),
 		)
 	}
 

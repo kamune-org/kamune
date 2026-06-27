@@ -45,71 +45,106 @@ func Run() error {
 
 	h := handlers.New(srvc, cfg)
 
-	if !cfg.WS.Enabled && !cfg.TCP.Enabled && !cfg.TLS.Enabled {
-		return fmt.Errorf("no transport enabled (enable ws, tcp, or tls)")
-	}
-
-	errCh := make(chan error, 3)
+	errCh := make(chan error, 5)
 	var wg sync.WaitGroup
+	var httpServers []*http.Server
 
-	// TCP listener
-	if cfg.TCP.Enabled {
-		wg.Go(func() {
-			err := handlers.ServeTCP(ctx, srvc.Hub(), cfg.TCP.Address)
-			if err != nil {
-				errCh <- err
-			}
-		})
-	}
-
-	// TLS listener + TLS config for HTTP/WS
-	var tlsCfg *tls.Config
-	if cfg.TLS.Enabled {
-		tlsCfg, err = loadTLSConfig(cfg.TLS.CertFile, cfg.TLS.KeyFile)
-		if err != nil {
-			return fmt.Errorf("load tls config: %w", err)
-		}
-
-		wg.Go(func() {
-			err := handlers.ServeTLS(ctx, srvc.Hub(), cfg.TLS.Address, tlsCfg)
-			if err != nil {
-				errCh <- err
-			}
-		})
-	}
-
-	// HTTP/WS server
-	var server *http.Server
-	if cfg.WS.Enabled {
+	// 1. Diagnose server (HTTP, /health only).
+	if cfg.Diagnose.Enabled {
 		mux := http.NewServeMux()
-		if cfg.Server.ExposeHealth {
-			mux.HandleFunc("/health", h.HealthHandler)
-		}
-		if cfg.Server.ExposeIP {
-			mux.HandleFunc("/ip", h.EchoIPHandler)
-		}
-		mux.HandleFunc("/ws", handlers.WebSocketHandlerNoMiddleware(srvc))
-
-		server = &http.Server{
-			Addr:         cfg.Server.Address,
+		mux.HandleFunc("/health", h.HealthHandler)
+		diagnoseServer := &http.Server{
+			Addr:         cfg.Diagnose.Address,
 			Handler:      mux,
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
 		}
-
+		httpServers = append(httpServers, diagnoseServer)
 		wg.Go(func() {
-			slog.Info("starting http relay", slog.String("address", server.Addr))
-			if tlsCfg != nil {
-				server.TLSConfig = tlsCfg
-				err := server.ListenAndServeTLS("", "")
-				if err != nil && !errors.Is(err, http.ErrServerClosed) {
-					errCh <- err
-				}
-			} else {
-				err := server.ListenAndServe()
-				if err != nil && !errors.Is(err, http.ErrServerClosed) {
-					errCh <- err
-				}
+			slog.Info(
+				"starting diagnose server",
+				slog.String("address", diagnoseServer.Addr),
+			)
+			if err := diagnoseServer.ListenAndServe(); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
+				errCh <- fmt.Errorf("diagnose: %w", err)
+			}
+		})
+	}
+
+	// 2. Plain WS server. Build a single mux shared with the WSS
+	// server below; the same /ws route is exposed on both addresses.
+	var wsMux *http.ServeMux
+	if cfg.WS.Enabled || cfg.WSS.Enabled {
+		wsMux = http.NewServeMux()
+		wsMux.HandleFunc("/ws", handlers.WebSocketHandlerNoMiddleware(srvc))
+	}
+	if cfg.WS.Enabled {
+		wsServer := &http.Server{
+			Addr:         cfg.WS.Address,
+			Handler:      wsMux,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+		}
+		httpServers = append(httpServers, wsServer)
+		wg.Go(func() {
+			slog.Info(
+				"starting ws server", slog.String("address", wsServer.Addr),
+			)
+			if err := wsServer.ListenAndServe(); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
+				errCh <- fmt.Errorf("ws: %w", err)
+			}
+		})
+	}
+
+	// 3. Raw TCP server.
+	if cfg.TCP.Enabled {
+		wg.Go(func() {
+			if err := handlers.ServeTCP(
+				ctx, srvc.Hub(), cfg.TCP.Address,
+			); err != nil {
+				errCh <- fmt.Errorf("tcp: %w", err)
+			}
+		})
+	}
+
+	// 4. Raw TLS server (kamune-over-TLS).
+	if cfg.TLS.Enabled {
+		tlsCfg, err := loadTLSConfig(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if err != nil {
+			return fmt.Errorf("load tls config: %w", err)
+		}
+		wg.Go(func() {
+			if err := handlers.ServeTLS(
+				ctx, srvc.Hub(), cfg.TLS.Address, tlsCfg,
+			); err != nil {
+				errCh <- fmt.Errorf("tls: %w", err)
+			}
+		})
+	}
+
+	// 5. WSS server (WebSocket over TLS).
+	if cfg.WSS.Enabled {
+		wssCfg, err := loadTLSConfig(cfg.WSS.CertFile, cfg.WSS.KeyFile)
+		if err != nil {
+			return fmt.Errorf("load wss config: %w", err)
+		}
+		wssServer := &http.Server{
+			Addr:         cfg.WSS.Address,
+			Handler:      wsMux, // shared with [ws] when both are enabled
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+			TLSConfig:    wssCfg,
+		}
+		httpServers = append(httpServers, wssServer)
+		wg.Go(func() {
+			slog.Info(
+				"starting wss server", slog.String("address", wssServer.Addr),
+			)
+			if err := wssServer.ListenAndServeTLS("", ""); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
+				errCh <- fmt.Errorf("wss: %w", err)
 			}
 		})
 	}
@@ -120,21 +155,21 @@ func Run() error {
 	// shutdown is the canonical teardown sequence used by both the
 	// signal path and the startup-error path. It cancels the context
 	// (which unblocks acceptLoop goroutines for TCP/TLS), shuts down
-	// the HTTP server (which unblocks ListenAndServe), and waits for
-	// every goroutine to exit.
+	// every http.Server in turn, and waits for all goroutines to exit.
 	shutdown := func() error {
 		cancel()
-		if server != nil {
+		var errs []error
+		for _, srv := range httpServers {
 			shutdownCtx, shutdownCancel := context.WithTimeout(
 				context.Background(), 5*time.Second,
 			)
-			defer shutdownCancel()
-			if err := server.Shutdown(shutdownCtx); err != nil {
-				return fmt.Errorf("server shutdown: %w", err)
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", srv.Addr, err))
 			}
+			shutdownCancel()
 		}
 		wg.Wait()
-		return nil
+		return errors.Join(errs...)
 	}
 
 	select {

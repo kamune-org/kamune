@@ -1,11 +1,6 @@
+# Shared relay-wide settings.
 [server]
-address = "127.0.0.1:8888"
 password = ""
-expose_health = true
-expose_ip = true
-
-[ws]
-enabled = true
 
 [session]
 token_ttl = "5m"
@@ -14,18 +9,36 @@ handshake_timeout = "30s"    # max time for HPKE + registration (0 = no limit)
 max_concurrent_sessions = 10_000
 max_message_size = 65536
 
+[rate_limit]                 # rate limit is ON by default
+time_window = "1m"
+quota = 20
+max_entries = 100_000        # max unique IPs tracked
+
+# Monitoring server (HTTP, /health only).
+[diagnose]
+enabled = true
+address = "127.0.0.1:9090"
+
+# Plain WebSocket transport (peer-facing).
+[ws]
+enabled = true
+address = "127.0.0.1:8888"
+
+# Raw TCP transport (kamune over TCP).
 [tcp]
 enabled = true
 address = "127.0.0.1:8889"
 
+# Raw TLS transport (kamune over TLS).
 [tls]
-enabled = true
-address = "127.0.0.1:8890"
+enabled   = true
+address   = "127.0.0.1:8890"
 # cert_file = "assets/cert/server.crt"
-# key_file = "assets/cert/server.key"
+# key_file  = "assets/cert/server.key"
 
-[rate_limit]
-enabled = true
-time_window = "1m"
-quota = 20
-# max_entries = 100000  # max unique IPs tracked (default: max_concurrent_sessions)
+# WSS transport (WebSocket over TLS).
+[wss]
+enabled   = true
+address   = "127.0.0.1:8891"
+# cert_file = "assets/cert/server.crt"
+# key_file  = "assets/cert/server.key"

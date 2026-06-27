@@ -10,22 +10,27 @@ import (
 
 type Config struct {
 	Server    Server    `toml:"server"`
-	WS        WS        `toml:"ws"`
+	Diagnose  Diagnose  `toml:"diagnose"`
 	Session   Session   `toml:"session"`
 	RateLimit RateLimit `toml:"rate_limit"`
+	WS        WS        `toml:"ws"`
 	TCP       TCP       `toml:"tcp"`
 	TLS       TLS       `toml:"tls"`
+	WSS       WSS       `toml:"wss"`
 }
 
 type Server struct {
-	Address      string `toml:"address"`
-	Password     string `toml:"password"`
-	ExposeHealth bool   `toml:"expose_health"`
-	ExposeIP     bool   `toml:"expose_ip"`
+	Password string `toml:"password"`
+}
+
+type Diagnose struct {
+	Enabled bool   `toml:"enabled"`
+	Address string `toml:"address"`
 }
 
 type WS struct {
-	Enabled bool `toml:"enabled"`
+	Enabled bool   `toml:"enabled"`
+	Address string `toml:"address"`
 }
 
 type TCP struct {
@@ -34,6 +39,13 @@ type TCP struct {
 }
 
 type TLS struct {
+	Enabled  bool   `toml:"enabled"`
+	Address  string `toml:"address"`
+	CertFile string `toml:"cert_file"`
+	KeyFile  string `toml:"key_file"`
+}
+
+type WSS struct {
 	Enabled  bool   `toml:"enabled"`
 	Address  string `toml:"address"`
 	CertFile string `toml:"cert_file"`
@@ -49,10 +61,14 @@ type Session struct {
 }
 
 type RateLimit struct {
-	Enabled    bool          `toml:"enabled"`
+	Disabled   bool          `toml:"disabled"`
 	TimeWindow time.Duration `toml:"time_window"`
 	Quota      uint64        `toml:"quota"`
 	MaxEntries int           `toml:"max_entries"`
+}
+
+func (rl RateLimit) IsEnabled() bool {
+	return !rl.Disabled
 }
 
 // Validate returns an error if any field of c has a value that would put
@@ -85,14 +101,27 @@ func (c Config) Validate() error {
 			c.Session.MaxMessageSize,
 		)
 	}
-	if c.TLS.Enabled {
-		if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
-			return fmt.Errorf(
-				"tls.cert_file and tls.key_file must both be set or "+
-					"both be empty, got cert_file=%q key_file=%q",
-				c.TLS.CertFile, c.TLS.KeyFile,
-			)
-		}
+	// Cert file paths must both be set or both be empty. Both-empty with
+	// tls.enabled = true triggers an in-memory self-signed cert at runtime.
+	if c.TLS.Enabled && (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
+		return fmt.Errorf(
+			"tls.cert_file and tls.key_file must both be set or "+
+				"both be empty, got cert_file=%q key_file=%q",
+			c.TLS.CertFile, c.TLS.KeyFile,
+		)
+	}
+	if c.WSS.Enabled && (c.WSS.CertFile == "") != (c.WSS.KeyFile == "") {
+		return fmt.Errorf(
+			"wss.cert_file and wss.key_file must both be set or "+
+				"both be empty, got cert_file=%q key_file=%q",
+			c.WSS.CertFile, c.WSS.KeyFile,
+		)
+	}
+	if !c.Diagnose.Enabled && !c.WS.Enabled && !c.TCP.Enabled &&
+		!c.TLS.Enabled && !c.WSS.Enabled {
+		return fmt.Errorf(
+			"at least one server must be enabled (diagnose, ws, tcp, tls, or wss)",
+		)
 	}
 	return nil
 }

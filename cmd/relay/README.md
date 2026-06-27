@@ -22,38 +22,62 @@ go build -o relay .
 ./relay
 ```
 
-The default config enables WebSocket on `127.0.0.1:8888`, TCP on
-`127.0.0.1:8889`, and TLS on `127.0.0.1:8890`. Edit
-`assets/config.toml` to change.
+The default config enables diagnose on `127.0.0.1:9090`, plain WebSocket on
+`127.0.0.1:8888`, raw TCP on `127.0.0.1:8889`, kamune-over-TLS on
+`127.0.0.1:8890`, and WSS on `127.0.0.1:8443`. Edit `assets/config.toml` to
+change.
 
 ## Configuration
 
 Sections in `assets/config.toml`:
 
-| Section      | Purpose                                                              |
-| ------------ | -------------------------------------------------------------------- |
-| `server`     | HTTP/WS bind address; `/health` and `/ip` exposure flags             |
-| `ws`         | WebSocket transport on/off                                           |
-| `tcp`        | Raw TCP transport on/off and address                                 |
-| `tls`        | TLS transport on/off, address, and cert paths (see below)            |
-| `session`    | Token/session TTLs, handshake timeout, concurrency cap, message size |
-| `rate_limit` | Per-IP request quota; sliding window                                 |
+| Section      | Fields                                                                                         | Notes                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `server`     | `password`                                                                                     | Relay-wide PSK.                                                   |
+| `diagnose`   | `enabled`, `address`                                                                           | Plain HTTP, always serves `/health` when enabled. Admin audience. |
+| `ws`         | `enabled`, `address`                                                                           | Plain WebSocket, always serves `/ws`. Peer audience.              |
+| `tcp`        | `enabled`, `address`                                                                           | Raw kamune-over-TCP. Peer audience.                               |
+| `tls`        | `enabled`, `address`, `cert_file`, `key_file`                                                  | Raw kamune-over-TLS.                                              |
+| `wss`        | `enabled`, `address`, `cert_file`, `key_file`                                                  | WebSocket over TLS, always serves `/ws`. Peer audience.           |
+| `session`    | `token_ttl`, `session_ttl`, `handshake_timeout`, `max_concurrent_sessions`, `max_message_size` |                                                                   |
+| `rate_limit` | `disabled`, `time_window`, `quota`, `max_entries`                                              | Rate limit is **on** out of the box.                              |
+
+At least one of `diagnose`, `ws`, `tcp`, `tls`, or `wss` must be enabled.
+The relay exits with status 1 otherwise.
+
+### Listener matrix
+
+| `ws` | `tcp` | `tls` | `wss` | `diagnose` | Listeners                   |
+| ---- | ----- | ----- | ----- | ---------- | --------------------------- |
+| ✓    | ✗     | ✗     | ✗     | ✗          | ws:8888                     |
+| ✓    | ✓     | ✗     | ✗     | ✗          | ws:8888, tcp:8889           |
+| ✓    | ✓     | ✓     | ✗     | ✗          | ws:8888, tcp:8889, tls:8890 |
+| ✓    | ✓     | ✗     | ✓     | ✗          | ws:8888, tcp:8889, wss:8443 |
+| ✓    | ✓     | ✓     | ✓     | ✓          | all 5                       |
+| ✗    | ✓     | ✗     | ✓     | ✗          | tcp:8889, wss:8443          |
+| ✗    | ✗     | ✗     | ✗     | ✗          | error: "no server enabled"  |
 
 ## TLS / Certificates
 
-Three modes, in order of effort:
+The `[tls]` and `[wss]` blocks are independent listeners with their own cert
+settings. Each can be in one of three modes:
 
 ### 1. In-memory self-signed (default — zero config)
 
-Leave `tls.cert_file` and `tls.key_file` empty in the config. The relay
-generates a fresh self-signed certificate at startup and keeps it in
-memory only. Nothing is written to disk. Suitable for dev and local
-testing. Clients will see a certificate verification error; pin the cert
-or accept the warning on the client side.
+Leave `cert_file` and `key_file` empty in the block. The relay generates a fresh
+self-signed certificate at startup and keeps it in memory only. Nothing is
+written to disk. Suitable for dev and local testing. Clients will see a
+certificate verification error; pin the cert or accept the warning on the client
+side.
+
+When both `[tls]` and `[wss]` are enabled with empty paths, the relay generates
+two independent in-memory certs (one per listener). The two listeners present
+different identities to clients. Operators who want the same identity on both
+should point both blocks at the same on-disk cert.
 
 ### 2. On-disk self-signed
 
-Generate a self-signed cert with `openssl`, then point the config at it:
+Generate a self-signed cert with `openssl`, then point the block at it:
 
 ```bash
 openssl req -x509 -newkey rsa:2048 \
@@ -67,8 +91,14 @@ Then in `assets/config.toml`:
 
 ```toml
 [tls]
-enabled = true
-address = "127.0.0.1:8890"
+enabled   = true
+address   = "127.0.0.1:8890"
+cert_file = "assets/cert/server.crt"
+key_file  = "assets/cert/server.key"
+
+[wss]
+enabled   = true
+address   = "127.0.0.1:8443"
 cert_file = "assets/cert/server.crt"
 key_file  = "assets/cert/server.key"
 ```
@@ -82,6 +112,12 @@ Replace the self-signed cert with one from a real CA (Let's Encrypt,
 internal CA, etc.). Format must be PEM-encoded. The key file must be
 `0600` and readable by the relay process. Same hard-error behavior as
 mode 2.
+
+## Cross-Transport Sessions
+
+Sessions are transport-agnostic — any two peers that share a token can be
+bridged across any of `ws`, `wss`, `tcp`, or `tls`. See
+[`docs/RELAY.md`](../../docs/RELAY.md#cross-transport-sessions) for details.
 
 ## Build
 

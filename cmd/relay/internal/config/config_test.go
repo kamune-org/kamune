@@ -14,10 +14,29 @@ import (
 func validConfig() Config {
 	return Config{
 		Server: Server{
-			Address:      "127.0.0.1:0",
-			Password:     "",
-			ExposeHealth: true,
-			ExposeIP:     true,
+			Password: "",
+		},
+		Diagnose: Diagnose{
+			Enabled: true,
+			Address: "127.0.0.1:0",
+		},
+		WS: WS{
+			Enabled: true,
+			Address: "127.0.0.1:0",
+		},
+		TCP: TCP{
+			Enabled: true,
+			Address: "127.0.0.1:0",
+		},
+		TLS: TLS{
+			Enabled:  true,
+			Address:  "127.0.0.1:0",
+			CertFile: "",
+			KeyFile:  "",
+		},
+		WSS: WSS{
+			Enabled: false, // off by default in tests
+			Address: "127.0.0.1:0",
 		},
 		Session: Session{
 			TokenTTL:              5 * time.Minute,
@@ -27,7 +46,9 @@ func validConfig() Config {
 			MaxMessageSize:        65536,
 		},
 		RateLimit: RateLimit{
-			Enabled: false,
+			// Disabled is false by default — rate limit is on.
+			TimeWindow: time.Minute,
+			Quota:      20,
 		},
 	}
 }
@@ -179,4 +200,105 @@ func TestConfig_Validate_IgnoresTLSWhenDisabled(t *testing.T) {
 	cfg.TLS.KeyFile = "assets/cert/server.key"
 	a.NoError(cfg.Validate(),
 		"disabled TLS should skip cert_file/key_file check")
+}
+
+func TestConfig_Validate_AllowsWSSWithBothCertPaths(t *testing.T) {
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.WSS.Enabled = true
+	cfg.WSS.CertFile = "assets/cert/server.crt"
+	cfg.WSS.KeyFile = "assets/cert/server.key"
+	a.NoError(cfg.Validate(), "both paths set should be allowed")
+}
+
+func TestConfig_Validate_AllowsWSSWithBothCertPathsEmpty(t *testing.T) {
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.WSS.Enabled = true
+	cfg.WSS.CertFile = ""
+	cfg.WSS.KeyFile = ""
+	a.NoError(cfg.Validate(),
+		"empty cert/key paths should trigger in-memory cert")
+}
+
+func TestConfig_Validate_RejectsWSSWithOnlyCertFile(t *testing.T) {
+	r := require.New(t)
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.WSS.Enabled = true
+	cfg.WSS.CertFile = "assets/cert/server.crt"
+	cfg.WSS.KeyFile = ""
+	err := cfg.Validate()
+	r.Error(err, "expected error for half-configured WSS")
+	a.Contains(err.Error(), "cert_file")
+	a.Contains(err.Error(), "key_file")
+}
+
+func TestConfig_Validate_RejectsWSSWithOnlyKeyFile(t *testing.T) {
+	r := require.New(t)
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.WSS.Enabled = true
+	cfg.WSS.CertFile = ""
+	cfg.WSS.KeyFile = "assets/cert/server.key"
+	err := cfg.Validate()
+	r.Error(err, "expected error for half-configured WSS")
+	a.Contains(err.Error(), "cert_file")
+	a.Contains(err.Error(), "key_file")
+}
+
+func TestConfig_Validate_IgnoresWSSWhenDisabled(t *testing.T) {
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.WSS.Enabled = false
+	cfg.WSS.CertFile = ""
+	cfg.WSS.KeyFile = "assets/cert/server.key"
+	a.NoError(cfg.Validate(),
+		"disabled WSS should skip cert_file/key_file check")
+}
+
+func TestConfig_Validate_RateLimit_DefaultOnWhenSectionMissing(t *testing.T) {
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.RateLimit = RateLimit{}
+	a.True(cfg.RateLimit.IsEnabled(),
+		"zero-value RateLimit should have IsEnabled() == true")
+}
+
+func TestConfig_Validate_RateLimit_DefaultOnWhenKeyMissing(t *testing.T) {
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.RateLimit.Disabled = false
+	a.True(cfg.RateLimit.IsEnabled(),
+		"explicit false should have IsEnabled() == true")
+}
+
+func TestConfig_Validate_RateLimit_DisabledTrueTurnsOff(t *testing.T) {
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.RateLimit.Disabled = true
+	a.False(cfg.RateLimit.IsEnabled(),
+		"disabled = true should have IsEnabled() == false")
+}
+
+func TestConfig_Validate_RateLimit_DisabledFalseExplicitOn(t *testing.T) {
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.RateLimit.Disabled = false
+	a.True(cfg.RateLimit.IsEnabled(),
+		"disabled = false explicit should have IsEnabled() == true")
+}
+
+func TestConfig_Validate_RejectsNoServersEnabled(t *testing.T) {
+	r := require.New(t)
+	a := assert.New(t)
+	cfg := validConfig()
+	cfg.Diagnose.Enabled = false
+	cfg.WS.Enabled = false
+	cfg.TCP.Enabled = false
+	cfg.TLS.Enabled = false
+	cfg.WSS.Enabled = false
+	err := cfg.Validate()
+	r.Error(err, "expected error when no servers are enabled")
+	a.Contains(err.Error(), "at least one server")
 }

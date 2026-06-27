@@ -14,10 +14,23 @@ import (
 func validConfig() config.Config {
 	return config.Config{
 		Server: config.Server{
-			Address:      "127.0.0.1:0",
-			Password:     "",
-			ExposeHealth: true,
-			ExposeIP:     true,
+			Password: "",
+		},
+		Diagnose: config.Diagnose{
+			Enabled: true,
+			Address: "127.0.0.1:0",
+		},
+		WS: config.WS{
+			Enabled: true,
+			Address: "127.0.0.1:0",
+		},
+		TCP: config.TCP{
+			Enabled: true,
+			Address: "127.0.0.1:0",
+		},
+		TLS: config.TLS{
+			Enabled: true,
+			Address: "127.0.0.1:0",
 		},
 		Session: config.Session{
 			TokenTTL:              5 * time.Minute,
@@ -27,7 +40,9 @@ func validConfig() config.Config {
 			MaxMessageSize:        65536,
 		},
 		RateLimit: config.RateLimit{
-			Enabled: false,
+			// Disabled is false by default — rate limit is on.
+			TimeWindow: time.Minute,
+			Quota:      20,
 		},
 	}
 }
