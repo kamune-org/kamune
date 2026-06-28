@@ -57,6 +57,34 @@ func TestStorePeerSetsTimestamps(t *testing.T) {
 	a.False(found.LastSeen.IsZero(), "LastSeen should be set automatically")
 }
 
+func TestStorePeerRejectsWrongFormat(t *testing.T) {
+	a := assert.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	// Raw 32-byte ed25519 key — not allowed, must be PKIX.
+	raw32 := make([]byte, 32)
+	err := storage.StorePeer(&Peer{Name: "x", PublicKey: raw32})
+	a.ErrorIs(err, ErrInvalidPublicKey)
+
+	// 16 bytes — wrong length.
+	err = storage.StorePeer(&Peer{Name: "x", PublicKey: make([]byte, 16)})
+	a.ErrorIs(err, ErrInvalidPublicKey)
+
+	// 64 bytes — wrong length.
+	err = storage.StorePeer(&Peer{Name: "x", PublicKey: make([]byte, 64)})
+	a.ErrorIs(err, ErrInvalidPublicKey)
+
+	// Empty.
+	err = storage.StorePeer(&Peer{Name: "x", PublicKey: nil})
+	a.ErrorIs(err, ErrInvalidPublicKey)
+
+	// Accepts correct format.
+	correct := make([]byte, 44)
+	err = storage.StorePeer(&Peer{Name: "x", PublicKey: correct})
+	a.NoError(err)
+}
+
 func TestStorePeerPreservesExplicitTimestamps(t *testing.T) {
 	a := assert.New(t)
 	storage, cleanup := newTestStorage(t)

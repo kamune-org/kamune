@@ -23,7 +23,8 @@ type Peer struct {
 }
 
 var (
-	ErrPeerExpired = errors.New("peer has been expired")
+	ErrPeerExpired      = errors.New("peer has been expired")
+	ErrInvalidPublicKey = errors.New("public key must be PKIX-marshaled")
 
 	peersBucket = []byte(store.PeersBucket)
 )
@@ -84,6 +85,11 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 
 func (s *Storage) StorePeer(peer *Peer) error {
 	pubKey := peer.PublicKey
+	if len(pubKey) != 44 {
+		return fmt.Errorf(
+			"%w (expected 44, got %d bytes)", ErrInvalidPublicKey, len(pubKey),
+		)
+	}
 
 	now := time.Now()
 	firstSeen := peer.FirstSeen
