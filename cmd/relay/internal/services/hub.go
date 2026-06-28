@@ -62,6 +62,10 @@ func (h *Hub) RegisterListener(ch *exchange.Channel) ([]byte, error) {
 	return h.sessions.Create(ch)
 }
 
+func (h *Hub) RegisterListenerWith(ch *exchange.Channel, token []byte) error {
+	return h.sessions.CreateWith(ch, token)
+}
+
 func (h *Hub) RegisterDialer(ch *exchange.Channel, token []byte) error {
 	return h.sessions.Join(token, ch)
 }

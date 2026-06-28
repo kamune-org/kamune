@@ -13,11 +13,13 @@ import (
 )
 
 var (
-	ErrSessionFull    = errors.New("max concurrent sessions reached")
-	ErrTokenNotFound  = errors.New("token not found")
-	ErrTokenConsumed  = errors.New("token already consumed")
-	ErrPeerNotFound   = errors.New("peer not found in session")
-	ErrSessionExpired = errors.New("session expired")
+	ErrSessionFull      = errors.New("max concurrent sessions reached")
+	ErrTokenNotFound    = errors.New("token not found")
+	ErrTokenConsumed    = errors.New("token already consumed")
+	ErrPeerNotFound     = errors.New("peer not found in session")
+	ErrSessionExpired   = errors.New("session expired")
+	ErrStaticTokenInUse = errors.New("static token already in use")
+	ErrInvalidTokenSize = errors.New("token must be 16 bytes")
 )
 
 type session struct {
@@ -69,6 +71,43 @@ func (sm *SessionManager) Create(listener *exchange.Channel) ([]byte, error) {
 	}
 
 	return token[:], nil
+}
+
+// CreateWith registers a session under a caller-provided token. Used for the
+// static-token mode where both peers derive the same token from each other's
+// public keys. The token must be exactly 16 bytes. Capacity is checked before
+// token uniqueness so a full server always reports ErrSessionFull regardless of
+// which token is offered.
+func (sm *SessionManager) CreateWith(
+	listener *exchange.Channel, token []byte,
+) error {
+	if len(token) != 16 {
+		return ErrInvalidTokenSize
+	}
+
+	sm.purgeExpired()
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if len(sm.sessions) >= sm.maxConns {
+		return ErrSessionFull
+	}
+
+	key := fmt.Sprintf("%x", token)
+	if _, exists := sm.sessions[key]; exists {
+		return ErrStaticTokenInUse
+	}
+
+	var t [16]byte
+	copy(t[:], token)
+
+	sm.sessions[key] = &session{
+		token:    t,
+		listener: listener,
+		expiry:   time.Now().Add(sm.ttl),
+	}
+	return nil
 }
 
 func (sm *SessionManager) Join(token []byte, dialer *exchange.Channel) error {

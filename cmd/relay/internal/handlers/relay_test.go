@@ -15,7 +15,11 @@ import (
 
 // newTestHub builds a Hub with the given handshake timeout and a small
 // SessionManager suitable for tests.
-func newTestHub(t *testing.T, password string, handshakeTimeout time.Duration) *services.Hub {
+func newTestHub(
+	t *testing.T,
+	password string,
+	handshakeTimeout time.Duration,
+) *services.Hub {
 	t.Helper()
 	sm := services.NewSessionManager(time.Minute, 100, 0)
 	return services.NewHub(sm, password, 0, nil, handshakeTimeout)
@@ -30,6 +34,7 @@ func dialClient(
 	t *testing.T,
 	conn net.Conn,
 	password, authPassword string,
+	mode pb.Register_Mode,
 	token []byte,
 ) (*exchange.Channel, *pb.Registered) {
 	t.Helper()
@@ -59,7 +64,10 @@ func dialClient(
 	}
 
 	reg := &pb.Frame{
-		Kind: &pb.Frame_Register{Register: &pb.Register{Token: token}},
+		Kind: &pb.Frame_Register{Register: &pb.Register{
+			Mode:  mode,
+			Token: token,
+		}},
 	}
 	b, err := proto.Marshal(reg)
 	if err != nil {
@@ -160,7 +168,7 @@ func TestRelay_HandshakeTimeout_AppliesOnlyToHandshake(t *testing.T) {
 	stopDialer := runServer(hub, dialerServer, nil)
 
 	// Listener: empty token, creates a session.
-	listenerCh, reg := dialClient(t, listenerClient, "", "", nil)
+	listenerCh, reg := dialClient(t, listenerClient, "", "", pb.Register_MODE_CREATE, nil)
 	if got := reg.GetTtlSeconds(); got == 0 {
 		t.Errorf("TtlSeconds = 0, want > 0")
 	}
@@ -176,7 +184,7 @@ func TestRelay_HandshakeTimeout_AppliesOnlyToHandshake(t *testing.T) {
 	}
 
 	// Dialer joins with the listener's token.
-	dialerCh, _ := dialClient(t, dialerClient, "", "", token)
+	dialerCh, _ := dialClient(t, dialerClient, "", "", pb.Register_MODE_JOIN, token)
 
 	// Wait past the original handshake timeout to make sure the session
 	// is not killed by it.
@@ -224,9 +232,9 @@ func TestRelay_Disconnect_ClosesPeer(t *testing.T) {
 	defer stopListener()
 	defer stopDialer()
 
-	listenerCh, reg := dialClient(t, listenerClient, "", "", nil)
+	listenerCh, reg := dialClient(t, listenerClient, "", "", pb.Register_MODE_CREATE, nil)
 	token := reg.GetToken()
-	dialerCh, _ := dialClient(t, dialerClient, "", "", token)
+	dialerCh, _ := dialClient(t, dialerClient, "", "", pb.Register_MODE_JOIN, token)
 
 	// The listener is mid-ReadPump. If we close the dialer side, the
 	// relay should detect the close and tear down the listener too.
@@ -271,7 +279,7 @@ func TestRelay_Auth_Required(t *testing.T) {
 	stop := runServer(hub, server, nil)
 	defer stop()
 
-	ch, reg := dialClient(t, client, password, password, nil)
+	ch, reg := dialClient(t, client, password, password, pb.Register_MODE_CREATE, nil)
 	if reg == nil {
 		t.Fatal("Registered is nil")
 	}
@@ -496,7 +504,7 @@ func TestRelay_PingPong(t *testing.T) {
 	stop := runServer(hub, listenerServer, nil)
 	defer stop()
 
-	listenerCh, _ := dialClient(t, listenerClient, "", "", nil)
+	listenerCh, _ := dialClient(t, listenerClient, "", "", pb.Register_MODE_CREATE, nil)
 
 	// Send a Ping; expect a Pong.
 	ping := &pb.Frame{Kind: &pb.Frame_Ping{Ping: &pb.Ping{}}}
@@ -568,5 +576,249 @@ func TestRelay_PanicRecovery(t *testing.T) {
 	}
 }
 
-// Ensure we don't accidentally rely on a real ctx that would cancel
-// before the test can run; the package import is here as a marker.
+// --- Register dispatch (mode-based) ---------------------------------------
+
+// makeStaticToken returns a deterministic 16-byte token.
+func makeStaticToken(seed byte) []byte {
+	tok := make([]byte, 16)
+	for i := range tok {
+		tok[i] = seed + byte(i)
+	}
+	return tok
+}
+
+func TestHandler_StaticToken_AcceptsProvided(t *testing.T) {
+	hub := newTestHub(t, "", 0)
+
+	listenerClient, listenerServer := net.Pipe()
+	defer listenerClient.Close()
+	defer listenerServer.Close()
+	dialerClient, dialerServer := net.Pipe()
+	defer dialerClient.Close()
+	defer dialerServer.Close()
+
+	stopListener := runServer(hub, listenerServer, nil)
+	stopDialer := runServer(hub, dialerServer, nil)
+
+	token := makeStaticToken(0x20)
+
+	// Listener registers with the precomputed token; the relay must
+	// echo the same token back in Registered.
+	listenerCh, reg := dialClient(
+		t, listenerClient, "", "",
+		pb.Register_MODE_CREATE, token,
+	)
+	if got := reg.GetToken(); !bytes.Equal(got, token) {
+		t.Errorf("echoed token = %x, want %x", got, token)
+	}
+
+	// Dialer joins with the same token.
+	dialerCh, _ := dialClient(
+		t, dialerClient, "", "",
+		pb.Register_MODE_JOIN, token,
+	)
+
+	// Exchange bytes both ways.
+	want := []byte("hello from listener")
+	sendFrame(t, listenerCh, &pb.Frame{
+		Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: want}},
+	})
+	got := readFrame(t, dialerCh)
+	if msg := got.GetMsg(); msg == nil {
+		t.Fatalf("expected Msg frame, got %T", got.Kind)
+	} else if !bytes.Equal(msg.GetData(), want) {
+		t.Errorf("payload = %q, want %q", msg.GetData(), want)
+	}
+
+	want2 := []byte("hello from dialer")
+	sendFrame(t, dialerCh, &pb.Frame{
+		Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: want2}},
+	})
+	got2 := readFrame(t, listenerCh)
+	if msg := got2.GetMsg(); msg == nil {
+		t.Fatalf("expected Msg frame, got %T", got2.Kind)
+	} else if !bytes.Equal(msg.GetData(), want2) {
+		t.Errorf("payload = %q, want %q", msg.GetData(), want2)
+	}
+
+	stopListener()
+	stopDialer()
+}
+
+func TestHandler_RejectsModeUnspecified(t *testing.T) {
+	hub := newTestHub(t, "", 0)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	stop := runServer(hub, server, nil)
+	defer stop()
+
+	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
+	if err != nil {
+		t.Fatalf("Initiate: %v", err)
+	}
+	defer ch.Close()
+
+	reg := &pb.Frame{
+		Kind: &pb.Frame_Register{Register: &pb.Register{
+			Mode:  pb.Register_MODE_UNSPECIFIED,
+			Token: makeStaticToken(0x30),
+		}},
+	}
+	b, _ := proto.Marshal(reg)
+	if err := ch.WriteBytes(b); err != nil {
+		t.Fatalf("write register: %v", err)
+	}
+
+	readErr := make(chan error, 1)
+	go func() {
+		_, err := ch.ReadBytes()
+		readErr <- err
+	}()
+	select {
+	case err := <-readErr:
+		if err == nil {
+			t.Error("expected error on MODE_UNSPECIFIED, got nil")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("relay did not close on MODE_UNSPECIFIED")
+	}
+}
+
+func TestHandler_RejectsJoinWithoutToken(t *testing.T) {
+	hub := newTestHub(t, "", 0)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	stop := runServer(hub, server, nil)
+	defer stop()
+
+	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
+	if err != nil {
+		t.Fatalf("Initiate: %v", err)
+	}
+	defer ch.Close()
+
+	reg := &pb.Frame{
+		Kind: &pb.Frame_Register{Register: &pb.Register{
+			Mode:  pb.Register_MODE_JOIN,
+			Token: nil,
+		}},
+	}
+	b, _ := proto.Marshal(reg)
+	if err := ch.WriteBytes(b); err != nil {
+		t.Fatalf("write register: %v", err)
+	}
+
+	readErr := make(chan error, 1)
+	go func() {
+		_, err := ch.ReadBytes()
+		readErr <- err
+	}()
+	select {
+	case err := <-readErr:
+		if err == nil {
+			t.Error(
+				"expected error on MODE_JOIN without token, got nil",
+			)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("relay did not close on MODE_JOIN without token")
+	}
+}
+
+func TestHandler_RandomTokenStillWorks(t *testing.T) {
+	hub := newTestHub(t, "", 0)
+
+	listenerClient, listenerServer := net.Pipe()
+	defer listenerClient.Close()
+	defer listenerServer.Close()
+	dialerClient, dialerServer := net.Pipe()
+	defer dialerClient.Close()
+	defer dialerServer.Close()
+
+	stopListener := runServer(hub, listenerServer, nil)
+	stopDialer := runServer(hub, dialerServer, nil)
+
+	// Listener: MODE_CREATE with empty token → relay generates random.
+	listenerCh, reg := dialClient(
+		t, listenerClient, "", "",
+		pb.Register_MODE_CREATE, nil,
+	)
+	token := reg.GetToken()
+	if len(token) != 16 {
+		t.Fatalf(
+			"relay-generated token length = %d, want 16",
+			len(token),
+		)
+	}
+
+	// Dialer: MODE_JOIN with the relay-generated token.
+	dialerCh, _ := dialClient(
+		t, dialerClient, "", "",
+		pb.Register_MODE_JOIN, token,
+	)
+
+	want := []byte("hello")
+	sendFrame(t, listenerCh, &pb.Frame{
+		Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: want}},
+	})
+	got := readFrame(t, dialerCh)
+	if msg := got.GetMsg(); msg == nil {
+		t.Fatalf("expected Msg frame, got %T", got.Kind)
+	} else if !bytes.Equal(msg.GetData(), want) {
+		t.Errorf("payload = %q, want %q", msg.GetData(), want)
+	}
+
+	stopListener()
+	stopDialer()
+}
+
+func TestHandler_RejectsWrongSizeToken(t *testing.T) {
+	hub := newTestHub(t, "", 0)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	stop := runServer(hub, server, nil)
+	defer stop()
+
+	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
+	if err != nil {
+		t.Fatalf("Initiate: %v", err)
+	}
+	defer ch.Close()
+
+	// 15-byte token (one short).
+	reg := &pb.Frame{
+		Kind: &pb.Frame_Register{Register: &pb.Register{
+			Mode:  pb.Register_MODE_CREATE,
+			Token: make([]byte, 15),
+		}},
+	}
+	b, _ := proto.Marshal(reg)
+	if err := ch.WriteBytes(b); err != nil {
+		t.Fatalf("write register: %v", err)
+	}
+
+	readErr := make(chan error, 1)
+	go func() {
+		_, err := ch.ReadBytes()
+		readErr <- err
+	}()
+	select {
+	case err := <-readErr:
+		if err == nil {
+			t.Error(
+				"expected error on wrong-size token, got nil",
+			)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("relay did not close on wrong-size token")
+	}
+}

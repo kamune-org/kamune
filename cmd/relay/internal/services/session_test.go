@@ -476,3 +476,123 @@ func TestSessionManager_TTL_And_SessionTTL(t *testing.T) {
 		t.Errorf("SessionTTL = %v, want 30m", got)
 	}
 }
+
+// --- CreateWith (static-token mode) ---------------------------------------
+
+// makeToken builds a deterministic 16-byte token with byte i set to i+1.
+func makeToken(seed byte) []byte {
+	tok := make([]byte, 16)
+	for i := range tok {
+		tok[i] = seed + byte(i)
+	}
+	return tok
+}
+
+func TestSessionManager_CreateWith_HappyPath(t *testing.T) {
+	sm := newTestSessionManager(time.Minute, 0, 10)
+
+	listener, listenerRemote, cleanup := pipeChans(t)
+	defer cleanup()
+	dialer, dialerRemote, cleanup2 := pipeChans(t)
+	defer cleanup2()
+	drainRead(t, listenerRemote)
+	drainRead(t, dialerRemote)
+
+	token := makeToken(0x10)
+	if err := sm.CreateWith(listener, token); err != nil {
+		t.Fatalf("CreateWith: %v", err)
+	}
+	if sm.Len() != 1 {
+		t.Errorf("Len = %d, want 1", sm.Len())
+	}
+
+	if err := sm.Join(token, dialer); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+}
+
+func TestSessionManager_CreateWith_RejectsDuplicate(t *testing.T) {
+	sm := newTestSessionManager(time.Minute, 0, 10)
+
+	listener1, _, c1 := pipeChans(t)
+	defer c1()
+	defer listener1.Close()
+	listener2, _, c2 := pipeChans(t)
+	defer c2()
+	defer listener2.Close()
+
+	token := makeToken(0x20)
+	if err := sm.CreateWith(listener1, token); err != nil {
+		t.Fatalf("first CreateWith: %v", err)
+	}
+	if err := sm.CreateWith(listener2, token); err != ErrStaticTokenInUse {
+		t.Errorf("second CreateWith err = %v, want ErrStaticTokenInUse", err)
+	}
+}
+
+func TestSessionManager_CreateWith_RejectsWhenFull(t *testing.T) {
+	sm := newTestSessionManager(time.Minute, 0, 1)
+
+	l1, _, c1 := pipeChans(t)
+	defer c1()
+	defer l1.Close()
+	if err := sm.CreateWith(l1, makeToken(0x30)); err != nil {
+		t.Fatalf("first CreateWith: %v", err)
+	}
+
+	// Server is at capacity; a fresh token must report ErrSessionFull,
+	// not ErrStaticTokenInUse (capacity precedes uniqueness).
+	l2, _, c2 := pipeChans(t)
+	defer c2()
+	defer l2.Close()
+	err := sm.CreateWith(l2, makeToken(0x40))
+	if err != ErrSessionFull {
+		t.Errorf("CreateWith on full server err = %v, want ErrSessionFull", err)
+	}
+}
+
+func TestSessionManager_CreateWith_RejectsWrongSize(t *testing.T) {
+	sm := newTestSessionManager(time.Minute, 0, 10)
+
+	listener, _, cleanup := pipeChans(t)
+	defer cleanup()
+	defer listener.Close()
+
+	cases := []struct {
+		name  string
+		token []byte
+	}{
+		{"empty", nil},
+		{"short", make([]byte, 15)},
+		{"long", make([]byte, 17)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := sm.CreateWith(listener, tc.token)
+			if err != ErrInvalidTokenSize {
+				t.Errorf("err = %v, want ErrInvalidTokenSize", err)
+			}
+		})
+	}
+}
+
+func TestSessionManager_Create_RandomStillWorks(t *testing.T) {
+	// Regression: Create (random mode) must be unaffected by the
+	// CreateWith additions.
+	sm := newTestSessionManager(time.Minute, 0, 10)
+
+	listener, _, cleanup := pipeChans(t)
+	defer cleanup()
+	defer listener.Close()
+
+	token, err := sm.Create(listener)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if len(token) != 16 {
+		t.Errorf("token length = %d, want 16", len(token))
+	}
+	if sm.Len() != 1 {
+		t.Errorf("Len = %d, want 1", sm.Len())
+	}
+}

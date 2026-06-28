@@ -142,33 +142,71 @@ func handleRelayConn(
 		return
 	}
 
-	var token []byte
-	var ttlSeconds uint32
-	var sessionTTLSeconds uint32
+	var (
+		sentToken         []byte
+		ttlSeconds        uint32
+		sessionTTLSeconds uint32
+	)
 
-	if len(register.Token) == 0 {
-		token, err = hub.RegisterListener(ch)
-		if err != nil {
-			slog.Error("relay: register listener", slog.Any("error", err))
+	mode := register.GetMode()
+	token := register.GetToken()
+
+	switch mode {
+	case pb.Register_MODE_CREATE:
+		if len(token) == 0 {
+			sentToken, err = hub.RegisterListener(ch)
+			if err != nil {
+				slog.Error(
+					"relay: register listener",
+					slog.Any("error", err),
+				)
+				ch.Close()
+				return
+			}
+			ttlSeconds = uint32(hub.TokenTTL().Seconds())
+		} else {
+			if err := hub.RegisterListenerWith(ch, token); err != nil {
+				slog.Error(
+					"relay: register listener with token",
+					slog.Any("error", err),
+				)
+				ch.Close()
+				return
+			}
+			sentToken = token
+			ttlSeconds = uint32(hub.TokenTTL().Seconds())
+		}
+
+	case pb.Register_MODE_JOIN:
+		if len(token) == 0 {
+			slog.Warn(
+				"relay: join without token",
+				slog.String("remote", remoteAddr),
+			)
 			ch.Close()
 			return
 		}
-		ttlSeconds = uint32(hub.TokenTTL().Seconds())
-	} else {
-		token = register.Token
-		err = hub.RegisterDialer(ch, token)
-		if err != nil {
+		if err = hub.RegisterDialer(ch, token); err != nil {
 			slog.Error("relay: register dialer", slog.Any("error", err))
 			ch.Close()
 			return
 		}
+		sentToken = token
+
+	default: // MODE_UNSPECIFIED
+		slog.Warn(
+			"relay: unspecified register mode",
+			slog.String("remote", remoteAddr),
+		)
+		ch.Close()
+		return
 	}
 	sessionTTLSeconds = uint32(hub.SessionTTL().Seconds())
 
 	registered := &pb.Frame{
 		Kind: &pb.Frame_Registered{
 			Registered: &pb.Registered{
-				Token:             token,
+				Token:             sentToken,
 				TtlSeconds:        ttlSeconds,
 				SessionTtlSeconds: sessionTTLSeconds,
 			},
@@ -194,9 +232,9 @@ func handleRelayConn(
 
 	slog.Info("relay: peer registered",
 		slog.String("remote", remoteAddr),
-		slog.Bool("listener", len(register.Token) == 0),
+		slog.Bool("listener", mode == pb.Register_MODE_CREATE),
 	)
 
-	hub.ReadPump(ch, token)
-	hub.Unregister(token)
+	hub.ReadPump(ch, sentToken)
+	hub.Unregister(sentToken)
 }
