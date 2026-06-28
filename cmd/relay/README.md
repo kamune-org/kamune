@@ -39,11 +39,12 @@ Sections in `assets/config.toml`:
 | `tcp`        | `enabled`, `address`                                                                           | Raw kamune-over-TCP. Peer audience.                               |
 | `tls`        | `enabled`, `address`, `cert_file`, `key_file`                                                  | Raw kamune-over-TLS.                                              |
 | `wss`        | `enabled`, `address`, `cert_file`, `key_file`                                                  | WebSocket over TLS, always serves `/ws`. Peer audience.           |
+| `broker`     | `enabled`, `address`, `registration_ttl`                                                       | UDP signaling (STUN-like IP echo + signal intro). Off by default. |
 | `session`    | `token_ttl`, `session_ttl`, `handshake_timeout`, `max_concurrent_sessions`, `max_message_size` |                                                                   |
 | `rate_limit` | `disabled`, `time_window`, `quota`, `max_entries`                                              | Rate limit is **on** out of the box.                              |
 
-At least one of `diagnose`, `ws`, `tcp`, `tls`, or `wss` must be enabled.
-The relay exits with status 1 otherwise.
+At least one of `diagnose`, `ws`, `tcp`, `tls`, `wss`, or `broker` must
+be enabled. The relay exits with status 1 otherwise.
 
 ### Listener matrix
 
@@ -118,6 +119,23 @@ mode 2.
 Sessions are transport-agnostic — any two peers that share a token can be
 bridged across any of `ws`, `wss`, `tcp`, or `tls`. See
 [`docs/RELAY.md`](../../docs/RELAY.md#cross-transport-sessions) for details.
+
+## Broker (UDP signaling)
+
+A single UDP listener that combines two functions needed for P2P hole-punching:
+a STUN-like IP echo and signal introduction.
+
+- **IP echo**: peer sends a 6-byte request, broker responds with the peer's
+  perceived public IP:port (ASCII `ip:port\0`).
+- **Signal introduction**: peer registers with a shared token (random or
+  precomputed); when a second peer registers with the same token, both are
+  notified of each other's claimed IP:port and ephemeral X25519 public key so
+  they can attempt a direct UDP hole-punch.
+
+The broker uses X25519 + XChaCha20-Poly1305 with a per-NOTIFY fresh ephemeral
+broker key (forward secrecy). The wire format is small (60-byte REGISTER;
+99/133-byte NOTIFYs) and the broker does not see plaintext, identities, or
+public keys beyond what peers explicitly share.
 
 ## Build
 

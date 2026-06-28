@@ -42,3 +42,9 @@ enabled   = true
 address   = "127.0.0.1:8891"
 # cert_file = "assets/cert/server.crt"
 # key_file  = "assets/cert/server.key"
+
+# UDP broker (STUN-like IP echo + signal introduction for P2P hole-punching).
+[broker]
+enabled = true
+address = "127.0.0.1:4788"
+# registration_ttl = "60s"

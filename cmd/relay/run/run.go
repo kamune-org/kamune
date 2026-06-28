@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kamune-org/kamune/cmd/relay/internal/broker"
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
 	"github.com/kamune-org/kamune/cmd/relay/internal/handlers"
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
@@ -149,6 +150,28 @@ func Run() error {
 		})
 	}
 
+	// 6. Broker (UDP signaling).
+	var br *broker.Broker
+	if cfg.Broker.Enabled {
+		var allow broker.AllowFunc
+		if rl := srvc.Hub().RateLimiter(); rl != nil {
+			allow = rl.Allow
+		}
+		br, err = broker.New(cfg.Broker, allow)
+		if err != nil {
+			return fmt.Errorf("new broker: %w", err)
+		}
+		wg.Go(func() {
+			slog.Info(
+				"starting broker",
+				slog.String("address", cfg.Broker.Address),
+			)
+			if err := br.Run(ctx); err != nil {
+				errCh <- fmt.Errorf("broker: %w", err)
+			}
+		})
+	}
+
 	exitCh := make(chan os.Signal, 1)
 	signal.Notify(exitCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -158,6 +181,9 @@ func Run() error {
 	// every http.Server in turn, and waits for all goroutines to exit.
 	shutdown := func() error {
 		cancel()
+		if br != nil {
+			_ = br.Close()
+		}
 		var errs []error
 		for _, srv := range httpServers {
 			shutdownCtx, shutdownCancel := context.WithTimeout(

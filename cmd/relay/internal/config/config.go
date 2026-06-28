@@ -17,6 +17,7 @@ type Config struct {
 	TCP       TCP       `toml:"tcp"`
 	TLS       TLS       `toml:"tls"`
 	WSS       WSS       `toml:"wss"`
+	Broker    Broker    `toml:"broker"`
 }
 
 type Server struct {
@@ -58,6 +59,14 @@ type Session struct {
 	HandshakeTimeout      time.Duration `toml:"handshake_timeout"`
 	MaxConcurrentSessions int           `toml:"max_concurrent_sessions"`
 	MaxMessageSize        int           `toml:"max_message_size"`
+}
+
+// Broker configures the UDP signaling broker (STUN-like IP echo + signal
+// introduction for P2P hole-punching).
+type Broker struct {
+	Enabled         bool          `toml:"enabled"`
+	Address         string        `toml:"address"`
+	RegistrationTTL time.Duration `toml:"registration_ttl"`
 }
 
 type RateLimit struct {
@@ -118,9 +127,10 @@ func (c Config) Validate() error {
 		)
 	}
 	if !c.Diagnose.Enabled && !c.WS.Enabled && !c.TCP.Enabled &&
-		!c.TLS.Enabled && !c.WSS.Enabled {
+		!c.TLS.Enabled && !c.WSS.Enabled && !c.Broker.Enabled {
 		return fmt.Errorf(
-			"at least one server must be enabled (diagnose, ws, tcp, tls, or wss)",
+			"at least one server must be enabled " +
+				"(diagnose, ws, tcp, tls, wss, or broker)",
 		)
 	}
 	return nil
