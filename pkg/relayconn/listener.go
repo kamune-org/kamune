@@ -133,7 +133,10 @@ func listenHandshake(
 	}
 
 	registerFrame := &pb.Frame{
-		Kind: &pb.Frame_Register{Register: &pb.Register{Token: nil}},
+		Kind: &pb.Frame_Register{Register: &pb.Register{
+			Mode:  pb.Register_MODE_CREATE,
+			Token: o.token,
+		}},
 	}
 	regBytes, err := proto.Marshal(registerFrame)
 	if err != nil {

@@ -401,7 +401,7 @@ func TestRelayConnWriteRead(t *testing.T) {
 		serverOK <- err
 	}()
 
-		clientCh, err := exchange.Initiate(newTCPAdapter(c))
+	clientCh, err := exchange.Initiate(newTCPAdapter(c))
 	if err != nil {
 		t.Fatal("Initiate:", err)
 	}
@@ -483,7 +483,7 @@ func TestRelayConnDeadline(t *testing.T) {
 		serverCh = ch
 		serverOK <- err
 	}()
-		clientCh, err := exchange.Initiate(newTCPAdapter(c))
+	clientCh, err := exchange.Initiate(newTCPAdapter(c))
 	if err != nil {
 		t.Fatal("Initiate:", err)
 	}

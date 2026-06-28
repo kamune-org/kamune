@@ -25,8 +25,8 @@ func newTCPAdapter(conn net.Conn) *tcpAdapter {
 }
 
 func (a *tcpAdapter) ReadBytes() ([]byte, error) { return a.f.ReadBytes() }
-func (a *tcpAdapter) WriteBytes(d []byte) error { return a.f.WriteBytes(d) }
-func (a *tcpAdapter) Close() error              { return a.f.Close() }
+func (a *tcpAdapter) WriteBytes(d []byte) error  { return a.f.WriteBytes(d) }
+func (a *tcpAdapter) Close() error               { return a.f.Close() }
 func (a *tcpAdapter) SetDeadline(t time.Time) error {
 	return a.f.SetDeadline(t)
 }
@@ -41,8 +41,8 @@ func newTLSAdapter(conn *tls.Conn) *tlsAdapter {
 }
 
 func (a *tlsAdapter) ReadBytes() ([]byte, error) { return a.f.ReadBytes() }
-func (a *tlsAdapter) WriteBytes(d []byte) error { return a.f.WriteBytes(d) }
-func (a *tlsAdapter) Close() error              { return a.f.Close() }
+func (a *tlsAdapter) WriteBytes(d []byte) error  { return a.f.WriteBytes(d) }
+func (a *tlsAdapter) Close() error               { return a.f.Close() }
 func (a *tlsAdapter) SetDeadline(t time.Time) error {
 	return a.f.SetDeadline(t)
 }

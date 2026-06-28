@@ -118,7 +118,10 @@ func relayHandshake(
 	}
 
 	registerFrame := &pb.Frame{
-		Kind: &pb.Frame_Register{Register: &pb.Register{Token: token}},
+		Kind: &pb.Frame_Register{Register: &pb.Register{
+			Mode:  pb.Register_MODE_JOIN,
+			Token: token,
+		}},
 	}
 	regBytes, err := proto.Marshal(registerFrame)
 	if err != nil {

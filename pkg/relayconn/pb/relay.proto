@@ -15,7 +15,16 @@ message Frame {
 }
 
 message Register {
-  bytes token = 1;  // empty = create session, non-empty = join existing
+  bytes token = 1;  // 16 bytes in MODE_JOIN; empty in MODE_CREATE = ask relay
+                    // to generate a random token; 16 bytes in MODE_CREATE =
+                    // precomputed static token (relay must accept it)
+  Mode  mode  = 2;  // required: MODE_CREATE or MODE_JOIN
+
+  enum Mode {
+    MODE_UNSPECIFIED = 0;  // reserved, will be rejected
+    MODE_CREATE      = 1;  // create new session
+    MODE_JOIN        = 2;  // join existing session
+  }
 }
 
 message Registered {
