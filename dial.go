@@ -184,12 +184,9 @@ func DialWithRemoteVerifier(verifier RemoteVerifier) DialOption {
 // DialWithFunc sets a custom dial function for the dialer. When set, the
 // dialer uses this function instead of the default TCP dial. This is the
 // dial-side equivalent of [ServeWithListener].
-func DialWithFunc(
-	fn func(addr string) (Conn, error), opts ...ConnOption,
-) DialOption {
+func DialWithFunc(fn func(addr string) (Conn, error)) DialOption {
 	return func(d *Dialer) error {
 		d.dialFunc = fn
-		d.connOpts = opts
 		return nil
 	}
 }

@@ -310,10 +310,9 @@ func ServeWithUDP(opts ...ConnOption) ServerOptions {
 
 // ServeWithListener uses the caller-provided Listener directly. The addr
 // argument passed to [NewServer] is unused in this case; pass "".
-func ServeWithListener(l Listener, opts ...ConnOption) ServerOptions {
+func ServeWithListener(l Listener) ServerOptions {
 	return func(s *Server) error {
 		s.listener = l
-		s.connOpts = opts
 		return nil
 	}
 }

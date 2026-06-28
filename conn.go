@@ -243,6 +243,13 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
+// NewConn wraps a pre-established [net.Conn] in the kamune conn adapter and
+// returns it as a [Conn]. Use with [DialWithFunc] when the dial step happens
+// outside [NewDialer] (e.g. P2P hole-punched sockets).
+func NewConn(c net.Conn, opts ...ConnOption) Conn {
+	return newConn(c, opts...)
+}
+
 // newConn wraps a net.Conn with framing, deadlines, and functional options.
 func newConn(c net.Conn, opts ...ConnOption) *conn {
 	cn := &conn{
