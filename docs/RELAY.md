@@ -353,6 +353,18 @@ This certificate is valid for 10 years and contains no identifying metadata.
 | Raw TCP   | Plain TCP, no TLS            | None (visible as raw TCP) | Trusted LAN, VPN             |
 | TLS       | Standard TLS 1.3             | Excellent                 | Production, hostile networks |
 
+### Cross-Transport Sessions
+
+Sessions are **transport-agnostic**. Any two peers that share a token can be
+bridged regardless of which transport each uses (WebSocket, WSS, raw TCP, or
+TLS). The relay forwards bytes between the two `exchange.Channel`s without
+inspecting the underlying connection.
+
+A practical use: a peer behind a restrictive NAT that only allows raw TCP can
+hand its token to a peer in a browser using WSS, and the relay will bridge them
+transparently. Each side only needs to know the relay address for its own
+transport and the shared token.
+
 **Design decision: WebSocket, TCP, and TLS only.** The chosen set covers the
 three main deployment scenarios:
 
@@ -378,6 +390,347 @@ client to finish HPKE + auth). A client that opens a connection and stalls is a
 different problem from a client that registers successfully but never gets a
 peer to join.
 
+## Static Tokens
+
+By default the listener receives a random 16-byte token from the relay and
+shares it with the dialer out of band (QR code, link, text message). The
+static-tokens mode lets both peers compute the same token independently from
+each other's long-term public keys, so the listener never has to publish a fresh
+token to the dialer when reconnecting after an IP change.
+
+### Motivation
+
+When a peer's public IP changes (DHCP renewal, NAT rebinding, network switch),
+the existing relay session is gone. Both peers must redo the full dance:
+
+1. Listener connects to relay, gets a new random token
+2. Listener communicates the new token to the dialer out of band
+3. Dialer connects to the relay with that token
+
+Step 2 is the friction. The peers already know each other's long-term public
+keys (the same mechanism used for identity verification). They can derive a
+session identifier deterministically from those keys.
+
+### Token Derivation
+
+Both peers compute the same token via:
+
+```
+token = SHA256(min(A, B) || max(A, B))[:16]
+```
+
+where `min` and `max` are the lex-smallest and lex-largest of the two peers'
+public keys (as raw 32 bytes). This is order-independent: neither peer needs
+to know which one is "A" — both compute the same token. Both peers must
+use ed25519 public keys of the standard 32-byte size to compute the same
+token.
+
+### Wire Protocol
+
+The `Register` message gains a `Mode` field to make "create" vs "join"
+explicit:
+
+```protobuf
+message Register {
+  bytes token = 1;  // 16 bytes in MODE_JOIN; empty or 16 bytes in MODE_CREATE
+  Mode  mode  = 2;  // required: MODE_CREATE or MODE_JOIN
+
+  enum Mode {
+    MODE_UNSPECIFIED = 0;  // reserved, will be rejected
+    MODE_CREATE      = 1;  // create new session
+    MODE_JOIN        = 2;  // join existing session
+  }
+}
+```
+
+The pre-static-token protocol distinguished "create" vs "join" by the token
+field alone (empty vs non-empty). Making it explicit via `Mode` is the
+breaking change. Old clients that send `Mode = MODE_UNSPECIFIED` are
+rejected.
+
+Server behavior by `mode`:
+
+| `mode`             | `token`   | Action                                                                        |
+| ------------------ | --------- | ----------------------------------------------------------------------------- |
+| `MODE_UNSPECIFIED` | any       | Reject. Close connection, log "unsupported register mode".                    |
+| `MODE_CREATE`      | empty     | Generate random 16-byte token. Register session. (Default listener behavior.) |
+| `MODE_CREATE`      | non-empty | Register session under provided token. Reject on duplicate (no preemption).   |
+| `MODE_JOIN`        | empty     | Reject. Close connection, log "join requires token".                          |
+| `MODE_JOIN`        | non-empty | Look up session. Pair dialer with listener if found.                          |
+
+The relay's behavior is the same regardless of whether the token is
+precomputed or randomly generated — both are 16-byte opaque strings from
+the relay's perspective. The choice is the peers', not the operator's.
+
+**Design decision: static mode is not a config flag.** The relay operator
+does not have a say in how peers connect to each other. Static tokens are
+always available; listeners that want to use them just pass the
+precomputed token. There is no operator opt-in.
+
+### Client Behaviour
+
+Listeners that want to use static tokens pass the precomputed 16-byte
+token when opening the connection. The dialer passes the same token
+(which it computed independently). Both peers need the same ed25519
+public keys (typically exchanged out of band at first contact).
+
+The wire protocol and behaviour described in this section are
+independent of any client library. Clients in any language that
+implement the `Register{Mode, Token}` flow described above will work
+with any conformant relay. The kamune Go library is one such
+implementation; the function names and option types in that library
+are an implementation detail of the Go ecosystem.
+
+### Properties
+
+- **Both peers compute the same token independently.** Given the two
+  contacts' long-term public keys, each peer derives the same 16-byte
+  session token via `SHA256(min(A, B) || max(A, B))[:16]`. Neither peer
+  needs the other to send them a token.
+- **Coexists with the existing random-token system.** Listeners can ask
+  the relay to generate a random token (the default); static tokens are
+  opt-in per registration.
+- **Same TTL semantics.** Static tokens use the existing `token_ttl`
+  config (default 5 minutes). The listener re-registers periodically to
+  keep the session alive.
+- **Forward secrecy is unaffected.** The static token is a routing
+  identifier for the relay only; end-to-end authentication and encryption
+  are established directly between the two peers after rendezvous, using
+  the kamune protocol layer.
+
+### Reconnection on IP Change
+
+When a peer's public IP changes (DHCP renewal, NAT rebinding), the existing
+relay session is gone. Both peers re-derive the same token from the same
+public keys and re-register — the listener sends
+`Register{Mode: MODE_CREATE, Token: T}` again, the dialer sends
+`Register{Mode: MODE_JOIN, Token: T}`. Neither peer needs to communicate
+the token out of band again.
+
+This works for any IP change: NAT rebinding (same IP, new port), network
+switch (new IP), or even a completely different device, as long as both
+peers have access to the same long-term public keys.
+
+## Broker: STUN-Echo and Signal Introduction
+
+The relay's transports are useful for any peer that can connect outbound, but
+peers behind restrictive NATs benefit from a direct UDP path between them when
+possible. The broker is a separate UDP service that combines two functions
+needed for P2P hole-punching:
+
+1. **STUN-like IP echo** — a peer sends a packet; the broker responds with the
+   peer's perceived public IP:port.
+2. **Signal introduction** — two peers register with a shared token; when both
+   are present, the broker notifies each with the other's claimed IP:port so
+   they can hole-punch directly.
+
+The broker is optional. If the operator enables it, peers can use the
+kamune broker client (or implement the on-the-wire protocol directly) to
+discover each other and try a direct connection. The relay continues to
+function as a fallback when hole-punching fails.
+
+**Design decision: UDP, not TCP.** TCP-based signaling (HTTP, WebSocket) is
+fingerprintable and easy to block. UDP is the right primitive for STUN-echo
+and for one-shot introducer packets. The broker uses a single UDP listener
+on a configurable port (default `127.0.0.1:4788`).
+
+**Design decision: two functions, one wire format.** The broker combines STUN
+and signaling into a single wire format with a fixed 4-byte magic (`"KBRK"`)
+and a 1-byte opcode. This keeps the implementation small and the fingerprint
+narrow (4 bytes of fixed header for the active protocol).
+
+### Wire Format
+
+All packets share a common 6-byte header:
+
+```
+offset  size  field
+0       4     MAGIC    "KBRK"     (0x4B 0x42 0x52 0x4B)
+4       1     VER      0x01
+5       1     OPCODE   0x01 = STUN_ECHO
+                  0x02 = REGISTER
+                  0x03 = NOTIFY
+```
+
+#### `STUN_ECHO` (peer → broker)
+
+```
+MAGIC | VER | OPCODE=0x01
+```
+
+6 bytes. The broker responds with ASCII `ip:port\0` to the sender's UDP
+address — the IP/port are derived from the packet's source address, not from
+any field in the packet itself. Example: `192.0.2.1:54321\x00`.
+
+#### `REGISTER` (peer → broker)
+
+```
+MAGIC (4) | VER=0x01 (1) | OPCODE=0x02 (1) | TOKEN (16) | PEER_EPH_PUB (32) | IP (4) | PORT (2)
+```
+
+60 bytes. Fields:
+
+- `TOKEN` — 16 bytes, may be all zero (random mode) or precomputed (static
+  mode, see [Static Tokens](#static-tokens)).
+- `PEER_EPH_PUB` — the peer's stable X25519 public key (raw 32 bytes). The
+  broker uses this both for encryption (per-NOTIFY ECDH) and to identify
+  the same peer across re-registrations.
+- `IP`, `PORT` — the peer's claimed public IPv4 + port. The broker echoes
+  these to a matched peer in `NOTIFY(PEER_MATCHED)`.
+
+#### `NOTIFY` (broker → peer, encrypted)
+
+```
+MAGIC (4) | VER=0x01 (1) | OPCODE=0x03 (1) | BROKER_EPH_PUB (32) | NONCE (24) | SEALED (N)
+```
+
+- `BROKER_EPH_PUB` — the broker's fresh ephemeral X25519 public key,
+  generated per-NOTIFY for forward secrecy.
+- `NONCE` — 24 bytes, random, for XChaCha20-Poly1305.
+- `SEALED` — `Seal(plaintext)` output: ciphertext followed by 16-byte tag.
+  Sizes:
+  - `PEER_MATCHED`: 6 + 32 + 24 + 55 + 16 = **133 bytes**
+  - `TOKEN_ASSIGNED`: 6 + 32 + 24 + 21 + 16 = **99 bytes**
+
+Encrypted payload layout (depends on `TYPE`):
+
+- `TYPE = 0x01` (`PEER_MATCHED`): `TYPE (1) | TOKEN (16) | OTHER_PEER_EPH_PUB (32) | IP (4) | PORT (2)` — 55 bytes plaintext.
+- `TYPE = 0x02` (`TOKEN_ASSIGNED`): `TYPE (1) | TOKEN (16) | TTL_SECONDS (4)` — 21 bytes plaintext.
+
+The peer derives the AEAD key and decrypts:
+
+```
+shared_secret = X25519(peer_ephemeral_private, broker_ephemeral_public)
+aead_key     = SHA256(shared_secret)[:32]
+AAD          = MAGIC || VER || OPCODE || BROKER_EPH_PUB
+```
+
+and decrypts `SEALED` with XChaCha20-Poly1305 (24-byte nonce, 16-byte tag).
+The AAD binds the ciphertext to the broker's ephemeral key so a captured
+NOTIFY cannot be re-targeted to a different broker key.
+
+NOTIFY is sent by the broker only; peers that send NOTIFY are ignored.
+
+### Static Tokens
+
+The same static-token mechanism that the relay's transports support
+(see [Static Tokens](#static-tokens) above) applies to the broker:
+
+- Both peers compute `token = SHA256(min(A, B) || max(A, B))[:16]` from each
+  other's long-term public keys.
+- Peer A registers as listener with the static token; peer B joins with the
+  same token. The broker matches them.
+- When peer A's IP changes (NAT rebinding, DHCP renewal), both peers
+  re-derive the same token from the same public keys — no OOB exchange
+  needed.
+
+**Design decision: peer identity = `PEER_EPH_PUB`, not source address.** The
+broker identifies the same peer by the X25519 public key it sends in
+REGISTER, not by the source UDP address. This handles NAT rebinding (the
+peer's source port changes but the key stays the same) and treats two
+distinct processes from the same IP as different peers (their keys
+differ). The peer must use a stable key across re-registrations; the
+client library holds one key for its lifetime.
+
+**Design decision: hybrid token model.** Static tokens (above) and
+broker-assigned random tokens share the same wire format. A peer
+registering with an empty `TOKEN` field gets a 16-byte random token via
+`NOTIFY(TOKEN_ASSIGNED)` and shares it with the dialer out of band. Both
+modes go through the same registry and the same match logic.
+
+### Server Behavior
+
+For every received UDP datagram, the broker:
+
+1. Rejects packets shorter than 6 bytes.
+2. Verifies the 4-byte magic and 1-byte version.
+3. Dispatches by opcode.
+
+**`STUN_ECHO`** (opcode 0x01): responds with `ip:port\0` from the packet's
+source address. No state, no encryption, no registry interaction.
+
+**`REGISTER`** (opcode 0x02): validates the packet, generates a fresh broker
+ephemeral X25519 key, and branches on the token:
+
+| `TOKEN`   | Registry state                                               | Action                                                                                                           |
+| --------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| empty     | n/a                                                          | Generate a random 16-byte token. Store `T → peer` (TTL). Send `NOTIFY(TOKEN_ASSIGNED)` to peer.                  |
+| non-empty | empty                                                        | Store `TOKEN → peer` (TTL). No NOTIFY — the peer already knows the token.                                        |
+| non-empty | held by a different peer (different `PEER_EPH_PUB`)          | Match. Send `NOTIFY(PEER_MATCHED)` to BOTH peers, each with its own fresh broker ephemeral key. Clear the entry. |
+| non-empty | held by the same peer (same `PEER_EPH_PUB`, re-registration) | Refresh TTL. No NOTIFY.                                                                                          |
+
+The broker generates a **fresh** X25519 key pair for **every** NOTIFY it
+sends. A match produces two NOTIFYs, each with its own broker ephemeral
+public key in the header. Forward secrecy is per-NOTIFY, not per-REGISTER.
+After the NOTIFY is sent, the broker's ephemeral private key is discarded.
+
+**`NOTIFY`** (opcode 0x03): ignored. Peers should not send NOTIFY.
+
+**Unknown opcode**: ignored. Random UDP that happens to start with `"KBRK"` and
+some random opcode is silently dropped.
+
+### Anti-Fingerprint
+
+| Packet type                                    | Recognizable?               | Notes                                                                |
+| ---------------------------------------------- | --------------------------- | -------------------------------------------------------------------- |
+| `STUN_ECHO`                                    | Yes (peer opts in)          | Response is plaintext `ip:port\0` from source address                |
+| `REGISTER`                                     | Yes (peer opts in)          | Plaintext header; not sensitive (token + claimed IP + ephemeral pub) |
+| `NOTIFY`                                       | Encrypted                   | Server-only; AEAD-sealed payload; header has fixed fingerprint       |
+| Random UDP                                     | No response                 | Ignored                                                              |
+| Random UDP that happens to start with `"KBRK"` | Falls into "unknown opcode" | Ignored                                                              |
+
+A passive observer sees the 4-byte magic, the 1-byte version, the 1-byte
+opcode, and (for NOTIFY) the broker's ephemeral public key and the nonce.
+They cannot read the payload or tag without the peer's ephemeral private
+key. Packet sizes and timing metadata are visible, as on any UDP service.
+
+This is better stealth than a design that echoes every packet: random
+UDP scanners see no response and cannot tell if the broker is up. A more
+elaborate stealth design (variable packet sizes, padding, timing
+obfuscation) is out of scope for v1.
+
+### Threat Model
+
+The broker is **lower-trust** than the relay's transports:
+
+- The broker **sees** the matched peers' claimed IP:port and ephemeral
+  public keys (passed through in NOTIFY plaintext).
+- The broker **does not see** message content (the broker hands off and is
+  out of the picture; subsequent traffic is end-to-end between peers).
+- A malicious broker can disrupt rendezvous (drop REGISTERs, refuse
+  matches) but cannot read application traffic.
+- The broker does not pin a long-term identity; every broker ephemeral
+  key is fresh per NOTIFY. A compromised broker cannot decrypt past
+  NOTIFYs (forward secrecy per NOTIFY).
+
+**Design decision: no long-term broker identity.** This removes the
+operational burden of key distribution and gives forward secrecy
+automatically. Peers do not need to pin anything.
+
+### Replay Considerations
+
+The v1 broker does not implement anti-replay. The shared secret prevents
+forgery; only valid packets can be replayed. The threat model:
+
+- **Replayed `REGISTER`**: an attacker can disrupt legitimate registrations
+  or refresh a held entry's TTL. Mitigation: per-IP rate limiter (shared
+  with the relay).
+- **Replayed `NOTIFY`**: the peer receives a duplicate. AEAD verification
+  still applies; if the broker's ephemeral key has changed (which it does
+  on every re-registration, since the broker generates a fresh key per
+  NOTIFY), the replayed ciphertext fails verification. Captured NOTIFYs
+  are mostly self-healing.
+- **Replayed `STUN_ECHO`**: a known STUN protocol property; v1's response
+  does not include a request nonce. Peers should cross-check STUN_ECHO
+  responses against a parallel connection attempt, or use a different
+  STUN source. The broker is not the only STUN source a peer should trust.
+
+Adding full anti-replay (sequence numbers, nonce tracking, per-peer
+session-expiry state) would significantly complicate the implementation
+for limited benefit at v1's threat model. The shared AEAD already prevents
+forgery; the per-IP rate limiter caps the most relevant attack (replayed
+REGISTER).
+
 ## Configuration Reference
 
 ```toml
@@ -400,6 +753,11 @@ address = "0.0.0.0:443"
 # cert_file = "assets/cert/server.crt"   # auto-generated if missing
 # key_file  = "assets/cert/server.key"   # auto-generated if missing
 
+[broker]
+enabled = false               # UDP signaling (STUN-echo + signal intro); off by default
+address = "127.0.0.1:4788"    # IPv4 only in v1
+# registration_ttl = "60s"    # How long a held registration lives before eviction
+
 [session]
 token_ttl = "5m"              # Token time-to-live (unpaired sessions)
 session_ttl = "30m"           # Max lifetime of paired sessions (0 = no limit)
@@ -416,15 +774,18 @@ quota = 20                    # Max registrations per window per IP
 
 ### Field Semantics
 
-| Field                     | Default | Range  | Behavior on `0`          |
-| ------------------------- | ------- | ------ | ------------------------ |
-| `token_ttl`               | `5m`    | `> 0`  | (rejected)               |
-| `session_ttl`             | `30m`   | `>= 0` | no limit                 |
-| `handshake_timeout`       | `30s`   | `>= 0` | treated as default (30s) |
-| `max_concurrent_sessions` | `10000` | `> 0`  | (rejected)               |
-| `max_message_size`        | `65536` | `>= 0` | no limit                 |
-| `time_window`             | `1m`    | `> 0`  | (rejected)               |
-| `quota`                   | `20`    | `> 0`  | (rejected)               |
+| Field                     | Default          | Range  | Behavior on `0`                                                 |
+| ------------------------- | ---------------- | ------ | --------------------------------------------------------------- |
+| `token_ttl`               | `5m`             | `> 0`  | (rejected)                                                      |
+| `session_ttl`             | `30m`            | `>= 0` | no limit                                                        |
+| `handshake_timeout`       | `30s`            | `>= 0` | treated as default (30s)                                        |
+| `max_concurrent_sessions` | `10000`          | `> 0`  | (rejected)                                                      |
+| `max_message_size`        | `65536`          | `>= 0` | no limit                                                        |
+| `time_window`             | `1m`             | `> 0`  | (rejected)                                                      |
+| `quota`                   | `20`             | `> 0`  | (rejected)                                                      |
+| `broker.enabled`          | `false`          | bool   | broker goroutine not started                                    |
+| `broker.address`          | `127.0.0.1:4788` | string | (no default when `enabled = true`; must be a valid `host:port`) |
+| `broker.registration_ttl` | `60s`            | `> 0`  | (rejected)                                                      |
 
 ### Diagnostics Endpoints
 
@@ -479,6 +840,34 @@ requests, no protocol fingerprint beyond "unknown TLS application".
 For deployments that need to hide the relay's IP, see the
 [CDN-backed footnote](#cdn-backed-deployments) at the end of this document.
 
+### Direct UDP Broker (single host)
+
+To enable P2P hole-punching for peers behind permissive NATs, enable the
+broker on the same host. The broker is a single UDP listener on the
+configured port; peers discover each other and try to connect directly. If
+hole-punching fails, they fall back to the relay as before.
+
+```toml
+[server]
+address = "127.0.0.1:8888"
+password = ""
+expose_health = false
+expose_ip = false
+
+[ws]
+enabled = true           # WebSocket still available as the relay fallback
+
+[broker]
+enabled = true
+address = "0.0.0.0:4788"  # public, so peers behind NATs can reach it
+# registration_ttl = "60s"
+```
+
+The broker and the relay's transports run in the same process but on
+different ports. The broker shares the relay's per-IP rate limiter. Peers
+talk to the broker first to discover each other's IP:port; if direct UDP
+fails, they fall back to the relay over WS/WSS/TCP/TLS as usual.
+
 ## Known Limits
 
 The relay is designed to be cheap, simple, and predictable. The following are
@@ -497,6 +886,10 @@ known limits, not bugs:
 - **No offline messages, no replay protection** — by design, see
   [Backpressure and Message Drops](#backpressure-and-message-drops) and
   [Replay Protection](#replay-protection).
+- **Broker registry growth** (when broker is enabled) — entries are held
+  in an in-memory map and evicted on `registration_ttl` (default 60s). The
+  per-IP rate limiter caps registrations per IP. Map size is bounded by
+  the number of active registrations; TTL evicts stale entries.
 
 ## Operator Responsibilities
 
@@ -508,6 +901,11 @@ The relay operator is responsible for:
   expected load.
 - Disabling `expose_health` and `expose_ip` on public deployments to avoid
   leaking connection metadata.
+- When the broker is enabled, opening UDP `4788` (or the configured port)
+  in the host firewall. The broker has no TLS layer; if the deployment
+  hides the relay's IP behind a CDN, the broker cannot be CDN-fronted
+  and is exposed directly. Operators in hostile networks should leave
+  the broker disabled and rely on the relay.
 
 ## Footnotes
 
