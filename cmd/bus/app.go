@@ -227,6 +227,8 @@ type App struct {
 	verifIDCounter atomic.Int64
 
 	verifRadioItems []*menu.MenuItem
+
+	peers []PeerInfo
 }
 
 func NewApp() *App {
@@ -241,6 +243,7 @@ func NewApp() *App {
 		logBufferSize:  200,
 		logEntries:     make([]LogEntryInfo, 0, 200),
 		verifRequests:  make(map[int64]*pendingVerification),
+		peers:          make([]PeerInfo, 0),
 	}
 }
 
@@ -390,7 +393,7 @@ func (a *App) addLogEntry(level, msg string) {
 	}
 	a.logMu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "log-entry", entry)
+	a.emitEvent("log-entry", entry)
 
 	lvl := slog.LevelInfo
 	switch level {
@@ -495,6 +498,7 @@ func (a *App) initFromStorage() {
 	}
 
 	a.loadHistorySessions(a.db)
+	a.refreshPeersCache()
 }
 
 func (a *App) loadHistorySessions(store *storage.Storage) {

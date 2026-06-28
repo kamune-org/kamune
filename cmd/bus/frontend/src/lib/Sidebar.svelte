@@ -2,9 +2,10 @@
   import { createEventDispatcher } from 'svelte'
   import {
     sessions, historySessions, activeSessionId, fingerprint,
-    status, sidebarTab, dbPath, myName, relayTokens, toast,
+    status, sidebarTab, dbPath, myName, relayTokens, toast, peers,
   } from './stores.js'
   import { CopyToClipboard, SetMyName, GenerateRelayToken, RemoveRelayToken, RenameSession, RenameHistorySession } from '../../wailsjs/go/main/App.js'
+  import PeersPanel from './PeersPanel.svelte'
 
   function truncateToken(t) {
     if (t.length <= 20) return t
@@ -188,6 +189,19 @@
     </button>
     <button
       class="tab-btn"
+      class:active={$sidebarTab === 'peers'}
+      on:click={() => toggleTab('peers')}
+    >
+      <svg class="tab-icon" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+        <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+      </svg>
+      Peers
+      {#if $peers.length > 0}
+        <span class="tab-count">{$peers.length}</span>
+      {/if}
+    </button>
+    <button
+      class="tab-btn"
       class:active={$sidebarTab === 'history'}
       on:click={() => toggleTab('history')}
     >
@@ -202,7 +216,9 @@
       </div>
 
   <div class="sidebar-content">
-    {#if $sidebarTab === 'sessions'}
+    {#if $sidebarTab === 'peers'}
+      <PeersPanel />
+    {:else if $sidebarTab === 'sessions'}
       <div class="sidebar-actions">
         {#if serverLoading || connectLoading}
           <button class="action-btn action-danger" on:click={() => dispatch('cancel')}>
@@ -548,7 +564,7 @@
 
   .sidebar-tabs {
     display: flex;
-    gap: 2px;
+    gap: 1px;
     padding: 8px 10px 0;
   }
   .tab-btn {
@@ -557,13 +573,11 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 8px 10px;
+    padding: 8px 6px;
     background: transparent;
     color: var(--text-muted);
     font-size: 11px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
     border-radius: var(--border-radius) var(--border-radius) 0 0;
     border-bottom: 2px solid transparent;
     transition: all 0.2s;

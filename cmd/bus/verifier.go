@@ -80,6 +80,7 @@ func (a *App) createStrictVerifier() kamune.RemoteVerifier {
 			if err := store.StorePeer(peer); err != nil {
 				a.addLogEntry("WARN", "Failed to save peer: "+err.Error())
 			}
+			a.refreshPeersCache()
 		}
 
 		return nil
@@ -140,6 +141,7 @@ func (a *App) createQuickVerifier() kamune.RemoteVerifier {
 		if err := store.StorePeer(peer); err != nil {
 			a.addLogEntry("WARN", "Failed to save peer: "+err.Error())
 		}
+		a.refreshPeersCache()
 
 		return nil
 	}
@@ -155,6 +157,7 @@ func (a *App) createAutoAcceptVerifier() kamune.RemoteVerifier {
 			if err := store.StorePeer(peer); err != nil {
 				a.addLogEntry("WARN", "Failed to save peer: "+err.Error())
 			}
+			a.refreshPeersCache()
 		}
 
 		a.addLogEntry("INFO", "Auto-accepted peer: "+peer.Name)

@@ -13,9 +13,11 @@ export const libraryVersion = writable('')
 export const myName = writable('')
 
 export const activeSessionId = writable(null)
-export const sidebarTab = writable('sessions') // 'sessions' | 'history'
+export const sidebarTab = writable('sessions') // 'sessions' | 'peers' | 'history'
 export const logPanelOpen = writable(false)
 export const showWelcome = derived(sessions, $sessions => $sessions.length === 0)
+
+export const peers = writable([])
 
 export const activeSession = derived(
   [sessions, activeSessionId],
@@ -41,4 +43,6 @@ export const dialogs = writable({
   showRenameType: null,
   showDelete: null,
   showShortcuts: false,
+  showAddPeer: false,
+  peerInfoFor: null,
 })

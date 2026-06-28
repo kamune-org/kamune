@@ -24,6 +24,7 @@
         GetStorageReady,
         GetLogEntries,
         CancelStartServer,
+        ListKnownPeers,
     } from "../wailsjs/go/main/App.js";
     import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime.js";
 
@@ -49,6 +50,7 @@
         myName,
         relayToken,
         relayTokens,
+        peers,
     } from "./lib/stores.js";
     import { K, isMac } from "./lib/keyboard.js";
 
@@ -61,9 +63,56 @@
     import PassphraseDialog from "./lib/PassphraseDialog.svelte";
     import ShareDialog from "./lib/ShareDialog.svelte";
     import ImportDialog from "./lib/ImportDialog.svelte";
+    import AddPeerDialog from "./lib/AddPeerDialog.svelte";
+    import PeerInfoDialog from "./lib/PeerInfoDialog.svelte";
+    import Resizer from "./lib/Resizer.svelte";
 
 	let serverActive = false;
 	let runningServerTransport = '';
+
+    const SIDEBAR_MIN_WIDTH = 240;
+    const SIDEBAR_MAX_WIDTH = 500;
+    const SIDEBAR_DEFAULT_WIDTH = 320;
+    const SIDEBAR_WIDTH_KEY = 'kamune:sidebar-width';
+
+    function clampSidebarWidth(w) {
+        if (!Number.isFinite(w)) return SIDEBAR_DEFAULT_WIDTH;
+        if (w < SIDEBAR_MIN_WIDTH) return SIDEBAR_MIN_WIDTH;
+        if (w > SIDEBAR_MAX_WIDTH) return SIDEBAR_MAX_WIDTH;
+        return w;
+    }
+
+    function applySidebarWidth(w) {
+        document.documentElement.style.setProperty(
+            '--sidebar-width', w + 'px',
+        );
+    }
+
+    function loadSidebarWidth() {
+        try {
+            const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+            if (!raw) return SIDEBAR_DEFAULT_WIDTH;
+            return clampSidebarWidth(parseInt(raw, 10));
+        } catch {
+            return SIDEBAR_DEFAULT_WIDTH;
+        }
+    }
+
+    function saveSidebarWidth(w) {
+        try {
+            localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w));
+        } catch {
+            // ignore quota / private-mode failures
+        }
+    }
+
+    applySidebarWidth(loadSidebarWidth());
+
+    function handleSidebarResize(e) {
+        const w = clampSidebarWidth(e.detail);
+        applySidebarWidth(w);
+        saveSidebarWidth(w);
+    }
 
 	const TRANSPORTS = ["tcp", "udp", "relay"];
 
@@ -144,6 +193,7 @@
         EventsOff("show-share-card");
         EventsOff("show-import-url");
         EventsOff("import-from-clipboard");
+        EventsOff("peers-updated");
 
         // 2) Register handlers — sync, before any async work
         EventsOn("status-changed", (data) => status.set(data));
@@ -285,6 +335,10 @@
             }
         });
 
+        EventsOn("peers-updated", async () => {
+            await loadPeers();
+        });
+
         // 3) Async init — deferred, no race between cleanup and registration
         (async () => {
             const v = await GetVersion();
@@ -318,6 +372,7 @@
 
             await loadSessions();
             await loadHistory();
+            await loadPeers();
 
             const existingLogs = await GetLogEntries();
             logEntries.set(existingLogs);
@@ -357,6 +412,7 @@
         EventsOff("show-share-card");
         EventsOff("show-import-url");
         EventsOff("import-from-clipboard");
+        EventsOff("peers-updated");
     });
 
     async function loadSessions() {
@@ -367,6 +423,11 @@
     async function loadHistory() {
         const h = await GetHistorySessions();
         historySessions.set(h);
+    }
+
+    async function loadPeers() {
+        const p = await ListKnownPeers();
+        peers.set(p || []);
     }
 
     async function handleStartServer() {
@@ -558,6 +619,8 @@
             showRenameType: null,
             showDelete: null,
             showShortcuts: false,
+            showAddPeer: false,
+            peerInfoFor: null,
         }));
     }
 
@@ -1102,6 +1165,14 @@
         />
     {/if}
 
+    {#if $dialogs.showAddPeer}
+        <AddPeerDialog />
+    {/if}
+
+    {#if $dialogs.peerInfoFor}
+        <PeerInfoDialog />
+    {/if}
+
     <div class="app-body">
 		<Sidebar
 			{serverActive}
@@ -1155,6 +1226,13 @@
                 showPassphraseDialog = true;
                 passphraseDismissable = true;
             }}
+        />
+
+        <Resizer
+            minWidth={SIDEBAR_MIN_WIDTH}
+            maxWidth={SIDEBAR_MAX_WIDTH}
+            defaultWidth={SIDEBAR_DEFAULT_WIDTH}
+            on:resize={handleSidebarResize}
         />
 
         <div class="main-content">

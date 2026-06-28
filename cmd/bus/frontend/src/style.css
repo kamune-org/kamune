@@ -51,6 +51,8 @@
     --border-radius-xl: 16px;
 
     --sidebar-width: 320px;
+    --sidebar-min-width: 240px;
+    --sidebar-max-width: 500px;
     --statusbar-height: 34px;
     --font-mono:
         "SF Mono", "Fira Code", "Cascadia Code", "JetBrains Mono", monospace;
@@ -180,4 +182,12 @@ a {
     to {
         transform: rotate(360deg);
     }
+}
+
+body.is-resizing {
+    cursor: col-resize;
+    user-select: none;
+}
+body.is-resizing * {
+    cursor: col-resize !important;
 }
