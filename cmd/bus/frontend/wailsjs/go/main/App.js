@@ -22,8 +22,8 @@ export function ConfirmStopServer() {
   return window['go']['main']['App']['ConfirmStopServer']();
 }
 
-export function ConnectToServer(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['main']['App']['ConnectToServer'](arg1, arg2, arg3, arg4, arg5, arg6);
+export function ConnectToServer(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
+  return window['go']['main']['App']['ConnectToServer'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
 }
 
 export function CopyToClipboard(arg1) {
@@ -44,6 +44,10 @@ export function DisconnectSession(arg1) {
 
 export function ExportLogsToFile() {
   return window['go']['main']['App']['ExportLogsToFile']();
+}
+
+export function GenerateP2PToken(arg1, arg2) {
+  return window['go']['main']['App']['GenerateP2PToken'](arg1, arg2);
 }
 
 export function GenerateRelayToken() {
@@ -80,6 +84,10 @@ export function GetLogEntries() {
 
 export function GetMyName() {
   return window['go']['main']['App']['GetMyName']();
+}
+
+export function GetP2PTokens() {
+  return window['go']['main']['App']['GetP2PTokens']();
 }
 
 export function GetPeer(arg1) {
@@ -154,6 +162,14 @@ export function RefreshHistory() {
   return window['go']['main']['App']['RefreshHistory']();
 }
 
+export function RegisterP2PDialer(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RegisterP2PDialer'](arg1, arg2, arg3);
+}
+
+export function RemoveP2PToken(arg1) {
+  return window['go']['main']['App']['RemoveP2PToken'](arg1);
+}
+
 export function RemoveRelayToken(arg1) {
   return window['go']['main']['App']['RemoveRelayToken'](arg1);
 }
@@ -202,8 +218,8 @@ export function SetVerificationMode(arg1) {
   return window['go']['main']['App']['SetVerificationMode'](arg1);
 }
 
-export function StartServer(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['main']['App']['StartServer'](arg1, arg2, arg3, arg4, arg5);
+export function StartServer(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
+  return window['go']['main']['App']['StartServer'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
 
 export function StopServer() {

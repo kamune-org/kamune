@@ -10,9 +10,9 @@
         GetMyName,
         GetStatus,
         GetVerificationMode,
-		GetServerRunning,
-		GetServerTransport,
-		StartServer,
+        GetServerRunning,
+        GetServerTransport,
+        StartServer,
         ConnectToServer,
         StopServer,
         ConfirmStopServer,
@@ -50,6 +50,7 @@
         myName,
         relayToken,
         relayTokens,
+        p2pTokens,
         peers,
     } from "./lib/stores.js";
     import { K, isMac } from "./lib/keyboard.js";
@@ -65,15 +66,16 @@
     import ImportDialog from "./lib/ImportDialog.svelte";
     import AddPeerDialog from "./lib/AddPeerDialog.svelte";
     import PeerInfoDialog from "./lib/PeerInfoDialog.svelte";
+    import PeerSelect from "./lib/PeerSelect.svelte";
     import Resizer from "./lib/Resizer.svelte";
 
-	let serverActive = false;
-	let runningServerTransport = '';
+    let serverActive = false;
+    let runningServerTransport = "";
 
     const SIDEBAR_MIN_WIDTH = 240;
     const SIDEBAR_MAX_WIDTH = 500;
     const SIDEBAR_DEFAULT_WIDTH = 320;
-    const SIDEBAR_WIDTH_KEY = 'kamune:sidebar-width';
+    const SIDEBAR_WIDTH_KEY = "kamune:sidebar-width";
 
     function clampSidebarWidth(w) {
         if (!Number.isFinite(w)) return SIDEBAR_DEFAULT_WIDTH;
@@ -83,9 +85,7 @@
     }
 
     function applySidebarWidth(w) {
-        document.documentElement.style.setProperty(
-            '--sidebar-width', w + 'px',
-        );
+        document.documentElement.style.setProperty("--sidebar-width", w + "px");
     }
 
     function loadSidebarWidth() {
@@ -114,7 +114,7 @@
         saveSidebarWidth(w);
     }
 
-	const TRANSPORTS = ["tcp", "udp", "relay"];
+    const TRANSPORTS = ["tcp", "udp", "relay"];
 
     const LABELS = {
         type: "Type",
@@ -157,6 +157,16 @@
     let connectRelayPassword = "";
     let connectPeerKey = "";
     let connectRelayInsecure = false;
+    let serverUseP2P = false;
+    let serverUseBroker = false;
+    let serverBrokerAddr = "";
+    let serverSelectedPeer = ""; // publicKeyBase64 of selected peer or "" (random)
+    let connectUseP2P = false;
+    let connectUseBroker = false;
+    let connectBrokerAddr = "";
+    let connectP2PMode = "peer"; // "peer" | "token"
+    let connectSelectedPeer = ""; // publicKeyBase64 of selected peer or ""
+    let connectP2PToken = ""; // shared token (used when mode === "token")
     let serverError = "";
     let connectError = "";
 
@@ -194,6 +204,7 @@
         EventsOff("show-import-url");
         EventsOff("import-from-clipboard");
         EventsOff("peers-updated");
+        EventsOff("p2p-tokens");
 
         // 2) Register handlers — sync, before any async work
         EventsOn("status-changed", (data) => status.set(data));
@@ -204,9 +215,9 @@
         EventsOn("session-closed", async (data) => {
             await loadSessions();
             await loadHistory();
-            activeSessionId.update(id => {
+            activeSessionId.update((id) => {
                 const s = $sessions;
-                return s.find(ses => ses.id === data) ? id : null;
+                return s.find((ses) => ses.id === data) ? id : null;
             });
             versionWarnings.update((w) => {
                 const n = { ...w };
@@ -270,10 +281,11 @@
         });
         EventsOn("server-running", (running, transportType) => {
             serverActive = running;
-            runningServerTransport = running ? (transportType || '') : '';
+            runningServerTransport = running ? transportType || "" : "";
             if (!running) {
                 relayToken.set("");
                 relayTokens.set([]);
+                p2pTokens.set([]);
             }
         });
         EventsOn("relay-token", (token) => {
@@ -287,6 +299,9 @@
         });
         EventsOn("relay-tokens", (tokens) => {
             relayTokens.set(tokens || []);
+        });
+        EventsOn("p2p-tokens", (tokens) => {
+            p2pTokens.set(tokens || []);
         });
         EventsOn("version-warning", (sessionId, msg) => {
             versionWarnings.update((w) => ({ ...w, [sessionId]: msg }));
@@ -318,19 +333,25 @@
             try {
                 const url = new URL(urlStr);
                 const transport = url.protocol.slice(0, -1);
-                if (!transport) throw new Error('Unknown transport');
+                if (!transport) throw new Error("Unknown transport");
                 connectTransport = transport;
+                connectUseP2P = false;
+                connectUseBroker = false;
                 if (transport === "relay") {
                     connectRelayAddr = url.host;
-                    connectRelayScheme = url.searchParams.get('scheme') || 'ws';
-                    connectPeerKey = url.searchParams.get('token') || '';
-                    connectRelayInsecure = url.searchParams.get('insecure') === 'true';
+                    connectRelayScheme = url.searchParams.get("scheme") || "ws";
+                    connectPeerKey = url.searchParams.get("token") || "";
+                    connectRelayInsecure =
+                        url.searchParams.get("insecure") === "true";
                 } else {
                     connectServerAddr2 = url.host;
                 }
                 dialogs.update((d) => ({ ...d, showConnect: true }));
             } catch {
-                toast.set({ message: "Invalid connection URL in clipboard", type: "error" });
+                toast.set({
+                    message: "Invalid connection URL in clipboard",
+                    type: "error",
+                });
                 setTimeout(() => toast.set(null), 3000);
             }
         });
@@ -368,7 +389,9 @@
             verificationMode.set(vm);
 
             serverActive = await GetServerRunning();
-            runningServerTransport = serverActive ? await GetServerTransport() : '';
+            runningServerTransport = serverActive
+                ? await GetServerTransport()
+                : "";
 
             await loadSessions();
             await loadHistory();
@@ -381,7 +404,10 @@
             showPassphraseDialog = !ready;
 
             // Request notification permission
-            if ("Notification" in window && Notification.permission === "default") {
+            if (
+                "Notification" in window &&
+                Notification.permission === "default"
+            ) {
                 Notification.requestPermission();
             }
         })();
@@ -408,6 +434,7 @@
         EventsOff("local-name-changed");
         EventsOff("relay-token");
         EventsOff("relay-tokens");
+        EventsOff("p2p-tokens");
         EventsOff("toast");
         EventsOff("show-share-card");
         EventsOff("show-import-url");
@@ -436,18 +463,40 @@
                 serverError = "Relay address is required";
                 return;
             }
-        } else if (!connectServerAddr.trim()) {
-            serverError = "Listen address is required";
+        } else if (
+            serverTransport !== "udp" ||
+            !serverUseP2P ||
+            !serverUseBroker
+        ) {
+            if (!connectServerAddr.trim()) {
+                serverError = "Listen address is required";
+                return;
+            }
+        }
+        if (
+            serverTransport === "udp" &&
+            serverUseP2P &&
+            serverUseBroker &&
+            !serverBrokerAddr.trim()
+        ) {
+            serverError = "Broker address is required when broker is enabled";
             return;
         }
         closeAllDialogs();
         serverLoading = true;
         try {
+            // Broker P2P mode binds to a random local port — the broker
+            // tells the dialer where to find us, so a fixed listen
+            // address isn't needed. Direct P2P uses the user-provided
+            // address so the dialer knows where to punch.
             const addr =
-                serverTransport === "relay" ? "" : connectServerAddr.trim();
+                serverTransport === "relay" ||
+                (serverTransport === "udp" && serverUseP2P && serverUseBroker)
+                    ? ""
+                    : connectServerAddr.trim();
             const relayAddr =
                 serverTransport === "relay"
-                    ? `${serverRelayScheme}://${serverRelayAddr.trim()}${serverRelayInsecure ? '?insecure=true' : ''}`
+                    ? `${serverRelayScheme}://${serverRelayAddr.trim()}${serverRelayInsecure ? "?insecure=true" : ""}`
                     : "";
             const relayPw =
                 serverTransport === "relay" ? serverRelayPassword : "";
@@ -457,6 +506,10 @@
                 relayAddr,
                 $myName,
                 relayPw,
+                serverUseP2P && serverUseBroker ? serverBrokerAddr.trim() : "",
+                serverUseP2P && serverUseBroker ? serverSelectedPeer : "",
+                serverUseP2P,
+                serverUseBroker,
             );
             await loadSessions();
             if (token) {
@@ -512,18 +565,41 @@
                 connectError = "Relay token is required";
                 return;
             }
+        } else if (connectTransport === "udp" && connectUseP2P) {
+            // P2P path: the broker provides the peer's address, so we
+            // don't require a peer address field.
         } else if (!connectServerAddr2.trim()) {
             connectError = "Peer address is required";
             return;
+        }
+        if (connectTransport === "udp" && connectUseP2P && connectUseBroker) {
+            if (!connectBrokerAddr.trim()) {
+                connectError =
+                    "Broker address is required when broker is enabled";
+                return;
+            }
+            if (connectP2PMode === "peer" && !connectSelectedPeer) {
+                connectError = "Select a known peer";
+                return;
+            }
+            if (connectP2PMode === "token" && !connectP2PToken.trim()) {
+                connectError = "Paste the shared token";
+                return;
+            }
         }
         closeAllDialogs();
         connectLoading = true;
         try {
             const addr =
-                connectTransport === "relay" ? "" : connectServerAddr2.trim();
+                connectTransport === "relay" ||
+                (connectTransport === "udp" &&
+                    connectUseP2P &&
+                    connectUseBroker)
+                    ? ""
+                    : connectServerAddr2.trim();
             const relayAddr =
                 connectTransport === "relay"
-                    ? `${connectRelayScheme}://${connectRelayAddr.trim()}${connectRelayInsecure ? '?insecure=true' : ''}`
+                    ? `${connectRelayScheme}://${connectRelayAddr.trim()}${connectRelayInsecure ? "?insecure=true" : ""}`
                     : "";
             const peerKey =
                 connectTransport === "relay" ? connectPeerKey.trim() : "";
@@ -535,6 +611,17 @@
                 peerKey,
                 $myName,
                 pw,
+                connectUseP2P && connectUseBroker
+                    ? connectBrokerAddr.trim()
+                    : "",
+                connectUseP2P && connectUseBroker && connectP2PMode === "peer"
+                    ? connectSelectedPeer
+                    : "",
+                connectUseP2P && connectUseBroker && connectP2PMode === "token"
+                    ? connectP2PToken.trim()
+                    : "",
+                connectUseP2P,
+                connectUseBroker,
             );
             await loadSessions();
             activeSessionId.set(sessionId);
@@ -749,6 +836,11 @@
                                     on:click={() => {
                                         serverTransport = t;
                                         serverError = "";
+                                        if (t !== "udp") {
+                                            serverUseP2P = false;
+                                            serverUseBroker = false;
+                                            serverBrokerAddr = "";
+                                        }
                                     }}>{t.toUpperCase()}</button
                                 >
                             {/each}
@@ -756,11 +848,70 @@
                     </div>
 
                     {#if serverTransport !== "relay"}
-                        <input
-                            bind:value={connectServerAddr}
-                            placeholder="Listen address (e.g. :8443)"
-                            class="dialog-input"
-                        />
+                        {#if !(serverTransport === "udp" && serverUseP2P && serverUseBroker)}
+                            <input
+                                bind:value={connectServerAddr}
+                                placeholder="Listen address (e.g. :8443)"
+                                class="dialog-input"
+                            />
+                        {/if}
+                        {#if serverTransport === "udp"}
+                            <label class="insecure-option p2p-toggle">
+                                <input
+                                    type="checkbox"
+                                    bind:checked={serverUseP2P}
+                                />
+                                Hole punching
+                            </label>
+                            {#if serverUseP2P}
+                                <label class="insecure-option p2p-toggle">
+                                    <input
+                                        type="checkbox"
+                                        bind:checked={serverUseBroker}
+                                    />
+                                    Use broker
+                                </label>
+                                {#if serverUseBroker}
+                                    <div class="p2p-block-fields">
+                                        <input
+                                            bind:value={serverBrokerAddr}
+                                            placeholder="Broker address (host:port)"
+                                            class="dialog-input"
+                                        />
+                                        <PeerSelect
+                                            bind:value={serverSelectedPeer}
+                                            peers={$peers}
+                                            placeholder="Select a peer (optional)"
+                                        />
+                                        {#if serverSelectedPeer}
+                                            <p class="dialog-hint p2p-hint">
+                                                <span class="p2p-badge"
+                                                    >static</span
+                                                >
+                                                Token derived from your public keys.
+                                            </p>
+                                        {:else}
+                                            <p class="dialog-hint p2p-hint">
+                                                <span
+                                                    class="p2p-badge p2p-badge-random"
+                                                    >random</span
+                                                >
+                                                The broker assigns a fresh random
+                                                token.
+                                            </p>
+                                        {/if}
+                                    </div>
+                                {:else}
+                                    <p class="dialog-hint p2p-hint">
+                                        <span class="p2p-badge p2p-badge-direct"
+                                            >direct</span
+                                        >
+                                        The dialer needs this listen address to punch
+                                        to.
+                                    </p>
+                                {/if}
+                            {/if}
+                        {/if}
                     {:else}
                         <div class="relay-addr-row">
                             <div class="scheme-pills">
@@ -789,9 +940,12 @@
                             placeholder="Relay password (if required)"
                             class="dialog-input"
                         />
-                        {#if serverRelayScheme === 'wss' || serverRelayScheme === 'tls'}
+                        {#if serverRelayScheme === "wss" || serverRelayScheme === "tls"}
                             <label class="insecure-option">
-                                <input type="checkbox" bind:checked={serverRelayInsecure} />
+                                <input
+                                    type="checkbox"
+                                    bind:checked={serverRelayInsecure}
+                                />
                                 Skip TLS verification
                             </label>
                         {/if}
@@ -857,6 +1011,14 @@
                                     on:click={() => {
                                         connectTransport = t;
                                         connectError = "";
+                                        if (t !== "udp") {
+                                            connectUseP2P = false;
+                                            connectUseBroker = false;
+                                            connectBrokerAddr = "";
+                                            connectP2PMode = "peer";
+                                            connectSelectedPeer = "";
+                                            connectP2PToken = "";
+                                        }
                                     }}>{t.toUpperCase()}</button
                                 >
                             {/each}
@@ -864,11 +1026,99 @@
                     </div>
 
                     {#if connectTransport !== "relay"}
-                        <input
-                            bind:value={connectServerAddr2}
-                            placeholder="Peer address (e.g. 192.168.1.100:8443)"
-                            class="dialog-input"
-                        />
+                        {#if !(connectTransport === "udp" && connectUseP2P && connectUseBroker)}
+                            <input
+                                bind:value={connectServerAddr2}
+                                placeholder="Peer address (e.g. 192.168.1.100:8443)"
+                                class="dialog-input"
+                            />
+                        {/if}
+                        {#if connectTransport === "udp"}
+                            <label class="insecure-option p2p-toggle">
+                                <input
+                                    type="checkbox"
+                                    bind:checked={connectUseP2P}
+                                />
+                                Hole punching
+                            </label>
+                            {#if connectUseP2P}
+                                <label class="insecure-option p2p-toggle">
+                                    <input
+                                        type="checkbox"
+                                        bind:checked={connectUseBroker}
+                                    />
+                                    Use broker
+                                </label>
+                                {#if connectUseBroker}
+                                    <div class="p2p-block-fields">
+                                        <input
+                                            bind:value={connectBrokerAddr}
+                                            placeholder="Broker address (host:port)"
+                                            class="dialog-input"
+                                        />
+                                        <div class="pill-group">
+                                            <button
+                                                type="button"
+                                                class="pill-btn"
+                                                class:pill-active={connectP2PMode ===
+                                                    "peer"}
+                                                on:click={() => {
+                                                    connectP2PMode = "peer";
+                                                    connectP2PToken = "";
+                                                }}>Known peer</button
+                                            >
+                                            <button
+                                                type="button"
+                                                class="pill-btn"
+                                                class:pill-active={connectP2PMode ===
+                                                    "token"}
+                                                on:click={() => {
+                                                    connectP2PMode = "token";
+                                                    connectSelectedPeer = "";
+                                                }}>Shared token</button
+                                            >
+                                        </div>
+
+                                        {#if connectP2PMode === "peer"}
+                                            <PeerSelect
+                                                bind:value={connectSelectedPeer}
+                                                peers={$peers}
+                                                placeholder="Select a peer"
+                                            />
+                                            <p class="dialog-hint p2p-hint">
+                                                <span class="p2p-badge"
+                                                    >static</span
+                                                >
+                                                Token derived from the peer's public
+                                                key.
+                                            </p>
+                                        {:else}
+                                            <input
+                                                bind:value={connectP2PToken}
+                                                placeholder="Shared token (hex)"
+                                                class="dialog-input mono"
+                                            />
+                                            <p class="dialog-hint p2p-hint">
+                                                <span
+                                                    class="p2p-badge p2p-badge-random"
+                                                    >random</span
+                                                >
+                                                Paste the token the listener shared
+                                                with you.
+                                            </p>
+                                        {/if}
+                                    </div>
+                                {:else}
+                                    <p class="dialog-hint p2p-hint">
+                                        <span class="p2p-badge p2p-badge-direct"
+                                            >direct</span
+                                        >
+                                        Enter the peer's public IP:port above to punch
+                                        to.
+                                    </p>
+                                {/if}
+                            {/if}
+                        {/if}
                     {:else}
                         <div class="relay-addr-row">
                             <div class="scheme-pills">
@@ -903,9 +1153,12 @@
                             placeholder="Relay password (if required)"
                             class="dialog-input"
                         />
-                        {#if connectRelayScheme === 'wss' || connectRelayScheme === 'tls'}
+                        {#if connectRelayScheme === "wss" || connectRelayScheme === "tls"}
                             <label class="insecure-option">
-                                <input type="checkbox" bind:checked={connectRelayInsecure} />
+                                <input
+                                    type="checkbox"
+                                    bind:checked={connectRelayInsecure}
+                                />
                                 Skip TLS verification
                             </label>
                         {/if}
@@ -965,7 +1218,9 @@
                             {@const val = $dialogs.showSessionInfo[key]}
                             {#if val !== undefined && val !== null && val !== ""}
                                 <div class="info-row">
-                                    <span class="info-key">{LABELS[key] || key}</span>
+                                    <span class="info-key"
+                                        >{LABELS[key] || key}</span
+                                    >
                                     <span class="info-val">
                                         {#if key === "sessionID"}
                                             {val}
@@ -1174,11 +1429,11 @@
     {/if}
 
     <div class="app-body">
-		<Sidebar
-			{serverActive}
-			runningServerTransport={runningServerTransport}
-			{serverLoading}
-			{connectLoading}
+        <Sidebar
+            {serverActive}
+            {runningServerTransport}
+            {serverLoading}
+            {connectLoading}
             on:startServer={() => {
                 dialogs.update((d) => ({ ...d, showServer: true }));
             }}
@@ -1700,6 +1955,70 @@
         cursor: pointer;
         padding: 6px 0;
         width: 100%;
+    }
+    .p2p-toggle {
+        margin-top: 4px;
+    }
+    .p2p-block-fields {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 10px;
+        width: 360px;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+    .p2p-block-fields .field-label {
+        margin: 0;
+    }
+    .token-source {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 4px;
+    }
+    .token-source .field-label {
+        margin: 0;
+    }
+    .dialog-input.mono {
+        font-family: var(--font-mono);
+        font-size: 12px;
+    }
+    .p2p-hint {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        margin: 6px 0 0;
+        padding: 8px 10px;
+        background: var(--bg-input);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        font-size: 11px;
+        line-height: 1.5;
+        color: var(--text-secondary);
+    }
+    .p2p-badge {
+        flex-shrink: 0;
+        display: inline-block;
+        padding: 1px 7px;
+        background: var(--accent-primary-dim);
+        color: var(--accent-primary);
+        border: 1px solid var(--accent-primary);
+        border-radius: 10px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+    }
+    .p2p-badge-random {
+        background: var(--info-dim);
+        color: var(--info);
+        border-color: var(--info);
+    }
+    .p2p-badge-direct {
+        background: var(--success-dim);
+        color: var(--success);
+        border-color: var(--success);
     }
     .insecure-option input {
         accent-color: var(--accent-primary);

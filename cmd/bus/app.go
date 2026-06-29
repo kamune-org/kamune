@@ -194,6 +194,9 @@ type App struct {
 	relayTokens     []relayToken
 	relayListeners  *multiListener
 
+	brokerClient *BrokerClient
+	p2pTokens    []p2pToken
+
 	startCtx    context.Context
 	startCancel context.CancelFunc
 
@@ -212,11 +215,15 @@ type App struct {
 	appVersion      string
 	fingerprintFmt  string
 
-	serverAddr      string
-	serverTransport string
-	serverRelayAddr string
-	serverName      string
-	serverPassword  string
+	serverAddr       string
+	serverTransport  string
+	serverRelayAddr  string
+	serverName       string
+	serverPassword   string
+	serverBrokerAddr string
+	serverPeerPubB64 string
+	serverUseP2P     bool
+	serverUseBroker  bool
 
 	logEntries    []LogEntryInfo
 	logMu         sync.RWMutex
@@ -232,6 +239,13 @@ type App struct {
 }
 
 func NewApp() *App {
+	bc, err := NewBrokerClient()
+	if err != nil {
+		// X25519 key generation is a fatal startup error: the bus needs a
+		// stable broker identity, and the OS RNG is the only failure source.
+		slog.Error("init broker client", "err", err)
+		os.Exit(1)
+	}
 	return &App{
 		sessions:       make([]*liveSession, 0),
 		histSessions:   make([]*historySession, 0),
@@ -244,6 +258,8 @@ func NewApp() *App {
 		logEntries:     make([]LogEntryInfo, 0, 200),
 		verifRequests:  make(map[int64]*pendingVerification),
 		peers:          make([]PeerInfo, 0),
+		brokerClient:   bc,
+		p2pTokens:      make([]p2pToken, 0),
 	}
 }
 

@@ -12,7 +12,7 @@ export function ClearLogs():Promise<void>;
 
 export function ConfirmStopServer():Promise<boolean>;
 
-export function ConnectToServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<string>;
+export function ConnectToServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:boolean,arg11:boolean):Promise<string>;
 
 export function CopyToClipboard(arg1:string):Promise<void>;
 
@@ -23,6 +23,8 @@ export function DeletePeer(arg1:string):Promise<void>;
 export function DisconnectSession(arg1:string):Promise<void>;
 
 export function ExportLogsToFile():Promise<void>;
+
+export function GenerateP2PToken(arg1:string,arg2:string):Promise<string>;
 
 export function GenerateRelayToken():Promise<string>;
 
@@ -41,6 +43,8 @@ export function GetLibraryVersion():Promise<string>;
 export function GetLogEntries():Promise<Array<main.LogEntryInfo>>;
 
 export function GetMyName():Promise<string>;
+
+export function GetP2PTokens():Promise<Array<main.p2pToken>>;
 
 export function GetPeer(arg1:string):Promise<main.PeerInfo>;
 
@@ -78,6 +82,10 @@ export function OpenFileDialog():Promise<string>;
 
 export function RefreshHistory():Promise<void>;
 
+export function RegisterP2PDialer(arg1:string,arg2:string,arg3:string):Promise<string>;
+
+export function RemoveP2PToken(arg1:string):Promise<void>;
+
 export function RemoveRelayToken(arg1:string):Promise<void>;
 
 export function RenameHistorySession(arg1:string,arg2:string):Promise<void>;
@@ -102,7 +110,7 @@ export function SetMyName(arg1:string):Promise<void>;
 
 export function SetVerificationMode(arg1:number):Promise<boolean>;
 
-export function StartServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
+export function StartServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:boolean,arg9:boolean):Promise<string>;
 
 export function StopServer():Promise<void>;
 

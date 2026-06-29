@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -237,4 +239,23 @@ func decodePeerPubKey(publicKeyB64 string) ([]byte, error) {
 
 func peerKeyMatches(p PeerInfo, pub []byte) bool {
 	return p.PublicKeyBase64 == fingerprint.Base64(pub)
+}
+
+// parsePeerPubB64ToRaw decodes a peer public key from base64 (PKIX form,
+// 44 bytes) into a raw 32-byte ed25519.PublicKey. Used by TokenFromKeys
+// and other relayconn helpers that need the raw key form.
+func parsePeerPubB64ToRaw(s string) (ed25519.PublicKey, error) {
+	pub, err := decodePeerPubKey(s)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := x509.ParsePKIXPublicKey(pub)
+	if err != nil {
+		return nil, fmt.Errorf("parse PKIX: %w", err)
+	}
+	ed, ok := parsed.(ed25519.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("not an ed25519 public key")
+	}
+	return ed, nil
 }

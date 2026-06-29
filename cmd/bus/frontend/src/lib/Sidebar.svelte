@@ -2,10 +2,11 @@
   import { createEventDispatcher } from 'svelte'
   import {
     sessions, historySessions, activeSessionId, fingerprint,
-    status, sidebarTab, dbPath, myName, relayTokens, toast, peers,
+    status, sidebarTab, dbPath, myName, relayTokens, p2pTokens, toast, peers,
   } from './stores.js'
   import { CopyToClipboard, SetMyName, GenerateRelayToken, RemoveRelayToken, RenameSession, RenameHistorySession } from '../../wailsjs/go/main/App.js'
   import PeersPanel from './PeersPanel.svelte'
+  import SignalingTokens from './SignalingTokens.svelte'
 
   function truncateToken(t) {
     if (t.length <= 20) return t
@@ -307,6 +308,10 @@
             </div>
           {/if}
         </div>
+      {/if}
+
+      {#if $p2pTokens.length > 0 || (serverActive && runningServerTransport === 'udp')}
+        <SignalingTokens />
       {/if}
 
       <div class="list">

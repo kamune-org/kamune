@@ -14,7 +14,8 @@ import (
 )
 
 func (a *App) StartServer(
-	addr, transport, relayAddr, name, password string,
+	addr, transport, relayAddr, name, password, brokerAddr, peerPubB64 string,
+	useP2P bool, useBroker bool,
 ) (string, string, error) {
 	a.mu.Lock()
 	if a.server != nil {
@@ -31,6 +32,10 @@ func (a *App) StartServer(
 	a.serverRelayAddr = relayAddr
 	a.serverName = name
 	a.serverPassword = password
+	a.serverBrokerAddr = brokerAddr
+	a.serverPeerPubB64 = peerPubB64
+	a.serverUseP2P = useP2P
+	a.serverUseBroker = useBroker
 	a.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -61,6 +66,12 @@ func (a *App) StartServer(
 			return "", "", fmt.Errorf("getting identity: %w", err)
 		}
 		name = fingerprint.Pseudonym(pubKey)
+	}
+
+	// P2P modes: default to ":0" (random port) when no address given.
+	// The dialer discovers the port out-of-band (direct) or via broker.
+	if transport == "udp" && useP2P && addr == "" {
+		addr = ":0"
 	}
 
 	a.mu.Lock()
@@ -139,6 +150,15 @@ func (a *App) StartServer(
 	runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
 	runtime.EventsEmit(a.ctx, "server-running", true, transport)
 
+	// Auto-register a P2P token on the broker for broker-synced mode.
+	if transport == "udp" && a.serverUseP2P && a.serverUseBroker && a.serverBrokerAddr != "" {
+		if _, err := a.GenerateP2PToken(
+			a.serverBrokerAddr, a.serverPeerPubB64); err != nil {
+			a.addLogEntry("ERROR",
+				"Failed to register p2p token: "+err.Error())
+		}
+	}
+
 	go func() {
 		defer close(done)
 		err := svr.ListenAndServe()
@@ -152,7 +172,17 @@ func (a *App) StartServer(
 		a.relayListeners = nil
 		a.server = nil
 		a.serverTransportType = ""
+		a.serverBrokerAddr = ""
+		a.serverPeerPubB64 = ""
+		a.serverUseP2P = false
+		a.serverUseBroker = false
+		p2pToCancel := a.p2pTokens
+		a.p2pTokens = make([]p2pToken, 0)
 		a.mu.Unlock()
+		for _, pt := range p2pToCancel {
+			pt.cancel()
+		}
+		a.emitEvent("p2p-tokens", []p2pToken{})
 		runtime.EventsEmit(a.ctx, "server-running", false, transport)
 		a.setStatus(StatusDisconnected, "Server stopped")
 		a.addLogEntry("INFO", "Server stopped")
@@ -253,6 +283,10 @@ func (a *App) restartServer() error {
 	relayAddr := a.serverRelayAddr
 	name := a.serverName
 	password := a.serverPassword
+	brokerAddr := a.serverBrokerAddr
+	peerPubB64 := a.serverPeerPubB64
+	useP2P := a.serverUseP2P
+	useBroker := a.serverUseBroker
 	a.mu.RUnlock()
 
 	a.addLogEntry("INFO", "Restarting server to apply verification mode change")
@@ -261,7 +295,7 @@ func (a *App) restartServer() error {
 		return fmt.Errorf("stop server: %w", err)
 	}
 
-	_, _, err := a.StartServer(addr, transport, relayAddr, name, password)
+	_, _, err := a.StartServer(addr, transport, relayAddr, name, password, brokerAddr, peerPubB64, useP2P, useBroker)
 	return err
 }
 
@@ -345,7 +379,9 @@ func (a *App) GetRelayTokens() []relayToken {
 }
 
 func (a *App) ConnectToServer(
-	addr, transport, relayAddr, token, name, password string,
+	addr, transport, relayAddr, token, name, password,
+	brokerAddr, peerPubB64, p2pToken string,
+	useP2P bool, useBroker bool,
 ) (string, error) {
 	a.setStatus(StatusConnecting, "Connecting to "+addr+"...")
 
@@ -356,6 +392,37 @@ func (a *App) ConnectToServer(
 
 	var opts []kamune.DialOption
 	opts = append(opts, kamune.DialWithRemoteVerifier(a.getVerifier()))
+
+	// P2P: register as a dialer on the broker so the listener can find
+	// this peer (broker-synced), or skip registration (direct P2P).
+	// The actual hole-punch + kamune dial is not yet implemented.
+	if transport == "udp" && useP2P {
+		if useBroker {
+			if peerPubB64 == "" && p2pToken == "" {
+				return "", fmt.Errorf(
+					"P2P via broker requires either a known peer or a shared token")
+			}
+			registered, cancel, err := a.RegisterP2PDialer(
+				brokerAddr, peerPubB64, p2pToken)
+			if err != nil {
+				return "", fmt.Errorf("register p2p dialer: %w", err)
+			}
+			defer cancel()
+			a.addLogEntry("INFO",
+				"P2P dialer registered with token: "+registered)
+			return "", fmt.Errorf(
+				"P2P hole-punch not yet implemented — bus is registered on the broker as %q; "+
+					"connect will be wired up in a future release",
+				registered)
+		}
+		// Direct P2P: the user provided the peer's public address.
+		// Hole-punch + kamune dial is the next increment.
+		a.addLogEntry("INFO",
+			"Direct P2P dial to " + addr + " — not yet implemented")
+		return "", fmt.Errorf(
+			"P2P hole-punch not yet implemented — dial to %q will be "+
+				"wired up in a future release", addr)
+	}
 
 	if name == "" {
 		pubKey, err := store.PublicKey()
