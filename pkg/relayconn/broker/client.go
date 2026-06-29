@@ -46,18 +46,26 @@ type Client struct {
 // Client for the lifetime of the peer process so re-registrations keep the same
 // identity.
 func NewClient(relayAddr string) (*Client, error) {
-	addr, err := net.ResolveUDPAddr("udp4", relayAddr)
-	if err != nil {
-		return nil, fmt.Errorf("resolve broker addr %q: %w", relayAddr, err)
-	}
 	k, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generate x25519 key: %w", err)
 	}
+	return NewClientWithKey(relayAddr, k)
+}
+
+// NewClientWithKey is like NewClient but uses the supplied X25519 key instead
+// of generating a fresh one. Use this when you need a stable identity across
+// multiple Client lifetimes (e.g., one eager key for the whole process and a
+// lazily-created Client when the broker address is known).
+func NewClientWithKey(relayAddr string, key *ecdh.PrivateKey) (*Client, error) {
+	addr, err := net.ResolveUDPAddr("udp4", relayAddr)
+	if err != nil {
+		return nil, fmt.Errorf("resolve broker addr %q: %w", relayAddr, err)
+	}
 	return &Client{
 		relayAddr: addr,
-		key:       k,
-		pub:       k.PublicKey().Bytes(),
+		key:       key,
+		pub:       key.PublicKey().Bytes(),
 	}, nil
 }
 
