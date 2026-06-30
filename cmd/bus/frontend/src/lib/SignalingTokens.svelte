@@ -2,11 +2,15 @@
   import {
     GenerateP2PToken, RemoveP2PToken, CopyToClipboard,
   } from '../../wailsjs/go/main/App.js'
-  import { p2pTokens, toast } from './stores.js'
+  import { p2pTokens, peers, toast } from './stores.js'
+  import PeerSelect from './PeerSelect.svelte'
 
-  let brokerAddr = ''
+  export let brokerAddr = ''
+  export let locked = false
   let expanded = true
   let generating = false
+  let mode = 'random' // 'random' or 'static'
+  let selectedPeer = ''
 
   async function handleGenerate() {
     if (generating) return
@@ -16,9 +20,15 @@
       setTimeout(() => toast.set(null), 3000)
       return
     }
+    if (mode === 'static' && !selectedPeer) {
+      toast.set({ message: 'Select a peer for static token', type: 'error' })
+      setTimeout(() => toast.set(null), 3000)
+      return
+    }
+    const peerArg = mode === 'static' ? selectedPeer : ''
     generating = true
     try {
-      const token = await GenerateP2PToken(trimmed)
+      const token = await GenerateP2PToken(trimmed, peerArg)
       if (token) {
         toast.set({ message: `Token: ${token}`, token, type: 'token' })
         setTimeout(() => toast.set(null), 4000)
@@ -48,10 +58,16 @@
       .catch((e) => console.error('Copy failed:', e))
   }
 
+  function peerNameFor(pubB64) {
+    if (!pubB64) return ''
+    const p = $peers.find((p) => p.publicKeyBase64 === pubB64)
+    return p ? (p.name || p.fingerprintEmoji || pubB64.slice(0, 8)) : pubB64.slice(0, 8)
+  }
+
   function truncateToken(t) {
     if (!t) return ''
     if (t.length <= 16) return t
-    return t.slice(0, 8) + '…' + t.slice(-8)
+    return t.slice(0, 8) + '…'
   }
 
   function formatExpiry(token) {
@@ -84,33 +100,67 @@
           type="text"
           placeholder="broker host:port"
           bind:value={brokerAddr}
+          disabled={locked}
           on:keydown={(e) => { if (e.key === 'Enter') handleGenerate() }}
         />
-        <button
-          class="st-gen-btn"
-          on:click={handleGenerate}
-          disabled={generating}
-        >
-          <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
-          </svg>
-          Generate
-        </button>
       </div>
 
+      <div class="st-mode-row">
+        <button
+          class="st-mode-btn"
+          class:active={mode === 'random'}
+          on:click={() => { mode = 'random'; selectedPeer = '' }}
+        >random</button>
+        <button
+          class="st-mode-btn"
+          class:active={mode === 'static'}
+          on:click={() => { mode = 'static' }}
+        >static</button>
+      </div>
+
+      {#if mode === 'static'}
+        <PeerSelect
+          bind:value={selectedPeer}
+          peers={$peers}
+          placeholder="Select a peer"
+        />
+      {/if}
+
+      <button
+        class="st-gen-btn"
+        on:click={handleGenerate}
+        disabled={generating || (mode === 'static' && !selectedPeer)}
+      >
+        <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+          <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+        </svg>
+        Generate {mode === 'static' ? 'static' : 'random'} token
+      </button>
+
       {#if $p2pTokens.length === 0}
-        <p class="st-hint">Enter a broker address and click Generate to create a signaling token.</p>
+        <p class="st-hint">Generate a token above to share with a peer.</p>
       {:else}
         <div class="st-list">
           {#each $p2pTokens as pt (pt.token)}
             {@const expiry = formatExpiry(pt)}
             <div class="st-item" class:consumed={pt.consumed}>
               <span class="st-dot" class:filled={pt.consumed}></span>
-              <span class="st-item-token" role="button" tabindex="0"
-                    on:click={() => handleCopyToken(pt.token)}
-                    on:keydown={(e) => { if (e.key === 'Enter') handleCopyToken(pt.token) }}>
-                {truncateToken(pt.token)}
-              </span>
+              <div class="st-item-main">
+                <span class="st-item-token" role="button" tabindex="0"
+                      title={pt.token}
+                      on:click={() => handleCopyToken(pt.token)}
+                      on:keydown={(e) => { if (e.key === 'Enter') handleCopyToken(pt.token) }}>
+                  {truncateToken(pt.token)}
+                </span>
+                <span class="st-item-meta">
+                  <span class="st-mode-badge" class:st-mode-static={pt.mode === 'static'}>
+                    {pt.mode || 'random'}
+                  </span>
+                  {#if pt.mode === 'static' && pt.peerPubB64}
+                    <span class="st-peer-name">{peerNameFor(pt.peerPubB64)}</span>
+                  {/if}
+                </span>
+              </div>
               {#if expiry}
                 <span class="st-expiry" class:expired={expiry === 'expired'}>{expiry}</span>
               {/if}
@@ -189,12 +239,19 @@
     outline: none;
     border-color: var(--accent-primary);
   }
-  .st-gen-btn {
+  .st-broker-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .st-mode-row {
     display: flex;
-    align-items: center;
     gap: 4px;
+    margin-bottom: 6px;
+  }
+  .st-mode-btn {
+    flex: 1;
     padding: 4px 8px;
-    background: var(--bg-hover);
+    background: var(--bg-surface);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     color: var(--text-secondary);
@@ -202,9 +259,37 @@
     font-weight: 600;
     cursor: pointer;
   }
-  .st-gen-btn:hover:not(:disabled) {
-    background: var(--border-color);
+  .st-mode-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
     color: var(--text-primary);
+  }
+  .st-mode-btn.active {
+    background: var(--accent-primary);
+    color: var(--text-on-accent, #fff);
+    border-color: var(--accent-primary);
+  }
+  .st-mode-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .st-gen-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+    padding: 6px 8px;
+    background: var(--accent-primary);
+    border: 1px solid var(--accent-primary);
+    border-radius: var(--border-radius);
+    color: var(--text-on-accent, #fff);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 6px;
+  }
+  .st-gen-btn:hover:not(:disabled) {
+    filter: brightness(1.1);
   }
   .st-gen-btn:disabled {
     opacity: 0.5;
@@ -245,15 +330,47 @@
   .st-dot.filled {
     background: var(--text-muted);
   }
+  .st-item-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
   .st-item-token {
     font-family: var(--font-mono);
     font-size: 10px;
     color: var(--text-primary);
-    flex: 1;
     cursor: pointer;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .st-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    color: var(--text-muted);
+  }
+  .st-mode-badge {
+    text-transform: uppercase;
+    font-weight: 600;
+    font-size: 8px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+  }
+  .st-mode-badge.st-mode-static {
+    background: var(--accent-primary);
+    color: var(--text-on-accent, #fff);
+  }
+  .st-peer-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100px;
   }
   .st-expiry {
     font-size: 10px;

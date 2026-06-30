@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"strings"
@@ -12,6 +13,12 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// hexDecodeString is a thin wrapper around encoding/hex that returns the
+// raw bytes; named so callers can use it without importing encoding/hex.
+func hexDecodeString(s string) ([]byte, error) {
+	return hex.DecodeString(s)
+}
 
 func (a *App) StartServer(
 	addr, transport, relayAddr, name, password, brokerAddr, peerPubB64 string,
@@ -95,7 +102,12 @@ func (a *App) StartServer(
 			return "", "", fmt.Errorf("cancelled")
 		}
 		ml := newMultiListener()
-		listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, password, false)
+		relayStaticToken, _ := a.deriveP2PToken(peerPubB64)
+		relayMode := "random"
+		if len(relayStaticToken) > 0 {
+			relayMode = "static"
+		}
+		listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, password, false, relayStaticToken)
 		if err != nil {
 			a.mu.RLock()
 			cancelled := a.startCancel == nil
@@ -119,9 +131,63 @@ func (a *App) StartServer(
 		a.relayPassword = password
 		a.relaySessionTTL = sessionTTL
 		a.relayListeners = ml
-		a.relayTokens = []relayToken{{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), listener: listener}}
+		a.relayTokens = []relayToken{{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), Mode: relayMode, PeerPubB64: peerPubB64, listener: listener}}
 	case "udp":
-		opts = append(opts, kamune.ServeWithUDP())
+		if useP2P && useBroker && brokerAddr != "" {
+			// P2P mode: build a p2pListener that registers on the
+			// broker and yields punched KCP sessions. The
+			// p2pListener owns the punch socket and the kcp-go
+			// listener; we just hand it to the kamune server.
+			token, err := a.deriveP2PToken(peerPubB64)
+			if err != nil {
+				a.setStatus(StatusError, "Failed to derive p2p token")
+				a.addLogEntry("ERROR",
+					"Failed to derive p2p token: "+err.Error())
+				return "", "", fmt.Errorf("derive p2p token: %w", err)
+			}
+			listener, err := newP2PListener(
+				a.brokerClient, brokerAddr, token, addr,
+			)
+			if err != nil {
+				a.setStatus(StatusError, "Failed to start p2p listener")
+				a.addLogEntry("ERROR",
+					"p2p listener failed: "+err.Error())
+				return "", "", fmt.Errorf("p2p listener: %w", err)
+			}
+			ml := newMultiListener()
+			if err := ml.Add(listener); err != nil {
+				_ = listener.Close()
+				return "", "", fmt.Errorf("add p2p listener: %w", err)
+			}
+			a.p2pListener = listener
+			opts = append(opts, kamune.ServeWithListener(ml))
+
+			// Register the p2pListener's token in a.p2pTokens so the
+			// sidebar can display it. The token was either precomputed
+			// (static mode) or captured from the broker (random mode).
+			ptCtx, ptCancel := context.WithCancel(context.Background())
+			mode := "random"
+			if peerPubB64 != "" {
+				mode = "static"
+			}
+			a.mu.Lock()
+			a.p2pTokens = append(a.p2pTokens, p2pToken{
+				Token:      listener.Token(),
+				Mode:       mode,
+				PeerPubB64: peerPubB64,
+				Consumed:   false,
+				TTL:        p2pTokenRefreshInterval,
+				ExpiresAt:  time.Now().Add(p2pTokenRefreshInterval),
+				brokerAddr: brokerAddr,
+				ctx:        ptCtx,
+				cancel:     ptCancel,
+			})
+			snapshot := a.p2pTokensSnapshot()
+			a.mu.Unlock()
+			a.emitEvent("p2p-tokens", snapshot)
+		} else {
+			opts = append(opts, kamune.ServeWithUDP())
+		}
 	default:
 		opts = append(opts, kamune.ServeWithTCP())
 	}
@@ -144,14 +210,24 @@ func (a *App) StartServer(
 	a.pubKey = pubKey
 	a.server = svr
 	a.serverDone = done
-	a.serverTransportType = transport
+	if transport == "udp" && useP2P {
+		a.serverTransportType = "p2p"
+	} else {
+		a.serverTransportType = transport
+	}
 	a.mu.Unlock()
 
 	runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
-	runtime.EventsEmit(a.ctx, "server-running", true, transport)
+	serverLabel := transport
+	if transport == "udp" && useP2P {
+		serverLabel = "p2p"
+	}
+	runtime.EventsEmit(a.ctx, "server-running", true, serverLabel)
 
 	// Auto-register a P2P token on the broker for broker-synced mode.
-	if transport == "udp" && a.serverUseP2P && a.serverUseBroker && a.serverBrokerAddr != "" {
+	// When p2pListener is active it already registered, so skip.
+	if transport == "udp" && a.serverUseP2P && a.serverUseBroker &&
+		a.serverBrokerAddr != "" && a.p2pListener == nil {
 		if _, err := a.GenerateP2PToken(
 			a.serverBrokerAddr, a.serverPeerPubB64); err != nil {
 			a.addLogEntry("ERROR",
@@ -170,6 +246,8 @@ func (a *App) StartServer(
 		a.relayAddr = ""
 		a.relayPassword = ""
 		a.relayListeners = nil
+		p2pL := a.p2pListener
+		a.p2pListener = nil
 		a.server = nil
 		a.serverTransportType = ""
 		a.serverBrokerAddr = ""
@@ -179,19 +257,27 @@ func (a *App) StartServer(
 		p2pToCancel := a.p2pTokens
 		a.p2pTokens = make([]p2pToken, 0)
 		a.mu.Unlock()
+		if p2pL != nil {
+			_ = p2pL.Close()
+		}
 		for _, pt := range p2pToCancel {
 			pt.cancel()
 		}
 		a.emitEvent("p2p-tokens", []p2pToken{})
-		runtime.EventsEmit(a.ctx, "server-running", false, transport)
+		stopLabel := a.serverTransportType
+		runtime.EventsEmit(a.ctx, "server-running", false, stopLabel)
 		a.setStatus(StatusDisconnected, "Server stopped")
 		a.addLogEntry("INFO", "Server stopped")
 	}()
 
 	var statusMsg string
-	if transport == "relay" {
+	switch {
+	case transport == "relay":
 		statusMsg = "Server (relay) — connected to " + relayAddr
-	} else {
+	case transport == "udp" && a.p2pListener != nil:
+		statusMsg = "Server (udp+p2p) — listening on " +
+			a.p2pListener.Addr().String()
+	default:
 		statusMsg = "Server running on " + addr
 	}
 	a.setStatus(StatusConnected, statusMsg)
@@ -311,7 +397,7 @@ func (a *App) CancelStartServer() {
 	a.addLogEntry("INFO", "Server start cancelled by user")
 }
 
-func (a *App) GenerateRelayToken() (string, error) {
+func (a *App) GenerateRelayToken(peerPubB64 string) (string, error) {
 	a.mu.Lock()
 	if a.relayListeners == nil {
 		a.mu.Unlock()
@@ -321,9 +407,15 @@ func (a *App) GenerateRelayToken() (string, error) {
 	password := a.relayPassword
 	a.mu.Unlock()
 
-	listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, password, false)
+	staticToken, _ := a.deriveP2PToken(peerPubB64)
+	listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, password, false, staticToken)
 	if err != nil {
 		return "", err
+	}
+
+	relayMode := "random"
+	if len(staticToken) > 0 {
+		relayMode = "static"
 	}
 
 	a.mu.Lock()
@@ -336,7 +428,7 @@ func (a *App) GenerateRelayToken() (string, error) {
 		a.mu.Unlock()
 		return "", fmt.Errorf("add listener: %w", err)
 	}
-	a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), listener: listener})
+	a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), Mode: relayMode, PeerPubB64: peerPubB64, listener: listener})
 	tokens := make([]relayToken, len(a.relayTokens))
 	copy(tokens, a.relayTokens)
 	a.mu.Unlock()
@@ -382,52 +474,85 @@ func (a *App) ConnectToServer(
 	addr, transport, relayAddr, token, name, password,
 	brokerAddr, peerPubB64, p2pToken string,
 	useP2P bool, useBroker bool,
-) (string, error) {
+) (ConnectResult, error) {
 	a.setStatus(StatusConnecting, "Connecting to "+addr+"...")
 
 	store := a.store()
 	if store == nil {
-		return "", fmt.Errorf("storage is not available")
+		return ConnectResult{ErrorCode: "storage_unavailable"},
+			fmt.Errorf("storage is not available")
 	}
 
 	var opts []kamune.DialOption
 	opts = append(opts, kamune.DialWithRemoteVerifier(a.getVerifier()))
 
-	// P2P: register as a dialer on the broker so the listener can find
-	// this peer (broker-synced), or skip registration (direct P2P).
-	// The actual hole-punch + kamune dial is not yet implemented.
+	// P2P: hole-punch the peer via the broker, then run the kamune
+	// handshake on the punched KCP session. The dialer opens a single
+	// punch socket that's used for both the broker REGISTER/NOTIFY
+	// exchange and the KCP session — the broker sends NOTIFYs to the
+	// same port the peer will punch to, so NAT mappings line up.
 	if transport == "udp" && useP2P {
-		if useBroker {
-			if peerPubB64 == "" && p2pToken == "" {
-				return "", fmt.Errorf(
-					"P2P via broker requires either a known peer or a shared token")
-			}
-			registered, cancel, err := a.RegisterP2PDialer(
-				brokerAddr, peerPubB64, p2pToken)
-			if err != nil {
-				return "", fmt.Errorf("register p2p dialer: %w", err)
-			}
-			defer cancel()
-			a.addLogEntry("INFO",
-				"P2P dialer registered with token: "+registered)
-			return "", fmt.Errorf(
-				"P2P hole-punch not yet implemented — bus is registered on the broker as %q; "+
-					"connect will be wired up in a future release",
-				registered)
+		if !useBroker || brokerAddr == "" {
+			return ConnectResult{ErrorCode: "missing_broker"},
+				fmt.Errorf("P2P via broker requires a broker address")
 		}
-		// Direct P2P: the user provided the peer's public address.
-		// Hole-punch + kamune dial is the next increment.
-		a.addLogEntry("INFO",
-			"Direct P2P dial to " + addr + " — not yet implemented")
-		return "", fmt.Errorf(
-			"P2P hole-punch not yet implemented — dial to %q will be "+
-				"wired up in a future release", addr)
-	}
+		if peerPubB64 == "" && p2pToken == "" {
+			return ConnectResult{ErrorCode: "missing_peer_or_token"},
+				fmt.Errorf(
+					"P2P via broker requires either a known peer or a shared token")
+		}
 
-	if name == "" {
+		token, err := a.resolveP2PDialerToken(peerPubB64, p2pToken)
+		if err != nil {
+			return ConnectResult{ErrorCode: "invalid_token"}, err
+		}
+
+		baseCtx := a.ctx
+		if baseCtx == nil {
+			baseCtx = context.Background()
+		}
+		matchCtx, matchCancel := context.WithTimeout(
+			baseCtx, 30*time.Second,
+		)
+		punchConn, payload, err := a.brokerClient.WaitMatch(
+			matchCtx, brokerAddr, token,
+		)
+		matchCancel()
+		if err != nil {
+			return ConnectResult{ErrorCode: "match_timeout"},
+				fmt.Errorf("wait for match: %w", err)
+		}
+		a.addLogEntry("INFO",
+			"P2P match: peer at "+payload.IP.String()+
+				fmt.Sprintf(":%d", payload.Port))
+
+		kcpSess, err := a.brokerClient.HolePunch(
+			baseCtx, punchConn,
+			payload.IP, payload.Port, 0,
+		)
+		if err != nil {
+			punchConn.Close()
+			return ConnectResult{ErrorCode: "hole_punch_failed"},
+				fmt.Errorf("hole-punch: %w", err)
+		}
+		a.addLogEntry("INFO", "Hole-punch succeeded")
+
+		// Wrap the KCP session in a kamune.Conn and pass it to
+		// NewDialer via DialWithFunc. The kamune handshake runs on
+		// the punched UDP socket.
+		punchedConn := kamune.NewConn(kcpSess)
+		opts = append(opts, kamune.DialWithFunc(
+			func(string) (kamune.Conn, error) {
+				return punchedConn, nil
+			},
+		))
+		addr = "p2p://" + payload.IP.String() +
+			fmt.Sprintf(":%d", payload.Port)
+	} else if name == "" {
 		pubKey, err := store.PublicKey()
 		if err != nil {
-			return "", fmt.Errorf("getting identity: %w", err)
+			return ConnectResult{ErrorCode: "identity_unavailable"},
+				fmt.Errorf("getting identity: %w", err)
 		}
 		name = fingerprint.Pseudonym(pubKey)
 	}
@@ -440,34 +565,51 @@ func (a *App) ConnectToServer(
 	opts = append(opts, kamune.DialWithClientName(name))
 
 	var sessionTTL time.Duration
-	switch transport {
-	case "relay":
-		fn, err := dialRelayFuncWithSessionTTL(relayAddr, token, password, false, &sessionTTL)
-		if err != nil {
-			a.setStatus(StatusError, "Failed to prepare relay dial")
-			a.addLogEntry("ERROR", "Relay dial preparation failed: "+err.Error())
-			return "", fmt.Errorf("relay dial func: %w", err)
+	if !(transport == "udp" && useP2P) {
+		switch transport {
+		case "relay":
+			relayTokenHex := token
+			if peerPubB64 != "" {
+				staticTokenRaw, err := a.deriveP2PToken(peerPubB64)
+				if err != nil {
+					return ConnectResult{ErrorCode: "invalid_peer_key"},
+						fmt.Errorf("derive static token: %w", err)
+				}
+				relayTokenHex = hex.EncodeToString(staticTokenRaw)
+			}
+			fn, err := dialRelayFuncWithSessionTTL(
+				relayAddr, relayTokenHex, password, false, &sessionTTL,
+			)
+			if err != nil {
+				a.setStatus(StatusError, "Failed to prepare relay dial")
+				a.addLogEntry("ERROR",
+					"Relay dial preparation failed: "+err.Error())
+				return ConnectResult{ErrorCode: "relay_dial_failed"},
+					fmt.Errorf("relay dial func: %w", err)
+			}
+			opts = append(opts, kamune.DialWithFunc(fn))
+			addr = relayAddr
+		case "udp":
+			opts = append(opts, kamune.DialWithUDP())
+		default:
+			opts = append(opts, kamune.DialWithTCP())
 		}
-		opts = append(opts, kamune.DialWithFunc(fn))
-		addr = relayAddr
-	case "udp":
-		opts = append(opts, kamune.DialWithUDP())
-	default:
-		opts = append(opts, kamune.DialWithTCP())
 	}
 
 	dialer, err := kamune.NewDialer(addr, store, opts...)
 	if err != nil {
 		a.setStatus(StatusError, "Failed to create dialer")
 		a.addLogEntry("ERROR", "Failed to create dialer: "+err.Error())
-		return "", fmt.Errorf("create dialer: %w", err)
+		return ConnectResult{ErrorCode: "dialer_init_failed"},
+			fmt.Errorf("create dialer: %w", err)
 	}
 
 	t, err := dialer.Dial()
 	if err != nil {
 		a.setStatus(StatusError, "Connection failed")
 		a.addLogEntry("ERROR", "Dial failed: "+err.Error())
-		return "", fmt.Errorf("dial: %w", err)
+		return ConnectResult{ErrorCode: "dial_failed"},
+			fmt.Errorf("dial: %w", err)
 	}
 
 	sessionID := t.SessionID()
@@ -480,7 +622,7 @@ func (a *App) ConnectToServer(
 		Messages:         make([]MessageInfo, 0),
 		LastActivity:     time.Now(),
 		ReceiveDone:      make(chan struct{}),
-		TransportType:    transport,
+		TransportType:    transportTypeFor(transport, useP2P),
 		SessionTTL:       sessionTTL,
 		SessionStartedAt: time.Now(),
 	}
@@ -515,7 +657,40 @@ func (a *App) ConnectToServer(
 
 	go a.receiveMessages(session)
 
-	return sessionID, nil
+	return ConnectResult{SessionID: sessionID}, nil
+}
+
+// transportTypeFor returns the label used for SessionInfo.TransportType.
+// P2P sessions are labeled "p2p" so the sidebar can render a distinct
+// badge even when the underlying transport is UDP.
+func transportTypeFor(transport string, useP2P bool) string {
+	if transport == "udp" && useP2P {
+		return "p2p"
+	}
+	return transport
+}
+
+// resolveP2PDialerToken returns the broker registration token for the
+// dialer: the static token derived from the peer's public key (when
+// peerPubB64 is set), or the user-shared random token (tokenHex).
+// Exactly one of the two must be non-empty; supplying both is an error.
+func (a *App) resolveP2PDialerToken(peerPubB64, tokenHex string) ([]byte, error) {
+	if peerPubB64 != "" && tokenHex != "" {
+		return nil, fmt.Errorf(
+			"peer and token are mutually exclusive")
+	}
+	if peerPubB64 != "" {
+		return a.deriveP2PToken(peerPubB64)
+	}
+	if tokenHex == "" {
+		return nil, fmt.Errorf(
+			"either a peer or a token is required")
+	}
+	raw, err := hexDecodeString(tokenHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode token: %w", err)
+	}
+	return raw, nil
 }
 
 func (a *App) DisconnectSession(sessionID string) error {
@@ -703,7 +878,7 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 		urlStr = fmt.Sprintf("%s://%s:%s", transport, address, port)
 
 	case "relay":
-		listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, relayPassword, false)
+		listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, relayPassword, false, nil)
 		if err != nil {
 			return nil, fmt.Errorf("generate relay token: %w", err)
 		}
@@ -719,7 +894,7 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 			listener.Close()
 			return nil, fmt.Errorf("add listener: %w", err)
 		}
-		a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), listener: listener})
+		a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), Mode: "random", listener: listener})
 		tokens := make([]relayToken, len(a.relayTokens))
 		copy(tokens, a.relayTokens)
 		a.mu.Unlock()

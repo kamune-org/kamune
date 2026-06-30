@@ -7,10 +7,11 @@
   import { CopyToClipboard, SetMyName, GenerateRelayToken, RemoveRelayToken, RenameSession, RenameHistorySession } from '../../wailsjs/go/main/App.js'
   import PeersPanel from './PeersPanel.svelte'
   import SignalingTokens from './SignalingTokens.svelte'
+  import PeerSelect from './PeerSelect.svelte'
 
   function truncateToken(t) {
     if (t.length <= 20) return t
-    return t.slice(0, 8) + '…' + t.slice(-6)
+    return t.slice(0, 8) + '…'
   }
 
   function formatExpiry(rt) {
@@ -30,17 +31,26 @@
     return Math.round(d / 3600) + 'h'
   }
 
+  function peerNameFor(pubB64) {
+    if (!pubB64) return ''
+    const p = $peers.find((p) => p.publicKeyBase64 === pubB64)
+    return p ? (p.name || p.fingerprintEmoji || pubB64.slice(0, 8)) : pubB64.slice(0, 8)
+  }
+
   const dispatch = createEventDispatcher()
   export let serverActive = false
   export let runningServerTransport = ''
   export let serverLoading = false
   export let connectLoading = false
+  export let serverBrokerAddr = ''
 
   let copied = false
   let tokensExpanded = true
   let editingName = false
   let editName = ''
   let ctxMenu = null
+  let rtMode = 'random'
+  let rtSelectedPeer = ''
 
   function openCtx(e, id, isHistory, name) {
     e.preventDefault()
@@ -260,32 +270,63 @@
             </svg>
             <span class="rt-header-label">Relay Tokens</span>
             <span class="rt-count">{$relayTokens.length}</span>
-            <button class="rt-gen-btn" on:click|stopPropagation={async () => {
-              try {
-                const token = await GenerateRelayToken()
-                if (token) {
-                  toast.set({ message: `Generated token: ${token}`, token, type: 'token' })
-                  setTimeout(() => toast.set(null), 4000)
-                }
-              } catch (e) {
-                toast.set({ message: String(e), type: 'error' })
-                setTimeout(() => toast.set(null), 3000)
-              }
-            }}>
-              <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-                <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
-              </svg>
-              Generate
-            </button>
           </div>
           {#if tokensExpanded}
-            <div class="rt-list">
+            <div class="rt-body">
+              <div class="rt-mode-row">
+                <button
+                  class="rt-mode-btn"
+                  class:active={rtMode === 'random'}
+                  on:click={() => { rtMode = 'random'; rtSelectedPeer = '' }}
+                >random</button>
+                <button
+                  class="rt-mode-btn"
+                  class:active={rtMode === 'static'}
+                  on:click={() => { rtMode = 'static' }}
+                >static</button>
+              </div>
+              {#if rtMode === 'static'}
+                <PeerSelect
+                  bind:value={rtSelectedPeer}
+                  peers={$peers}
+                  placeholder="Select a peer"
+                  compact
+                />
+              {/if}
+              <button
+                class="rt-gen-btn"
+                disabled={rtMode === 'static' && !rtSelectedPeer}
+                on:click={async () => {
+                  try {
+                    const peerArg = rtMode === 'static' ? rtSelectedPeer : ''
+                    const token = await GenerateRelayToken(peerArg)
+                    if (token) {
+                      toast.set({ message: `Generated token: ${token}`, token, type: 'token' })
+                      setTimeout(() => toast.set(null), 4000)
+                    }
+                  } catch (e) {
+                    toast.set({ message: String(e), type: 'error' })
+                    setTimeout(() => toast.set(null), 3000)
+                  }
+                }}>
+                <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+                  <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+                Generate {rtMode === 'static' ? 'static' : 'random'} token
+              </button>
+              <div class="rt-list">
               {#each $relayTokens as rt}
                 {@const expiry = formatExpiry(rt)}
                 {@const sessionTTL = formatSessionTTL(rt)}
                 <div class="rt-item" class:consumed={rt.consumed}>
                   <span class="rt-dot" class:filled={rt.consumed}></span>
-                  <span class="rt-item-token" role="button" tabindex="0" on:click={() => handleCopyToken(rt.token)} on:keydown={(e) => { if (e.key === 'Enter') handleCopyToken(rt.token) }}>{truncateToken(rt.token)}</span>
+                  <span class="rt-item-token" role="button" tabindex="0" title={rt.token} on:click={() => handleCopyToken(rt.token)} on:keydown={(e) => { if (e.key === 'Enter') handleCopyToken(rt.token) }}>{truncateToken(rt.token)}</span>
+                  <span class="rt-mode-badge" class:rt-mode-static={rt.mode === 'static'}>
+                    {rt.mode || 'random'}
+                  </span>
+                  {#if rt.mode === 'static' && rt.peerPubB64}
+                    <span class="rt-peer-name">{peerNameFor(rt.peerPubB64)}</span>
+                  {/if}
                   {#if expiry}
                     <span class="rt-expiry" class:expired={expiry === 'expired'}>{expiry}</span>
                   {/if}
@@ -306,12 +347,16 @@
                 </div>
               {/each}
             </div>
+            </div>
           {/if}
         </div>
       {/if}
 
-      {#if $p2pTokens.length > 0 || (serverActive && runningServerTransport === 'udp')}
-        <SignalingTokens />
+      {#if $p2pTokens.length > 0 || (serverActive && runningServerTransport === 'p2p')}
+        <SignalingTokens
+          brokerAddr={serverBrokerAddr}
+          locked={serverActive && runningServerTransport === 'p2p'}
+        />
       {/if}
 
       <div class="list">
@@ -935,7 +980,6 @@
     background: var(--bg-card);
     border: 1px solid var(--accent-primary-dim);
     border-radius: var(--border-radius);
-    overflow: hidden;
   }
   .rt-header {
     display: flex;
@@ -975,7 +1019,6 @@
     line-height: 14px;
   }
   .rt-gen-btn {
-    margin-left: auto;
     display: inline-flex;
     align-items: center;
     gap: 3px;
@@ -991,6 +1034,38 @@
   }
   .rt-gen-btn:hover {
     background: var(--accent-primary-hover);
+  }
+  .rt-gen-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .rt-body {
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .rt-mode-row {
+    display: flex;
+    gap: 4px;
+  }
+  .rt-mode-btn {
+    flex: 1;
+    padding: 3px 0;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .rt-mode-btn.active {
+    background: var(--accent-primary);
+    color: #fff;
+    border-color: var(--accent-primary);
   }
   .rt-list {
     max-height: 140px;
@@ -1030,6 +1105,27 @@
   }
   .rt-item-token:hover {
     color: var(--accent-primary);
+  }
+  .rt-mode-badge {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+    flex-shrink: 0;
+  }
+  .rt-mode-static {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+  }
+  .rt-peer-name {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: 2px;
+    flex-shrink: 0;
   }
   .rt-expiry {
     font-family: var(--font-mono);

@@ -1,5 +1,19 @@
 export namespace main {
 	
+	export class ConnectResult {
+	    sessionId: string;
+	    errorCode: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConnectResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.errorCode = source["errorCode"];
+	    }
+	}
 	export class HistorySessionInfo {
 	    id: string;
 	    name: string;
@@ -281,6 +295,8 @@ export namespace main {
 	    ttl: number;
 	    // Go type: time
 	    expiresAt: any;
+	    mode: string;
+	    peerPubB64?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new p2pToken(source);
@@ -292,6 +308,8 @@ export namespace main {
 	        this.consumed = source["consumed"];
 	        this.ttl = source["ttl"];
 	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	        this.mode = source["mode"];
+	        this.peerPubB64 = source["peerPubB64"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -319,6 +337,8 @@ export namespace main {
 	    sessionTtl: number;
 	    // Go type: time
 	    expiresAt: any;
+	    mode: string;
+	    peerPubB64?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new relayToken(source);
@@ -331,6 +351,8 @@ export namespace main {
 	        this.ttl = source["ttl"];
 	        this.sessionTtl = source["sessionTtl"];
 	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	        this.mode = source["mode"];
+	        this.peerPubB64 = source["peerPubB64"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

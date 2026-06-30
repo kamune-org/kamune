@@ -12,7 +12,7 @@ export function ClearLogs():Promise<void>;
 
 export function ConfirmStopServer():Promise<boolean>;
 
-export function ConnectToServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:boolean,arg11:boolean):Promise<string>;
+export function ConnectToServer(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:boolean,arg11:boolean):Promise<main.ConnectResult>;
 
 export function CopyToClipboard(arg1:string):Promise<void>;
 
@@ -26,7 +26,7 @@ export function ExportLogsToFile():Promise<void>;
 
 export function GenerateP2PToken(arg1:string,arg2:string):Promise<string>;
 
-export function GenerateRelayToken():Promise<string>;
+export function GenerateRelayToken(arg1:string):Promise<string>;
 
 export function GetDBPath():Promise<string>;
 
@@ -51,6 +51,8 @@ export function GetPeer(arg1:string):Promise<main.PeerInfo>;
 export function GetRelayToken():Promise<string>;
 
 export function GetRelayTokens():Promise<Array<main.relayToken>>;
+
+export function GetServerBrokerAddr():Promise<string>;
 
 export function GetServerRunning():Promise<boolean>;
 

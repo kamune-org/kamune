@@ -75,8 +75,8 @@ func startExpiryTimer(t *tokenTracker) {
 	t.expiryFn = func() { timer.Stop() }
 }
 
-func listenRelayTracked(ctx context.Context, a *App, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, time.Duration, time.Duration, error) {
-	listener, tokenHex, ttl, sessionTTL, err := listenRelay(ctx, relayAddr, password, insecureSkipVerify)
+func listenRelayTracked(ctx context.Context, a *App, relayAddr, password string, insecureSkipVerify bool, staticToken []byte) (kamune.Listener, string, time.Duration, time.Duration, error) {
+	listener, tokenHex, ttl, sessionTTL, err := listenRelay(ctx, relayAddr, password, insecureSkipVerify, staticToken)
 	if err != nil {
 		return nil, "", 0, 0, err
 	}
@@ -124,7 +124,7 @@ func parseInsecureFlag(s string) (host string, override *bool) {
 	return s, nil
 }
 
-func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, time.Duration, time.Duration, error) {
+func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVerify bool, staticToken []byte) (kamune.Listener, string, time.Duration, time.Duration, error) {
 	if strings.TrimSpace(relayAddr) == "" {
 		return nil, "", 0, 0, errors.New("relay server address is required")
 	}
@@ -132,6 +132,9 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 	var opts []relayconn.Option
 	if password != "" {
 		opts = append(opts, relayconn.WithPassword(password))
+	}
+	if len(staticToken) > 0 {
+		opts = append(opts, relayconn.WithToken(staticToken))
 	}
 
 	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
@@ -154,6 +157,9 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 	if err != nil {
 		return nil, "", 0, 0, wrapRelayError(scheme, host, password != "", err)
 	}
+	// For static tokens the relay returns the precomputed token; for
+	// random mode it returns the assigned token. Either way, the
+	// hex-encoded token is the token for display and for the dialer.
 	return result.Listener, hex.EncodeToString(result.Token), result.TTL, result.SessionTTL, nil
 }
 

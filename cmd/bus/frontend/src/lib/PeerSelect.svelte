@@ -4,6 +4,7 @@
   export let value = ''
   export let peers = []
   export let placeholder = 'Select a peer'
+  export let compact = false
 
   const dispatch = createEventDispatcher()
 
@@ -95,6 +96,7 @@
 <div
   class="peer-select"
   class:open
+  class:compact
   bind:this={rootEl}
   on:keydown={onKeydown}
   role="combobox"
@@ -190,6 +192,16 @@
   .peer-select {
     position: relative;
     width: 100%;
+  }
+  .peer-select.compact .trigger {
+    min-height: 28px;
+    padding: 4px 8px;
+    font-size: 11px;
+    gap: 4px;
+  }
+  .peer-select.compact .trigger .emoji {
+    font-size: 10px;
+    letter-spacing: 0;
   }
   .trigger {
     display: flex;
@@ -334,6 +346,21 @@
     font-size: 12px;
     color: var(--text-muted);
     text-align: center;
+  }
+  .peer-select.compact .dropdown {
+    font-size: 11px;
+  }
+  .peer-select.compact .item {
+    padding: 5px 8px;
+    font-size: 11px;
+    gap: 4px;
+  }
+  .peer-select.compact .item .emoji {
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+  .peer-select.compact .search-row {
+    padding: 4px 8px;
   }
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(-4px); }

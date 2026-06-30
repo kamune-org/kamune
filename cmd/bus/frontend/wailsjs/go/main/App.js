@@ -50,8 +50,8 @@ export function GenerateP2PToken(arg1, arg2) {
   return window['go']['main']['App']['GenerateP2PToken'](arg1, arg2);
 }
 
-export function GenerateRelayToken() {
-  return window['go']['main']['App']['GenerateRelayToken']();
+export function GenerateRelayToken(arg1) {
+  return window['go']['main']['App']['GenerateRelayToken'](arg1);
 }
 
 export function GetDBPath() {
@@ -100,6 +100,10 @@ export function GetRelayToken() {
 
 export function GetRelayTokens() {
   return window['go']['main']['App']['GetRelayTokens']();
+}
+
+export function GetServerBrokerAddr() {
+  return window['go']['main']['App']['GetServerBrokerAddr']();
 }
 
 export function GetServerRunning() {

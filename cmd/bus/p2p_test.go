@@ -9,6 +9,8 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -297,4 +299,163 @@ func mustPKIXForRaw(t *testing.T, raw ed25519.PublicKey) []byte {
 	pkix, err := x509.MarshalPKIXPublicKey(raw)
 	require.NoError(t, err)
 	return pkix
+}
+
+// ---------------------------------------------------------------------------
+// WaitMatch / HolePunch tests
+// ---------------------------------------------------------------------------
+
+// runFakePeerMatchedBroker runs a fake broker in a goroutine that responds
+// to ECHO and REGISTER, then sends a NOTIFY(PEER_MATCHED) carrying the
+// supplied peer coordinates. The token from the dialer's REGISTER packet
+// is echoed back in the NOTIFY (matching production broker behavior).
+func runFakePeerMatchedBroker(
+	t *testing.T, fb *fakeBroker,
+	otherEphPub []byte, otherIP net.IP, otherPort uint16,
+) {
+	t.Helper()
+	go func() {
+		// 1. ECHO from the dialer — read it, send back the source address.
+		_, src1 := fb.readOne(t, 2*time.Second)
+		fb.respondEcho(t, src1)
+		// 2. REGISTER from the dialer — read it, use the dialer's token
+		//    in the PEER_MATCHED NOTIFY (matches production where the
+		//    broker echoes the matched token).
+		buf := make([]byte, 1500)
+		_ = fb.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		n, src2, err := fb.conn.ReadFromUDP(buf)
+		require.NoError(t, err)
+		token, dialerEphPub, _, _, err := relaybroker.ParseRegister(buf[:n])
+		require.NoError(t, err)
+		plaintext := relaybroker.PeerMatchedPlaintext(
+			token, otherEphPub, otherIP, otherPort,
+		)
+		sendNotify(t, fb, plaintext, src2, dialerEphPub)
+	}()
+}
+
+// TestWaitMatch_ReceivesPeerMatched verifies that WaitMatch opens a punch
+// socket, registers on the broker, and returns the payload from the
+// NOTIFY(PEER_MATCHED) the broker sends back.
+func TestWaitMatch_ReceivesPeerMatched(t *testing.T) {
+	fb := newFakeBroker(t)
+	addr := fb.conn.LocalAddr().String()
+
+	otherEph, err := ecdh.X25519().GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	const otherPort = uint16(54321)
+	otherIP := net.IPv4(192, 0, 2, 1)
+	runFakePeerMatchedBroker(
+		t, fb, otherEph.PublicKey().Bytes(), otherIP, otherPort,
+	)
+
+	bc, err := NewBrokerClient()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 2*time.Second,
+	)
+	defer cancel()
+
+	token := make([]byte, 16)
+	for i := range token {
+		token[i] = byte(i + 1)
+	}
+	punchConn, payload, err := bc.WaitMatch(ctx, addr, token)
+	require.NoError(t, err)
+	defer punchConn.Close()
+	assert.Equal(t, relaybroker.NotifyPeerMatched, payload.Type)
+	assert.Equal(t, otherEph.PublicKey().Bytes(), payload.OtherPeerEphPub)
+	assert.Equal(t, "192.0.2.1", payload.IP.String())
+	assert.Equal(t, otherPort, payload.Port)
+}
+
+// TestWaitMatch_ContextCancel verifies that WaitMatch exits with the
+// context's error when ctx is cancelled before a NOTIFY arrives.
+func TestWaitMatch_ContextCancel(t *testing.T) {
+	fb := newFakeBroker(t)
+	addr := fb.conn.LocalAddr().String()
+
+	bc, err := NewBrokerClient()
+	require.NoError(t, err)
+
+	// Don't run the broker goroutine — no ECHO response, so WaitMatch
+	// will time out or fail.
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 300*time.Millisecond,
+	)
+	defer cancel()
+
+	token := make([]byte, 16)
+	_, _, err = bc.WaitMatch(ctx, addr, token)
+	assert.Error(t, err)
+}
+
+// TestHolePunch_HappyPath verifies that HolePunch returns a KCP session
+// immediately (no reachability wait). The session is in client mode and
+// not yet connected; the kamune handshake drives the KCP-level connection.
+func TestHolePunch_HappyPath(t *testing.T) {
+	punchAddr, err := net.ResolveUDPAddr(
+		"udp4", "127.0.0.1:0",
+	)
+	require.NoError(t, err)
+	punchConn, err := net.ListenUDP("udp4", punchAddr)
+	require.NoError(t, err)
+	defer punchConn.Close()
+
+	bc, err := NewBrokerClient()
+	require.NoError(t, err)
+
+	// Peer UDP socket — just to have a valid target address.
+	peerAddr, err := net.ResolveUDPAddr("udp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	peerUDP, err := net.ListenUDP("udp4", peerAddr)
+	require.NoError(t, err)
+	defer peerUDP.Close()
+
+	// HolePunch returns immediately with a kcp session.
+	sess, err := bc.HolePunch(
+		context.Background(), punchConn,
+		peerUDP.LocalAddr().(*net.UDPAddr).IP,
+		uint16(peerUDP.LocalAddr().(*net.UDPAddr).Port), 0,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	defer sess.Close()
+
+	// The session is bound to the punch socket.
+	assert.Equal(t, punchConn.LocalAddr().String(),
+		sess.LocalAddr().String())
+	assert.Equal(t,
+		peerUDP.LocalAddr().(*net.UDPAddr).String(),
+		sess.RemoteAddr().String(),
+	)
+}
+
+// TestHolePunch_Failure verifies that ErrHolePunchFailed is a valid
+// sentinel. HolePunch itself no longer fails for unreachable peers
+// (kcp.NewConn2 creates a session immediately); failure is surfaced
+// by the kamune handshake's timeout.
+func TestHolePunch_Failure(t *testing.T) {
+	// The sentinel is usable as an error value.
+	assert.Error(t, ErrHolePunchFailed)
+	assert.True(t, errors.Is(fmt.Errorf("%w: timeout", ErrHolePunchFailed),
+		ErrHolePunchFailed))
+}
+
+// TestParseEchoResponse verifies the bus's echo response parser handles
+// the broker's `ip:port\0` format.
+func TestParseEchoResponse(t *testing.T) {
+	ip, port, err := parseEchoResponse(
+		append([]byte("192.0.2.1:54321"), 0),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "192.0.2.1", ip.String())
+	assert.Equal(t, uint16(54321), port)
+
+	// No trailing null — parser should still work (parses until end).
+	ip, port, err = parseEchoResponse([]byte("10.0.0.1:8080"))
+	require.NoError(t, err)
+	assert.Equal(t, "10.0.0.1", ip.String())
+	assert.Equal(t, uint16(8080), port)
 }

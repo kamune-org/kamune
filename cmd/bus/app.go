@@ -97,6 +97,18 @@ type SessionInfo struct {
 	SessionStartedAt time.Time     `json:"sessionStartedAt"`
 }
 
+// ConnectResult is the structured return value of ConnectToServer. On
+// success ErrorCode is empty and SessionID is the kamune session ID. On
+// failure ErrorCode is a stable string the frontend can switch on (e.g.
+// "hole_punch_failed" → show P2PFallbackDialog; "missing_broker" → prompt
+// for a broker address; etc.). The error is reserved for programmer /
+// transport-level errors that should never reach the user; user-facing
+// failure is signaled via ErrorCode.
+type ConnectResult struct {
+	SessionID string `json:"sessionId"`
+	ErrorCode string `json:"errorCode"`
+}
+
 type HistorySessionInfo struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
@@ -158,6 +170,14 @@ type relayToken struct {
 	TTL        time.Duration `json:"ttl"`
 	SessionTTL time.Duration `json:"sessionTtl"`
 	ExpiresAt  time.Time     `json:"expiresAt"`
+	// Mode is "static" when derived from a peer public key, "random"
+	// when the relay assigned the token. Used by the sidebar to
+	// group / label entries distinctly.
+	Mode string `json:"mode"`
+	// PeerPubB64 is set when Mode == "static"; identifies the
+	// peer this token was derived for (so the sidebar can show the
+	// peer's name alongside the token).
+	PeerPubB64 string        `json:"peerPubB64,omitempty"`
 	listener   kamune.Listener
 }
 
@@ -195,6 +215,7 @@ type App struct {
 	relayListeners  *multiListener
 
 	brokerClient *BrokerClient
+	p2pListener  *p2pListener
 	p2pTokens    []p2pToken
 
 	startCtx    context.Context
@@ -856,6 +877,12 @@ func (a *App) GetServerTransport() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.serverTransportType
+}
+
+func (a *App) GetServerBrokerAddr() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.serverBrokerAddr
 }
 
 func (a *App) GetRelayToken() string {
