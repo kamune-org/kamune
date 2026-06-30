@@ -229,7 +229,7 @@ func (b *Broker) handleStaticRegister(
 	delete(b.registry, hexKey(token))
 	b.mu.Unlock()
 
-	b.sendPeerMatched(heldEntry, pub, src, ip, port)
+	b.sendPeerMatched(token, heldEntry, pub, src, ip, port)
 }
 
 // sendTokenAssigned builds and sends NOTIFY(TOKEN_ASSIGNED) to the given peer
@@ -244,6 +244,7 @@ func (b *Broker) sendTokenAssigned(token []byte, peerEphPub [32]byte, dst *net.U
 // the new peer's IP:port + eph pub; the new peer's NOTIFY carries the held
 // peer's IP:port + eph pub.
 func (b *Broker) sendPeerMatched(
+	token []byte,
 	held *registration,
 	newPub [32]byte,
 	newAddr *net.UDPAddr,
@@ -256,13 +257,13 @@ func (b *Broker) sendPeerMatched(
 	}
 	// NOTIFY to the new peer: held's IP:port + eph pub.
 	heldPlain := relaybroker.PeerMatchedPlaintext(
-		nil, held.peerEphPub[:], heldIP.IP, uint16(held.addr.Port),
+		token, held.peerEphPub[:], heldIP.IP, uint16(held.addr.Port),
 	)
 	b.sendNotify(heldPlain, newPub, newAddr)
 
 	// NOTIFY to the held peer: new's IP:port + eph pub.
 	newPlain := relaybroker.PeerMatchedPlaintext(
-		nil, newPub[:], newIP, newPort,
+		token, newPub[:], newIP, newPort,
 	)
 	b.sendNotify(newPlain, held.peerEphPub, held.addr)
 }
