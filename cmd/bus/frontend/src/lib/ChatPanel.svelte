@@ -6,8 +6,11 @@
   } from './stores.js'
   import { CopyToClipboard, RenameSession, RenameHistorySession } from '../../wailsjs/go/main/App.js'
   import { K } from './keyboard.js'
+  import { welcomeTips } from './hints.js'
 
   const dispatch = createEventDispatcher()
+
+  const randomTip = welcomeTips[Math.floor(Math.random() * welcomeTips.length)]
 
   let messageText = ''
   let messagesEl
@@ -218,6 +221,16 @@
             <kbd>{K('L')}</kbd>
             <span>Toggle Logs</span>
           </span>
+        </div>
+        <div class="welcome-tip">
+          <svg class="welcome-tip-icon" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+            <path d="M11 3a1 1 0 10-2 0v1a2 2 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a2 2 0 110-4h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM4 11a1 1 0 100-2H3a2 2 0 100 4h1a1 1 0 00-1-1zM10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 110-12 6 6 0 010 12z" />
+          </svg>
+          {#if randomTip.key}
+            <span>{randomTip.text} <kbd>{K(randomTip.key)}</kbd></span>
+          {:else}
+            <span>{randomTip}</span>
+          {/if}
         </div>
       </div>
     {:else if activeMsgs.length === 0}
@@ -553,6 +566,36 @@
     letter-spacing: 0.3px;
     min-width: 24px;
     text-align: center;
+  }
+  .welcome-tip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 6px 14px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--text-muted);
+    max-width: 360px;
+  }
+  .welcome-tip-icon {
+    color: var(--accent-primary);
+    flex-shrink: 0;
+  }
+  .welcome-tip kbd {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 5px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    letter-spacing: 0.3px;
+    margin-left: 2px;
   }
 
   .empty-msgs {

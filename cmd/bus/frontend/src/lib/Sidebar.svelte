@@ -352,10 +352,10 @@
         </div>
       {/if}
 
-      {#if $p2pTokens.length > 0 || (serverActive && runningServerTransport === 'p2p')}
+      {#if serverActive && runningServerTransport === 'p2p' && serverBrokerAddr}
         <SignalingTokens
           brokerAddr={serverBrokerAddr}
-          locked={serverActive && runningServerTransport === 'p2p'}
+          locked
         />
       {/if}
 

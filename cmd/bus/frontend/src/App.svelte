@@ -69,6 +69,8 @@
     import P2PFallbackDialog from "./lib/P2PFallbackDialog.svelte";
     import PeerSelect from "./lib/PeerSelect.svelte";
     import Resizer from "./lib/Resizer.svelte";
+    import HelpBtn from "./lib/HelpBtn.svelte";
+    import { contextHints } from "./lib/hints.js";
 
     let serverActive = false;
     let runningServerTransport = "";
@@ -572,9 +574,8 @@
                 connectError = "Select a peer or enter a relay token";
                 return;
             }
-        } else if (connectTransport === "udp" && connectUseP2P) {
-            // P2P path: the broker provides the peer's address, so we
-            // don't require a peer address field.
+        } else if (connectTransport === "udp" && connectUseP2P && connectUseBroker) {
+            // Broker provides the peer's address.
         } else if (!connectServerAddr2.trim()) {
             connectError = "Peer address is required";
             return;
@@ -869,7 +870,7 @@
                         <div class="pill-group">
                             {#each TRANSPORTS as t}
                                 <button
-                                    class="pill-btn"
+                                    class="pill-btn pill-btn-help"
                                     class:pill-active={serverTransport === t}
                                     on:click={() => {
                                         serverTransport = t;
@@ -879,7 +880,7 @@
                                             serverUseBroker = false;
                                             serverBrokerAddr = "";
                                         }
-                                    }}>{t.toUpperCase()}</button
+                                    }}>{t.toUpperCase()}<HelpBtn text={contextHints[t]} /></button
                                 >
                             {/each}
                         </div>
@@ -906,6 +907,7 @@
                                     bind:checked={serverUseP2P}
                                 />
                                 Hole punching
+                                <HelpBtn text={contextHints.p2p} />
                             </label>
                             {#if serverUseP2P}
                                 <label class="insecure-option p2p-toggle">
@@ -914,6 +916,7 @@
                                         bind:checked={serverUseBroker}
                                     />
                                     Use broker
+                                    <HelpBtn text={contextHints.broker} />
                                 </label>
                                 {#if serverUseBroker}
                                     <div class="p2p-block-fields">
@@ -927,7 +930,9 @@
                                                 <span class="p2p-badge"
                                                     >static</span
                                                 >
-                                                Token derived from your public keys.
+                                                Derived from both peers' public
+                                                keys — convenient, but linked to
+                                                your identity.
                                             </p>
                                         {:else}
                                             <p class="dialog-hint p2p-hint">
@@ -935,8 +940,8 @@
                                                     class="p2p-badge p2p-badge-random"
                                                     >random</span
                                                 >
-                                                The broker assigns a fresh random
-                                                token.
+                                                One-time token from the server —
+                                                not linked to your identity.
                                             </p>
                                         {/if}
                                     </div>
@@ -987,7 +992,7 @@
                         {#if serverSelectedPeer}
                             <p class="dialog-hint p2p-hint">
                                 <span class="p2p-badge">static</span>
-                                Token derived from the peer's public key.
+                                Derived from the peer's public key — convenient, but linked to your identity.
                             </p>
                         {/if}
                         {#if serverRelayScheme === "wss" || serverRelayScheme === "tls"}
@@ -1056,7 +1061,7 @@
                         <div class="pill-group">
                             {#each TRANSPORTS as t}
                                 <button
-                                    class="pill-btn"
+                                    class="pill-btn pill-btn-help"
                                     class:pill-active={connectTransport === t}
                                     on:click={() => {
                                         connectTransport = t;
@@ -1069,7 +1074,7 @@
                                             connectSelectedPeer = "";
                                             connectP2PToken = "";
                                         }
-                                    }}>{t.toUpperCase()}</button
+                                    }}>{t.toUpperCase()}<HelpBtn text={contextHints[t]} /></button
                                 >
                             {/each}
                         </div>
@@ -1096,6 +1101,7 @@
                                     bind:checked={connectUseP2P}
                                 />
                                 Hole punching
+                                <HelpBtn text={contextHints.p2p} />
                             </label>
                             {#if connectUseP2P}
                                 <label class="insecure-option p2p-toggle">
@@ -1104,6 +1110,7 @@
                                         bind:checked={connectUseBroker}
                                     />
                                     Use broker
+                                    <HelpBtn text={contextHints.broker} />
                                 </label>
                                 {#if connectUseBroker}
                                     <div class="p2p-block-fields">
@@ -1140,8 +1147,9 @@
                                                 <span class="p2p-badge"
                                                     >static</span
                                                 >
-                                                Token derived from the peer's public
-                                                key.
+                                                Derived from the peer's public
+                                                key — convenient, but linked to
+                                                your identity.
                                             </p>
                                         {:else}
                                             <input
@@ -1771,6 +1779,10 @@
         color: var(--text-muted);
         border: 1px solid var(--border-color);
         transition: all 0.15s;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
     }
     .pill-btn:hover {
         color: var(--text-secondary);
@@ -1783,6 +1795,16 @@
     }
     .pill-btn.pill-active:hover {
         background: var(--accent-primary-hover);
+    }
+    .pill-btn.pill-active :global(.help-btn) {
+        color: rgba(255,255,255,0.85);
+        border-color: rgba(255,255,255,0.3);
+        background: rgba(255,255,255,0.08);
+    }
+    .pill-btn.pill-active :global(.help-btn:hover) {
+        color: #fff;
+        border-color: rgba(255,255,255,0.6);
+        background: rgba(255,255,255,0.15);
     }
 
     .relay-addr-row {
