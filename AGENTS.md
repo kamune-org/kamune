@@ -64,6 +64,8 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 
 - Lines should be 80 characters wide or less. Excluding already committed lines,
   generated files, markdown tables, and test files.
+- CHANGELOG.md is immutable, and entries should only be added or updated when
+  **explicitly** stated.
 - Go 1.26 style (no `//go:build` tags needed for tool directives)
 - Error sentinels use `Err` prefix, defined in the package they belong to (e.g. `transport.go`, `router.go`, `pkg/storage/storage.go`, `pkg/attest/attest.go`)
 - `ErrPeerDisconnected` returned by `Transport.Receive()` when the remote peer sends `RouteCloseTransport` (graceful close). `ErrConnClosed` indicates an abrupt/network drop.
