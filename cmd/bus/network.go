@@ -692,6 +692,7 @@ func (a *App) ConnectToServer(
 	a.addLogEntry("INFO", "Connected to "+addr+" (session: "+sessionID+")")
 
 	go a.receiveMessages(session)
+	go a.keepAliveLoop(session)
 
 	return ConnectResult{SessionID: sessionID}, nil
 }
@@ -816,6 +817,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	a.addLogEntry("INFO", "New incoming connection: "+sessionID)
 
 	defer close(session.ReceiveDone)
+	go a.keepAliveLoop(session)
 	a.receiveMessagesBlocking(session)
 
 	a.removeSession(sessionID)

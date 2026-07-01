@@ -156,6 +156,8 @@ type liveSession struct {
 	TransportType    string
 	SessionTTL       time.Duration
 	SessionStartedAt time.Time
+	pingFailures     int
+	lastPongAt       time.Time
 }
 
 type historySession struct {

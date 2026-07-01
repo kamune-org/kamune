@@ -101,6 +101,19 @@ func (a *App) receiveMessagesBlocking(session *liveSession) {
 			}
 		}
 
+		// Handle protocol-level routes before treating as chat.
+		switch metadata.Route() {
+		case kamune.RoutePing:
+			if err := t.Pong(b.GetValue()); err != nil {
+				a.addLogEntry("WARN", "Failed to send pong: "+err.Error())
+			}
+			continue
+		case kamune.RoutePong:
+			// Pong is consumed by keepAliveLoop's Ping();
+			// ignore stray pongs here.
+			continue
+		}
+
 		msgText := string(b.GetValue())
 		msg := MessageInfo{
 			Text:      msgText,
@@ -129,5 +142,30 @@ func (a *App) receiveMessagesBlocking(session *liveSession) {
 		runtime.EventsEmit(a.ctx, "message-received", session.ID, msg)
 		runtime.EventsEmit(a.ctx, "session-updated", session.ID)
 		a.addLogEntry("DEBUG", "Received message from "+session.ID)
+	}
+}
+
+// keepAliveLoop sends periodic pings to detect dead connections. After 3
+// consecutive ping failures, the session is closed.
+func (a *App) keepAliveLoop(session *liveSession) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-session.ReceiveDone:
+			return
+		case <-ticker.C:
+			if err := session.Transport.Ping(10 * time.Second); err != nil {
+				session.pingFailures++
+				if session.pingFailures >= 3 {
+					a.addLogEntry("WARN", "Peer unresponsive: "+session.PeerName)
+					_ = session.Transport.Close()
+					return
+				}
+			} else {
+				session.pingFailures = 0
+				session.lastPongAt = time.Now()
+			}
+		}
 	}
 }
