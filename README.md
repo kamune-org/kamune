@@ -44,11 +44,10 @@ Kamune provides `Ed25519_MLKEM768_ChaCha20-Poly1305X` security suite.
 - [x] Application-level ping/pong keep-alive
 - [x] Client-side minor version warning — surface the core warning to users in clients
 - [x] Generate connection QR code in clients
-- [ ] OS keychain integration (replace env var passphrase)
+- [x] NAT traversal / hole punching
 - [ ] Session resumption — reconnect without full re-handshake
 - [ ] Chunked reads/writes for large messages
 - [ ] Key rotation
-- [ ] NAT traversal / hole punching
 - [ ] Custom encoding protocol (replace Protobuf)
 - [ ] QUIC, WebRTC, or other transport protocols
 - [ ] Messaging Layer Security (MLS) / group chats
