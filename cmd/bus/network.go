@@ -23,6 +23,7 @@ func hexDecodeString(s string) ([]byte, error) {
 func (a *App) StartServer(
 	addr, transport, relayAddr, name, password, brokerAddr, peerPubB64 string,
 	useP2P bool, useBroker bool,
+	directPeerAddr string,
 ) (string, string, error) {
 	a.mu.Lock()
 	if a.server != nil {
@@ -41,6 +42,7 @@ func (a *App) StartServer(
 	a.serverPassword = password
 	a.serverBrokerAddr = brokerAddr
 	a.serverPeerPubB64 = peerPubB64
+	a.serverDirectPeerAddr = directPeerAddr
 	a.serverUseP2P = useP2P
 	a.serverUseBroker = useBroker
 	a.mu.Unlock()
@@ -185,6 +187,24 @@ func (a *App) StartServer(
 			snapshot := a.p2pTokensSnapshot()
 			a.mu.Unlock()
 			a.emitEvent("p2p-tokens", snapshot)
+		} else if useP2P && directPeerAddr != "" {
+			// Direct P2P: both peers know each other's addresses
+			// upfront. The listener sends NAT-kick packets to the
+			// dialer and waits for its KCP SYN on the punch socket.
+			listener, err := newDirectP2PListener(addr, directPeerAddr)
+			if err != nil {
+				a.setStatus(StatusError, "Failed to start direct p2p listener")
+				a.addLogEntry("ERROR",
+					"direct p2p listener failed: "+err.Error())
+				return "", "", fmt.Errorf("direct p2p listener: %w", err)
+			}
+			ml := newMultiListener()
+			if err := ml.Add(listener); err != nil {
+				_ = listener.Close()
+				return "", "", fmt.Errorf("add direct p2p listener: %w", err)
+			}
+			a.p2pListener = listener
+			opts = append(opts, kamune.ServeWithListener(ml))
 		} else {
 			opts = append(opts, kamune.ServeWithUDP())
 		}
@@ -252,6 +272,7 @@ func (a *App) StartServer(
 		a.serverTransportType = ""
 		a.serverBrokerAddr = ""
 		a.serverPeerPubB64 = ""
+		a.serverDirectPeerAddr = ""
 		a.serverUseP2P = false
 		a.serverUseBroker = false
 		p2pToCancel := a.p2pTokens
@@ -371,6 +392,7 @@ func (a *App) restartServer() error {
 	password := a.serverPassword
 	brokerAddr := a.serverBrokerAddr
 	peerPubB64 := a.serverPeerPubB64
+	directPeerAddr := a.serverDirectPeerAddr
 	useP2P := a.serverUseP2P
 	useBroker := a.serverUseBroker
 	a.mu.RUnlock()
@@ -381,7 +403,7 @@ func (a *App) restartServer() error {
 		return fmt.Errorf("stop server: %w", err)
 	}
 
-	_, _, err := a.StartServer(addr, transport, relayAddr, name, password, brokerAddr, peerPubB64, useP2P, useBroker)
+	_, _, err := a.StartServer(addr, transport, relayAddr, name, password, brokerAddr, peerPubB64, useP2P, useBroker, directPeerAddr)
 	return err
 }
 
@@ -491,11 +513,7 @@ func (a *App) ConnectToServer(
 	// punch socket that's used for both the broker REGISTER/NOTIFY
 	// exchange and the KCP session — the broker sends NOTIFYs to the
 	// same port the peer will punch to, so NAT mappings line up.
-	if transport == "udp" && useP2P {
-		if !useBroker || brokerAddr == "" {
-			return ConnectResult{ErrorCode: "missing_broker"},
-				fmt.Errorf("P2P via broker requires a broker address")
-		}
+	if transport == "udp" && useP2P && useBroker {
 		if peerPubB64 == "" && p2pToken == "" {
 			return ConnectResult{ErrorCode: "missing_peer_or_token"},
 				fmt.Errorf(
@@ -548,6 +566,24 @@ func (a *App) ConnectToServer(
 		))
 		addr = "p2p://" + payload.IP.String() +
 			fmt.Sprintf(":%d", payload.Port)
+	} else if transport == "udp" && useP2P && addr != "" {
+		// Direct P2P: both peers know each other's addresses upfront.
+		// Send NAT-kick packets to the server and create a KCP
+		// session on the punched socket.
+		a.addLogEntry("INFO",
+			"Direct P2P: punching "+addr)
+		punchedConn, err := directP2PDial(addr)
+		if err != nil {
+			return ConnectResult{ErrorCode: "hole_punch_failed"},
+				fmt.Errorf("direct p2p dial: %w", err)
+		}
+		a.addLogEntry("INFO", "Direct P2P: hole-punch succeeded")
+		opts = append(opts, kamune.DialWithFunc(
+			func(string) (kamune.Conn, error) {
+				return punchedConn, nil
+			},
+		))
+		addr = "p2p://" + addr
 	} else if name == "" {
 		pubKey, err := store.PublicKey()
 		if err != nil {

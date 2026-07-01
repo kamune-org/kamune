@@ -19,6 +19,6 @@ export const contextHints = {
   tcp: "Best for local networks — simple and dependable",
   udp: "Faster, supports hole punching for direct connections",
   relay: "Routes through a server — works even behind strict firewalls",
-  p2p: "Works behind NAT — lets peers without a public IP connect directly",
+  p2p: "Both peers send packets simultaneously to open NAT holes — requires both sides online at the same time",
   broker: "Helps peers find each other's addresses so they can hole punch",
 };

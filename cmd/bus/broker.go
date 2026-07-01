@@ -327,6 +327,26 @@ func parseEchoResponse(resp []byte) (net.IP, uint16, error) {
 	return ip, uint16(port64), nil
 }
 
+// sendNATKick fires a burst of empty UDP packets to the peer to open a
+// local NAT mapping. The peer's kcp.Listener drops them (not valid KCP
+// frames) but many routers open the outbound mapping after seeing the
+// first few packets.
+func sendNATKick(ctx context.Context, conn *net.UDPConn, peerAddr *net.UDPAddr) {
+	for range 5 {
+		if ctx.Err() != nil {
+			return
+		}
+		if _, err := conn.WriteToUDP([]byte{0}, peerAddr); err != nil {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
 // HolePunch sends a burst of empty UDP packets from punchConn to
 // peerIP:peerPort (a best-effort kick to open the local NAT mapping),
 // then immediately returns a *kcp.UDPSession in client mode bound to the
@@ -347,28 +367,9 @@ func (b *BrokerClient) HolePunch(
 ) (*kcp.UDPSession, error) {
 	peerAddr := &net.UDPAddr{IP: peerIP, Port: int(peerPort)}
 
-	// Best-effort NAT-kick: fire 5 empty UDP packets at the peer in
-	// the background. The peer's kcp.Listener drops them (not valid
-	// KCP frames) but many routers open the outbound mapping for the
-	// punch socket → peer external port after seeing the first few
-	// packets.
 	punchCtx, punchCancel := context.WithCancel(ctx)
 	defer punchCancel()
-	go func() {
-		for i := 0; i < 5; i++ {
-			if punchCtx.Err() != nil {
-				return
-			}
-			if _, err := punchConn.WriteToUDP([]byte{0}, peerAddr); err != nil {
-				return
-			}
-			select {
-			case <-punchCtx.Done():
-				return
-			case <-time.After(100 * time.Millisecond):
-			}
-		}
-	}()
+	go sendNATKick(punchCtx, punchConn, peerAddr)
 
 	// Create a kcp client session on the punch socket. The kamune
 	// handshake's first Write triggers the KCP SYN; the listener's

@@ -164,6 +164,7 @@
     let serverUseP2P = false;
     let serverUseBroker = false;
     let serverBrokerAddr = "";
+    let serverDirectPeerAddr = "";
     let serverSelectedPeer = ""; // publicKeyBase64 of selected peer or "" (random)
     let connectUseP2P = false;
     let connectUseBroker = false;
@@ -491,6 +492,15 @@
             serverError = "Broker address is required when broker is enabled";
             return;
         }
+        if (
+            serverTransport === "udp" &&
+            serverUseP2P &&
+            !serverUseBroker &&
+            !serverDirectPeerAddr.trim()
+        ) {
+            serverError = "Peer address is required for direct hole punching";
+            return;
+        }
         closeAllDialogs();
         serverLoading = true;
         try {
@@ -519,6 +529,7 @@
                 serverSelectedPeer,
                 serverUseP2P,
                 serverUseBroker,
+                serverUseP2P && !serverUseBroker ? serverDirectPeerAddr.trim() : "",
             );
             await loadSessions();
             if (token) {
@@ -879,6 +890,7 @@
                                             serverUseP2P = false;
                                             serverUseBroker = false;
                                             serverBrokerAddr = "";
+                                            serverDirectPeerAddr = "";
                                         }
                                     }}>{t.toUpperCase()}<HelpBtn text={contextHints[t]} /></button
                                 >
@@ -946,12 +958,17 @@
                                         {/if}
                                     </div>
                                 {:else}
+                                    <input
+                                        bind:value={serverDirectPeerAddr}
+                                        placeholder="Peer address to punch to (host:port)"
+                                        class="dialog-input"
+                                    />
                                     <p class="dialog-hint p2p-hint">
                                         <span class="p2p-badge p2p-badge-direct"
                                             >direct</span
                                         >
-                                        The dialer needs this listen address to punch
-                                        to.
+                                        Both peers must attempt the connection<br />
+                                        simultaneously.
                                     </p>
                                 {/if}
                             {/if}
@@ -1172,8 +1189,8 @@
                                         <span class="p2p-badge p2p-badge-direct"
                                             >direct</span
                                         >
-                                        Enter the peer's public IP:port above to punch
-                                        to.
+                                        Both peers must attempt the connection<br />
+                                        simultaneously.
                                     </p>
                                 {/if}
                             {/if}

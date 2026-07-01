@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -84,6 +85,14 @@ const (
 	VerificationModeQuick      VerificationMode = 1
 	VerificationModeAutoAccept VerificationMode = 2
 )
+
+// p2pListenerI is the interface shared by broker-based and direct P2P
+// listeners. Both support Close and Addr; only the broker variant has
+// Token and refresh logic.
+type p2pListenerI interface {
+	Close() error
+	Addr() *net.UDPAddr
+}
 
 type SessionInfo struct {
 	ID               string        `json:"id"`
@@ -215,7 +224,7 @@ type App struct {
 	relayListeners  *multiListener
 
 	brokerClient *BrokerClient
-	p2pListener  *p2pListener
+	p2pListener  p2pListenerI
 	p2pTokens    []p2pToken
 
 	startCtx    context.Context
@@ -241,10 +250,11 @@ type App struct {
 	serverRelayAddr  string
 	serverName       string
 	serverPassword   string
-	serverBrokerAddr string
-	serverPeerPubB64 string
-	serverUseP2P     bool
-	serverUseBroker  bool
+	serverBrokerAddr    string
+	serverPeerPubB64    string
+	serverDirectPeerAddr string
+	serverUseP2P        bool
+	serverUseBroker     bool
 
 	logEntries    []LogEntryInfo
 	logMu         sync.RWMutex
