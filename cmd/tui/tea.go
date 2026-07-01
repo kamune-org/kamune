@@ -138,25 +138,28 @@ type model struct {
 	inputs []textinput.Model
 
 	// Connecting
-	connectErr error
-	connCtx    context.Context
-	connCancel context.CancelFunc
-	srv        *kamune.Server
-	doneCh     chan struct{}
-	connCh     chan *kamune.Transport
-	relayToken       []byte
-	relaySessionTTL  time.Duration
-	sessionExpiry    time.Time
+	connectErr      error
+	connCtx         context.Context
+	connCancel      context.CancelFunc
+	srv             *kamune.Server
+	doneCh          chan struct{}
+	connCh          chan *kamune.Transport
+	relayToken      []byte
+	relaySessionTTL time.Duration
+	sessionExpiry   time.Time
 
 	// Verify
 	verifyReq *verifyRequest
 
 	// Chat
-	transport   *kamune.Transport
-	vp          viewport.Model
-	ta          textarea.Model
-	messages    []string
-	versionWarn string
+	transport     *kamune.Transport
+	pingFailures  int
+	lastPongAt    time.Time
+	keepAliveDone chan struct{}
+	vp            viewport.Model
+	ta            textarea.Model
+	messages      []string
+	versionWarn   string
 
 	// History
 	sessions    []storage.SessionSummary
@@ -462,6 +465,8 @@ func (m *model) enterChat() (tea.Model, tea.Cmd) {
 	m.vp.SetContent("Session ID is " + m.transport.SessionID() + ". Loading history…")
 
 	m.startReceiving()
+	m.keepAliveDone = make(chan struct{})
+	go m.keepAliveLoop()
 	if !m.sessionExpiry.IsZero() {
 		return m, tea.Batch(loadChatHistory(m), tickCountdown())
 	}
@@ -523,6 +528,16 @@ func (m *model) startReceiving() {
 					return
 				}
 			}
+
+			// Handle protocol-level routes before treating as chat.
+			switch metadata.Route() {
+			case kamune.RoutePing:
+				_ = m.transport.Pong(b.GetValue())
+				continue
+			case kamune.RoutePong:
+				continue
+			}
+
 			text := string(b.GetValue())
 			m.program.Send(chatMessageMsg{
 				sender: storage.SenderPeer,
@@ -531,6 +546,31 @@ func (m *model) startReceiving() {
 			})
 		}
 	}()
+}
+
+// keepAliveLoop sends periodic pings to detect dead connections. After
+// 3 consecutive failures, the peer is considered unresponsive.
+func (m *model) keepAliveLoop() {
+	defer close(m.keepAliveDone)
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.doneCh:
+			return
+		case <-ticker.C:
+			if err := m.transport.Ping(10 * time.Second); err != nil {
+				m.pingFailures++
+				if m.pingFailures >= 3 {
+					m.program.Send(peerDisconnectedMsg{})
+					return
+				}
+			} else {
+				m.pingFailures = 0
+				m.lastPongAt = time.Now()
+			}
+		}
+	}
 }
 
 func (m *model) handleChatMessage(msg chatMessageMsg) *model {
@@ -578,6 +618,10 @@ func (m *model) cleanup() {
 	if m.doneCh != nil {
 		close(m.doneCh)
 		m.doneCh = nil
+	}
+	if m.keepAliveDone != nil {
+		<-m.keepAliveDone
+		m.keepAliveDone = nil
 	}
 	if m.transport != nil {
 		m.transport.Close()

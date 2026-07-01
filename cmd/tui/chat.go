@@ -97,5 +97,3 @@ func (m *model) viewChat() string {
 	}
 	return header + m.vp.View() + "\n\n" + m.ta.View()
 }
-
-
