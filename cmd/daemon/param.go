@@ -94,3 +94,8 @@ type DeletePeerParams struct {
 type SetMyNameParams struct {
 	Name string `json:"name"`
 }
+
+// SetIncognitoParams toggles incognito mode.
+type SetIncognitoParams struct {
+	Enabled bool `json:"enabled"`
+}

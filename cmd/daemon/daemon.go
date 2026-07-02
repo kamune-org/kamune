@@ -32,6 +32,7 @@ type Daemon struct {
 	myName        string
 	dbPath        string
 	verifMode     VerificationMode
+	incognito     bool
 
 	verifMu        sync.Mutex
 	verifRequests  map[int64]*pendingVerification
@@ -339,6 +340,10 @@ func (d *Daemon) handleCommand(cmd Command) {
 		d.handleGetVersion(cmd)
 	case CmdGetLibraryVersion:
 		d.handleGetLibraryVersion(cmd)
+	case CmdGetIncognito:
+		d.handleGetIncognito(cmd)
+	case CmdSetIncognito:
+		d.handleSetIncognito(cmd)
 	case CmdShutdown:
 		d.Shutdown()
 	default:

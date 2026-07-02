@@ -63,7 +63,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	}
 
 	name := params.Name
-	if name == "" {
+	if name == "" || d.incognito {
 		pubKey, err := store.PublicKey()
 		if err != nil {
 			d.setStatus(StatusError, "Failed to get identity")
@@ -76,7 +76,9 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	d.mu.Lock()
 	d.myName = name
 	d.mu.Unlock()
-	_ = store.SetSettings("daemon", "local_name", name)
+	if !d.incognito {
+		_ = store.SetSettings("daemon", "local_name", name)
+	}
 
 	var firstToken string
 	var opts []kamune.ServerOptions
@@ -366,7 +368,7 @@ func (d *Daemon) handleDial(cmd Command) {
 	opts = append(opts, kamune.DialWithRemoteVerifier(d.getVerifier()))
 
 	name := params.Name
-	if name == "" {
+	if name == "" || d.incognito {
 		pubKey, err := store.PublicKey()
 		if err != nil {
 			d.emitError(cmd.ID, fmt.Sprintf("getting identity: %v", err))
@@ -378,7 +380,9 @@ func (d *Daemon) handleDial(cmd Command) {
 	d.mu.Lock()
 	d.myName = name
 	d.mu.Unlock()
-	_ = store.SetSettings("daemon", "local_name", name)
+	if !d.incognito {
+		_ = store.SetSettings("daemon", "local_name", name)
+	}
 
 	opts = append(opts, kamune.DialWithClientName(name))
 
@@ -448,6 +452,12 @@ func (d *Daemon) handleDial(cmd Command) {
 			SessionStartedAt: time.Now(),
 		}
 
+		if store := d.store(); store != nil && !d.incognito {
+			if err := store.CreateSession(sessionID, peer.PublicKey, peer.Name); err != nil {
+				d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
+			}
+		}
+
 		d.loadChatHistory(session)
 
 		if msg, mismatch := checkMinorMismatch(kamune.AppVersion, peer.AppVersion); mismatch {
@@ -497,6 +507,12 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 		TransportType:    transport,
 		SessionTTL:       relaySessionTTL,
 		SessionStartedAt: time.Now(),
+	}
+
+	if store := d.store(); store != nil && !d.incognito {
+		if err := store.CreateSession(sessionID, peer.PublicKey, peer.Name); err != nil {
+			d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
+		}
 	}
 
 	d.loadChatHistory(session)
@@ -785,6 +801,9 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 
 // loadChatHistory pre-populates session.Messages from the store.
 func (d *Daemon) loadChatHistory(session *liveSession) {
+	if d.incognito {
+		return
+	}
 	store := d.store()
 	if store == nil {
 		return

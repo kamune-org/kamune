@@ -64,6 +64,8 @@ const (
 	CmdSetMyName            CMD = "set_my_name"
 	CmdGetVersion           CMD = "get_version"
 	CmdGetLibraryVersion    CMD = "get_library_version"
+	CmdGetIncognito         CMD = "get_incognito"
+	CmdSetIncognito         CMD = "set_incognito"
 	CmdShutdown             CMD = "shutdown"
 )
 

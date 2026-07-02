@@ -57,7 +57,7 @@ func (d *Daemon) handleSendMessage(cmd Command) {
 	session.LastActivity = time.Now()
 	d.mu.Unlock()
 
-	if store := d.store(); store != nil {
+	if store := d.store(); store != nil && !d.incognito {
 		store.AddChatEntry(
 			params.SessionID, data, metadata.Timestamp(), storage.SenderLocal,
 		)
@@ -129,7 +129,7 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
 		session.LastActivity = time.Now()
 		d.mu.Unlock()
 
-		if store := d.store(); store != nil {
+		if store := d.store(); store != nil && !d.incognito {
 			store.AddChatEntry(
 				session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
 			)

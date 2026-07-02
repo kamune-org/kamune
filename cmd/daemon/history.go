@@ -58,6 +58,12 @@ func (d *Daemon) loadIdentityAndHistory() {
 		}
 	}
 
+	if incognitoStr, err := store.GetSettings("daemon", "incognito"); err == nil && incognitoStr == "true" {
+		d.mu.Lock()
+		d.incognito = true
+		d.mu.Unlock()
+	}
+
 	d.loadHistorySessions()
 }
 
@@ -384,4 +390,26 @@ func (d *Daemon) handleGetVersion(cmd Command) {
 // handleGetLibraryVersion returns the kamune library version.
 func (d *Daemon) handleGetLibraryVersion(cmd Command) {
 	d.emit(EvtResponse, cmd.ID, MapS{"version": kamune.AppVersion})
+}
+
+func (d *Daemon) handleGetIncognito(cmd Command) {
+	d.mu.RLock()
+	incognito := d.incognito
+	d.mu.RUnlock()
+	d.emit(EvtResponse, cmd.ID, MapA{"enabled": incognito})
+}
+
+func (d *Daemon) handleSetIncognito(cmd Command) {
+	var params SetIncognitoParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+	d.mu.Lock()
+	d.incognito = params.Enabled
+	d.mu.Unlock()
+	if store := d.store(); store != nil {
+		_ = store.SetSettings("daemon", "incognito", strconv.FormatBool(params.Enabled))
+	}
+	d.emit(EvtResponse, cmd.ID, MapA{"enabled": params.Enabled})
 }
