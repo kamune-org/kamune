@@ -663,6 +663,12 @@ func (a *App) ConnectToServer(
 		SessionStartedAt: time.Now(),
 	}
 
+	if store := a.store(); store != nil {
+		if err := store.CreateSession(sessionID, peer.PublicKey, peer.Name); err != nil {
+			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
+		}
+	}
+
 	a.loadChatHistory(session)
 
 	if msg, mismatch := checkMinorMismatch(kamune.AppVersion, peer.AppVersion); mismatch {
@@ -788,6 +794,12 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		TransportType:    transport,
 		SessionTTL:       relaySessionTTL,
 		SessionStartedAt: time.Now(),
+	}
+
+	if store := a.store(); store != nil {
+		if err := store.CreateSession(sessionID, peer.PublicKey, peer.Name); err != nil {
+			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
+		}
 	}
 
 	a.loadChatHistory(session)
