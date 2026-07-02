@@ -68,7 +68,7 @@ need to read any other section to use a command.
 
 ## Commands
 
-All 34 commands, grouped by category. Each block shows the **exact JSON**
+All 36 commands, grouped by category. Each block shows the **exact JSON**
 to send and the **exact JSON** to expect back.
 
 ### `SessionInfo` Shape
@@ -156,7 +156,8 @@ a prior `open_storage` call.
 Starts a kamune server. `transport` is `"tcp"` (default), `"udp"`, or
 `"relay"`. When `"relay"`, `relay_addr` is required (supports `tcp://`,
 `ws://`, `wss://`, `tls://` schemes; `?insecure=true` overrides TLS
-verification). `name` defaults to `fingerprint.Pseudonym(pubKey)`.
+verification). `name` defaults to `fingerprint.Pseudonym(pubKey)`. When
+incognito mode is enabled, a pseudonym is always used regardless of `name`.
 
 **Input (TCP):**
 
@@ -469,8 +470,8 @@ Returns all active sessions.
 
 #### `send_message`
 
-Sends a message on an established session. The message is persisted to the
-chat history (sender = local).
+Sends a message on an established session. When incognito mode is enabled, the
+message is not persisted to chat history.
 
 **Input:**
 
@@ -671,6 +672,55 @@ Answers a pending `verify_peer` event (see [Push Events](#push-events)).
 
 ```json
 { "type": "evt", "evt": "response", "id": "1", "data": { "status": "ok" } }
+```
+
+### Incognito Mode
+
+When incognito mode is enabled:
+
+- A pseudonym is used instead of the display name for new connections
+- New messages are not saved to disk
+- Session history is not recorded
+- Accepted peers are not stored
+
+Existing session history and peers remain accessible. The incognito flag is
+persisted in storage and restored on startup.
+
+#### `get_incognito`
+
+Returns the current incognito mode state.
+
+**Input:** (no params)
+
+```json
+{ "type": "cmd", "cmd": "get_incognito", "id": "1", "params": {} }
+```
+
+**Output:**
+
+```json
+{ "type": "evt", "evt": "response", "id": "1", "data": { "enabled": true } }
+```
+
+#### `set_incognito`
+
+Enables or disables incognito mode. Persisted to storage.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "set_incognito",
+  "id": "1",
+  "params": { "enabled": true }
+}
+```
+
+**Output:**
+
+```json
+{ "type": "evt", "evt": "response", "id": "1", "data": { "enabled": true } }
 ```
 
 ### History
@@ -1242,6 +1292,7 @@ The daemon holds a single shared storage instance opened by `open_storage`
 - **Settings** — `SetSettings`/`GetSettings` under the `"daemon"` namespace:
   - `verification_mode` (int: 0/1/2)
   - `local_name` (string)
+  - `incognito` (bool: "true"/"false")
 
 Calling `open_storage` or `submit_passphrase` while a storage is already
 open **closes the previous instance first**.
