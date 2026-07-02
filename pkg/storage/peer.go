@@ -25,8 +25,6 @@ type Peer struct {
 var (
 	ErrPeerExpired      = errors.New("peer has been expired")
 	ErrInvalidPublicKey = errors.New("public key must be PKIX-marshaled")
-
-	peersBucket = []byte(store.PeersBucket)
 )
 
 // peerKey returns the storage key for a peer identified by the given claim
@@ -41,9 +39,10 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	key := peerKey(claim)
 
 	var data []byte
-	err := s.store.Query(func(q store.Query) error {
+	err := s.store.Query(func(b *store.Bucket) error {
+		peers := b.Sub([]byte(store.PeersBucket))
 		var err error
-		data, err = q.GetEncrypted(peersBucket, key)
+		data, err = peers.GetEncrypted(key)
 		return err
 	})
 	if err != nil {
@@ -56,8 +55,9 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	}
 
 	if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(time.Now()) {
-		err = s.store.Command(func(c store.Command) error {
-			return c.Delete(peersBucket, key)
+		err = s.store.Command(func(b *store.Bucket) error {
+			peers := b.Sub([]byte(store.PeersBucket))
+			return peers.Delete(key)
 		})
 		if err != nil {
 			slog.Warn(
@@ -113,8 +113,9 @@ func (s *Storage) StorePeer(peer *Peer) error {
 		return fmt.Errorf("marshaling peer: %w", err)
 	}
 	key := peerKey(pubKey)
-	err = s.store.Command(func(c store.Command) error {
-		return c.AddEncrypted(peersBucket, key, data)
+	err = s.store.Command(func(b *store.Bucket) error {
+		peers := b.Sub([]byte(store.PeersBucket))
+		return peers.PutEncrypted(key, data)
 	})
 	if err != nil {
 		return fmt.Errorf("adding peer to storage: %w", err)
@@ -130,13 +131,15 @@ func (s *Storage) UpdatePeerLastSeen(claim []byte, t time.Time) error {
 	key := peerKey(claim)
 
 	var data []byte
-	err := s.store.Query(func(q store.Query) error {
+	err := s.store.Query(func(b *store.Bucket) error {
+		peers := b.Sub([]byte(store.PeersBucket))
 		var err error
-		data, err = q.GetEncrypted(peersBucket, key)
+		data, err = peers.GetEncrypted(key)
 		return err
 	})
 	if err != nil {
-		if errors.Is(err, store.ErrMissingItem) || errors.Is(err, store.ErrMissingBucket) {
+		if errors.Is(err, store.ErrMissingItem) ||
+			errors.Is(err, store.ErrMissingBucket) {
 			return nil
 		}
 		return fmt.Errorf("reading peer for LastSeen update: %w", err)
@@ -157,8 +160,9 @@ func (s *Storage) UpdatePeerLastSeen(claim []byte, t time.Time) error {
 		return fmt.Errorf("marshaling peer: %w", err)
 	}
 
-	err = s.store.Command(func(c store.Command) error {
-		return c.AddEncrypted(peersBucket, key, updated)
+	err = s.store.Command(func(b *store.Bucket) error {
+		peers := b.Sub([]byte(store.PeersBucket))
+		return peers.PutEncrypted(key, updated)
 	})
 	if err != nil {
 		return fmt.Errorf("persisting LastSeen update: %w", err)
@@ -173,13 +177,13 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 	var peers []*Peer
 	var expiredKeys [][]byte
 
-	err := s.store.Query(func(q store.Query) error {
-		for key, value := range q.IterateEncrypted(peersBucket) {
+	err := s.store.Query(func(b *store.Bucket) error {
+		bucket := b.Sub([]byte(store.PeersBucket))
+		for key, value := range bucket.IterateEncrypted() {
 			var p pb.Peer
 			if err := proto.Unmarshal(value, &p); err != nil {
 				slog.Warn(
-					"skipping malformed peer entry",
-					slog.Any("error", err),
+					"skipping malformed peer entry", slog.Any("error", err),
 				)
 				continue
 			}
@@ -212,8 +216,9 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 
 	// Clean up expired entries outside the read transaction.
 	for _, key := range expiredKeys {
-		if err := s.store.Command(func(c store.Command) error {
-			return c.Delete(peersBucket, key)
+		if err := s.store.Command(func(b *store.Bucket) error {
+			peers := b.Sub([]byte(store.PeersBucket))
+			return peers.Delete(key)
 		}); err != nil {
 			slog.Warn("failed to remove expired peer", slog.Any("error", err))
 		}
@@ -225,7 +230,8 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 // DeletePeer removes a peer from storage by its public key claim.
 func (s *Storage) DeletePeer(claim []byte) error {
 	key := peerKey(claim)
-	return s.store.Command(func(c store.Command) error {
-		return c.Delete(peersBucket, key)
+	return s.store.Command(func(b *store.Bucket) error {
+		peers := b.Sub([]byte(store.PeersBucket))
+		return peers.Delete(key)
 	})
 }

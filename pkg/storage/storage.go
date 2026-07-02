@@ -22,10 +22,7 @@ var (
 	ErrMissingChatBucket = errors.New("chat bucket not found")
 	ErrEmptyAppName      = errors.New("app name must not be empty")
 
-	defaultBucket     = []byte(store.DefaultBucket)
-	settingsBucket    = []byte(store.SettingsBucket)
-	sessionMetaKey    = []byte("name")
-	sessionMetaBucket = "session_meta"
+	sessionMetaKey = []byte("name")
 
 	// valueMagic is prepended to stored chat values to distinguish the
 	// versioned format (sender timestamp embedded in value) from legacy
@@ -144,9 +141,9 @@ func (s *Storage) PublicKey() ([]byte, error) {
 func (s *Storage) Attester() (*attest.Attest, error) {
 	key := []byte("attest")
 	var id []byte
-	err := s.store.Query(func(q store.Query) error {
+	err := s.store.Query(func(b *store.Bucket) error {
 		var err error
-		id, err = q.GetEncrypted(defaultBucket, key)
+		id, err = b.Sub([]byte(store.DefaultBucket)).GetEncrypted(key)
 		return err
 	})
 	switch {
@@ -166,8 +163,8 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshalling private key: %w", err)
 	}
-	err = s.store.Command(func(c store.Command) error {
-		return c.AddEncrypted(defaultBucket, key, data)
+	err = s.store.Command(func(b *store.Bucket) error {
+		return b.Sub([]byte(store.DefaultBucket)).PutEncrypted(key, data)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("persisting generated attest: %w", err)
@@ -176,8 +173,22 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 	return at, nil
 }
 
-// GetChatHistory returns decrypted chat entries stored under a bucket specific
-// to the session ID. The bucket name used is "chat_<sessionID>" and keys are
+// sessionChat returns the chat sub-bucket for a session.
+func sessionChat(b *store.Bucket, sessionID string) *store.Bucket {
+	return b.Sub([]byte(store.SessionsBucket)).
+		Sub([]byte(sessionID)).
+		Sub([]byte("chat"))
+}
+
+// sessionMeta returns the meta sub-bucket for a session.
+func sessionMeta(b *store.Bucket, sessionID string) *store.Bucket {
+	return b.Sub([]byte(store.SessionsBucket)).
+		Sub([]byte(sessionID)).
+		Sub([]byte("meta"))
+}
+
+// GetChatHistory returns decrypted chat entries stored under the chat
+// sub-bucket for the given session ID (sessions/<id>/chat/). Keys are
 // expected to be 14 bytes total, composed of:
 //   - 8 bytes: UnixNano timestamp (big-endian) — local receive time
 //   - 2 bytes: sender ID (big-endian; 0 means local user, 1 means remote user)
@@ -188,8 +199,9 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 // sender.
 func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	var entries []ChatEntry
-	err := s.store.Query(func(q store.Query) error {
-		for key, value := range q.IterateEncrypted([]byte("chat_" + sessionID)) {
+	err := s.store.Query(func(b *store.Bucket) error {
+		chat := sessionChat(b, sessionID)
+		for key, value := range chat.IterateEncrypted() {
 			if len(key) < 14 {
 				continue
 			}
@@ -221,18 +233,11 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	return entries, nil
 }
 
-// ListSessions returns a list of session IDs that have chat history stored.
-// Session IDs are extracted from bucket names with the "chat_" prefix.
+// ListSessions returns a list of session IDs stored under the sessions bucket.
 func (s *Storage) ListSessions() ([]string, error) {
 	var sessions []string
-	err := s.store.Query(func(q store.Query) error {
-		buckets := q.ListBucketsWithPrefix("chat_")
-		for _, bucket := range buckets {
-			// Remove "chat_" prefix to get session ID
-			if len(bucket) > 5 {
-				sessions = append(sessions, bucket[5:])
-			}
-		}
+	err := s.store.Query(func(b *store.Bucket) error {
+		sessions = b.Sub([]byte(store.SessionsBucket)).ListSubBuckets()
 		return nil
 	})
 	if err != nil {
@@ -250,18 +255,17 @@ func (s *Storage) ListSessions() ([]string, error) {
 func (s *Storage) SessionTimestamps(sessionID string) (
 	first, last time.Time, count int, err error,
 ) {
-	bucket := []byte("chat_" + sessionID)
-	err = s.store.Query(func(q store.Query) error {
-		firstKey := q.FirstKey(bucket)
-		lastKey := q.LastKey(bucket)
+	err = s.store.Query(func(b *store.Bucket) error {
+		chat := sessionChat(b, sessionID)
+		firstKey := chat.FirstKey()
+		lastKey := chat.LastKey()
 		if l := len(firstKey); l != 0 && l >= 8 {
 			first = time.Unix(0, int64(binary.BigEndian.Uint64(firstKey[:8])))
 		}
 		if l := len(lastKey); l != 0 && l >= 8 {
 			last = time.Unix(0, int64(binary.BigEndian.Uint64(lastKey[:8])))
 		}
-		// Use BoltDB bucket stats for an efficient key count (no iteration).
-		count = q.BucketKeyCount(bucket)
+		count = chat.KeyCount()
 		return nil
 	})
 	return
@@ -307,10 +311,10 @@ func (s *Storage) ListSessionsByRecent() ([]SessionSummary, error) {
 // GetSessionName returns the user-assigned display name for a session. If no
 // name has been set, an empty string is returned with a nil error.
 func (s *Storage) GetSessionName(sessionID string) (string, error) {
-	bucket := []byte(sessionMetaBucket + "_" + sessionID)
 	var name string
-	err := s.store.Query(func(q store.Query) error {
-		data, err := q.GetEncrypted(bucket, sessionMetaKey)
+	err := s.store.Query(func(b *store.Bucket) error {
+		meta := sessionMeta(b, sessionID)
+		data, err := meta.GetEncrypted(sessionMetaKey)
 		if err != nil {
 			return err
 		}
@@ -330,19 +334,20 @@ func (s *Storage) GetSessionName(sessionID string) (string, error) {
 // SetSessionName persists a user-assigned display name for a session. Pass an
 // empty string to clear the name.
 func (s *Storage) SetSessionName(sessionID, name string) error {
-	bucket := []byte(sessionMetaBucket + "_" + sessionID)
 	if name == "" {
 		// Remove the key (and tolerate a missing bucket).
-		err := s.store.Command(func(c store.Command) error {
-			return c.Delete(bucket, sessionMetaKey)
+		err := s.store.Command(func(b *store.Bucket) error {
+			meta := sessionMeta(b, sessionID)
+			return meta.Delete(sessionMetaKey)
 		})
 		if err != nil && !errors.Is(err, store.ErrMissingBucket) {
 			return fmt.Errorf("clear session name for %s: %w", sessionID, err)
 		}
 		return nil
 	}
-	err := s.store.Command(func(c store.Command) error {
-		return c.AddEncrypted(bucket, sessionMetaKey, []byte(name))
+	err := s.store.Command(func(b *store.Bucket) error {
+		meta := sessionMeta(b, sessionID)
+		return meta.PutEncrypted(sessionMetaKey, []byte(name))
 	})
 	if err != nil {
 		return fmt.Errorf("set session name for %s: %w", sessionID, err)
@@ -359,8 +364,9 @@ func (s *Storage) GetSettings(app, key string) (string, error) {
 	}
 	var val string
 	fullKey := app + ":" + key
-	err := s.store.Query(func(q store.Query) error {
-		data, err := q.GetEncrypted(settingsBucket, []byte(fullKey))
+	err := s.store.Query(func(b *store.Bucket) error {
+		settings := b.Sub([]byte(store.SettingsBucket))
+		data, err := settings.GetEncrypted([]byte(fullKey))
 		if err != nil {
 			return err
 		}
@@ -386,16 +392,18 @@ func (s *Storage) SetSettings(app, key, value string) error {
 	fullKey := app + ":" + key
 	k := []byte(fullKey)
 	if value == "" {
-		err := s.store.Command(func(c store.Command) error {
-			return c.Delete(settingsBucket, k)
+		err := s.store.Command(func(b *store.Bucket) error {
+			settings := b.Sub([]byte(store.SettingsBucket))
+			return settings.Delete(k)
 		})
 		if err != nil && !errors.Is(err, store.ErrMissingItem) {
 			return fmt.Errorf("delete settings %q: %w", key, err)
 		}
 		return nil
 	}
-	err := s.store.Command(func(c store.Command) error {
-		return c.AddEncrypted(settingsBucket, k, []byte(value))
+	err := s.store.Command(func(b *store.Bucket) error {
+		settings := b.Sub([]byte(store.SettingsBucket))
+		return settings.PutEncrypted(k, []byte(value))
 	})
 	if err != nil {
 		return fmt.Errorf("set settings %q: %w", key, err)
@@ -403,17 +411,12 @@ func (s *Storage) SetSettings(app, key, value string) error {
 	return nil
 }
 
-// DeleteSession removes the entire chat history bucket for the given session ID.
+// DeleteSession removes the session sub-bucket (chat, meta, resumption)
+// for the given session ID.
 func (s *Storage) DeleteSession(sessionID string) error {
-	chatBucket := []byte("chat_" + sessionID)
-	metaBucket := []byte(sessionMetaBucket + "_" + sessionID)
-	err := s.store.Command(func(c store.Command) error {
-		if err := c.DeleteBucket(chatBucket); err != nil {
-			return err
-		}
-		// Clean up the metadata bucket as well; ignore missing bucket
-		// errors because the session may never have been renamed.
-		if err := c.DeleteBucket(metaBucket); err != nil &&
+	err := s.store.Command(func(b *store.Bucket) error {
+		sessions := b.Sub([]byte(store.SessionsBucket))
+		if err := sessions.DeleteBucket([]byte(sessionID)); err != nil &&
 			!errors.Is(err, store.ErrMissingBucket) {
 			return err
 		}
@@ -426,7 +429,7 @@ func (s *Storage) DeleteSession(sessionID string) error {
 }
 
 // AddChatEntry stores a chat message for the given session ID. The message
-// is stored in a bucket named "chat_<sessionID>".
+// is stored in sessions/<sessionID>/chat/.
 //
 // Key (14 bytes, ordered by local receive time):
 //   - 8 bytes: local UnixNano timestamp (big-endian) — uses the local clock
@@ -444,8 +447,6 @@ func (s *Storage) DeleteSession(sessionID string) error {
 func (s *Storage) AddChatEntry(
 	sessionID string, payload []byte, ts time.Time, sender Sender,
 ) error {
-	bucket := []byte("chat_" + sessionID)
-
 	// Key uses local time to avoid clock skew in ordering
 	key := make([]byte, 14)
 	binary.BigEndian.PutUint64(key[:8], uint64(time.Now().UnixNano()))
@@ -461,8 +462,9 @@ func (s *Storage) AddChatEntry(
 	binary.BigEndian.PutUint64(enc[5:], uint64(ts.UnixNano()))
 	copy(enc[13:], payload)
 
-	err := s.store.Command(func(c store.Command) error {
-		return c.AddEncrypted(bucket, key, enc)
+	err := s.store.Command(func(b *store.Bucket) error {
+		chat := sessionChat(b, sessionID)
+		return chat.PutEncrypted(key, enc)
 	})
 	if err != nil {
 		return fmt.Errorf("store chat entry: %w", err)

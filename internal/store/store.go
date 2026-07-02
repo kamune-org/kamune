@@ -15,6 +15,7 @@ const (
 	DefaultBucket  = "kamune-store"
 	PeersBucket    = "peers"
 	SettingsBucket = "settings"
+	SessionsBucket = "sessions"
 
 	kek = "key-encryption-key"
 	dek = "data-encryption-key"
@@ -33,6 +34,7 @@ var (
 	defaultBucket  = []byte(DefaultBucket)
 	settingsBucket = []byte(SettingsBucket)
 	peersBucket    = []byte(PeersBucket)
+	sessionsBucket = []byte(SessionsBucket)
 )
 
 type Store struct {
@@ -47,7 +49,9 @@ func New(path string, passphrase []byte) (*Store, error) {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, name := range [][]byte{defaultBucket, settingsBucket, peersBucket} {
+		for _, name := range [][]byte{
+			defaultBucket, settingsBucket, peersBucket, sessionsBucket,
+		} {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
 				return err
 			}
@@ -167,23 +171,14 @@ func randomBits(bits int) []byte {
 	return src
 }
 
-type Query struct {
-	tx    *bolt.Tx
-	store *Store
-}
-
-func (s *Store) Query(f func(q Query) error) error {
+func (s *Store) Query(f func(b *Bucket) error) error {
 	return s.db.View(func(tx *bolt.Tx) error {
-		return f(Query{tx: tx, store: s})
+		return f(newRootBucket(tx, s.cipher))
 	})
 }
 
-type Command struct {
-	Query
-}
-
-func (s *Store) Command(f func(c Command) error) error {
+func (s *Store) Command(f func(b *Bucket) error) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
-		return f(Command{Query{tx: tx, store: s}})
+		return f(newRootBucket(tx, s.cipher))
 	})
 }

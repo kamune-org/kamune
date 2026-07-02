@@ -279,3 +279,84 @@ func TestDeletePeer(t *testing.T) {
 	_, err = storage.FindPeer(att.MarshalPublicKey())
 	a.Error(err)
 }
+
+// ---------------------------------------------------------------------------
+// Session tests
+// ---------------------------------------------------------------------------
+
+func TestCreateAndGetSession(t *testing.T) {
+	a := assert.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	peerKey := []byte("test-public-key-44-bytes-padddddddddddddddddddddddddddd")
+	before := time.Now()
+	a.NoError(storage.CreateSession("sess-1", peerKey, "alice"))
+
+	record, err := storage.GetSession("sess-1")
+	a.NoError(err)
+	a.Equal("sess-1", record.ID)
+	a.Equal(peerKey, record.PeerKey)
+	a.Equal("alice", record.PeerName)
+	a.False(record.EstablishedAt.Before(before))
+}
+
+func TestGetSessionNotFound(t *testing.T) {
+	a := assert.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	_, err := storage.GetSession("nonexistent")
+	a.ErrorIs(err, ErrSessionNotFound)
+}
+
+func TestCreateSessionAppearsInListSessions(t *testing.T) {
+	a := assert.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	a.NoError(storage.CreateSession("s1", nil, ""))
+	a.NoError(storage.CreateSession("s2", nil, ""))
+
+	sessions, err := storage.ListSessions()
+	a.NoError(err)
+	a.Contains(sessions, "s1")
+	a.Contains(sessions, "s2")
+}
+
+func TestDeleteSessionRemovesRecord(t *testing.T) {
+	a := assert.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	peerKey := []byte("test-public-key-44-bytes-padddddddddddddddddddddddddddd")
+	a.NoError(storage.CreateSession("del-me", peerKey, "bob"))
+
+	// Verify it exists.
+	_, err := storage.GetSession("del-me")
+	a.NoError(err)
+
+	// Delete it.
+	a.NoError(storage.DeleteSession("del-me"))
+
+	// Should be gone.
+	_, err = storage.GetSession("del-me")
+	a.ErrorIs(err, ErrSessionNotFound)
+}
+
+func TestAddChatEntryCreatesSessionBuckets(t *testing.T) {
+	a := assert.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	// AddChatEntry should work without explicit CreateSession —
+	// it creates the chat sub-bucket on demand.
+	a.NoError(storage.AddChatEntry(
+		"auto-sess", []byte("hello"), time.Now(), SenderLocal,
+	))
+
+	entries, err := storage.GetChatHistory("auto-sess")
+	a.NoError(err)
+	a.Len(entries, 1)
+	a.Equal([]byte("hello"), entries[0].Data)
+}
