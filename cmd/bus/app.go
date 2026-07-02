@@ -268,6 +268,9 @@ type App struct {
 
 	verifRadioItems []*menu.MenuItem
 
+	incognito         bool
+	incognitoMenuItem *menu.MenuItem
+
 	peers []PeerInfo
 }
 
@@ -533,6 +536,14 @@ func (a *App) initFromStorage() {
 			}
 		}
 
+		incognitoStr, incognitoErr := store.GetSettings("bus", "incognito")
+		if incognitoErr == nil && incognitoStr == "true" {
+			a.mu.Lock()
+			a.incognito = true
+			a.mu.Unlock()
+			runtime.EventsEmit(a.ctx, "incognito-changed", true)
+		}
+
 		runtime.EventsEmit(a.ctx, "storage-ready")
 		runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
 		a.addLogEntry("INFO", "Loaded fingerprint from existing identity")
@@ -731,6 +742,39 @@ func (a *App) SetVerificationMode(mode int) bool {
 	}
 
 	return true
+}
+
+func (a *App) GetIncognito() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.incognito
+}
+
+func (a *App) SetIncognito(on bool) bool {
+	a.mu.RLock()
+	if a.incognito == on {
+		a.mu.RUnlock()
+		return false
+	}
+	a.mu.RUnlock()
+
+	a.mu.Lock()
+	a.incognito = on
+	a.mu.Unlock()
+
+	if store := a.store(); store != nil {
+		_ = store.SetSettings("bus", "incognito", strconv.FormatBool(on))
+	}
+	a.addLogEntry("INFO", "Incognito mode: "+strconv.FormatBool(on))
+	runtime.EventsEmit(a.ctx, "incognito-changed", on)
+	return true
+}
+
+func (a *App) UpdateIncognitoMenu(on bool) {
+	if a.incognitoMenuItem != nil {
+		a.incognitoMenuItem.Checked = on
+		runtime.MenuUpdateApplicationMenu(a.ctx)
+	}
 }
 
 func (a *App) markRelayTokenConsumed(token string) {

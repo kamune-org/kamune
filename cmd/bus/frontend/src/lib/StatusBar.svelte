@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte'
-  import { status, appVersion, libraryVersion, logPanelOpen, verificationMode } from './stores.js'
+  import { status, appVersion, libraryVersion, logPanelOpen, verificationMode, incognito } from './stores.js'
 
   const dispatch = createEventDispatcher()
 
@@ -36,6 +36,11 @@
     <span class="mode-badge" title="Verification mode — change from Connection menu">
       {modeLabels[$verificationMode] || 'Unknown'}
     </span>
+    {#if $incognito}
+      <span class="mode-badge incognito-badge" title="Incognito mode — new messages not saved">
+        Incognito
+      </span>
+    {/if}
     <button
       class="status-btn logs-btn"
       class:active={$logPanelOpen}
@@ -125,6 +130,10 @@
     padding: 3px 10px;
     border-radius: 5px;
     line-height: 1;
+  }
+  .incognito-badge {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.15);
   }
   .status-btn {
     display: flex;

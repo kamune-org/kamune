@@ -25,6 +25,9 @@
         GetLogEntries,
         CancelStartServer,
         ListKnownPeers,
+        GetIncognito,
+        SetIncognito,
+        UpdateIncognitoMenu,
     } from "../wailsjs/go/main/App.js";
     import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime.js";
 
@@ -37,6 +40,7 @@
         dbPath,
         logEntries,
         verificationMode,
+        incognito,
         appVersion,
         activeSessionId,
         sidebarTab,
@@ -280,6 +284,13 @@
         EventsOn("verification-mode-changed", (mode) => {
             verificationMode.set(mode);
         });
+        EventsOn("incognito-changed", (on) => {
+            incognito.set(on);
+            UpdateIncognitoMenu(on);
+        });
+        EventsOn("request-incognito-confirm", () => {
+            dialogs.update((d) => ({ ...d, showIncognitoConfirm: true }));
+        });
         EventsOn("fingerprint-changed", (emoji, b64, hex, sum) => {
             fingerprint.set({ emoji, b64, hex, sum });
         });
@@ -397,6 +408,10 @@
 
             const vm = await GetVerificationMode();
             verificationMode.set(vm);
+
+            const inc = await GetIncognito();
+            incognito.set(inc);
+            UpdateIncognitoMenu(inc);
 
             serverActive = await GetServerRunning();
             runningServerTransport = serverActive
@@ -757,6 +772,7 @@
             showDelete: null,
             showShortcuts: false,
             showAddPeer: false,
+            showIncognitoConfirm: false,
             peerInfoFor: null,
         }));
     }
@@ -1395,6 +1411,65 @@
         </div>
     {/if}
 
+    {#if $dialogs.showIncognitoConfirm}
+        <div
+            class="dialog-overlay"
+            on:click={closeAllDialogs}
+            on:keydown={handleOverlayKeydown}
+        >
+            <div
+                class="dialog"
+                on:click|stopPropagation
+                on:keydown={noopPropagationKeydown}
+            >
+                <div class="dialog-header">
+                    <div class="dialog-icon">
+                        <svg
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                            width="18"
+                            height="18"
+                        >
+                            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                            <path
+                                fill-rule="evenodd"
+                                d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943
+                                   9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732
+                                   14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+                                clip-rule="evenodd"
+                            />
+                        </svg>
+                    </div>
+                    <h3>Enable Incognito Mode?</h3>
+                </div>
+                <div class="dialog-body">
+                    <p>When incognito mode is enabled:</p>
+                    <ul>
+                        <li>A pseudonym is used instead of your name for new peers</li>
+                        <li>New messages are not saved to disk</li>
+                        <li>Session history is not recorded</li>
+                        <li>Accepted peers are not stored</li>
+                    </ul>
+                    <p>Existing session history and peers remain accessible.</p>
+                </div>
+                <div class="dialog-actions">
+                    <button
+                        class="dialog-btn dialog-btn-secondary"
+                        on:click={closeAllDialogs}>Cancel</button
+                    >
+                    <button
+                        class="dialog-btn dialog-btn-primary"
+                        on:click={async () => {
+                            closeAllDialogs();
+                            await SetIncognito(true);
+                            UpdateIncognitoMenu(true);
+                        }}>Enable</button
+                    >
+                </div>
+            </div>
+        </div>
+    {/if}
+
     {#if $dialogs.showShortcuts}
         <div
             class="dialog-overlay"
@@ -1731,6 +1806,25 @@
         color: var(--text-secondary);
         line-height: 1.5;
         margin-bottom: 14px;
+    }
+    .dialog-body ul {
+        margin: 0 0 14px 0;
+        padding-left: 20px;
+        list-style: none;
+    }
+    .dialog-body ul li {
+        font-size: 13px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+        position: relative;
+        padding-left: 4px;
+        margin-bottom: 4px;
+    }
+    .dialog-body ul li::before {
+        content: "\2022";
+        position: absolute;
+        left: -14px;
+        color: var(--text-timestamp);
     }
 
     .dialog-input {

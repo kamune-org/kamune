@@ -69,7 +69,7 @@ func (a *App) StartServer(
 		return "", "", fmt.Errorf("storage is not available")
 	}
 
-	if name == "" {
+	if name == "" || a.incognito {
 		pubKey, err := store.PublicKey()
 		if err != nil {
 			return "", "", fmt.Errorf("getting identity: %w", err)
@@ -86,7 +86,9 @@ func (a *App) StartServer(
 	a.mu.Lock()
 	a.myName = name
 	a.mu.Unlock()
-	_ = store.SetSettings("bus", "local_name", name)
+	if !a.incognito {
+		_ = store.SetSettings("bus", "local_name", name)
+	}
 
 	var firstToken string
 	var opts []kamune.ServerOptions
@@ -584,7 +586,7 @@ func (a *App) ConnectToServer(
 			},
 		))
 		addr = "p2p://" + addr
-	} else if name == "" {
+	} else if name == "" || a.incognito {
 		pubKey, err := store.PublicKey()
 		if err != nil {
 			return ConnectResult{ErrorCode: "identity_unavailable"},
@@ -596,7 +598,9 @@ func (a *App) ConnectToServer(
 	a.mu.Lock()
 	a.myName = name
 	a.mu.Unlock()
-	_ = store.SetSettings("bus", "local_name", name)
+	if !a.incognito {
+		_ = store.SetSettings("bus", "local_name", name)
+	}
 
 	opts = append(opts, kamune.DialWithClientName(name))
 
@@ -663,7 +667,7 @@ func (a *App) ConnectToServer(
 		SessionStartedAt: time.Now(),
 	}
 
-	if store := a.store(); store != nil {
+	if store := a.store(); store != nil && !a.incognito {
 		if err := store.CreateSession(sessionID, peer.PublicKey, peer.Name); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
@@ -796,7 +800,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		SessionStartedAt: time.Now(),
 	}
 
-	if store := a.store(); store != nil {
+	if store := a.store(); store != nil && !a.incognito {
 		if err := store.CreateSession(sessionID, peer.PublicKey, peer.Name); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
@@ -851,6 +855,9 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 }
 
 func (a *App) loadChatHistory(session *liveSession) {
+	if a.incognito {
+		return
+	}
 	store := a.store()
 	if store == nil {
 		return

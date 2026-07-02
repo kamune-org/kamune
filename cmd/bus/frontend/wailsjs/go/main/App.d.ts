@@ -38,6 +38,8 @@ export function GetHistoryMessages(arg1:string):Promise<Array<main.MessageInfo>>
 
 export function GetHistorySessions():Promise<Array<main.HistorySessionInfo>>;
 
+export function GetIncognito():Promise<boolean>;
+
 export function GetLibraryVersion():Promise<string>;
 
 export function GetLogEntries():Promise<Array<main.LogEntryInfo>>;
@@ -108,6 +110,8 @@ export function SetDBPath(arg1:string):Promise<void>;
 
 export function SetFingerprintFormat(arg1:string):Promise<void>;
 
+export function SetIncognito(arg1:boolean):Promise<boolean>;
+
 export function SetMyName(arg1:string):Promise<void>;
 
 export function SetVerificationMode(arg1:number):Promise<boolean>;
@@ -119,5 +123,7 @@ export function StopServer():Promise<void>;
 export function SubmitPassphrase(arg1:string,arg2:boolean):Promise<void>;
 
 export function ToggleFullscreen():Promise<void>;
+
+export function UpdateIncognitoMenu(arg1:boolean):Promise<void>;
 
 export function VerifyResponse(arg1:number,arg2:boolean):Promise<void>;

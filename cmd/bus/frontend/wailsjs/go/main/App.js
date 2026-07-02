@@ -74,6 +74,10 @@ export function GetHistorySessions() {
   return window['go']['main']['App']['GetHistorySessions']();
 }
 
+export function GetIncognito() {
+  return window['go']['main']['App']['GetIncognito']();
+}
+
 export function GetLibraryVersion() {
   return window['go']['main']['App']['GetLibraryVersion']();
 }
@@ -214,6 +218,10 @@ export function SetFingerprintFormat(arg1) {
   return window['go']['main']['App']['SetFingerprintFormat'](arg1);
 }
 
+export function SetIncognito(arg1) {
+  return window['go']['main']['App']['SetIncognito'](arg1);
+}
+
 export function SetMyName(arg1) {
   return window['go']['main']['App']['SetMyName'](arg1);
 }
@@ -236,6 +244,10 @@ export function SubmitPassphrase(arg1, arg2) {
 
 export function ToggleFullscreen() {
   return window['go']['main']['App']['ToggleFullscreen']();
+}
+
+export function UpdateIncognitoMenu(arg1) {
+  return window['go']['main']['App']['UpdateIncognitoMenu'](arg1);
 }
 
 export function VerifyResponse(arg1, arg2) {

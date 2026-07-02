@@ -57,6 +57,25 @@ func buildMenu(app *App) *menu.Menu {
 		SubMenu: verifSub,
 	})
 
+	incognitoItem := menu.Checkbox("Incognito Mode", false, nil, nil)
+	app.incognitoMenuItem = incognitoItem
+	incognitoItem.Click = func(_ *menu.CallbackData) {
+		current := app.GetIncognito()
+		if current {
+			// Disabling — no confirmation needed
+			if app.SetIncognito(false) {
+				incognitoItem.Checked = false
+				runtime.MenuUpdateApplicationMenu(app.ctx)
+			}
+			return
+		}
+		// Enabling — Wails auto-toggled to true, revert until confirmed
+		incognitoItem.Checked = false
+		runtime.MenuUpdateApplicationMenu(app.ctx)
+		runtime.EventsEmit(app.ctx, "request-incognito-confirm")
+	}
+	conn.Append(incognitoItem)
+
 	conn.AddSeparator()
 
 	conn.AddText("Share Connection", keys.CmdOrCtrl("e"), func(_ *menu.CallbackData) {

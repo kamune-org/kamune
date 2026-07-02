@@ -8,6 +8,7 @@ export const fingerprint = writable({ emoji: '', b64: '', hex: '', sum: '' })
 export const dbPath = writable('')
 export const logEntries = writable([])
 export const verificationMode = writable(1)
+export const incognito = writable(false)
 export const appVersion = writable('2.0.0')
 export const libraryVersion = writable('')
 export const myName = writable('')
@@ -45,5 +46,6 @@ export const dialogs = writable({
   showDelete: null,
   showShortcuts: false,
   showAddPeer: false,
+  showIncognitoConfirm: false,
   peerInfoFor: null,
 })
