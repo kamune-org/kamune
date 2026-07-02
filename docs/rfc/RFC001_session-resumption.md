@@ -1,6 +1,6 @@
 # RFC: Session Resumption
 
-**Status:** Draft — for discussion, not yet merged into SPEC.md
+**Status:** Second revision — for discussion, not yet merged into SPEC.md
 
 **Target:** Kamune Protocol Specification v0.6.0
 
@@ -17,16 +17,17 @@ Introduction phase, while still performing a full, fresh cryptographic
 handshake.
 
 Resumption is **not** a lightweight reconnect of a live session. The `Transport`
-object and all its in-memory state (ciphers, sequence counters, ratchet state)
-are destroyed whenever the underlying connection drops, for any reason.
-Resumption is a **new session** — new MLKEM exchange, new symmetric keys, new
-sequence numbers from 1 — distinguished from a cold Introduction only by:
+object and all its in-memory state (ciphers, sequence counters) are destroyed
+whenever the underlying connection drops, for any reason. Resumption is a
+**new session** — new MLKEM exchange, new symmetric keys, new sequence numbers
+from 1 — distinguished from a cold Introduction only by:
 
 1. Skipping the remote-verifier callback (the peer is already known), and
 2. Reusing the original session ID, so the message log continues in the same
    storage bucket instead of starting a new one.
 
-Resumption tokens are derived solely from the initial MLKEM shared secret.
+Resumption tokens are derived from the MLKEM shared secret established during
+the session's handshake (§4).
 
 ## 2. Motivation
 
@@ -47,21 +48,30 @@ reconnect.
 ## 4. Token Derivation
 
 At the end of every successful Challenge Exchange (§6.4) — i.e. when a session
-enters `Established` — both peers independently derive:
+enters `Established` — the Transport derives a resumption root from the
+MLKEM768 shared secret during creation:
 
 ```
 resumptionRoot = HKDF-SHA512(sharedSecret, sessionID, "kamune/resumption-root/v1")
-
-token_n = HKDF-SHA512(resumptionRoot, nil, "kamune/resumption/token/" || uint32_be(n))
-  for n in [0, N)
 ```
 
-Where `sharedSecret` is the MLKEM768 shared secret from _that session's_
-handshake (§6.3), and `N` is the configured token count (see §10).
+The root is stored internally by the Transport and is never exposed to the
+application. The application derives all tokens at once via:
 
-Both sides compute the same `N` tokens without any additional message exchange —
-this mirrors the existing pattern where challenge tokens (§7.3) are derived
-independently rather than transmitted.
+```go
+tokens := transport.DeriveResumptionTokens()  // returns N [][]byte
+```
+
+Each element is a 32-byte HKDF-SHA512 output:
+
+```
+token_n = HKDF-SHA512(resumptionRoot, nil, "kamune/resumption/token/" || uint32_be(n))
+```
+
+Where `N` is the token count (default: 10). Both sides compute the same `N`
+tokens without any additional message exchange — this mirrors the existing
+pattern where challenge tokens (§7.3) are derived independently rather than
+transmitted.
 
 ## 5. Token Lifecycle
 
@@ -108,18 +118,22 @@ ResumeAccept {
 }
 ```
 
-### 6.1 Responder Validation
+### 6.1 Responder Validation (Application)
 
-On receiving `ResumeRequest`, the responder:
+On receiving `ResumeRequest`, the responder application:
 
-1. Looks up `SessionID` in persistent storage. If not found, reject.
-2. Checks the resumption window hasn't elapsed. If expired, reject.
-3. Checks `Token` is present in the unused token set for that session. If not
+1. Looks up `SessionID` in persistent storage. If not found, reject. The
+   lookup also yields the initiator's public key from the original session.
+2. Deserializes the message as a `SignedTransport` and verifies the signature
+   against the stored public key. If invalid, reject.
+3. Checks the resumption window hasn't elapsed. Tokens are valid for 24 hours
+   from the session's `establishedAt` timestamp. If expired, reject.
+4. Checks `Token` is present in the unused token set for that session. If not
    found (already used, or never valid), reject.
-4. On success: marks the token used, sends `ResumeAccept{Accepted: true}`,
-   and proceeds directly into the Handshake phase (SPEC.md§9) — **skipping the
+5. On success: marks the token used, sends `ResumeAccept{Accepted: true}`,
+   and proceeds directly into the Handshake phase (§6.3) — **skipping the
    Introduction phase and the remote-verifier callback entirely.**
-5. On any rejection: sends `ResumeAccept{Accepted: false, Reason: ...}` and the
+6. On any rejection: sends `ResumeAccept{Accepted: false, Reason: ...}` and the
    connection falls back to a normal Introduction flow (§6.2), subject to the
    application's own retry policy.
 
@@ -173,10 +187,11 @@ the application's session message log (§11.3) keys on session ID, so messages
 from the resumed session append to the same log entry rather than opening a new
 one.
 
-## 9. Storage and Persistence
+## 9. Storage and Persistence (Application)
 
 New per-session stored state, encrypted under the DEK like all other sensitive
-entities (§11.2):
+entities (§11.2). The application is responsible for storing and managing this
+state — Kamune core does not handle resumption storage.
 
 | Field           | Type         | Notes                                   |
 | --------------- | ------------ | --------------------------------------- |
@@ -189,6 +204,9 @@ set, since tokens are derived once at `Established` and never re-derived from
 the root later. This limits exposure: a stored-data compromise reveals only the
 remaining unused tokens for sessions within their window, not a generator
 capable of producing tokens for future sessions.
+
+The resumption window is 24 hours from `establishedAt`. After that, the session
+is unresumeable and the peer must fall back to a full Introduction.
 
 ## 10. Security Considerations
 
@@ -224,9 +242,9 @@ successful resumption (§7) means a token compromised from session _k_ cannot be
 used once session _k+1_ exists, since it isn't derivable from the new shared
 secret.
 
-## 11. New Error Conditions
+## 11. Error Conditions (Application)
 
-To be added to §14:
+These error conditions apply at the application level. To be added to §14:
 
 | Condition                                                     | Action                                                      |
 | ------------------------------------------------------------- | ----------------------------------------------------------- |
@@ -235,22 +253,49 @@ To be added to §14:
 | The presented token is not in the session's unused token set. | `ResumeAccept{Accepted: false}`; fall back to Introduction. |
 | A session has no unused tokens remaining.                     | Surfaced as unresumable; caller must use Introduction.      |
 
-## 12. Open Questions
+## 12. Core vs Application Responsibilities
 
-1. **Token count `N`.** Needs a concrete default. Given that every reconnect —
-   including brief network blips — consumes a token, a small count (e.g. 5)
-   risks exhaustion under flaky connectivity. A larger count (proposed range:
-   20–50) trades a small amount of storage for resilience.
-2. **Resumption window duration.** How long should tokens remain valid after
-   `Established`? Needs to balance reconnect convenience against the exposure
-   window discussed in §10.
-3. **Rate limiting / probing resistance.** Should repeated failed `ResumeRequest`
+Session resumption is split between Kamune core (the library) and the
+application layer (cmd/bus, cmd/tui, cmd/daemon).
+
+### Kamune core provides
+
+- **Resumption root derivation.** `newTransport` derives the resumption root
+  from the MLKEM768 shared secret and session ID. The root is stored internally
+  and never exposed.
+- **Token derivation.** `Transport.DeriveResumptionTokens()` returns all N
+  resumption tokens (each a 32-byte HKDF-SHA512 output).
+- **Routes and wire format.** `ROUTE_RESUME_REQUEST` (11) and
+  `ROUTE_RESUME_ACCEPT` (12) in the protobuf Route enum, with corresponding
+  `ResumeRequest` and `ResumeAccept` messages in `model.proto`.
+
+### Application layer handles
+
+- **Token storage.** After session Establishment, the application calls
+  `DeriveResumptionTokens` and persists the tokens alongside the peer's
+  public key and `establishedAt` timestamp.
+- **Responder validation.** On receiving `ResumeRequest`, the application
+  performs the validation steps described in §6.1.
+- **Initiator flow.** The application decides whether to attempt resumption
+  (if tokens exist for the target peer) or fall back to a cold Introduction.
+- **Error handling.** Application-level error conditions (§11) and fallback
+  behavior.
+- **Session ID reuse.** The application stores and reuses the original session
+  ID prefix/suffix when initiating resumption.
+
+## 13. Open Questions
+
+1. **Rate limiting / probing resistance.** Should repeated failed `ResumeRequest`
    attempts against a given session ID be throttled, to harden against an
    attacker who has the session ID but not a valid token from blindly probing?
    Token brute-force itself is computationally infeasible, so this is a
    defense-in-depth question rather than a structural requirement.
-4. **Role assignment on resumption.** Either peer may initiate the new
-   connection regardless of their role in the original session. Confirm this is
-   fine as-is (no constraint needed), since the Handshake phase doesn't care
-   which side originally was initiator vs. responder, only that both sides agree
-   on the resulting session ID.
+2. **Role assignment on resumption.** The original initiator must remain the
+   initiator on resumption. The session ID is `prefix + suffix`, where the
+   initiator contributes the prefix and the responder contributes the suffix
+   (§8). Both halves are stored from the original session and carried in the
+   Handshake messages. If roles were swapped, each side would generate a new
+   random half, producing a different session ID. The resumption flow should
+   enforce that the peer who holds the original initiator's prefix initiates
+   the new connection. In practice this is natural: the peer that dials is
+   the initiator, and a client typically dials the same server peer each time.
