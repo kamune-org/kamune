@@ -1,6 +1,6 @@
 # Kamune Protocol Specification
 
-**Version:** 0.5.0
+**Version:** 0.6.0
 
 **Status:** Experimental
 
@@ -1057,9 +1057,9 @@ The bump is selected independently per message and capped at bucket 6.
 | `wireFormatMax`            | 65,535 bytes                           | Wire format's hard upper bound (uint16 max).                                                                            |
 | `paddingBuckets`           | {512, 1024, 4096, 16384, 32768, 65495} | Bucketed padding target sizes (pre-encryption). See §12.7.                                                              |
 | `bumpProbabilities`        | {80%, 15%, 4%, 1%}                     | Cross-bucket bump distribution (stay, +1, +2, +3). See §12.7.                                                           |
-| `saltSize`                 | 16 bytes                               | Size of random salts for key derivation                                                                                 |
-| `sessionIDLength`          | 20 characters                          | Total session-ID length (10 prefix + 10 suffix)                                                                         |
-| `challengeSize`            | 32 bytes                               | Size of handshake challenge tokens                                                                                      |
+| `handshakeSaltSize`        | 16 bytes                               | Size of random salts for handshake key derivation                                                                       |
+| `handshakeChallengeSize`   | 32 bytes                               | Size of handshake challenge tokens                                                                                      |
+| `sessionIDLength`          | 24 characters                          | Total session-ID length (12 prefix + 12 suffix)                                                                         |
 | `nonceSize`                | 24 bytes                               | XChaCha20-Poly1305 nonce size                                                                                           |
 | `keySize`                  | 32 bytes                               | ChaCha20-Poly1305 / HKDF output key size                                                                                |
 | `defaultReadTimeout`       | 5 minutes                              | Default read deadline applied to the underlying transport                                                               |
@@ -1067,10 +1067,13 @@ The bump is selected independently per message and capped at bucket 6.
 | `defaultDialTimeout`       | 10 seconds                             | Default connection establishment timeout                                                                                |
 | `defaultPeerExpiry`        | 7 days                                 | Default peer identity expiration                                                                                        |
 | `lengthPrefixSize`         | 2 bytes                                | Size of the big-endian message length header                                                                            |
-| `sessionPrefixLength`      | 10 characters                          | Length of the session-ID prefix emitted by the initiator                                                                |
-| `sessionSuffixLength`      | 10 characters                          | Length of the session-ID suffix emitted by the responder                                                                |
+| `sessionPrefixLength`      | 12 characters                          | Length of the session-ID prefix emitted by the initiator                                                                |
+| `sessionSuffixLength`      | 12 characters                          | Length of the session-ID suffix emitted by the responder                                                                |
 | `handshakeTimeout`         | 30 seconds                             | Maximum time for the complete handshake                                                                                 |
 | `pingDataSize`             | 8 bytes                                | Size of the random token in each ping message                                                                           |
+| `resumptionGracePeriod`    | 24 hours                               | Time window after session establishment during which resumption tokens are valid                                        |
+| `resumptionTokenCount`     | 20                                     | Number of resumption tokens derived per session                                                                         |
+| `resumptionTokenSize`      | 32 bytes                               | Size of each resumption token (HKDF-SHA512 output)                                                                      |
 
 ---
 
