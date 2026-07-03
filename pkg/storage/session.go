@@ -52,6 +52,10 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 			return fmt.Errorf("store established_at: %w", err)
 		}
 
+		// Pre-create the chat sub-bucket so GetChatHistory works without
+		// attempting to create it inside a read-only Query.
+		sessionChat(b, sessionID)
+
 		return nil
 	})
 	if err != nil {
