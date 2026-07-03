@@ -453,7 +453,7 @@ func (d *Daemon) handleDial(cmd Command) {
 		}
 
 		if store := d.store(); store != nil && !d.incognito {
-			if err := store.CreateSession(sessionID, peer.PublicKey, peer.Name); err != nil {
+			if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 				d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 			}
 		}
@@ -510,7 +510,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	}
 
 	if store := d.store(); store != nil && !d.incognito {
-		if err := store.CreateSession(sessionID, peer.PublicKey, peer.Name); err != nil {
+		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
 	}
