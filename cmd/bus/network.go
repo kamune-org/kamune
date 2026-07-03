@@ -668,7 +668,7 @@ func (a *App) ConnectToServer(
 	}
 
 	if store := a.store(); store != nil && !a.incognito {
-		if err := store.CreateSession(sessionID, peer.PublicKey, peer.Name); err != nil {
+		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
 	}
@@ -699,7 +699,7 @@ func (a *App) ConnectToServer(
 	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
 
 	a.setStatus(StatusConnected, "Connected to "+addr)
-	a.addLogEntry("INFO", "Connected to "+addr+" (session: "+sessionID+")")
+	a.addLogEntry("INFO", "Connected | addr="+addr+" session_id="+sessionID)
 
 	go a.receiveMessages(session)
 	go a.keepAliveLoop(session)
@@ -801,7 +801,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	}
 
 	if store := a.store(); store != nil && !a.incognito {
-		if err := store.CreateSession(sessionID, peer.PublicKey, peer.Name); err != nil {
+		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
 	}

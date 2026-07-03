@@ -261,6 +261,7 @@ type App struct {
 	logEntries    []LogEntryInfo
 	logMu         sync.RWMutex
 	logBufferSize int
+	logLevel      string
 
 	verifMu        sync.Mutex
 	verifRequests  map[int64]*pendingVerification
@@ -292,6 +293,7 @@ func NewApp() *App {
 		fingerprintFmt: "hex",
 		logBufferSize:  200,
 		logEntries:     make([]LogEntryInfo, 0, 200),
+		logLevel:       "INFO",
 		verifRequests:  make(map[int64]*pendingVerification),
 		peers:          make([]PeerInfo, 0),
 		brokerClient:   bc,
@@ -435,7 +437,7 @@ func (a *App) addLogEntry(level, msg string) {
 	entry := LogEntryInfo{
 		Timestamp: time.Now(),
 		Level:     level,
-		Message:   msg,
+		Message:   "[cmd/bus] " + msg,
 	}
 
 	a.logMu.Lock()
@@ -446,17 +448,6 @@ func (a *App) addLogEntry(level, msg string) {
 	a.logMu.Unlock()
 
 	a.emitEvent("log-entry", entry)
-
-	lvl := slog.LevelInfo
-	switch level {
-	case "DEBUG":
-		lvl = slog.LevelDebug
-	case "WARN":
-		lvl = slog.LevelWarn
-	case "ERROR":
-		lvl = slog.LevelError
-	}
-	slog.Log(a.ctx, lvl, msg)
 }
 
 func waitOrTimeout[T any](ch <-chan T, label string) {
@@ -542,6 +533,14 @@ func (a *App) initFromStorage() {
 			a.incognito = true
 			a.mu.Unlock()
 			runtime.EventsEmit(a.ctx, "incognito-changed", true)
+		}
+
+		logLevel, logLevelErr := store.GetSettings("bus", "log_level")
+		if logLevelErr == nil && logLevel != "" {
+			a.mu.Lock()
+			a.logLevel = logLevel
+			a.mu.Unlock()
+			runtime.EventsEmit(a.ctx, "log-level-changed", logLevel)
 		}
 
 		runtime.EventsEmit(a.ctx, "storage-ready")
@@ -1073,6 +1072,21 @@ func (a *App) ExportLogsToFile() error {
 	}()
 
 	return nil
+}
+
+func (a *App) GetLogLevel() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.logLevel
+}
+
+func (a *App) SetLogLevel(level string) {
+	a.mu.Lock()
+	a.logLevel = level
+	a.mu.Unlock()
+	if store := a.store(); store != nil {
+		_ = store.SetSettings("bus", "log_level", level)
+	}
 }
 
 func (a *App) CopyToClipboard(text string) error {

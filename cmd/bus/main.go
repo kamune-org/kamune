@@ -173,11 +173,17 @@ func buildMenu(app *App) *menu.Menu {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+	stderrHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
-	})))
+	})
+	slog.SetDefault(slog.New(stderrHandler))
 
 	app := NewApp()
+
+	slog.SetDefault(slog.New(&appLogHandler{
+		app:    app,
+		stderr: stderrHandler,
+	}))
 
 	err := wails.Run(&options.App{
 		Title:     "Bus — Kamune Chat",

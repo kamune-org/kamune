@@ -23,6 +23,7 @@
         SetActiveSession,
         GetStorageReady,
         GetLogEntries,
+        GetLogLevel,
         CancelStartServer,
         ListKnownPeers,
         GetIncognito,
@@ -39,6 +40,7 @@
         fingerprint,
         dbPath,
         logEntries,
+        logLevel,
         verificationMode,
         incognito,
         appVersion,
@@ -209,6 +211,7 @@
         EventsOff("fingerprint-changed");
         EventsOff("relay-token");
         EventsOff("local-name-changed");
+        EventsOff("log-level-changed");
         EventsOff("relay-tokens");
         EventsOff("toast");
         EventsOff("show-share-card");
@@ -283,6 +286,9 @@
         });
         EventsOn("verification-mode-changed", (mode) => {
             verificationMode.set(mode);
+        });
+        EventsOn("log-level-changed", (level) => {
+            logLevel.set(level);
         });
         EventsOn("incognito-changed", (on) => {
             incognito.set(on);
@@ -424,6 +430,9 @@
 
             const existingLogs = await GetLogEntries();
             logEntries.set(existingLogs);
+
+            const existingLevel = await GetLogLevel();
+            logLevel.set(existingLevel);
 
             const ready = await GetStorageReady();
             showPassphraseDialog = !ready;

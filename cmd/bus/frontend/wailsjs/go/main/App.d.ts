@@ -44,6 +44,8 @@ export function GetLibraryVersion():Promise<string>;
 
 export function GetLogEntries():Promise<Array<main.LogEntryInfo>>;
 
+export function GetLogLevel():Promise<string>;
+
 export function GetMyName():Promise<string>;
 
 export function GetP2PTokens():Promise<Array<main.p2pToken>>;
@@ -111,6 +113,8 @@ export function SetDBPath(arg1:string):Promise<void>;
 export function SetFingerprintFormat(arg1:string):Promise<void>;
 
 export function SetIncognito(arg1:boolean):Promise<boolean>;
+
+export function SetLogLevel(arg1:string):Promise<void>;
 
 export function SetMyName(arg1:string):Promise<void>;
 

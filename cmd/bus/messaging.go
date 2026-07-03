@@ -57,7 +57,7 @@ func (a *App) SendMessage(sessionID string, text string) error {
 
 	runtime.EventsEmit(a.ctx, "message-sent", sessionID, msg)
 	runtime.EventsEmit(a.ctx, "session-updated", sessionID)
-	a.addLogEntry("DEBUG", "Sent message to "+sessionID)
+	a.addLogEntry("DEBUG", "Sent message | session_id="+sessionID+" msg_id="+metadata.ID())
 	return nil
 }
 
@@ -141,7 +141,7 @@ func (a *App) receiveMessagesBlocking(session *liveSession) {
 
 		runtime.EventsEmit(a.ctx, "message-received", session.ID, msg)
 		runtime.EventsEmit(a.ctx, "session-updated", session.ID)
-		a.addLogEntry("DEBUG", "Received message from "+session.ID)
+		a.addLogEntry("DEBUG", "Received message | session_id="+session.ID+" msg_id="+metadata.ID())
 	}
 }
 

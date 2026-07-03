@@ -7,6 +7,17 @@ export const status = writable({ status: 'disconnected', message: 'Not connected
 export const fingerprint = writable({ emoji: '', b64: '', hex: '', sum: '' })
 export const dbPath = writable('')
 export const logEntries = writable([])
+
+const levelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR']
+export const logLevel = writable('INFO')
+export const filteredLogEntries = derived(
+  [logEntries, logLevel],
+  ([$logEntries, $logLevel]) => {
+    const min = levelOrder.indexOf($logLevel)
+    return $logEntries.filter(e => levelOrder.indexOf(e.level) >= min)
+  }
+)
+
 export const verificationMode = writable(1)
 export const incognito = writable(false)
 export const appVersion = writable('2.0.0')

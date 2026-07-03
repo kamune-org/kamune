@@ -1,10 +1,16 @@
 <script>
   import { afterUpdate } from 'svelte'
-  import { logEntries, toast } from './stores.js'
-  import { ClearLogs, ExportLogsToFile } from '../../wailsjs/go/main/App.js'
+  import { logEntries, filteredLogEntries, logLevel, toast } from './stores.js'
+  import {
+    ClearLogs,
+    ExportLogsToFile,
+    SetLogLevel,
+  } from '../../wailsjs/go/main/App.js'
 
   let autoScroll = true
   let listEl
+
+  const levels = ['DEBUG', 'INFO', 'WARN', 'ERROR']
 
   afterUpdate(() => {
     if (autoScroll && listEl) {
@@ -19,6 +25,11 @@
       ERROR: 'var(--log-error)',
       DEBUG: 'var(--log-debug)',
     }[level] || 'var(--log-debug)'
+  }
+
+  async function setLevel(level) {
+    logLevel.set(level)
+    await SetLogLevel(level)
   }
 
   async function clearLogs() {
@@ -46,6 +57,16 @@
       <span class="log-count">{$logEntries.length}</span>
     </div>
     <div class="log-header-right">
+      <div class="log-level-select">
+        {#each levels as lvl}
+          <button
+            class="log-level-btn"
+            class:active={$logLevel === lvl}
+            style="color: {levelColor(lvl)}"
+            on:click={() => setLevel(lvl)}
+          >{lvl}</button>
+        {/each}
+      </div>
       <label class="auto-scroll">
         <input type="checkbox" bind:checked={autoScroll} />
         Auto
@@ -66,7 +87,7 @@
     </div>
   </div>
   <div class="log-entries" bind:this={listEl}>
-    {#each $logEntries as entry, i}
+    {#each $filteredLogEntries as entry, i}
       <div class="log-entry">
         <span class="log-time">
           {new Date(entry.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})}
@@ -119,6 +140,28 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .log-level-select {
+    display: flex;
+    gap: 2px;
+  }
+  .log-level-btn {
+    background: transparent;
+    border: none;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 4px;
+    border-radius: 3px;
+    cursor: pointer;
+    opacity: 0.45;
+    transition: opacity 0.15s;
+  }
+  .log-level-btn:hover {
+    opacity: 0.8;
+  }
+  .log-level-btn.active {
+    opacity: 1;
+    background: var(--bg-hover);
   }
   .auto-scroll {
     display: flex;

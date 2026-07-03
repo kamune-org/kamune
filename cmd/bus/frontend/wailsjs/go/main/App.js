@@ -86,6 +86,10 @@ export function GetLogEntries() {
   return window['go']['main']['App']['GetLogEntries']();
 }
 
+export function GetLogLevel() {
+  return window['go']['main']['App']['GetLogLevel']();
+}
+
 export function GetMyName() {
   return window['go']['main']['App']['GetMyName']();
 }
@@ -220,6 +224,10 @@ export function SetFingerprintFormat(arg1) {
 
 export function SetIncognito(arg1) {
   return window['go']['main']['App']['SetIncognito'](arg1);
+}
+
+export function SetLogLevel(arg1) {
+  return window['go']['main']['App']['SetLogLevel'](arg1);
 }
 
 export function SetMyName(arg1) {
