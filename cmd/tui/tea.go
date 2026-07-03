@@ -424,9 +424,8 @@ func (m *model) enterChat() (tea.Model, tea.Cmd) {
 	}
 
 	if peer := m.transport.RemotePeer(); peer != nil {
-		if err := m.store.CreateSession(
-			m.transport.SessionID(), peer.PublicKey, peer.Name,
-		); err != nil {
+		err := m.store.CreateSession(m.transport.SessionID(), peer.PublicKey)
+		if err != nil {
 			slog.Warn("failed to create session record",
 				slog.String("session_id", m.transport.SessionID()),
 				slog.Any("error", err),
