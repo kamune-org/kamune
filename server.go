@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xtaci/kcp-go/v5"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
@@ -34,6 +35,7 @@ type Server struct {
 	serverName    string
 	handlerFunc   HandlerFunc
 	handshakeOpts handshakeOpts
+	resumeEnabled bool
 	addr          string
 	connOpts      []ConnOption
 	closed        bool
@@ -160,6 +162,14 @@ func (s *Server) serve(cn Conn) (err error) {
 	switch route := RouteFromProto(st.GetMetadata().GetRoute()); route {
 	case RouteIdentity:
 		return s.handleNewConnection(cn, ec, st)
+	case RouteResumeRequest:
+		if !s.resumeEnabled {
+			return fmt.Errorf(
+				"%w: expected %s, got %s",
+				ErrUnexpectedRoute, RouteIdentity, route,
+			)
+		}
+		return s.handleResume(cn, ec, st)
 	default:
 		return fmt.Errorf(
 			"%w: expected %s, got %s",
@@ -205,11 +215,83 @@ func (s *Server) handleNewConnection(
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
 	t.remotePeer = peer
+	_ = s.storage.StoreResumptionTokens(t.sessionID, t.deriveResumptionTokens())
 
 	slog.Info(
 		"session established",
 		slog.String("session_id", t.SessionID()),
 		slog.String("peer", peer.Name),
+	)
+
+	if err := s.handlerFunc(t); err != nil {
+		return fmt.Errorf("handler: %w", err)
+	}
+
+	return nil
+}
+
+// handleResume processes an incoming ResumeRequest.
+func (s *Server) handleResume(
+	cn Conn, ec *exchange.Channel, st *pb.SignedTransport,
+) error {
+	_ = cn.SetDeadline(time.Now().Add(s.handshakeOpts.timeout))
+	defer func() { _ = cn.SetDeadline(time.Time{}) }()
+
+	// Parse the ResumeRequest.
+	var req pb.ResumeRequest
+	if err := proto.Unmarshal(st.GetData(), &req); err != nil {
+		return fmt.Errorf("deserializing resume request: %w", err)
+	}
+
+	sessionID := req.GetSessionID()
+	token := req.GetToken()
+
+	session, err := s.storage.MarkTokenUsed(sessionID, token)
+	if err != nil {
+		if err := sendResumeAccept(ec, false); err != nil {
+			return fmt.Errorf("sending resume accept: %w", err)
+		}
+		return fmt.Errorf("resume rejected: token invalid")
+	}
+
+	// Verify the signature against the stored peer key.
+	if !attest.Verify(session.Peer.PublicKey, st.GetData(), st.GetSignature()) {
+		if err := sendResumeAccept(ec, false); err != nil {
+			return fmt.Errorf("sending resume accept: %w", err)
+		}
+		return fmt.Errorf("resume rejected: invalid signature")
+	}
+
+	// Check the resumption window.
+	if time.Since(session.EstablishedAt) > resumptionGracePeriod {
+		if err := sendResumeAccept(ec, false); err != nil {
+			return fmt.Errorf("sending resume accept: %w", err)
+		}
+		return fmt.Errorf("resume rejected: session expired")
+	}
+
+	// Resume accepted — send accept and proceed to handshake.
+	if err := sendResumeAccept(ec, true); err != nil {
+		return fmt.Errorf("sending resume accept: %w", err)
+	}
+
+	serde := newSignedSerde(session.Peer.PublicKey, s.attest)
+
+	opts := s.handshakeOpts
+	opts.sessionID = sessionID
+	t, err := acceptHandshake(ec, serde, opts)
+	if err != nil {
+		return fmt.Errorf("accepting handshake after resume: %w", err)
+	}
+
+	t.conn = cn
+	t.remotePeer = session.Peer
+	_ = s.storage.StoreResumptionTokens(t.sessionID, t.deriveResumptionTokens())
+
+	slog.Info(
+		"session resumed",
+		slog.String("session_id", t.sessionID),
+		slog.String("peer", session.Peer.Name),
 	)
 
 	if err := s.handlerFunc(t); err != nil {
@@ -241,6 +323,7 @@ func NewServer(
 			remoteVerifier: defaultRemoteVerifier,
 			timeout:        30 * time.Second,
 		},
+		resumeEnabled: true,
 	}
 
 	for _, o := range opts {
@@ -313,6 +396,17 @@ func ServeWithUDP(opts ...ConnOption) ServerOptions {
 func ServeWithListener(l Listener) ServerOptions {
 	return func(s *Server) error {
 		s.listener = l
+		return nil
+	}
+}
+
+// ServeWithResumeEnabled controls whether the server accepts session resumption
+// requests. When disabled, incoming ResumeRequest messages are treated as
+// unexpected routes and the dialer must fall back to a full Introduction.
+// Enabled by default.
+func ServeWithResumeEnabled(enabled bool) ServerOptions {
+	return func(s *Server) error {
+		s.resumeEnabled = enabled
 		return nil
 	}
 }

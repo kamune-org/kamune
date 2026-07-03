@@ -2,9 +2,11 @@ package kamune
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"sync"
@@ -30,15 +32,16 @@ func isTimeout(err error) bool {
 
 // Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
-	conn         Conn
-	serde        *signedSerde
-	encoder      *enigma.Enigma
-	decoder      *enigma.Enigma
-	mu           *sync.Mutex
-	remotePeer   *storage.Peer
-	sessionID    string
-	recvSequence uint64
-	sendSequence uint64
+	conn           Conn
+	serde          *signedSerde
+	encoder        *enigma.Enigma
+	decoder        *enigma.Enigma
+	mu             *sync.Mutex
+	remotePeer     *storage.Peer
+	sessionID      string
+	resumptionRoot []byte
+	recvSequence   uint64
+	sendSequence   uint64
 }
 
 func newTransport(
@@ -181,3 +184,44 @@ func (t *Transport) SessionID() string { return t.sessionID }
 // RemotePeer returns the remote peer's identity (name, public key, and app
 // version) as established during the introduction phase.
 func (t *Transport) RemotePeer() *storage.Peer { return t.remotePeer }
+
+// setResumptionRoot derives and stores the resumption root from the MLKEM
+// shared secret and session ID. Called after a successful Challenge Exchange.
+func (t *Transport) setResumptionRoot(sharedSecret []byte) {
+	root, err := enigma.Derive(
+		sharedSecret,
+		[]byte(t.sessionID),
+		[]byte(resumptionRootInfo),
+		resumptionTokenSize,
+	)
+	if err != nil {
+		// Derive only fails on invalid parameters; this should never happen.
+		slog.Error("derive resumption root", slog.Any("error", err))
+		return
+	}
+	t.resumptionRoot = root
+}
+
+// deriveResumptionTokens returns N resumption tokens derived from the session's
+// resumption root. Each token is a 32-byte HKDF-SHA512 output. Returns nil if
+// the resumption root has not been set (e.g. pre- Established).
+func (t *Transport) deriveResumptionTokens() [][]byte {
+	if t.resumptionRoot == nil {
+		return nil
+	}
+	tokens := make([][]byte, resumptionTokenCount)
+	for i := range tokens {
+		info := make([]byte, len(resumptionTokenInfo)+4)
+		copy(info, resumptionTokenInfo)
+		binary.BigEndian.PutUint32(info[len(resumptionTokenInfo):], uint32(i))
+		token, err := enigma.Derive(
+			t.resumptionRoot, nil, info, resumptionTokenSize,
+		)
+		if err != nil {
+			slog.Error("derive resumption token", slog.Any("error", err))
+			return nil
+		}
+		tokens[i] = token
+	}
+	return tokens
+}

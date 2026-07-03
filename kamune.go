@@ -13,11 +13,6 @@ import (
 )
 
 const (
-	// Domain separation labels for handshake message encryption.
-	handshakeInfo    = "kamune/handshake/v1"
-	handshakeC2SInfo = "kamune/handshake/client-to-server/v1"
-	handshakeS2CInfo = "kamune/handshake/server-to-client/v1"
-
 	// reservedProtocolOverhead is the bytes the protocol reserves per
 	// message for signature, metadata, AEAD tag, and minimum padding.
 	reservedProtocolOverhead = 4 * 1024
@@ -36,9 +31,26 @@ const (
 	// math.MaxUint16 - reservedProtocolOverhead.
 	maxTransportSize = math.MaxUint16 - reservedProtocolOverhead
 
-	saltSize        = 16
-	sessionIDLength = 20
-	challengeSize   = 32
+	// sessionIDLength is the length of the session ID.
+	sessionIDLength = 24
+
+	// Handshake domain separation labels.
+	handshakeInfo    = "kamune/handshake/v1"
+	handshakeC2SInfo = "kamune/handshake/client-to-server/v1/"
+	handshakeS2CInfo = "kamune/handshake/server-to-client/v1/"
+
+	// Handshake constants.
+	handshakeSaltSize      = 16
+	handshakeChallengeSize = 32
+
+	// Resumption domain separation labels.
+	resumptionRootInfo  = "kamune/resumption-root/v1"
+	resumptionTokenInfo = "kamune/resumption/token/v1/"
+
+	// Resumption constants.
+	resumptionGracePeriod = 24 * time.Hour
+	resumptionTokenCount  = 20
+	resumptionTokenSize   = 32
 )
 
 // Bucket sizes for the bucketed padding scheme (pre-encryption target sizes in

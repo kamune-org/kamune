@@ -34,4 +34,7 @@ var (
 	ErrInvalidRoute = errors.New("invalid route")
 	// ErrReceiveTimeout is returned when Transport.Receive exceeds its deadline.
 	ErrReceiveTimeout = errors.New("receive timed out")
+	// ErrResumptionRejected is returned when a ResumeRequest is rejected by the
+	//  responder (session not found, expired, token invalid, etc.).
+	ErrResumptionRejected = errors.New("resumption rejected")
 )

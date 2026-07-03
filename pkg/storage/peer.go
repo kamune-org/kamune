@@ -36,17 +36,20 @@ func peerKey(claim []byte) []byte {
 }
 
 func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
-	key := peerKey(claim)
-
-	var data []byte
+	var peer *Peer
 	err := s.store.Query(func(b *store.Bucket) error {
-		peers := b.Sub([]byte(store.PeersBucket))
 		var err error
-		data, err = peers.GetEncrypted(key)
+		peer, err = s.findPeer(b, peerKey(claim))
 		return err
 	})
+	return peer, err
+}
+
+func (s *Storage) findPeer(b *store.Bucket, key []byte) (*Peer, error) {
+	peers := b.Sub([]byte(store.PeersBucket))
+	data, err := peers.GetEncrypted(key)
 	if err != nil {
-		return nil, fmt.Errorf("getting peer from storage: %w", err)
+		return nil, fmt.Errorf("getting peer: %w", err)
 	}
 
 	var p pb.Peer

@@ -92,7 +92,7 @@ func TestHandshake(t *testing.T) {
 }
 
 func BenchmarkValidateHandshakeFields_OK(b *testing.B) {
-	salt := make([]byte, saltSize)
+	salt := make([]byte, handshakeSaltSize)
 	sessionKey := bytes.Repeat([]byte{'A'}, sessionIDLength/2)
 
 	b.ReportAllocs()
@@ -104,7 +104,7 @@ func BenchmarkValidateHandshakeFields_OK(b *testing.B) {
 }
 
 func BenchmarkValidateHandshakeFields_BadSalt(b *testing.B) {
-	salt := make([]byte, saltSize-1)
+	salt := make([]byte, handshakeSaltSize-1)
 	sessionKey := bytes.Repeat([]byte{'A'}, sessionIDLength/2)
 
 	b.ReportAllocs()
@@ -114,7 +114,7 @@ func BenchmarkValidateHandshakeFields_BadSalt(b *testing.B) {
 }
 
 func BenchmarkValidateHandshakeFields_BadSessionKey(b *testing.B) {
-	salt := make([]byte, saltSize)
+	salt := make([]byte, handshakeSaltSize)
 	sessionKey := bytes.Repeat([]byte{'A'}, sessionIDLength/2-1)
 
 	b.ReportAllocs()
@@ -134,12 +134,12 @@ func BenchmarkHandshakeTranscriptHash_HandshakeFieldsTypical(b *testing.B) {
 	// overhead rather than exact on-wire sizing.
 	req := &pb.Handshake{
 		Key:        make([]byte, 32),
-		Salt:       make([]byte, saltSize),
+		Salt:       make([]byte, handshakeSaltSize),
 		SessionKey: "AAAAAAAAAA",
 	}
 	resp := &pb.Handshake{
 		Key:        make([]byte, 32),
-		Salt:       make([]byte, saltSize),
+		Salt:       make([]byte, handshakeSaltSize),
 		SessionKey: "BBBBBBBBBB",
 	}
 

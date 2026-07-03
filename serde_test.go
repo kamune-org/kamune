@@ -109,7 +109,7 @@ func TestPadSignedTransport_LandsOnBucket(t *testing.T) {
 			a := require.New(t)
 			hs := &pb.Handshake{
 				Key:        make([]byte, keySize),
-				Salt:       make([]byte, saltSize),
+				Salt:       make([]byte, handshakeSaltSize),
 				SessionKey: "0123456789",
 			}
 			msg, err := proto.Marshal(hs)

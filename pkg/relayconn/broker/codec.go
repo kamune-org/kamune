@@ -87,12 +87,12 @@ var ErrBadOpcode = errors.New("bad opcode")
 // depends on Type: TOKEN_ASSIGNED fills Token and TTLSeconds; PEER_MATCHED
 // fills Token, OtherPeerEphPub, IP, and Port.
 type NotifyPayload struct {
-	Type            NotifyType
 	Token           []byte
 	OtherPeerEphPub []byte
 	IP              net.IP
-	Port            uint16
 	TTLSeconds      uint32
+	Port            uint16
+	Type            NotifyType
 }
 
 // ParseEchoRequest validates a STUN_ECHO request. Trailing bytes are ignored

@@ -19,6 +19,8 @@ const (
 	RouteCloseTransport
 	RoutePing
 	RoutePong
+	RouteResumeRequest
+	RouteResumeAccept
 )
 
 // String returns the string representation of the route.
@@ -44,6 +46,10 @@ func (r Route) String() string {
 		return "Ping"
 	case RoutePong:
 		return "Pong"
+	case RouteResumeRequest:
+		return "ResumeRequest"
+	case RouteResumeAccept:
+		return "ResumeAccept"
 	default:
 		return "Invalid"
 	}
@@ -51,7 +57,7 @@ func (r Route) String() string {
 
 // IsValid returns true if the route is a valid, non-invalid route.
 func (r Route) IsValid() bool {
-	return r > RouteInvalid && r <= RoutePong
+	return r > RouteInvalid && r <= RouteResumeAccept
 }
 
 // ToProto converts the Route to its protobuf enum representation.
@@ -77,6 +83,10 @@ func (r Route) ToProto() pb.Route {
 		return pb.Route_ROUTE_PING
 	case RoutePong:
 		return pb.Route_ROUTE_PONG
+	case RouteResumeRequest:
+		return pb.Route_ROUTE_RESUME_REQUEST
+	case RouteResumeAccept:
+		return pb.Route_ROUTE_RESUME_ACCEPT
 	default:
 		return pb.Route_ROUTE_INVALID
 	}
@@ -105,6 +115,10 @@ func RouteFromProto(r pb.Route) Route {
 		return RoutePing
 	case pb.Route_ROUTE_PONG:
 		return RoutePong
+	case pb.Route_ROUTE_RESUME_REQUEST:
+		return RouteResumeRequest
+	case pb.Route_ROUTE_RESUME_ACCEPT:
+		return RouteResumeAccept
 	default:
 		return RouteInvalid
 	}

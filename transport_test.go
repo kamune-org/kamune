@@ -20,33 +20,33 @@ func TestTransport_PadToBucket(t *testing.T) {
 	serde := newSignedSerde(att.MarshalPublicKey(), att)
 
 	cases := []struct {
-		name string
 		msg  proto.Message
+		name string
 	}{
-		{"tiny", &pb.Handshake{SessionKey: "x"}},
+		{&pb.Handshake{SessionKey: "x"}, "tiny"},
 		{
-			"small",
 			&pb.Handshake{
 				Key:        make([]byte, 1024),
-				Salt:       make([]byte, saltSize),
+				Salt:       make([]byte, handshakeSaltSize),
 				SessionKey: "0123456789",
 			},
+			"small",
 		},
 		{
-			"medium",
 			&pb.Handshake{
 				Key:        make([]byte, 16*1024),
-				Salt:       make([]byte, saltSize),
+				Salt:       make([]byte, handshakeSaltSize),
 				SessionKey: "0123456789",
 			},
+			"medium",
 		},
 		{
-			"near_max",
 			&pb.Handshake{
 				Key:        make([]byte, int(maxTransportSize)-64),
-				Salt:       make([]byte, saltSize),
+				Salt:       make([]byte, handshakeSaltSize),
 				SessionKey: "0123456789",
 			},
+			"near_max",
 		},
 	}
 	for _, tc := range cases {

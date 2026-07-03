@@ -24,3 +24,13 @@ message Peer {
   google.protobuf.Timestamp LastSeen = 4;
   string AppVersion = 5;
 }
+
+message ResumeRequest {
+  string SessionID = 1;
+  bytes Token = 2;
+}
+
+message ResumeAccept {
+  bool Accepted = 1;
+  string Reason = 2;
+}

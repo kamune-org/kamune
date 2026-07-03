@@ -289,15 +289,21 @@ func TestCreateAndGetSession(t *testing.T) {
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	peerKey := []byte("test-public-key-44-bytes-padddddddddddddddddddddddddddd")
+	att, err := attest.New()
+	a.NoError(err)
+
+	a.NoError(storage.StorePeer(&Peer{
+		Name:      "alice",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
 	before := time.Now()
-	a.NoError(storage.CreateSession("sess-1", peerKey, "alice"))
+	a.NoError(storage.CreateSession("sess-1", att.MarshalPublicKey()))
 
 	record, err := storage.GetSession("sess-1")
 	a.NoError(err)
-	a.Equal("sess-1", record.ID)
-	a.Equal(peerKey, record.PeerKey)
-	a.Equal("alice", record.PeerName)
+	a.Equal(att.MarshalPublicKey(), record.Peer.PublicKey)
+	a.Equal("alice", record.Peer.Name)
 	a.False(record.EstablishedAt.Before(before))
 }
 
@@ -315,8 +321,24 @@ func TestCreateSessionAppearsInListSessions(t *testing.T) {
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	a.NoError(storage.CreateSession("s1", nil, ""))
-	a.NoError(storage.CreateSession("s2", nil, ""))
+	att1, err := attest.New()
+	a.NoError(err)
+	att2, err := attest.New()
+	a.NoError(err)
+
+	a.NoError(storage.StorePeer(&Peer{
+		Name:      "alice",
+		PublicKey: att1.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+	a.NoError(storage.StorePeer(&Peer{
+		Name:      "bob",
+		PublicKey: att2.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+
+	a.NoError(storage.CreateSession("s1", att1.MarshalPublicKey()))
+	a.NoError(storage.CreateSession("s2", att2.MarshalPublicKey()))
 
 	sessions, err := storage.ListSessions()
 	a.NoError(err)
@@ -329,11 +351,19 @@ func TestDeleteSessionRemovesRecord(t *testing.T) {
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	peerKey := []byte("test-public-key-44-bytes-padddddddddddddddddddddddddddd")
-	a.NoError(storage.CreateSession("del-me", peerKey, "bob"))
+	att, err := attest.New()
+	a.NoError(err)
+
+	a.NoError(storage.StorePeer(&Peer{
+		Name:      "alice",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+
+	a.NoError(storage.CreateSession("del-me", att.MarshalPublicKey()))
 
 	// Verify it exists.
-	_, err := storage.GetSession("del-me")
+	_, err = storage.GetSession("del-me")
 	a.NoError(err)
 
 	// Delete it.

@@ -24,12 +24,12 @@ const DefaultRegisterTimeout = 2 * time.Second
 // Payload is the decoded plaintext of a NOTIFY packet — what the peer needs to
 // act on.
 type Payload struct {
-	Type            NotifyType
 	Token           []byte
-	OtherPeerEphPub []byte // empty for TOKEN_ASSIGNED
-	IP              net.IP // zero for TOKEN_ASSIGNED
-	Port            uint16 // zero for TOKEN_ASSIGNED
-	TTLSeconds      uint32 // only for TOKEN_ASSIGNED
+	OtherPeerEphPub []byte
+	IP              net.IP
+	TTLSeconds      uint32
+	Port            uint16
+	Type            NotifyType
 }
 
 // Client is the peer-side API for the kamune broker. The same instance is used

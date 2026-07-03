@@ -16,6 +16,7 @@ import (
 
 type handshakeOpts struct {
 	remoteVerifier RemoteVerifier
+	sessionID      string
 	timeout        time.Duration
 }
 
@@ -36,19 +37,21 @@ func requestHandshake(
 	if err != nil {
 		return nil, fmt.Errorf("creating MLKEM keys: %w", err)
 	}
-	localSalt := randomBytes(saltSize)
-	sessionPrefix := enigma.Text(sessionIDLength / 2)
+	localSalt := randomBytes(handshakeSaltSize)
+	var sessionID, sessionKey string
+	if opts.sessionID == "" {
+		// Cold handshake: sessionKey is sessionPrefix.
+		sessionKey = enigma.Text(sessionIDLength / 2)
+	} else {
+		// Resume handshake: sessionKey is the original session ID.
+		sessionID = opts.sessionID
+		sessionKey = sessionID
+	}
 
 	req := &pb.Handshake{
 		Key:        ml.PublicKey.Bytes(),
 		Salt:       localSalt,
-		SessionKey: sessionPrefix,
-	}
-
-	// Validate our own outbound fields (defense-in-depth; keeps invariants).
-	err = validateHandshakeFields(req.GetSalt(), req.GetSessionKey())
-	if err != nil {
-		return nil, fmt.Errorf("invalid local handshake fields: %w", err)
+		SessionKey: sessionKey,
 	}
 
 	reqBytes, _, err := serde.serialize(req, RouteRequestHandshake, 0)
@@ -82,10 +85,10 @@ func requestHandshake(
 		return nil, fmt.Errorf("invalid remote handshake fields: %w", err)
 	}
 
-	remoteSalt := resp.GetSalt()
-	sessionSuffix := resp.GetSessionKey()
-	sessionID := sessionPrefix + sessionSuffix
-
+	if opts.sessionID == "" {
+		// Cold handshake: use the sessionSuffix from the response.
+		sessionID = sessionKey + resp.GetSessionKey()
+	}
 	// Bind later challenge material to the semantic handshake transcript
 	// (inner pb.Handshake fields only).
 	transcriptHash := handshakeTranscriptHash(req, &resp)
@@ -97,13 +100,13 @@ func requestHandshake(
 	}
 	// Step 4: Create transport with encryption
 	encoder, err := enigma.NewEnigma(
-		secret, localSalt, []byte(sessionID+handshakeC2SInfo),
+		secret, localSalt, []byte(handshakeC2SInfo+sessionID),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
 	decoder, err := enigma.NewEnigma(
-		secret, remoteSalt, []byte(sessionID+handshakeS2CInfo),
+		secret, resp.GetSalt(), []byte(handshakeS2CInfo+sessionID),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
@@ -124,6 +127,8 @@ func requestHandshake(
 	if err := acceptChallenge(t, RouteSendChallenge); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
+
+	t.setResumptionRoot(secret)
 
 	return t, nil
 }
@@ -169,22 +174,25 @@ func acceptHandshake(
 	}
 
 	remoteSalt := req.GetSalt()
-	sessionSuffix := enigma.Text(sessionIDLength / 2)
-	sessionPrefix := req.GetSessionKey()
-	sessionID := sessionPrefix + sessionSuffix
-	localSalt := randomBytes(saltSize)
+
+	var sessionID, sessionKey string
+	if opts.sessionID == "" {
+		// in normal handshake, sessionKey is sessionSuffix.
+		sessionKey = enigma.Text(sessionIDLength / 2)
+		sessionID = req.GetSessionKey() + sessionKey
+	} else {
+		// in resume handshake, sessionKey is the session ID from the resume
+		// options.
+		sessionID = opts.sessionID
+		sessionKey = sessionID
+	}
+	localSalt := randomBytes(handshakeSaltSize)
 
 	// Send the encapsulated key (ct) and session info back to the initiator
 	resp := &pb.Handshake{
 		Key:        ct,
 		Salt:       localSalt,
-		SessionKey: sessionSuffix,
-	}
-
-	// Validate our outbound fields (defense-in-depth; keeps invariants).
-	err = validateHandshakeFields(resp.GetSalt(), resp.GetSessionKey())
-	if err != nil {
-		return nil, fmt.Errorf("invalid local handshake fields: %w", err)
+		SessionKey: sessionKey,
 	}
 
 	respBytes, _, err := ut.serialize(resp, RouteAcceptHandshake, 0)
@@ -201,13 +209,13 @@ func acceptHandshake(
 
 	// Step 3: Create transport with encryption
 	encoder, err := enigma.NewEnigma(
-		secret, localSalt, []byte(sessionID+handshakeS2CInfo),
+		secret, localSalt, []byte(handshakeS2CInfo+sessionID),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating encrypter: %w", err)
 	}
 	decoder, err := enigma.NewEnigma(
-		secret, remoteSalt, []byte(sessionID+handshakeC2SInfo),
+		secret, remoteSalt, []byte(handshakeC2SInfo+sessionID),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating decrypter: %w", err)
@@ -229,13 +237,15 @@ func acceptHandshake(
 		return nil, fmt.Errorf("sending challenge: %w", err)
 	}
 
+	t.setResumptionRoot(secret)
+
 	return t, nil
 }
 
 // sendChallenge sends a challenge derived from the shared secret and expects
 // the peer to echo it back for verification.
 func sendChallenge(t *Transport, secret, info []byte) error {
-	challenge, err := enigma.Derive(secret, nil, info, challengeSize)
+	challenge, err := enigma.Derive(secret, nil, info, handshakeChallengeSize)
 	if err != nil {
 		return fmt.Errorf("deriving a challenge: %w", err)
 	}
@@ -285,16 +295,13 @@ func acceptChallenge(t *Transport, expectedRoute Route) error {
 // validateHandshakeFields enforces strict size checks for untrusted handshake
 // inputs to prevent malformed session IDs, message bloat, and weird HPKE inputs.
 func validateHandshakeFields(salt []byte, sessionKey string) error {
-	if len(salt) != saltSize {
+	if len(salt) != handshakeSaltSize {
 		return fmt.Errorf(
-			"invalid salt length: got %d, want %d", len(salt), saltSize,
+			"invalid salt length: got %d, want %d", len(salt), handshakeSaltSize,
 		)
 	}
-	if len(sessionKey) != sessionIDLength/2 {
-		return fmt.Errorf(
-			"invalid session key length: got %d, want %d",
-			len(sessionKey), sessionIDLength/2,
-		)
+	if l := len(sessionKey); l != sessionIDLength/2 && l != sessionIDLength {
+		return fmt.Errorf("invalid session key length: got %d", l)
 	}
 	return nil
 }

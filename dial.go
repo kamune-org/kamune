@@ -79,6 +79,15 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 		return nil, fmt.Errorf("initiate exchange: %w", err)
 	}
 
+	// Attempt resumption if sessionID is provided.
+	if d.handshakeOpts.sessionID != "" {
+		t, err = d.attemptResume(ec, cn)
+		if err != nil {
+			return nil, fmt.Errorf("attempt resume: %w", err)
+		}
+		return t, nil
+	}
+
 	// Step 1: Send our introduction
 	err = sendIntroduction(ec, d.attest, d.clientName, AppVersion)
 	if err != nil {
@@ -122,12 +131,58 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
 	t.remotePeer = peer
+	_ = d.storage.StoreResumptionTokens(t.sessionID, t.deriveResumptionTokens())
 
 	slog.Info(
 		"session established",
 		slog.String("session_id", t.sessionID),
 		slog.String("peer", peer.Name),
 	)
+
+	return t, nil
+}
+
+// attemptResume tries to resume a session. Returns the transport on success,
+// or an error if resumption failed (caller should fall back to cold Introduction).
+func (d *Dialer) attemptResume(
+	ec *exchange.Channel, cn Conn,
+) (*Transport, error) {
+	sessionID := d.handshakeOpts.sessionID
+	session, err := d.storage.GetSession(sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("getting session: %w", err)
+	}
+
+	// Send ResumeRequest.
+	err = sendResumeRequest(ec, d.attest, sessionID, session.Token)
+	if err != nil {
+		return nil, fmt.Errorf("sending resume request: %w", err)
+	}
+
+	// Receive ResumeAccept.
+	accepted, reason, err := receiveResumeAccept(ec)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("receiving resume accept: %w", err)
+	case !accepted:
+		return nil, fmt.Errorf("%w: %s", ErrResumptionRejected, reason)
+	}
+
+	// Resume accepted — proceed to handshake with predetermined session ID.
+	serde := newSignedSerde(session.Peer.PublicKey, d.attest)
+	t, err := requestHandshake(ec, serde, d.handshakeOpts)
+	if err != nil {
+		return nil, fmt.Errorf("request handshake after resume: %w", err)
+	}
+
+	t.conn = cn
+	_ = d.storage.StoreResumptionTokens(t.sessionID, t.deriveResumptionTokens())
+
+	// Load peer info from storage for the transport.
+	// peer := &storage.Peer{PublicKey: ro.peerKey}
+	// t.remotePeer = peer
+
+	slog.Info("session resumed", slog.String("session_id", t.sessionID))
 
 	return t, nil
 }
@@ -235,6 +290,14 @@ func DialWithDialTimeout(timeout time.Duration) DialOption {
 func DialWithClientName(name string) DialOption {
 	return func(d *Dialer) error {
 		d.clientName = name
+		return nil
+	}
+}
+
+// DialWithResume configures the dialer to attempt session resumption.
+func DialWithResume(sessionID string) DialOption {
+	return func(d *Dialer) error {
+		d.handshakeOpts.sessionID = sessionID
 		return nil
 	}
 }
