@@ -22,7 +22,7 @@
    - 4.3 [Encrypted Messages](#43-encrypted-messages)
 5. [Routes](#5-routes)
    - 5.1 [Route Validation Rules](#51-route-validation-rules)
-6. [Protocol Flow: New Session](#6-protocol-flow-new-session)
+6. [Protocol Flow](#6-protocol-flow)
    - 6.1 [Exchange](#61-exchange)
    - 6.2 [Introduction](#62-introduction)
    - 6.3 [Handshake](#63-handshake)
@@ -30,12 +30,14 @@
    - 6.5 [Communication](#65-communication)
    - 6.6 [Session Teardown](#66-session-teardown)
    - 6.7 [Keep-Alive](#67-keep-alive)
+   - 6.8 [Session Resumption](#68-session-resumption)
 7. [Encryption and Key Derivation](#7-encryption-and-key-derivation)
    - 7.1 [Exchange Phase Keys](#71-exchange-phase-keys)
    - 7.2 [Handshake Phase Key Derivation](#72-handshake-phase-key-derivation)
    - 7.3 [Challenge Tokens](#73-challenge-tokens)
    - 7.4 [Enigma Cipher](#74-enigma-cipher)
    - 7.5 [Key Hierarchy Summary](#75-key-hierarchy-summary)
+   - 7.6 [Resumption Token Derivation](#76-resumption-token-derivation)
 8. [Message Integrity and Replay Protection](#8-message-integrity-and-replay-protection)
    - 8.1 [Digital Signatures](#81-digital-signatures)
    - 8.2 [Sequence Numbers](#82-sequence-numbers)
@@ -65,6 +67,7 @@
     - 12.7 [Traffic Analysis Resistance](#127-traffic-analysis-resistance)
 13. [Constants and Limits](#13-constants-and-limits)
 14. [Error Conditions](#14-error-conditions)
+15. [Merged RFCs](#15-merged-rfcs)
 
 ---
 
@@ -104,6 +107,9 @@ disconnect from a network failure.
 | **Route**                | A typed tag on each message's Metadata identifying its purpose and protocol phase.                                                                                                                                                 |
 | **Fingerprint**          | A human-readable representation of a public key (emoji, hex, base64, or pseudonym).                                                                                                                                                |
 | **Transcript Hash**      | A SHA-256 hash over the inner handshake field values, bound into challenge derivation to prevent replay and downgrade attacks.                                                                                                     |
+| **Resumption Token**     | A single-use, 32-byte cryptographic value derived from the session's shared secret, presented by the initiator to authorize session resumption without repeating the Introduction phase.                                           |
+| **Resumption Window**    | The 24-hour period after a session is established during which its resumption tokens remain valid.                                                                                                                                 |
+| **Resumption Root**      | A secret derived once at session establishment from the shared secret and session ID, used solely to derive the resumption token set. Never exposed to the application.                                                            |
 
 ---
 
@@ -243,6 +249,8 @@ enum Route {
   ROUTE_CLOSE_TRANSPORT    = 8;
   ROUTE_PING               = 9;
   ROUTE_PONG               = 10;
+  ROUTE_RESUME_REQUEST     = 11;
+  ROUTE_RESUME_ACCEPT      = 12;
 }
 ```
 
@@ -259,6 +267,8 @@ enum Route {
 | `8`   | `ROUTE_CLOSE_TRANSPORT`    | Communication | Bidirectional         | Graceful session teardown.                   |
 | `9`   | `ROUTE_PING`               | Keep-Alive    | Bidirectional         | Ping message with 8-byte random token.       |
 | `10`  | `ROUTE_PONG`               | Keep-Alive    | Bidirectional         | Pong response echoing the ping token.        |
+| `11`  | `ROUTE_RESUME_REQUEST`     | Resumption    | Initiator → Responder | Session ID and resumption token.             |
+| `12`  | `ROUTE_RESUME_ACCEPT`      | Resumption    | Responder → Initiator | Acceptance or rejection of resume request.   |
 
 ### 5.1 Route Validation Rules
 
@@ -273,6 +283,10 @@ enum Route {
 - Routes `9–10` are **keep-alive routes** for application-level ping/pong.
   The `Transport` layer automatically responds to `ROUTE_PING` messages with a
   `ROUTE_PONG` echo.
+- Routes `11–12` are **resumption routes** and MUST only appear during session
+  resumption, after the Exchange phase but before the Handshake. If the server
+  does not support resumption, receiving `ROUTE_RESUME_REQUEST` MUST be treated
+  as an unexpected-route condition.
 - Route `4` (`ROUTE_FINALIZE_HANDSHAKE`) is defined in the enum but is
   **reserved** and not currently used by the protocol.
 - Any message with `ROUTE_INVALID` (`0`) or an unrecognized route value MUST
@@ -280,11 +294,14 @@ enum Route {
 
 ---
 
-## 6. Protocol Flow: New Session
+## 6. Protocol Flow
 
 A new session establishment consists of three sub-protocols executed in
 sequence: Introduction, Handshake, and Challenge Exchange. The Exchange phase
 precedes all three to provide an encrypted tunnel for the handshake messages.
+Peers who have previously established a session may alternatively use the
+resumption path described in §6.8, which replaces the Introduction phase with
+a token-based authorization exchange.
 
 <picture>
   <img alt="Session Phases" src="../assets/diagrams/session-phases.svg">
@@ -669,6 +686,133 @@ and encryption as session messages.
 The peer's application code SHOULD register a handler for `ROUTE_PING` that
 echoes the data back with `ROUTE_PONG`.
 
+### 6.8 Session Resumption
+
+Resumption allows two peers who have previously completed a full session to
+re-establish communication without repeating the Introduction phase. The
+underlying connection and all in-memory transport state are destroyed on
+disconnect; resumption produces a **new session** — fresh handshake, fresh keys,
+fresh sequence counters — distinguished from a cold start only by reusing the
+original session ID and skipping the remote-verifier callback. (RFC001)
+
+Resumption tokens are derived from the MLKEM768 shared secret established during
+the session's handshake (§7.6). The protocol flow is as follows:
+
+```
+Initiator                                   Responder
+    |                                            |
+    |  ------- Exchange (HPKE tunnel) -------->  |   (§6.1, unchanged)
+    |                                            |
+    |  ---- SignedTransport[RESUME_REQUEST] -->  |
+    |        ResumeRequest {                     |
+    |          SessionID: <original ID>          |
+    |          Token: token_n                    |
+    |        }                                   |
+    |                                            |
+    |  <--- SignedTransport[RESUME_ACCEPT] ----  |
+    |        ResumeAccept { Accepted: true }     |
+    |                                            |
+    |  ---- SignedTransport[REQUEST_HS] ------>  |   (§6.3, both sides
+    |        Handshake {                         |    send the full session
+    |          SessionKey: <full sessionID>      |    ID instead of random
+    |        }                                   |    halves)
+    |                                            |
+    |  <--- SignedTransport[ACCEPT_HS] --------  |
+    |        Handshake {                         |
+    |          SessionKey: <full sessionID>      |
+    |        }                                   |
+    |                                            |
+    |  ============ Challenge Exchange =======>  |   (§6.4, unchanged)
+    |                                            |
+    |       [Both: Established]                  |
+    |       [Both: regenerate token set]         |
+```
+
+#### 6.8.1 Token Lifecycle
+
+- **Single-use, any-order.** Each token may be consumed exactly once. There is
+  no requirement to consume tokens in a specific order. This avoids a
+  synchronization hazard: an any-order, mark-on-use scheme has no such
+  dependency.
+- **Regeneration on success.** When a resumption completes (the resumed session
+  reaches `Established`), both peers discard the entire previous token set and
+  derive a fresh set from the new session's shared secret (§7.6). A token stolen
+  from session _k_ is worthless after session _k+1_'s handshake completes, since
+  it is not derivable from the new shared secret.
+- **Expiration.** A session's tokens become invalid after the resumption window
+  (24 hours) elapses from the session's `Established` timestamp, regardless of
+  how many tokens remain unused. A session with no unused tokens or past its
+  window is **unresumeable** — the initiator must fall back to a full
+  Introduction.
+
+#### 6.8.2 Wire Messages
+
+Both messages are sent inside the HPKE-encrypted tunnel established during the
+Exchange phase — the same tunnel that protects Introduction and Handshake
+messages. The raw token value is therefore never sent in the clear.
+
+```
+ResumeRequest {
+  string SessionID = 1;
+  bytes  Token     = 2;
+}
+
+ResumeAccept {
+  bool   Accepted = 1;
+  string Reason   = 2;
+}
+```
+
+| Field       | Type   | Role                                                                    |
+| ----------- | ------ | ----------------------------------------------------------------------- |
+| `SessionID` | string | The original session ID being resumed.                                  |
+| `Token`     | bytes  | One unused resumption token for that session.                           |
+| `Accepted`  | bool   | Whether the resume request was accepted.                                |
+| `Reason`    | string | Populated only when `Accepted` is false; describes the rejection cause. |
+
+#### 6.8.3 Responder Validation
+
+On receiving a resume request, the responder:
+
+1. Looks up the session ID in persistent storage. If not found, the request is
+   rejected.
+2. Verifies the signature against the stored public key of the initiator. If
+   invalid, the request is rejected and the connection is terminated.
+3. Checks the resumption window has not elapsed. If expired, the request is
+   rejected.
+4. Checks the presented token is present in the session's unused token set. If
+   not found (already used, or never valid), the request is rejected.
+5. On success: marks the token used, sends a resume-accept with
+   `Accepted: true`, and proceeds directly into the Handshake phase (§6.3) —
+   skipping the Introduction phase and the remote-verifier callback entirely.
+6. On any rejection: sends a resume-accept with `Accepted: false` and a reason
+   string. The initiator may retry with a cold Introduction (§6.2).
+
+#### 6.8.4 Resumption Asymmetry
+
+Resumption is always initiated by the dialer. The server accepts incoming resume
+requests but never sends one. If the server disconnects, it simply waits for the
+dialer to reconnect and attempt resumption. Role reversal — the original server
+dialing the original client — does not occur in practice; dialer and server
+roles are fixed for the lifetime of the application.
+
+The server MAY disable resumption, in which case incoming `ROUTE_RESUME_REQUEST`
+messages are treated as unexpected-route conditions, forcing a full Introduction
+from the dialer. Resumption is enabled by default.
+
+#### 6.8.5 Session ID Semantics
+
+The session ID continues to mean exactly what it means in a cold session: the
+cryptographic handle for one Transport's lifetime. Resumption does not change
+this — it lets both sides agree on the session ID in advance instead of
+generating it randomly.
+
+The practical effect of the shared session ID is purely at the storage layer:
+the application's session message log (§11.3) keys on session ID, so messages
+from the resumed session append to the same log entry rather than opening a new
+one. During the Handshake phase, both sides send the full predetermined session
+ID instead of each side generating a random half.
+
 ---
 
 ## 7. Encryption and Key Derivation
@@ -727,12 +871,27 @@ The `Enigma` wrapper provides XChaCha20-Poly1305 AEAD encryption:
 
 ### 7.5 Key Hierarchy Summary
 
-| Phase            | Key Material                   | Derivation                                                                         |
-| ---------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
-| Exchange         | HPKE sender/recipient contexts | HPKE internal key schedule (MLKEM768-X25519 + HKDF-SHA512 + ChaCha20-Poly1305)     |
-| Handshake        | 32-byte shared secret          | MLKEM768 Encapsulate/Decapsulate                                                   |
-| Cipher keys      | 32-byte per-direction keys     | HKDF-SHA512(secret, salt, domainInfo)                                              |
-| Challenge tokens | 32-byte tokens                 | `HKDF-SHA512(secret, nil, sessionID + " \| " + dirInfo + " \| " + transcriptHash)` |
+| Phase             | Key Material                   | Derivation                                                                         |
+| ----------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
+| Exchange          | HPKE sender/recipient contexts | HPKE internal key schedule (MLKEM768-X25519 + HKDF-SHA512 + ChaCha20-Poly1305)     |
+| Handshake         | 32-byte shared secret          | MLKEM768 Encapsulate/Decapsulate                                                   |
+| Cipher keys       | 32-byte per-direction keys     | HKDF-SHA512(secret, salt, domainInfo)                                              |
+| Challenge tokens  | 32-byte tokens                 | `HKDF-SHA512(secret, nil, sessionID + " \| " + dirInfo + " \| " + transcriptHash)` |
+| Resumption tokens | 32-byte per-token values       | `HKDF-SHA512(resumptionRoot, nil, "kamune/resumption/token/" + index)`             |
+
+### 7.6 Resumption Token Derivation
+
+At session establishment, after the Challenge Exchange succeeds, a resumption
+root is derived from the shared secret and session ID using HKDF-SHA512 with
+the info string `"kamune/resumption-root/v1"`. The root is never stored or
+exposed to the application.
+
+From the root, N resumption tokens (each 32 bytes) are derived using
+sequential indices as HKDF info strings with the prefix
+`"kamune/resumption/token/"`. Both sides independently derive the same token
+set without any additional message exchange — this mirrors the existing pattern
+where challenge tokens (§7.3) are derived independently rather than
+transmitted. (RFC001, §4)
 
 ---
 
@@ -949,17 +1108,23 @@ and SHOULD NOT be used where the database file may be exposed.
 
 ### 11.3 Stored Entities
 
-| Entity                  | Contents                                                                                                    | Encryption      |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------- | --------------- |
-| **Local identity**      | The local attester's Ed25519 private key.                                                                   | Encrypted (DEK) |
-| **Peers**               | One record per known peer: name, identity public key, application version, first-seen time, last-seen time. | Encrypted (DEK) |
-| **Session metadata**    | Per-session display name.                                                                                   | Encrypted (DEK) |
-| **Session message log** | Per-session ordered list of message payloads with sender and timestamp.                                     | Encrypted (DEK) |
+| Entity                       | Contents                                                                                                    | Encryption      |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------- |
+| **Local identity**           | The local attester's Ed25519 private key.                                                                   | Encrypted (DEK) |
+| **Peers**                    | One record per known peer: name, identity public key, application version, first-seen time, last-seen time. | Encrypted (DEK) |
+| **Session metadata**         | Per-session display name.                                                                                   | Encrypted (DEK) |
+| **Session message log**      | Per-session ordered list of message payloads with sender and timestamp.                                     | Encrypted (DEK) |
+| **Session resumption state** | Per-session: unused resumption tokens, the initiator's public key, and the established-at timestamp.        | Encrypted (DEK) |
 
 Peer records are identified by a stable hash of their public key
 (SHA3-512 of the PKIX/DER-encoded public key). The session message log
 preserves the per-session ordering of messages and is keyed so that messages
 sharing the same timestamp do not collide.
+
+The resumption root itself is not stored — only the derived token set. A
+database compromise exposes only the remaining unused tokens for sessions
+within their resumption window, not a generator capable of producing tokens
+for future sessions. (RFC001, §9)
 
 ### 11.4 Peer Expiration
 
@@ -1083,17 +1248,34 @@ The following table lists the conditions under which the protocol reports an
 error to the application layer. Each row describes a single observable
 condition and the action the implementation takes.
 
-| Condition                                                                                                                 | Action                                                                  |
-| ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| An operation is attempted on a server that has already shut down.                                                         | Surfaced as a server-closed error.                                      |
-| An operation is attempted on a connection that has already been closed.                                                   | Surfaced as a connection-closed error.                                  |
-| The remote peer sends a `ROUTE_CLOSE_TRANSPORT` frame.                                                                    | Surfaced as a peer-disconnected error; the receive loop exits cleanly.  |
-| A read deadline is exceeded.                                                                                              | Surfaced as a receive-timeout error. Non-fatal; the caller may retry.   |
-| A signature on a received message fails verification.                                                                     | Surfaced as a signature error; the connection is terminated.            |
-| A challenge echo does not match the original challenge, or the remote-verifier callback rejects the peer.                 | Surfaced as a verification error; the connection is terminated.         |
-| A user message exceeds the user-message cap (~60 KiB), or its encoded frame would exceed the wire-format maximum.         | Surfaced as a message-too-large error; the message is not sent.         |
-| A received sequence number does not equal the expected value (duplicate or gap).                                          | Surfaced as an out-of-sync error; the connection is terminated.         |
-| A received route does not match the route expected for the current protocol phase.                                        | Surfaced as an unexpected-route error; the connection is terminated.    |
-| A received message uses `ROUTE_INVALID` (0) or any unrecognized route value.                                              | Surfaced as an invalid-route error; the message is rejected.            |
-| The remote peer's application version is incompatible with the local version (major mismatch, or pre-1.0 minor mismatch). | Surfaced as a version-mismatch error; the connection is terminated.     |
-| A peer's identity has exceeded the configured expiry duration.                                                            | Surfaced as a peer-expired error; the peer record is removed on lookup. |
+| Condition                                                                                                                 | Action                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| An operation is attempted on a server that has already shut down.                                                         | Surfaced as a server-closed error.                                         |
+| An operation is attempted on a connection that has already been closed.                                                   | Surfaced as a connection-closed error.                                     |
+| The remote peer sends a `ROUTE_CLOSE_TRANSPORT` frame.                                                                    | Surfaced as a peer-disconnected error; the receive loop exits cleanly.     |
+| A read deadline is exceeded.                                                                                              | Surfaced as a receive-timeout error. Non-fatal; the caller may retry.      |
+| A signature on a received message fails verification.                                                                     | Surfaced as a signature error; the connection is terminated.               |
+| A challenge echo does not match the original challenge, or the remote-verifier callback rejects the peer.                 | Surfaced as a verification error; the connection is terminated.            |
+| A user message exceeds the user-message cap (~60 KiB), or its encoded frame would exceed the wire-format maximum.         | Surfaced as a message-too-large error; the message is not sent.            |
+| A received sequence number does not equal the expected value (duplicate or gap).                                          | Surfaced as an out-of-sync error; the connection is terminated.            |
+| A received route does not match the route expected for the current protocol phase.                                        | Surfaced as an unexpected-route error; the connection is terminated.       |
+| A received message uses `ROUTE_INVALID` (0) or any unrecognized route value.                                              | Surfaced as an invalid-route error; the message is rejected.               |
+| The remote peer's application version is incompatible with the local version (major mismatch, or pre-1.0 minor mismatch). | Surfaced as a version-mismatch error; the connection is terminated.        |
+| A peer's identity has exceeded the configured expiry duration.                                                            | Surfaced as a peer-expired error; the peer record is removed on lookup.    |
+| A resume request references a session ID not found in storage.                                                            | The request is rejected; the initiator may retry with a cold Introduction. |
+| A resume request signature fails verification against the stored public key.                                              | The request is rejected; the connection is terminated.                     |
+| A resume request references a session whose resumption window has elapsed.                                                | The request is rejected; the initiator may retry with a cold Introduction. |
+| A resume request presents a token not present in the session's unused token set.                                          | The request is rejected; the initiator may retry with a cold Introduction. |
+
+---
+
+## 15. Merged RFCs
+
+This section lists RFCs that have been accepted into the protocol
+specification. Each entry records the RFC identifier, title, target
+version, and the SPEC sections it affects. Draft or withdrawn RFCs
+are not listed here.
+
+| RFC    | Title              | Target Version | SPEC Sections                       |
+| ------ | ------------------ | -------------- | ----------------------------------- |
+| RFC001 | Session Resumption | v0.6.0         | §2, §5, §6.8, §7.6, §11.3, §13, §14 |

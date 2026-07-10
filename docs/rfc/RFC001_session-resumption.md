@@ -1,6 +1,6 @@
 # RFC: Session Resumption
 
-**Status:** Third revision
+**Status:** Merged
 
 **Target:** Kamune Protocol Specification v0.6.0
 
