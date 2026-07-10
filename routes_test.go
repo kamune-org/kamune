@@ -3,14 +3,14 @@ package kamune
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 )
 
 func TestRouteString(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	tests := []struct {
 		expected string
 		route    Route
@@ -37,7 +37,7 @@ func TestRouteString(t *testing.T) {
 }
 
 func TestRouteIsValid(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	validRoutes := []Route{
 		RouteIdentity,
 		RouteRequestHandshake,
@@ -71,7 +71,7 @@ func TestRouteIsValid(t *testing.T) {
 }
 
 func TestRouteProtoConversion(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	tests := []struct {
 		route   Route
 		pbRoute pb.Route
@@ -101,7 +101,7 @@ func TestRouteProtoConversion(t *testing.T) {
 }
 
 func TestBytesHelper(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	data := []byte("hello world")
 	wrapper := Bytes(data)
 

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune/pkg/attest"
@@ -13,20 +12,21 @@ import (
 
 func newTestStorage(t *testing.T) (*Storage, func()) {
 	t.Helper()
+	a := require.New(t)
 	f, err := os.CreateTemp("", "kamune-storage-test-*.db")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
+	a.NoError(err)
+	a.NoError(f.Close())
 
 	storage, err := OpenStorage(
 		WithDBPath(f.Name()),
 		WithNoPassphrase(),
 		WithExpiryDuration(24*time.Hour),
 	)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	cleanup := func() {
-		assert.NoError(t, storage.Close())
-		assert.NoError(t, os.Remove(f.Name()))
+		a.NoError(storage.Close())
+		a.NoError(os.Remove(f.Name()))
 	}
 	return storage, cleanup
 }
@@ -36,7 +36,7 @@ func newTestStorage(t *testing.T) (*Storage, func()) {
 // ---------------------------------------------------------------------------
 
 func TestStorePeerSetsTimestamps(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -58,7 +58,7 @@ func TestStorePeerSetsTimestamps(t *testing.T) {
 }
 
 func TestStorePeerRejectsWrongFormat(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -86,7 +86,7 @@ func TestStorePeerRejectsWrongFormat(t *testing.T) {
 }
 
 func TestStorePeerPreservesExplicitTimestamps(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -109,7 +109,7 @@ func TestStorePeerPreservesExplicitTimestamps(t *testing.T) {
 }
 
 func TestUpdatePeerLastSeen(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -135,7 +135,7 @@ func TestUpdatePeerLastSeen(t *testing.T) {
 }
 
 func TestUpdatePeerLastSeenZeroUsesNow(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -161,7 +161,7 @@ func TestUpdatePeerLastSeenZeroUsesNow(t *testing.T) {
 }
 
 func TestUpdatePeerLastSeenMissingPeer(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -171,7 +171,7 @@ func TestUpdatePeerLastSeenMissingPeer(t *testing.T) {
 }
 
 func TestListPeers(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -204,7 +204,7 @@ func TestListPeers(t *testing.T) {
 }
 
 func TestListPeersSkipsExpired(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 
 	f, err := os.CreateTemp("", "kamune-storage-expiry-*.db")
 	a.NoError(err)
@@ -244,7 +244,7 @@ func TestListPeersSkipsExpired(t *testing.T) {
 }
 
 func TestListPeersEmpty(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -254,7 +254,7 @@ func TestListPeersEmpty(t *testing.T) {
 }
 
 func TestDeletePeer(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -285,7 +285,7 @@ func TestDeletePeer(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateAndGetSession(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -308,7 +308,7 @@ func TestCreateAndGetSession(t *testing.T) {
 }
 
 func TestGetSessionNotFound(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -317,7 +317,7 @@ func TestGetSessionNotFound(t *testing.T) {
 }
 
 func TestCreateSessionAppearsInListSessions(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -347,7 +347,7 @@ func TestCreateSessionAppearsInListSessions(t *testing.T) {
 }
 
 func TestDeleteSessionRemovesRecord(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -375,7 +375,7 @@ func TestDeleteSessionRemovesRecord(t *testing.T) {
 }
 
 func TestAddChatEntryCreatesSessionBuckets(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
@@ -389,4 +389,164 @@ func TestAddChatEntryCreatesSessionBuckets(t *testing.T) {
 	a.NoError(err)
 	a.Len(entries, 1)
 	a.Equal([]byte("hello"), entries[0].Data)
+}
+
+// ---------------------------------------------------------------------------
+// Resumption token tests
+// ---------------------------------------------------------------------------
+
+func makeToken(n byte, size int) []byte {
+	t := make([]byte, size)
+	for i := range t {
+		t[i] = n
+	}
+	return t
+}
+
+func TestStoreAndRetrieveResumptionTokens(t *testing.T) {
+	a := require.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	att, err := attest.New()
+	a.NoError(err)
+	a.NoError(storage.StorePeer(&Peer{
+		Name:      "alice",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+	a.NoError(storage.CreateSession("sess-tok", att.MarshalPublicKey()))
+
+	tokens := make([][]byte, resumptionTokenSize)
+	for i := range tokens {
+		tokens[i] = makeToken(byte(i), 32)
+	}
+	a.NoError(storage.StoreResumptionTokens("sess-tok", tokens))
+
+	// GetSession pops the first token.
+	record, err := storage.GetSession("sess-tok")
+	a.NoError(err)
+	a.Equal(tokens[0], record.Token)
+
+	// 19 remain.
+	record2, err := storage.GetSession("sess-tok")
+	a.NoError(err)
+	a.NotNil(record2.Token)
+	a.NotEqual(tokens[0], record2.Token)
+}
+
+func TestGetSession_PopsTokensSequentially(t *testing.T) {
+	a := require.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	att, err := attest.New()
+	a.NoError(err)
+	a.NoError(storage.StorePeer(&Peer{
+		Name:      "bob",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+	a.NoError(storage.CreateSession("sess-seq", att.MarshalPublicKey()))
+
+	tokens := make([][]byte, 3)
+	for i := range tokens {
+		tokens[i] = makeToken(byte(i+10), 32)
+	}
+	a.NoError(storage.StoreResumptionTokens("sess-seq", tokens))
+
+	// Pop all three in order.
+	for i := 0; i < 3; i++ {
+		record, err := storage.GetSession("sess-seq")
+		a.NoError(err)
+		a.Equal(tokens[i], record.Token)
+	}
+
+	// Fourth call returns no token.
+	record, err := storage.GetSession("sess-seq")
+	a.NoError(err)
+	a.Nil(record.Token)
+}
+
+func TestMarkTokenUsed_RemovesCorrectToken(t *testing.T) {
+	a := require.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	att, err := attest.New()
+	a.NoError(err)
+	a.NoError(storage.StorePeer(&Peer{
+		Name:      "carol",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+	a.NoError(storage.CreateSession("sess-mark", att.MarshalPublicKey()))
+
+	tA := makeToken(0xAA, 32)
+	tB := makeToken(0xBB, 32)
+	tC := makeToken(0xCC, 32)
+	a.NoError(storage.StoreResumptionTokens("sess-mark", [][]byte{tA, tB, tC}))
+
+	// Mark B as used.
+	_, err = storage.MarkTokenUsed("sess-mark", tB)
+	a.NoError(err)
+
+	// GetSession should pop A (first remaining).
+	record, err := storage.GetSession("sess-mark")
+	a.NoError(err)
+	a.Equal(tA, record.Token)
+
+	// Next pop should be C.
+	record, err = storage.GetSession("sess-mark")
+	a.NoError(err)
+	a.Equal(tC, record.Token)
+}
+
+func TestMarkTokenUsed_RejectsUnknownToken(t *testing.T) {
+	a := require.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	att, err := attest.New()
+	a.NoError(err)
+	a.NoError(storage.StorePeer(&Peer{
+		Name:      "dave",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+	a.NoError(storage.CreateSession("sess-unk", att.MarshalPublicKey()))
+
+	a.NoError(storage.StoreResumptionTokens("sess-unk", [][]byte{
+		makeToken(0x01, 32),
+		makeToken(0x02, 32),
+	}))
+
+	_, err = storage.MarkTokenUsed("sess-unk", makeToken(0xFF, 32))
+	a.ErrorIs(err, ErrTokenNotFound)
+}
+
+func TestMarkTokenUsed_RejectsAlreadyUsedToken(t *testing.T) {
+	a := require.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	att, err := attest.New()
+	a.NoError(err)
+	a.NoError(storage.StorePeer(&Peer{
+		Name:      "eve",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+	a.NoError(storage.CreateSession("sess-used", att.MarshalPublicKey()))
+
+	tok := makeToken(0x42, 32)
+	a.NoError(storage.StoreResumptionTokens("sess-used", [][]byte{tok}))
+
+	// First MarkTokenUsed succeeds.
+	_, err = storage.MarkTokenUsed("sess-used", tok)
+	a.NoError(err)
+
+	// Second MarkTokenUsed with same token fails.
+	_, err = storage.MarkTokenUsed("sess-used", tok)
+	a.ErrorIs(err, ErrTokenNotFound)
 }

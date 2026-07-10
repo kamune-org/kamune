@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/kamune-org/kamune/internal/clock"
 	"github.com/kamune-org/kamune/internal/store"
 	"github.com/kamune-org/kamune/pkg/attest"
 )
@@ -31,8 +32,8 @@ var (
 )
 
 // SessionSummary holds a session ID together with its first and last message
-// timestamps, as read from the database. It is returned by
-// ListSessionsByRecent so callers don't need to load full chat histories.
+// timestamps, as read from the database. It is returned by ListSessionsByRecent
+// so callers don't need to load full chat histories.
 type SessionSummary struct {
 	FirstMessage time.Time
 	LastMessage  time.Time
@@ -58,9 +59,6 @@ type ChatEntry struct {
 type PassphraseHandler func() ([]byte, error)
 
 func defaultPassphraseHandler() ([]byte, error) {
-	// Prefer environment variable to avoid stdin prompts in GUI/daemon contexts.
-	// TODO(h.yazdani): Passing secrets via env vars has security trade offs;
-	// prefer OS keychain integration in the long-term.
 	if envPass := os.Getenv("KAMUNE_DB_PASSPHRASE"); envPass != "" {
 		return []byte(envPass), nil
 	}
@@ -79,12 +77,14 @@ type Storage struct {
 	store             *store.Store
 	dbPath            string
 	expiryDuration    time.Duration
+	clock             clock.Clock
 }
 
 func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	s := &Storage{
 		passphraseHandler: defaultPassphraseHandler,
 		expiryDuration:    7 * 24 * time.Hour,
+		clock:             clock.Real(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -449,7 +449,7 @@ func (s *Storage) AddChatEntry(
 ) error {
 	// Key uses local time to avoid clock skew in ordering
 	key := make([]byte, 14)
-	binary.BigEndian.PutUint64(key[:8], uint64(time.Now().UnixNano()))
+	binary.BigEndian.PutUint64(key[:8], uint64(s.clock.Now().UnixNano()))
 	binary.BigEndian.PutUint16(key[8:], uint16(sender))
 
 	if _, err := rand.Read(key[10:]); err != nil {
@@ -490,4 +490,8 @@ func WithNoPassphrase() StorageOption {
 	return func(p *Storage) {
 		p.passphraseHandler = func() ([]byte, error) { return []byte(""), nil }
 	}
+}
+
+func WithClock(c clock.Clock) StorageOption {
+	return func(p *Storage) { p.clock = c }
 }

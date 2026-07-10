@@ -10,9 +10,9 @@ import (
 
 // HPKE ciphersuite components used for key establishment.
 // MLKEM768-X25519 provides hybrid post-quantum + classical security.
-// HKDF-SHA512 is the KDF and ChaCha20Poly1305 is the AEAD (used only
-// within the HPKE key schedule; actual transport encryption uses the
-// exported keys with XChaCha20-Poly1305 via enigma).
+// HKDF-SHA512 is the KDF and ChaCha20Poly1305 is the AEAD (used only within the
+// HPKE key schedule; actual transport encryption uses the exported keys with
+// XChaCha20-Poly1305 via enigma).
 var (
 	hpkeKEM  = hpke.MLKEM768X25519
 	hpkeKDF  = hpke.HKDFSHA512

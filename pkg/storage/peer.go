@@ -57,7 +57,7 @@ func (s *Storage) findPeer(b *store.Bucket, key []byte) (*Peer, error) {
 		return nil, fmt.Errorf("unmarshaling peer: %w", err)
 	}
 
-	if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(time.Now()) {
+	if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(s.clock.Now()) {
 		err = s.store.Command(func(b *store.Bucket) error {
 			peers := b.Sub([]byte(store.PeersBucket))
 			return peers.Delete(key)
@@ -94,7 +94,7 @@ func (s *Storage) StorePeer(peer *Peer) error {
 		)
 	}
 
-	now := time.Now()
+	now := s.clock.Now()
 	firstSeen := peer.FirstSeen
 	if firstSeen.IsZero() {
 		firstSeen = now
@@ -154,7 +154,7 @@ func (s *Storage) UpdatePeerLastSeen(claim []byte, t time.Time) error {
 	}
 
 	if t.IsZero() {
-		t = time.Now()
+		t = s.clock.Now()
 	}
 	p.LastSeen = timestamppb.New(t)
 
@@ -191,7 +191,7 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 				continue
 			}
 
-			if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(time.Now()) {
+			if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(s.clock.Now()) {
 				keyCopy := make([]byte, len(key))
 				copy(keyCopy, key)
 				expiredKeys = append(expiredKeys, keyCopy)

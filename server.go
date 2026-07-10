@@ -13,18 +13,43 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
+	"github.com/kamune-org/kamune/internal/clock"
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-// Listener accepts incoming connections as [Conn] values. Unlike net.Listener
-// (which yields net.Conn), this yields the abstract Conn interface, suitable
-// for custom transport backends such as a relay WebSocket.
+// Listener accepts incoming connections as [Conn] values.
 type Listener interface {
 	Accept() (Conn, error)
 	Close() error
+}
+
+type tcpListener struct {
+	net.Listener
+	connOpts []ConnOption
+}
+
+func (l *tcpListener) Accept() (Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return newConn(c, l.connOpts...), nil
+}
+
+type udpListener struct {
+	net.Listener
+	connOpts []ConnOption
+}
+
+func (l *udpListener) Accept() (Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return newConn(c, l.connOpts...), nil
 }
 
 // Server handles incoming connections and manages the handshake process.
@@ -32,19 +57,20 @@ type Server struct {
 	listener      Listener
 	attest        *attest.Attest
 	storage       *storage.Storage
-	serverName    string
 	handlerFunc   HandlerFunc
-	handshakeOpts handshakeOpts
-	resumeEnabled bool
+	serverName    string
 	addr          string
+	handshakeOpts handshakeOpts
 	connOpts      []ConnOption
-	closed        bool
 	mu            sync.Mutex
+	clock         clock.Clock
+	resumeEnabled bool
+	closed        bool
 }
 
-// ListenAndServe starts the server and listens for incoming connections.
-// It blocks until the listener is closed via [Server.Close] or an
-// unrecoverable error occurs.
+// ListenAndServe starts the server and listens for incoming connections. It
+// blocks until the listener is closed via [Server.Close] or an unrecoverable
+// error occurs.
 func (s *Server) ListenAndServe() error {
 	s.mu.Lock()
 	if s.closed {
@@ -84,8 +110,8 @@ func (s *Server) ListenAndServe() error {
 }
 
 // Close gracefully shuts down the server by closing the underlying listener,
-// causing [Server.ListenAndServe] to return. It is safe to call multiple
-// times and concurrently.
+// causing [Server.ListenAndServe] to return. It is safe to call multiple times
+// and concurrently.
 func (s *Server) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -100,34 +126,6 @@ func (s *Server) Close() error {
 
 	s.closed = true
 	return nil
-}
-
-// tcpListener wraps a net.Listener and yields *conn values.
-type tcpListener struct {
-	net.Listener
-	connOpts []ConnOption
-}
-
-func (l *tcpListener) Accept() (Conn, error) {
-	c, err := l.Listener.Accept()
-	if err != nil {
-		return nil, err
-	}
-	return newConn(c, l.connOpts...), nil
-}
-
-// udpListener wraps a KCP listener and yields *conn values.
-type udpListener struct {
-	net.Listener
-	connOpts []ConnOption
-}
-
-func (l *udpListener) Accept() (Conn, error) {
-	c, err := l.Listener.Accept()
-	if err != nil {
-		return nil, err
-	}
-	return newConn(c, l.connOpts...), nil
 }
 
 func (s *Server) serve(cn Conn) (err error) {
@@ -263,7 +261,7 @@ func (s *Server) handleResume(
 	}
 
 	// Check the resumption window.
-	if time.Since(session.EstablishedAt) > resumptionGracePeriod {
+	if s.clock.Now().Sub(session.EstablishedAt) > resumptionGracePeriod {
 		if err := sendResumeAccept(ec, false); err != nil {
 			return fmt.Errorf("sending resume accept: %w", err)
 		}
@@ -323,6 +321,7 @@ func NewServer(
 			remoteVerifier: defaultRemoteVerifier,
 			timeout:        30 * time.Second,
 		},
+		clock:         clock.Real(),
 		resumeEnabled: true,
 	}
 
@@ -407,6 +406,15 @@ func ServeWithListener(l Listener) ServerOptions {
 func ServeWithResumeEnabled(enabled bool) ServerOptions {
 	return func(s *Server) error {
 		s.resumeEnabled = enabled
+		return nil
+	}
+}
+
+// ServeWithClock sets a custom clock for the server. It is primarily useful
+// for tests that need to control time-dependent behavior like session expiry.
+func ServeWithClock(c clock.Clock) ServerOptions {
+	return func(s *Server) error {
+		s.clock = c
 		return nil
 	}
 }

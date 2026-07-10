@@ -143,7 +143,8 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 }
 
 // attemptResume tries to resume a session. Returns the transport on success,
-// or an error if resumption failed (caller should fall back to cold Introduction).
+// or an error if resumption failed (caller should fall back to cold
+// Introduction).
 func (d *Dialer) attemptResume(
 	ec *exchange.Channel, cn Conn,
 ) (*Transport, error) {
@@ -176,11 +177,8 @@ func (d *Dialer) attemptResume(
 	}
 
 	t.conn = cn
+	t.remotePeer = session.Peer
 	_ = d.storage.StoreResumptionTokens(t.sessionID, t.deriveResumptionTokens())
-
-	// Load peer info from storage for the transport.
-	// peer := &storage.Peer{PublicKey: ro.peerKey}
-	// t.remotePeer = peer
 
 	slog.Info("session resumed", slog.String("session_id", t.sessionID))
 

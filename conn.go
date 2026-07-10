@@ -12,8 +12,8 @@ import (
 	"github.com/kamune-org/kamune/pkg/exchange"
 )
 
-// Conn is the abstract transport connection used by the kamune protocol.
-// It extends exchange.ReadWriter with deadline and close operations.
+// Conn is the abstract transport connection used by the kamune protocol. It
+// extends exchange.ReadWriter with deadline and close operations.
 type Conn interface {
 	exchange.ReadWriter
 	SetDeadline(t time.Time) error

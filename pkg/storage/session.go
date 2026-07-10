@@ -46,7 +46,7 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 
 		// Store establishment timestamp.
 		var tsBuf [8]byte
-		binary.BigEndian.PutUint64(tsBuf[:], uint64(time.Now().UnixNano()))
+		binary.BigEndian.PutUint64(tsBuf[:], uint64(s.clock.Now().UnixNano()))
 		err = meta.PutEncrypted(establishedAtKey, tsBuf[:])
 		if err != nil {
 			return fmt.Errorf("store established_at: %w", err)
