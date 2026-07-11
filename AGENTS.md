@@ -50,7 +50,7 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 - `pkg/` contains public sub-packages: `attest`, `exchange`, `fingerprint`, `storage`
 - `internal/` is private: `box/pb` (protobuf), `enigma` (XChaCha20-Poly1305), `store` (BoltDB wrapper)
 - Relay is a stateless blind session switch with optional PSK auth; uses WebSocket and TCP transports
-- Cipher suite: `Ed25519_HPKE_MLKEM768_ChaCha20-Poly1305X`
+- Cipher suite: `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X`
 - Protocol flow: Exchange (HPKE) → Introduction → Handshake (ML-KEM-768) → Challenge → Communication
 
 ## Storage quirks

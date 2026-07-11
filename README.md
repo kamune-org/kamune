@@ -1,7 +1,6 @@
 # Kamune
 
 ![Go version](https://img.shields.io/badge/Go-1.26-00ADD8)
-[![Go Report Card](https://goreportcard.com/badge/github.com/kamune-org/kamune)](https://goreportcard.com/report/github.com/kamune-org/kamune)
 [![GitHub release](https://img.shields.io/github/v/release/kamune-org/kamune)](https://github.com/kamune-org/kamune/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -45,7 +44,7 @@ Kamune provides `Ed25519_MLKEM768_ChaCha20-Poly1305X` security suite.
 - [x] Client-side minor version warning — surface the core warning to users in clients
 - [x] Generate connection QR code in clients
 - [x] NAT traversal / hole punching
-- [ ] Session resumption — reconnect without full re-handshake
+- [x] Session resumption — reconnect without full re-handshake
 - [ ] Chunked reads/writes for large messages
 - [ ] Key rotation
 - [ ] Custom encoding protocol (replace Protobuf)

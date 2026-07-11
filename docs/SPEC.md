@@ -4,7 +4,7 @@
 
 **Status:** Experimental
 
-**Suite:** `Ed25519_MLKEM768_ChaCha20-Poly1305X`
+**Suite:** `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X`
 
 **Authors:** Kamune core team
 
@@ -15,7 +15,6 @@
 1. [Overview](#1-overview)
 2. [Terminology](#2-terminology)
 3. [Cipher Suite](#3-cipher-suite)
-   - 3.1 [Default Suite: `Ed25519_MLKEM768_ChaCha20-Poly1305X`](#31-default-suite-ed25519_mlkem768_chacha20-poly1305x)
 4. [Wire Format](#4-wire-format)
    - 4.1 [Length-Prefixed Framing](#41-length-prefixed-framing)
    - 4.2 [Envelope Fields](#42-envelope-fields)
@@ -115,11 +114,11 @@ disconnect from a network failure.
 
 ## 3. Cipher Suite
 
+Kamune provides `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X` cipher suite.
+
 <picture>
   <img alt="Cipher Suite Architecture" src="../assets/diagrams/cipher-suite.svg">
 </picture>
-
-### 3.1 Default Suite: `Ed25519_MLKEM768_ChaCha20-Poly1305X`
 
 | Component                | Algorithm          | Purpose                                                                                                                        |
 | ------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
