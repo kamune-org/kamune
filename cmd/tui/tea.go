@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -155,6 +156,7 @@ type model struct {
 	transport     *kamune.Transport
 	pingFailures  int
 	lastPongAt    time.Time
+	pongCh        chan []byte
 	keepAliveDone chan struct{}
 	vp            viewport.Model
 	ta            textarea.Model
@@ -476,6 +478,7 @@ func (m *model) enterChat() (tea.Model, tea.Cmd) {
 	m.vp.SetContent("Session ID is " + m.transport.SessionID() + ". Loading history…")
 
 	m.startReceiving()
+	m.pongCh = make(chan []byte, 1)
 	m.keepAliveDone = make(chan struct{})
 	go m.keepAliveLoop()
 	if !m.sessionExpiry.IsZero() {
@@ -543,9 +546,13 @@ func (m *model) startReceiving() {
 			// Handle protocol-level routes before treating as chat.
 			switch metadata.Route() {
 			case kamune.RoutePing:
-				_ = m.transport.Pong(b.GetValue())
+				_, _ = m.transport.Send(kamune.Bytes(b.GetValue()), kamune.RoutePong)
 				continue
 			case kamune.RoutePong:
+				select {
+				case m.pongCh <- b.GetValue():
+				default:
+				}
 				continue
 			}
 
@@ -562,6 +569,7 @@ func (m *model) startReceiving() {
 // keepAliveLoop sends periodic pings to detect dead connections. After
 // 3 consecutive failures, the peer is considered unresponsive.
 func (m *model) keepAliveLoop() {
+	const pingTimeout = 10 * time.Second
 	defer close(m.keepAliveDone)
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -570,7 +578,7 @@ func (m *model) keepAliveLoop() {
 		case <-m.doneCh:
 			return
 		case <-ticker.C:
-			if err := m.transport.Ping(10 * time.Second); err != nil {
+			if err := tuiSendPing(m.transport, m.pongCh, pingTimeout); err != nil {
 				m.pingFailures++
 				if m.pingFailures >= 3 {
 					m.program.Send(peerDisconnectedMsg{})
@@ -581,6 +589,32 @@ func (m *model) keepAliveLoop() {
 				m.lastPongAt = time.Now()
 			}
 		}
+	}
+}
+
+// tuiSendPing sends a RoutePing and waits for a matching RoutePong
+// within timeout.
+func tuiSendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duration) error {
+	const pingDataSize = 8
+	tok := make([]byte, pingDataSize)
+	if _, err := rand.Read(tok); err != nil {
+		return err
+	}
+	if _, err := t.Send(kamune.Bytes(tok), kamune.RoutePing); err != nil {
+		return err
+	}
+	select {
+	case <-pongCh:
+	default:
+	}
+	select {
+	case data := <-pongCh:
+		if string(data) != string(tok) {
+			return kamune.ErrVerificationFailed
+		}
+		return nil
+	case <-time.After(timeout):
+		return kamune.ErrReceiveTimeout
 	}
 }
 
