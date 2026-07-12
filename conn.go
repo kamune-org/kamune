@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kamune-org/kamune/pkg/exchange"
@@ -21,36 +22,39 @@ type Conn interface {
 }
 
 // conn implements [Conn] interface, providing frame-based read and write
-// operations over a network connection.
+// operations over a network connection. It also implements [net.Conn]
+// interface.
 //
-// It also implements [net.Conn] interface.
+// Read and write paths are serialized independently: readMu protects the
+// entire ReadBytes operation (length prefix + payload) and read deadlines;
+// writeMu protects the entire WriteBytes operation and write deadlines.
+// This keeps TCP full-duplex working while making each frame's two-step
+// read/write atomic.
 type conn struct {
 	currentReadDeadline  time.Time
 	currentWriteDeadline time.Time
 	conn                 net.Conn
 	readDeadline         time.Duration
 	writeDeadline        time.Duration
-	mu                   sync.Mutex
-	closed               bool
+	readMu               sync.Mutex
+	writeMu              sync.Mutex
+	closed               atomic.Bool
 }
 
 func (c *conn) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
+	if !c.closed.CompareAndSwap(false, true) {
 		return ErrConnClosed
 	}
-	if err := c.conn.Close(); err != nil {
-		return err
-	}
-	c.closed = true
-	return nil
+	return c.conn.Close()
 }
 
 // TODO(h.yazdani): support chunked read and writes
 
 func (c *conn) Read(buf []byte) (int, error) {
-	if err := c.checkReadDeadline(c.readDeadline); err != nil {
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
+
+	if err := c.checkReadDeadlineLocked(c.readDeadline); err != nil {
 		return 0, err
 	}
 
@@ -65,7 +69,10 @@ func (c *conn) Read(buf []byte) (int, error) {
 }
 
 func (c *conn) ReadBytes() ([]byte, error) {
-	l, err := c.readLen()
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
+
+	l, err := c.readLenLocked()
 	if err != nil {
 		return nil, fmt.Errorf("get message length: %w", err)
 	}
@@ -78,7 +85,10 @@ func (c *conn) ReadBytes() ([]byte, error) {
 }
 
 func (c *conn) Write(data []byte) (int, error) {
-	if err := c.checkWriteDeadline(c.writeDeadline); err != nil {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	if err := c.checkWriteDeadlineLocked(c.writeDeadline); err != nil {
 		return 0, err
 	}
 
@@ -90,12 +100,15 @@ func (c *conn) Write(data []byte) (int, error) {
 }
 
 func (c *conn) WriteBytes(data []byte) error {
-	_, err := c.writeLen(data)
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	_, err := c.writeLenLocked(data)
 	if err != nil {
 		return fmt.Errorf("writing length: %w", err)
 	}
 
-	if err := c.checkWriteDeadline(c.writeDeadline); err != nil {
+	if err := c.checkWriteDeadlineLocked(c.writeDeadline); err != nil {
 		return err
 	}
 
@@ -116,8 +129,9 @@ func (c *conn) WriteBytes(data []byte) error {
 	return nil
 }
 
-func (c *conn) readLen() (uint16, error) {
-	if err := c.checkReadDeadline(c.readDeadline); err != nil {
+// readLenLocked reads the 2-byte length prefix. Caller must hold c.readMu.
+func (c *conn) readLenLocked() (uint16, error) {
+	if err := c.checkReadDeadlineLocked(c.readDeadline); err != nil {
 		return 0, err
 	}
 
@@ -129,8 +143,9 @@ func (c *conn) readLen() (uint16, error) {
 	return binary.BigEndian.Uint16(lenBuf[:]), nil
 }
 
-func (c *conn) writeLen(data []byte) (int, error) {
-	if err := c.checkWriteDeadline(c.writeDeadline); err != nil {
+// writeLenLocked writes the 2-byte length prefix. Caller must hold c.writeMu.
+func (c *conn) writeLenLocked(data []byte) (int, error) {
+	if err := c.checkWriteDeadlineLocked(c.writeDeadline); err != nil {
 		return 0, err
 	}
 
@@ -160,10 +175,10 @@ func (c *conn) writeLen(data []byte) (int, error) {
 	return int(msgLen), nil
 }
 
-func (c *conn) checkReadDeadline(deadline time.Duration) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
+// checkReadDeadlineLocked refreshes the read deadline if needed.
+// Caller must hold c.readMu.
+func (c *conn) checkReadDeadlineLocked(deadline time.Duration) error {
+	if c.closed.Load() {
 		return ErrConnClosed
 	}
 
@@ -178,8 +193,13 @@ func (c *conn) checkReadDeadline(deadline time.Duration) error {
 	}
 
 	newDeadline := time.Now().Add(deadline)
-	// Respect an existing shorter deadline (e.g. set by Ping).
-	if !c.currentReadDeadline.IsZero() && c.currentReadDeadline.Before(newDeadline) {
+	switch {
+	case c.currentReadDeadline.IsZero():
+		// No deadline set — apply the new one.
+	case c.currentReadDeadline.Before(time.Now()):
+		// Existing deadline expired — replace it.
+	case c.currentReadDeadline.Before(newDeadline):
+		// Existing deadline is tighter — keep it, skip the syscall.
 		return nil
 	}
 	if err := c.conn.SetReadDeadline(newDeadline); err != nil {
@@ -189,10 +209,10 @@ func (c *conn) checkReadDeadline(deadline time.Duration) error {
 	return nil
 }
 
-func (c *conn) checkWriteDeadline(deadline time.Duration) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
+// checkWriteDeadlineLocked refreshes the write deadline if needed.
+// Caller must hold c.writeMu.
+func (c *conn) checkWriteDeadlineLocked(deadline time.Duration) error {
+	if c.closed.Load() {
 		return ErrConnClosed
 	}
 
@@ -207,8 +227,13 @@ func (c *conn) checkWriteDeadline(deadline time.Duration) error {
 	}
 
 	newDeadline := time.Now().Add(deadline)
-	// Respect an existing shorter deadline.
-	if !c.currentWriteDeadline.IsZero() && c.currentWriteDeadline.Before(newDeadline) {
+	switch {
+	case c.currentWriteDeadline.IsZero():
+		// No deadline set — apply the new one.
+	case c.currentWriteDeadline.Before(time.Now()):
+		// Existing deadline expired — replace it.
+	case c.currentWriteDeadline.Before(newDeadline):
+		// Existing deadline is tighter — keep it, skip the syscall.
 		return nil
 	}
 	if err := c.conn.SetWriteDeadline(newDeadline); err != nil {
@@ -222,24 +247,28 @@ func (c *conn) LocalAddr() net.Addr  { return c.conn.LocalAddr() }
 func (c *conn) RemoteAddr() net.Addr { return c.conn.RemoteAddr() }
 
 func (c *conn) SetDeadline(t time.Time) error {
-	c.mu.Lock()
+	c.readMu.Lock()
 	c.currentReadDeadline = t
+	c.readMu.Unlock()
+
+	c.writeMu.Lock()
 	c.currentWriteDeadline = t
-	c.mu.Unlock()
+	c.writeMu.Unlock()
+
 	return c.conn.SetDeadline(t)
 }
 
 func (c *conn) SetReadDeadline(t time.Time) error {
-	c.mu.Lock()
+	c.readMu.Lock()
 	c.currentReadDeadline = t
-	c.mu.Unlock()
+	c.readMu.Unlock()
 	return c.conn.SetReadDeadline(t)
 }
 
 func (c *conn) SetWriteDeadline(t time.Time) error {
-	c.mu.Lock()
+	c.writeMu.Lock()
 	c.currentWriteDeadline = t
-	c.mu.Unlock()
+	c.writeMu.Unlock()
 	return c.conn.SetWriteDeadline(t)
 }
 

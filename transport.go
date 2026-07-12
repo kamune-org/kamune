@@ -1,7 +1,6 @@
 package kamune
 
 import (
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -10,13 +9,10 @@ import (
 	"net"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
-
-const pingDataSize = 8
 
 // isTimeout reports whether err is a deadline/timeout error, either from
 // os.ErrDeadlineExceeded or from a net.Error with Timeout() true.
@@ -89,8 +85,8 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 	case RouteCloseTransport:
 		return nil, ErrPeerDisconnected
 	case RoutePing:
-		// Ping is handled externally via Ping/Pong methods; return
-		// metadata for the caller to process.
+		// Ping is handled externally by the application; return
+		// metadata for the caller to respond with a pong.
 	}
 
 	// Validate per-message sequence number to detect duplicates, missing, or
@@ -145,37 +141,6 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 func (t *Transport) Close() error {
 	_, _ = t.Send(Bytes(nil), RouteCloseTransport)
 	return t.conn.Close()
-}
-
-// Ping sends a keep-alive ping to the remote peer and waits for a pong
-// response within the given timeout. The ping carries random data for
-// freshness; the pong MUST echo it back.
-func (t *Transport) Ping(timeout time.Duration) error {
-	tok := make([]byte, pingDataSize)
-	_, _ = rand.Read(tok)
-
-	if _, err := t.Send(Bytes(tok), RoutePing); err != nil {
-		return fmt.Errorf("send ping: %w", err)
-	}
-
-	_ = t.conn.SetDeadline(time.Now().Add(timeout))
-	defer func() { _ = t.conn.SetDeadline(time.Time{}) }()
-
-	r := Bytes(nil)
-	if _, err := t.Receive(r); err != nil {
-		return fmt.Errorf("await pong: %w", err)
-	}
-
-	if string(r.GetValue()) != string(tok) {
-		return fmt.Errorf("%w: ping/pong token mismatch", ErrVerificationFailed)
-	}
-	return nil
-}
-
-// Pong sends a pong response echoing the data from a received ping.
-func (t *Transport) Pong(data []byte) error {
-	_, err := t.Send(Bytes(data), RoutePong)
-	return err
 }
 
 // SessionID returns the unique identifier for this session.
