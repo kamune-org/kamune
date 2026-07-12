@@ -159,6 +159,11 @@ type liveSession struct {
 	pingFailures     int
 	lastPongAt       time.Time
 	pongCh           chan []byte
+
+	reconnectFn     func(sessionID string) (*kamune.Transport, error)
+	reconnectCtx    context.Context
+	reconnectCancel context.CancelFunc
+	keepAliveDone   chan struct{}
 }
 
 type historySession struct {
@@ -189,7 +194,7 @@ type relayToken struct {
 	// PeerPubB64 is set when Mode == "static"; identifies the
 	// peer this token was derived for (so the sidebar can show the
 	// peer's name alongside the token).
-	PeerPubB64 string        `json:"peerPubB64,omitempty"`
+	PeerPubB64 string `json:"peerPubB64,omitempty"`
 	listener   kamune.Listener
 }
 
@@ -248,16 +253,16 @@ type App struct {
 	appVersion      string
 	fingerprintFmt  string
 
-	serverAddr       string
-	serverTransport  string
-	serverRelayAddr  string
-	serverName       string
-	serverPassword   string
-	serverBrokerAddr    string
-	serverPeerPubB64    string
+	serverAddr           string
+	serverTransport      string
+	serverRelayAddr      string
+	serverName           string
+	serverPassword       string
+	serverBrokerAddr     string
+	serverPeerPubB64     string
 	serverDirectPeerAddr string
-	serverUseP2P        bool
-	serverUseBroker     bool
+	serverUseP2P         bool
+	serverUseBroker      bool
 
 	logEntries    []LogEntryInfo
 	logMu         sync.RWMutex

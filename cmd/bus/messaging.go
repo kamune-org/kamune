@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -63,50 +64,40 @@ func (a *App) SendMessage(sessionID string, text string) error {
 	return nil
 }
 
+// receiveMessages runs the receive loop for a session. On involuntary
+// disconnect (ErrConnClosed) it attempts transparent resumption when
+// reconnectFn is available. When the loop exits, it cleans up the session and
+// emits session-closed.
 func (a *App) receiveMessages(session *liveSession) {
 	defer close(session.ReceiveDone)
-	a.receiveMessagesBlocking(session)
-
-	sessionsRemaining := a.removeSession(session.ID)
-
-	if store := a.store(); store != nil {
-		a.loadHistorySessions(store)
-	}
-
-	runtime.EventsEmit(a.ctx, "session-closed", session.ID)
-
-	if sessionsRemaining == 0 {
-		a.setStatus(StatusDisconnected, "Not connected")
-		a.addLogEntry("INFO", "All sessions disconnected")
-	}
-}
-
-func (a *App) receiveMessagesBlocking(session *liveSession) {
-	t := session.Transport
 
 	for {
 		b := kamune.Bytes(nil)
-		metadata, err := t.Receive(b)
+		metadata, err := session.Transport.Receive(b)
 		if err != nil {
 			switch {
 			case errors.Is(err, kamune.ErrPeerDisconnected):
 				a.addLogEntry("INFO", "Peer disconnected: "+session.ID)
-				return
 			case errors.Is(err, kamune.ErrConnClosed):
 				a.addLogEntry("INFO", "Connection closed: "+session.ID)
-				return
+				if session.reconnectFn != nil &&
+					a.reconnectSession(session) {
+					continue
+				}
 			case errors.Is(err, kamune.ErrReceiveTimeout):
 				continue
 			default:
 				a.addLogEntry("ERROR", "Receive error: "+err.Error())
-				return
 			}
+			break
 		}
 
 		// Handle protocol-level routes before treating as chat.
 		switch metadata.Route() {
 		case kamune.RoutePing:
-			if _, err := t.Send(kamune.Bytes(b.GetValue()), kamune.RoutePong); err != nil {
+			if _, err := session.Transport.Send(
+				kamune.Bytes(b.GetValue()), kamune.RoutePong,
+			); err != nil {
 				a.addLogEntry("WARN", "Failed to send pong: "+err.Error())
 			}
 			continue
@@ -132,7 +123,9 @@ func (a *App) receiveMessagesBlocking(session *liveSession) {
 		a.mu.Unlock()
 
 		if store := a.store(); store != nil && !a.incognito {
-			store.AddChatEntry(session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer)
+			store.AddChatEntry(
+				session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
+			)
 		}
 
 		if !isActive {
@@ -147,6 +140,19 @@ func (a *App) receiveMessagesBlocking(session *liveSession) {
 		runtime.EventsEmit(a.ctx, "session-updated", session.ID)
 		a.addLogEntry("DEBUG", "Received message | session_id="+session.ID+" msg_id="+metadata.ID())
 	}
+
+	sessionsRemaining := a.removeSession(session.ID)
+
+	if store := a.store(); store != nil {
+		a.loadHistorySessions(store)
+	}
+
+	runtime.EventsEmit(a.ctx, "session-closed", session.ID)
+
+	if sessionsRemaining == 0 {
+		a.setStatus(StatusDisconnected, "Not connected")
+		a.addLogEntry("INFO", "All sessions disconnected")
+	}
 }
 
 // keepAliveLoop sends periodic pings to detect dead connections. After 3
@@ -158,6 +164,8 @@ func (a *App) keepAliveLoop(session *liveSession) {
 	for {
 		select {
 		case <-session.ReceiveDone:
+			return
+		case <-session.keepAliveDone:
 			return
 		case <-ticker.C:
 			a.addLogEntry("DEBUG", "keepalive: pinging peer | session_id="+session.ID+" failures="+
@@ -206,4 +214,53 @@ func sendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duration) 
 	case <-time.After(timeout):
 		return kamune.ErrReceiveTimeout
 	}
+}
+
+// reconnectSession attempts to re-establish a session after an involuntary
+// disconnect using resumption tokens. It retries with exponential backoff up to
+// maxAttempts times. Returns true if reconnection succeeded (caller should
+// restart the receive loop).
+func (a *App) reconnectSession(session *liveSession) bool {
+	const (
+		maxAttempts = 10
+		baseDelay   = 1 * time.Second
+		maxDelay    = 30 * time.Second
+	)
+
+	for attempt := range maxAttempts {
+		delay := min(baseDelay*time.Duration(1<<attempt), maxDelay)
+
+		a.addLogEntry(
+			"INFO", fmt.Sprintf("Reconnecting session %s (attempt %d/%d)", session.ID, attempt+1, maxAttempts),
+		)
+		runtime.EventsEmit(a.ctx, "session-reconnecting", session.ID, attempt+1, maxAttempts)
+
+		select {
+		case <-time.After(delay):
+		case <-session.reconnectCtx.Done():
+			return false
+		}
+
+		t, err := session.reconnectFn(session.ID)
+		if err != nil {
+			a.addLogEntry("WARN", "Reconnect failed: "+err.Error())
+			continue
+		}
+
+		a.mu.Lock()
+		session.Transport = t
+		session.pingFailures = 0
+		session.pongCh = make(chan []byte, 1)
+		close(session.keepAliveDone)
+		session.keepAliveDone = make(chan struct{})
+		a.mu.Unlock()
+
+		a.addLogEntry("INFO", "Reconnected session "+session.ID)
+		runtime.EventsEmit(a.ctx, "session-reconnected", session.ID)
+		go a.keepAliveLoop(session)
+		return true
+	}
+
+	a.addLogEntry("WARN", "Reconnect failed after "+strconv.Itoa(maxAttempts)+" attempts: "+session.ID)
+	return false
 }

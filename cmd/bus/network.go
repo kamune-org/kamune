@@ -666,12 +666,29 @@ func (a *App) ConnectToServer(
 		SessionTTL:       sessionTTL,
 		SessionStartedAt: time.Now(),
 		pongCh:           make(chan []byte, 1),
+		keepAliveDone:    make(chan struct{}),
 	}
 
 	if store := a.store(); store != nil && !a.incognito {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
+	}
+
+	// Store dial params for transparent resumption on involuntary
+	// disconnect.
+	reconnectCtx, reconnectCancel := context.WithCancel(a.ctx)
+	session.reconnectCtx = reconnectCtx
+	session.reconnectCancel = reconnectCancel
+	session.reconnectFn = func(sessionID string) (*kamune.Transport, error) {
+		resumeOpts := append(
+			[]kamune.DialOption{kamune.DialWithResume(sessionID)}, opts...,
+		)
+		d, err := kamune.NewDialer(addr, store, resumeOpts...)
+		if err != nil {
+			return nil, err
+		}
+		return d.Dial()
 	}
 
 	a.loadChatHistory(session)
@@ -760,6 +777,19 @@ func (a *App) DisconnectSession(sessionID string) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
+	// Invalidate resumption tokens so this explicitly closed
+	// session cannot be resumed later.
+	if store := a.store(); store != nil {
+		if err := store.StoreResumptionTokens(sessionID, nil); err != nil {
+			a.addLogEntry("WARN", "Failed to clear resumption tokens: "+err.Error())
+		}
+	}
+
+	// Cancel any active reconnect loop.
+	if session.reconnectCancel != nil {
+		session.reconnectCancel()
+	}
+
 	session.Transport.Close()
 	waitOrTimeout(session.ReceiveDone, "DisconnectSession: "+sessionID)
 
@@ -800,6 +830,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		SessionTTL:       relaySessionTTL,
 		SessionStartedAt: time.Now(),
 		pongCh:           make(chan []byte, 1),
+		keepAliveDone:    make(chan struct{}),
 	}
 
 	if store := a.store(); store != nil && !a.incognito {
@@ -834,25 +865,8 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
 	a.addLogEntry("INFO", "New incoming connection: "+sessionID)
 
-	defer close(session.ReceiveDone)
 	go a.keepAliveLoop(session)
-	a.receiveMessagesBlocking(session)
-
-	a.removeSession(sessionID)
-
-	if store := a.store(); store != nil {
-		a.loadHistorySessions(store)
-	}
-
-	runtime.EventsEmit(a.ctx, "session-closed", sessionID)
-
-	a.mu.Lock()
-	sessionsRemaining := len(a.sessions)
-	a.mu.Unlock()
-	if sessionsRemaining == 0 {
-		a.setStatus(StatusDisconnected, "Not connected")
-		a.addLogEntry("INFO", "All sessions disconnected")
-	}
+	a.receiveMessages(session)
 	return nil
 }
 
