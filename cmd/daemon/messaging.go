@@ -108,12 +108,15 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
 		}
 
 		if metadata.Route() == kamune.RoutePing {
-			if err := t.Pong(b.GetValue()); err != nil {
+			if _, err := t.Send(kamune.Bytes(b.GetValue()), kamune.RoutePong); err != nil {
 				slog.Warn("failed to send pong",
 					slog.String("session_id", session.ID),
 					slog.Any("error", err),
 				)
 			}
+			continue
+		}
+		if metadata.Route() == kamune.RoutePong {
 			continue
 		}
 
