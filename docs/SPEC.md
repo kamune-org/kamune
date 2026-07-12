@@ -664,6 +664,11 @@ connection-closed condition instead. This allows applications to distinguish:
 The close message is sent **best-effort** — if the connection is already broken,
 the send is skipped and the transport is closed directly.
 
+When a peer sends or receives `ROUTE_CLOSE_TRANSPORT`, the session is considered
+intentionally closed, and all stored resumption tokens for that session MUST be
+invalidated. This prevents an explicitly torn-down session from being resumed
+later. See §6.8.1 for details on token invalidation scope.
+
 ### 6.7 Keep-Alive
 
 Peers may probe liveness using an application-level ping/pong exchange over
@@ -697,6 +702,15 @@ underlying connection and all in-memory transport state are destroyed on
 disconnect; resumption produces a **new session** — fresh handshake, fresh keys,
 fresh sequence counters — distinguished from a cold start only by reusing the
 original session ID and skipping the remote-verifier callback. (RFC001)
+
+Resumption is a recovery mechanism for involuntary session interruptions —
+network failures, application crashes, and relay-enforced TTL expiry. It allows
+the dialer to re-establish communication without repeating the Introduction
+phase, using pre-derived tokens.
+
+Resumption is **not** a persistence mechanism for intentionally closed sessions.
+When a peer explicitly tears down a session (§6.6), all resumption tokens for
+that session are invalidated, and the session cannot be resumed later.
 
 Resumption tokens are derived from the MLKEM768 shared secret established during
 the session's handshake (§7.6). The protocol flow is as follows:
@@ -747,6 +761,9 @@ Initiator                                   Responder
   how many tokens remain unused. A session with no unused tokens or past its
   window is **unresumeable** — the initiator must fall back to a full
   Introduction.
+- **Invalidation on explicit close.** Tokens are cleared when the session is
+  intentionally closed (§6.6). Involuntary disconnections (network failure,
+  crash, relay TTL) do **not** invalidate tokens.
 
 #### 6.8.2 Wire Messages
 
