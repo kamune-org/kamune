@@ -280,8 +280,9 @@ enum Route {
     a peer-disconnected condition to the application layer. No further
     messages should be processed for this session.
 - Routes `9–10` are **keep-alive routes** for application-level ping/pong.
-  The `Transport` layer automatically responds to `ROUTE_PING` messages with a
-  `ROUTE_PONG` echo.
+  The application layer is responsible for responding to `ROUTE_PING` messages
+  with `ROUTE_PONG` echoes. The `Transport` delivers the frame to the caller
+  without special handling.
 - Routes `11–12` are **resumption routes** and MUST only appear during session
   resumption, after the Exchange phase but before the Handshake. If the server
   does not support resumption, receiving `ROUTE_RESUME_REQUEST` MUST be treated
@@ -667,23 +668,26 @@ the send is skipped and the transport is closed directly.
 
 Peers may probe liveness using an application-level ping/pong exchange over
 routes `9` and `10`. Ping/pong messages follow the same sequence-number space
-and encryption as session messages.
+and encryption as session messages. The keep-alive mechanism is implemented
+entirely at the application layer; the `Transport` treats these as ordinary
+frames.
 
 **Ping flow:**
 
 1. The caller generates 8 random bytes as a freshness token.
 2. Sends the token with route `ROUTE_PING`.
-3. Sets a read deadline on the connection to the provided timeout.
-4. Waits for a response.
+3. Waits for a response on an application-owned channel with a timeout.
+4. The application's receive loop dispatches incoming `ROUTE_PONG` frames
+   to the channel.
 5. Verifies the received route is `ROUTE_PONG` and the echoed data matches
    the original token.
-6. If the token does not match, the ping is treated as failed.
-7. Clears the read deadline.
+6. If the token does not match, or the timeout expires, the ping is treated
+   as failed.
 
 **Pong handler:**
 
-The peer's application code SHOULD register a handler for `ROUTE_PING` that
-echoes the data back with `ROUTE_PONG`.
+The application's receive loop MUST handle incoming `ROUTE_PING` frames by
+extracting the token data and sending it back with `ROUTE_PONG`.
 
 ### 6.8 Session Resumption
 
