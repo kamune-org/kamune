@@ -158,6 +158,7 @@ type liveSession struct {
 	SessionStartedAt time.Time
 	pingFailures     int
 	lastPongAt       time.Time
+	pongCh           chan []byte
 }
 
 type historySession struct {

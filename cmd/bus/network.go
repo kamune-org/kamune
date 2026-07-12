@@ -665,6 +665,7 @@ func (a *App) ConnectToServer(
 		TransportType:    transportTypeFor(transport, useP2P),
 		SessionTTL:       sessionTTL,
 		SessionStartedAt: time.Now(),
+		pongCh:           make(chan []byte, 1),
 	}
 
 	if store := a.store(); store != nil && !a.incognito {
@@ -798,6 +799,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		TransportType:    transport,
 		SessionTTL:       relaySessionTTL,
 		SessionStartedAt: time.Now(),
+		pongCh:           make(chan []byte, 1),
 	}
 
 	if store := a.store(); store != nil && !a.incognito {

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/rand"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,13 +106,15 @@ func (a *App) receiveMessagesBlocking(session *liveSession) {
 		// Handle protocol-level routes before treating as chat.
 		switch metadata.Route() {
 		case kamune.RoutePing:
-			if err := t.Pong(b.GetValue()); err != nil {
+			if _, err := t.Send(kamune.Bytes(b.GetValue()), kamune.RoutePong); err != nil {
 				a.addLogEntry("WARN", "Failed to send pong: "+err.Error())
 			}
 			continue
 		case kamune.RoutePong:
-			// Pong is consumed by keepAliveLoop's Ping();
-			// ignore stray pongs here.
+			select {
+			case session.pongCh <- b.GetValue():
+			default:
+			}
 			continue
 		}
 
@@ -148,6 +152,7 @@ func (a *App) receiveMessagesBlocking(session *liveSession) {
 // keepAliveLoop sends periodic pings to detect dead connections. After 3
 // consecutive ping failures, the session is closed.
 func (a *App) keepAliveLoop(session *liveSession) {
+	const pingTimeout = 10 * time.Second
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -155,8 +160,12 @@ func (a *App) keepAliveLoop(session *liveSession) {
 		case <-session.ReceiveDone:
 			return
 		case <-ticker.C:
-			if err := session.Transport.Ping(10 * time.Second); err != nil {
+			a.addLogEntry("DEBUG", "keepalive: pinging peer | session_id="+session.ID+" failures="+
+				strconv.Itoa(session.pingFailures))
+			if err := sendPing(session.Transport, session.pongCh, pingTimeout); err != nil {
 				session.pingFailures++
+				a.addLogEntry("DEBUG", "keepalive: ping failed | session_id="+session.ID+" error="+err.Error()+
+					" failures="+strconv.Itoa(session.pingFailures))
 				if session.pingFailures >= 3 {
 					a.addLogEntry("WARN", "Peer unresponsive: "+session.PeerName)
 					_ = session.Transport.Close()
@@ -165,7 +174,36 @@ func (a *App) keepAliveLoop(session *liveSession) {
 			} else {
 				session.pingFailures = 0
 				session.lastPongAt = time.Now()
+				a.addLogEntry("DEBUG", "keepalive: pong received | session_id="+session.ID)
 			}
 		}
+	}
+}
+
+// sendPing sends a RoutePing and waits for a matching RoutePong within
+// timeout. The token-based verification ensures the pong corresponds to
+// this specific ping.
+func sendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duration) error {
+	const pingDataSize = 8
+	tok := make([]byte, pingDataSize)
+	if _, err := rand.Read(tok); err != nil {
+		return err
+	}
+	if _, err := t.Send(kamune.Bytes(tok), kamune.RoutePing); err != nil {
+		return err
+	}
+	// Drain any stale pong from a previous (timed-out) ping.
+	select {
+	case <-pongCh:
+	default:
+	}
+	select {
+	case data := <-pongCh:
+		if string(data) != string(tok) {
+			return kamune.ErrVerificationFailed
+		}
+		return nil
+	case <-time.After(timeout):
+		return kamune.ErrReceiveTimeout
 	}
 }
