@@ -21,6 +21,7 @@
    - 4.3 [Encrypted Messages](#43-encrypted-messages)
 5. [Routes](#5-routes)
    - 5.1 [Route Validation Rules](#51-route-validation-rules)
+   - 5.2 [Session Data](#52-session-data)
 6. [Protocol Flow](#6-protocol-flow)
    - 6.1 [Exchange](#61-exchange)
    - 6.2 [Introduction](#62-introduction)
@@ -250,6 +251,7 @@ enum Route {
   ROUTE_PONG               = 10;
   ROUTE_RESUME_REQUEST     = 11;
   ROUTE_RESUME_ACCEPT      = 12;
+  ROUTE_SESSION_DATA       = 13;
 }
 ```
 
@@ -268,6 +270,7 @@ enum Route {
 | `10`  | `ROUTE_PONG`               | Keep-Alive    | Bidirectional         | Pong response echoing the ping token.        |
 | `11`  | `ROUTE_RESUME_REQUEST`     | Resumption    | Initiator → Responder | Session ID and resumption token.             |
 | `12`  | `ROUTE_RESUME_ACCEPT`      | Resumption    | Responder → Initiator | Acceptance or rejection of resume request.   |
+| `13`  | `ROUTE_SESSION_DATA`       | Communication | Bidirectional         | Session-level metadata exchange (see §5.2).  |
 
 ### 5.1 Route Validation Rules
 
@@ -279,6 +282,10 @@ enum Route {
     Upon receiving this route, the receiver MUST close the session and surface
     a peer-disconnected condition to the application layer. No further
     messages should be processed for this session.
+  - Route `13` (`ROUTE_SESSION_DATA`) carries session-level metadata between
+    peers. The payload is a `SessionData` message with arbitrary key-value
+    fields. The application layer is responsible for dispatching and handling
+    the fields it recognizes; unknown fields MUST be ignored.
 - Routes `9–10` are **keep-alive routes** for application-level ping/pong.
   The application layer is responsible for responding to `ROUTE_PING` messages
   with `ROUTE_PONG` echoes. The `Transport` delivers the frame to the caller
@@ -291,6 +298,43 @@ enum Route {
   **reserved** and not currently used by the protocol.
 - Any message with `ROUTE_INVALID` (`0`) or an unrecognized route value MUST
   be rejected.
+
+### 5.2 Session Data
+
+Route `13` (`ROUTE_SESSION_DATA`) provides a generic, in-band mechanism for
+peers to exchange session-level metadata. The payload is a `SessionData`
+protobuf message:
+
+```
+SessionData {
+  map<string, bytes> Fields = 1;
+}
+```
+
+`Fields` is an open namespace. Peers send key-value pairs where the key is a
+UTF-8 string and the value is opaque bytes. The application layer inspects known
+keys and silently ignores any it does not recognize, allowing the protocol to
+evolve without breaking backward compatibility.
+
+#### Use Cases
+
+**Relay token derivation.** After a session is established, peers may need
+reconnection tokens for relay-based transports. Both peers generate an ephemeral
+X25519 keypair, send the public key via `SessionData` with the key
+`"ecdh_pubkey"`, and compute a shared secret via ECDH. A pool of 3 reconnection
+tokens is derived from the shared secret using HKDF-Expand with the info prefix
+`"kamune/relay-reconnect/v1/"`. The shared secret is never stored; only the
+derived tokens are persisted. See `docs/RELAY.md` for details.
+
+#### Design Constraints
+
+- `ROUTE_SESSION_DATA` messages participate in the same sequence-number space
+  as application messages. The sequence-number rules of §8.2 apply.
+- Messages are encrypted and signed like any other session message.
+- The route is bidirectional — either peer may send `SessionData` at any time
+  after the session is established.
+- The application MUST NOT block session teardown or error handling on
+  unreceived `SessionData` fields.
 
 ---
 
