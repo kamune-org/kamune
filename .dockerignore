@@ -1,0 +1,12 @@
+.git
+.idea
+.DS_Store
+__debug*
+*.db
+*.log
+binaries
+dist
+
+cmd/tui
+cmd/bus
+cmd/daemon

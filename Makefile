@@ -16,7 +16,7 @@ align-structs:
 	@golangci-lint run --enable=govet --fix
 
 .PHONY: build
-build: relay bus
+build: relay bus daemon
 
 .PHONY: relay
 relay:
@@ -26,6 +26,17 @@ relay:
 bus:
 	cd cmd/bus && bash scripts/build.sh
 
-# .PHONY: daemon
-# daemon:
-# 	go build -o daemon ./cmd/daemon
+.PHONY: daemon
+daemon:
+	cd cmd/daemon && bash scripts/build.sh
+
+RELAY_VERSION ?= $(shell cat cmd/relay/VERSION 2>/dev/null | tr -d '[:space:]')
+REGISTRY ?= hossein1376
+
+.PHONY: relay-docker-push
+relay-docker-push:
+	docker buildx build -f cmd/relay/Dockerfile \
+		--platform linux/amd64,linux/arm64 \
+		-t $(REGISTRY)/kamune-relay:$(RELAY_VERSION) \
+		-t $(REGISTRY)/kamune-relay:latest \
+		--push .
