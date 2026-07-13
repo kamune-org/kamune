@@ -111,7 +111,8 @@ message Frame {
 
 message Register {
     bytes token = 1;  // Empty when creating a session (listener),
-                      // 16-byte token when joining (dialer)
+                      // token when joining (dialer) — 16 bytes relay-generated,
+                      // 32 bytes user-provided (static or ECDH-derived)
 }
 
 message Registered {
@@ -394,9 +395,9 @@ peer to join.
 
 By default the listener receives a random 16-byte token from the relay and
 shares it with the dialer out of band (QR code, link, text message). The
-static-tokens mode lets both peers compute the same token independently from
-each other's long-term public keys, so the listener never has to publish a fresh
-token to the dialer when reconnecting after an IP change.
+static-tokens mode lets both peers compute the same 32-byte token independently
+from each other's long-term public keys, so the listener never has to publish a
+fresh token to the dialer when reconnecting after an IP change.
 
 ### Motivation
 
@@ -416,23 +417,22 @@ session identifier deterministically from those keys.
 Both peers compute the same token via:
 
 ```
-token = SHA256(min(A, B) || max(A, B))[:16]
+token = SHA256(min(A, B) || max(A, B))
 ```
 
 where `min` and `max` are the lex-smallest and lex-largest of the two peers'
 public keys (as raw 32 bytes). This is order-independent: neither peer needs
-to know which one is "A" — both compute the same token. Both peers must
-use ed25519 public keys of the standard 32-byte size to compute the same
+to know which one is "A" — both compute the same 32-byte token. Both peers
+must use ed25519 public keys of the standard 32-byte size to compute the same
 token.
 
 ### Wire Protocol
 
-The `Register` message gains a `Mode` field to make "create" vs "join"
-explicit:
+The `Register` message gains a `Mode` field to make "create" vs "join" explicit:
 
 ```protobuf
 message Register {
-  bytes token = 1;  // 16 bytes in MODE_JOIN; empty or 16 bytes in MODE_CREATE
+  bytes token = 1;  // 32 bytes in MODE_JOIN; empty or 32 bytes in MODE_CREATE
   Mode  mode  = 2;  // required: MODE_CREATE or MODE_JOIN
 
   enum Mode {
@@ -444,9 +444,7 @@ message Register {
 ```
 
 The pre-static-token protocol distinguished "create" vs "join" by the token
-field alone (empty vs non-empty). Making it explicit via `Mode` is the
-breaking change. Old clients that send `Mode = MODE_UNSPECIFIED` are
-rejected.
+field alone (empty vs non-empty).
 
 Server behavior by `mode`:
 
@@ -458,58 +456,206 @@ Server behavior by `mode`:
 | `MODE_JOIN`        | empty     | Reject. Close connection, log "join requires token".                          |
 | `MODE_JOIN`        | non-empty | Look up session. Pair dialer with listener if found.                          |
 
-The relay's behavior is the same regardless of whether the token is
-precomputed or randomly generated — both are 16-byte opaque strings from
-the relay's perspective. The choice is the peers', not the operator's.
+The relay's behavior is the same regardless of whether the token is precomputed
+or randomly generated — both are opaque strings from the relay's perspective.
+The choice is the peers', not the operator's.
 
-**Design decision: static mode is not a config flag.** The relay operator
-does not have a say in how peers connect to each other. Static tokens are
-always available; listeners that want to use them just pass the
-precomputed token. There is no operator opt-in.
+**Design decision: static mode is not a config flag.** The relay operator does
+not have a say in how peers connect to each other. Static tokens are always
+available; listeners that want to use them just pass the precomputed token.
+There is no operator opt-in.
 
 ### Client Behaviour
 
-Listeners that want to use static tokens pass the precomputed 16-byte
-token when opening the connection. The dialer passes the same token
-(which it computed independently). Both peers need the same ed25519
-public keys (typically exchanged out of band at first contact).
+Listeners that want to use static tokens pass the precomputed 32-byte token when
+opening the connection. The dialer passes the same token (which it computed
+independently). Both peers need the same ed25519 public keys (typically
+exchanged out of band at first contact).
 
-The wire protocol and behaviour described in this section are
-independent of any client library. Clients in any language that
-implement the `Register{Mode, Token}` flow described above will work
-with any conformant relay. The kamune Go library is one such
-implementation; the function names and option types in that library
+The wire protocol and behaviour described in this section are independent of any
+client library. Clients in any language that implement the `Register{Mode, Token}`
+flow described above will work with any conformant relay. The kamune Go library
+is one such implementation; the function names and option types in that library
 are an implementation detail of the Go ecosystem.
 
 ### Properties
 
-- **Both peers compute the same token independently.** Given the two
-  contacts' long-term public keys, each peer derives the same 16-byte
-  session token via `SHA256(min(A, B) || max(A, B))[:16]`. Neither peer
-  needs the other to send them a token.
-- **Coexists with the existing random-token system.** Listeners can ask
-  the relay to generate a random token (the default); static tokens are
-  opt-in per registration.
-- **Same TTL semantics.** Static tokens use the existing `token_ttl`
-  config (default 5 minutes). The listener re-registers periodically to
-  keep the session alive.
-- **Forward secrecy is unaffected.** The static token is a routing
-  identifier for the relay only; end-to-end authentication and encryption
-  are established directly between the two peers after rendezvous, using
-  the kamune protocol layer.
+- **Both peers compute the same token independently.** Given the two contacts'
+  long-term public keys, each peer derives the same 32-byte session token via
+  `SHA256(min(A, B) || max(A, B))`. Neither peer needs the other to send them a
+  token.
+- **Coexists with the existing random-token system.** Listeners can ask the
+  relay to generate a random token (the default); static tokens are opt-in per
+  registration.
+- **Same TTL semantics.** Static tokens use the existing `token_ttl` config
+  (default 5 minutes). The listener re-registers periodically to keep the
+  session alive.
+- **Forward secrecy is unaffected.** The static token is a routing identifier
+  for the relay only; end-to-end authentication and encryption are established
+  directly between the two peers after rendezvous, using the kamune protocol
+  layer.
+- **Token validation.** User-provided tokens are validated before registration:
+  exactly 32 bytes, not all zeros, not all the same byte, and Shannon entropy
+  greater than 3 bits per byte. This prevents weak tokens that are easy to guess
+  or brute-force.
+
+### Security Considerations
+
+Static tokens trade privacy for convenience. The deterministic derivation means
+the token is **not a secret** — it is a routing identifier that anyone with the
+right inputs can compute.
+
+- **Session probing.** Anyone who knows both peers' public keys can compute the
+  same token and send `Register{MODE_JOIN, token: T}` to the relay. If the relay
+  accepts the registration, a session exists; if it rejects with "token not
+  found," no session exists. This leaks whether two specific peers are
+  communicating via this relay.
+- **Relay correlation.** Because the token is stable across reconnections (by
+  design), a relay operator can observe that the same token appears over time,
+  even as source IPs change. Random tokens are single-use and unlinkable — each
+  new session gets a fresh token that cannot be correlated to a previous one.
+- **Key compromise scope.** If an attacker obtains both peers' public keys
+  (e.g., from a compromised device, a leaked key bundle, or a public key
+  directory), the attacker can probe the relay for all past and future sessions
+  that use those keys with static tokens.
+
+**When to use static tokens:** in trusted deployments where both peers' public
+keys are already known to each other and session existence is not sensitive. For
+example, friends, family, or business partners who communicate regularly and are
+not concerned about a relay operator learning that they talk to each other.
+
+**When to prefer random tokens:** when the fact that two specific peers are
+communicating is itself sensitive, or when the relay is untrusted and the
+operator may be adversarial. Random tokens provide no correlation surface across
+sessions.
 
 ### Reconnection on IP Change
 
 When a peer's public IP changes (DHCP renewal, NAT rebinding), the existing
-relay session is gone. Both peers re-derive the same token from the same
-public keys and re-register — the listener sends
-`Register{Mode: MODE_CREATE, Token: T}` again, the dialer sends
-`Register{Mode: MODE_JOIN, Token: T}`. Neither peer needs to communicate
-the token out of band again.
+relay session is gone. Both peers re-derive the same token from the same public
+keys and re-register — the listener sends `Register{Mode: MODE_CREATE, Token: T}`
+again, the dialer sends `Register{Mode: MODE_JOIN, Token: T}`. Neither peer
+needs to communicate the token out of band again.
 
-This works for any IP change: NAT rebinding (same IP, new port), network
-switch (new IP), or even a completely different device, as long as both
-peers have access to the same long-term public keys.
+This works for any IP change: NAT rebinding (same IP, new port), network switch
+(new IP), or even a completely different device, as long as both peers have
+access to the same long-term public keys.
+
+## ECDH-Derived Relay Tokens
+
+Static tokens (derived from public keys) are convenient but leak session
+existence — anyone who knows both peers' public keys can compute the token and
+probe the relay. ECDH-derived tokens solve this by deriving tokens from an
+ephemeral key exchange performed _after_ the kamune handshake completes. The
+tokens are not computable from public keys alone; an adversary would need to
+compromise the ECDH exchange in real time, which requires controlling the relay
+between both peers.
+
+### Derivation
+
+After the kamune handshake completes and the encrypted transport is available,
+both peers independently derive a pool of 3 reconnect tokens:
+
+1. Each peer generates an ephemeral X25519 key pair.
+2. Each peer sends its ephemeral public key to the other over the existing
+   encrypted transport.
+3. Both peers compute the X25519 shared secret.
+4. Both peers derive 3 tokens via HKDF-SHA512:
+
+```
+shared_secret = X25519(local_ephemeral_private, peer_ephemeral_public)
+token_i = HKDF-Expand(shared_secret, "kamune/relay-reconnect/v1/" || uint32_be(i), 32)
+```
+
+Where `i` ranges from 0 to 2. Each token is 32 bytes. Both peers derive
+identical tokens because ECDH is commutative — `A.B == B.A`.
+
+### Token Pool
+
+The 3 tokens form an ordered pool. On reconnection after session TTL expiry, the
+protocol is asymmetric:
+
+- **Listener** (server side): picks the first unconsumed token from the pool and
+  registers with the relay using `MODE_CREATE(token_i)`.
+- **Dialer** (client side): searches the pool sequentially with
+  `MODE_JOIN(token_0)`, `MODE_JOIN(token_1)`, `MODE_JOIN(token_2)` until it
+  finds the matching session.
+
+```
+Listener: MODE_CREATE(tokens[1]) → session created     (tokens[0] consumed earlier)
+Dialer:   MODE_JOIN(tokens[0])   → ErrTokenNotFound
+          MODE_JOIN(tokens[1])   → matched → connected
+```
+
+Each missed `MODE_JOIN` is a fast error response (no session exists for that
+token) — at most 3 cheap relay round-trips. This eliminates the coordination
+problem: the listener picks one token, the dialer searches all of them. No
+shared counter or index agreement is needed.
+
+**Why 3 tokens (not 1 or 10):** A single token offers no retry margin — if the
+first reconnection attempt fails (network error, timing race), the session must
+cold-start. A pool of 10 wastes entropy and storage. Three tokens give the peers
+3 attempts to reconnect before pool exhaustion, with the relay's existing per-IP
+rate limiter (20 connections/min) limiting how fast an attacker could probe
+tokens during the rare cold-start recovery path.
+
+### Lifecycle
+
+- **Single-use.** Each token may be consumed exactly once for relay
+  registration. Any-order, mark-on-use.
+- **Forward secrecy.** On successful resumption (new handshake, new encrypted
+  transport), both peers perform a fresh ECDH exchange. Tokens from session _k_
+  are worthless after session _k+1_'s handshake.
+- **Pool exhaustion.** When all 3 tokens are consumed, no fallback is used. The
+  session enters a cold start — the user must re-initiate the connection. After
+  a new handshake, a fresh ECDH exchange derives 3 new tokens.
+- **Expiration.** Relay tokens are valid for 7 days, longer than the 24-hour
+  resumption window because relay reconnection is less time-sensitive.
+
+### Security
+
+- **Not computable from public keys.** Unlike static tokens, ECDH-derived tokens
+  require the ephemeral private keys from both peers. An adversary who knows
+  both long-term public keys cannot derive the token.
+- **Forward-secret.** Compromise of a later session's keys does not expose
+  tokens from earlier sessions.
+- **Limited blast radius.** The pool is only 3 tokens; after exhaustion, a fresh
+  ECDH exchange with new ephemeral keys is required. This limits the number of
+  sessions an attacker could establish with a compromised token.
+
+## Relay Listener Reconnection
+
+### Problem
+
+When `purgeExpired()` closes both channels (session TTL expiry), or when the
+relay server restarts, the server-side relay listener is permanently lost. The
+`multiListener` goroutine for that listener exits, but no new listener is
+registered. The server continues running with fewer listeners.
+
+The dialer side already handles disconnects via `reconnectSession()`, which
+retries with exponential backoff using a pre-captured closure.
+
+### Solution
+
+A goroutine (`relayReconnectLoop`) monitors the relay listener for death and
+re-registers it automatically using ECDH-derived tokens:
+
+1. Monitor the relay listener for death (the `tokenTracker` reports the listener
+   is dead via a `Dead()` channel).
+2. Wait a short backoff (1–5 seconds, jittered).
+3. Pop the next unconsumed token from the stored token pool.
+4. Re-create a `RelayListener` with that token.
+5. Add the new listener to the `multiListener`.
+6. Loop back to step 1.
+
+### Termination
+
+The loop exits when:
+
+- The server's context is cancelled (`StopServer` / `shutdown`).
+- The token pool is exhausted (all 3 tokens consumed without a successful
+  reconnection + new handshake). Pool exhaustion triggers a cold start — the
+  user must re-initiate.
 
 ## Broker: STUN-Echo and Signal Introduction
 
@@ -558,9 +704,9 @@ offset  size  field
 MAGIC | VER | OPCODE=0x01
 ```
 
-6 bytes. The broker responds with ASCII `ip:port\0` to the sender's UDP
-address — the IP/port are derived from the packet's source address, not from
-any field in the packet itself. Example: `192.0.2.1:54321\x00`.
+6 bytes. The broker responds with ASCII `ip:port\0` to the sender's UDP address
+— the IP/port are derived from the packet's source address, not from any field
+in the packet itself. Example: `192.0.2.1:54321\x00`.
 
 #### `REGISTER` (peer → broker)
 
@@ -570,13 +716,13 @@ MAGIC (4) | VER=0x01 (1) | OPCODE=0x02 (1) | TOKEN (16) | PEER_EPH_PUB (32) | IP
 
 60 bytes. Fields:
 
-- `TOKEN` — 16 bytes, may be all zero (random mode) or precomputed (static
-  mode, see [Static Tokens](#static-tokens)).
+- `TOKEN` — 16 bytes, may be all zero (random mode) or precomputed (static mode,
+  see [Static Tokens](#static-tokens)).
 - `PEER_EPH_PUB` — the peer's stable X25519 public key (raw 32 bytes). The
-  broker uses this both for encryption (per-NOTIFY ECDH) and to identify
-  the same peer across re-registrations.
-- `IP`, `PORT` — the peer's claimed public IPv4 + port. The broker echoes
-  these to a matched peer in `NOTIFY(PEER_MATCHED)`.
+  broker uses this both for encryption (per-NOTIFY ECDH) and to identify the
+  same peer across re-registrations.
+- `IP`, `PORT` — the peer's claimed public IPv4 + port. The broker echoes these
+  to a matched peer in `NOTIFY(PEER_MATCHED)`.
 
 #### `NOTIFY` (broker → peer, encrypted)
 
@@ -584,8 +730,8 @@ MAGIC (4) | VER=0x01 (1) | OPCODE=0x02 (1) | TOKEN (16) | PEER_EPH_PUB (32) | IP
 MAGIC (4) | VER=0x01 (1) | OPCODE=0x03 (1) | BROKER_EPH_PUB (32) | NONCE (24) | SEALED (N)
 ```
 
-- `BROKER_EPH_PUB` — the broker's fresh ephemeral X25519 public key,
-  generated per-NOTIFY for forward secrecy.
+- `BROKER_EPH_PUB` — the broker's fresh ephemeral X25519 public key, generated
+  per-NOTIFY for forward secrecy.
 - `NONCE` — 24 bytes, random, for XChaCha20-Poly1305.
 - `SEALED` — `Seal(plaintext)` output: ciphertext followed by 16-byte tag.
   Sizes:
@@ -605,38 +751,36 @@ aead_key     = SHA256(shared_secret)[:32]
 AAD          = MAGIC || VER || OPCODE || BROKER_EPH_PUB
 ```
 
-and decrypts `SEALED` with XChaCha20-Poly1305 (24-byte nonce, 16-byte tag).
-The AAD binds the ciphertext to the broker's ephemeral key so a captured
-NOTIFY cannot be re-targeted to a different broker key.
+and decrypts `SEALED` with XChaCha20-Poly1305 (24-byte nonce, 16-byte tag). The
+AAD binds the ciphertext to the broker's ephemeral key so a captured NOTIFY
+cannot be re-targeted to a different broker key.
 
 NOTIFY is sent by the broker only; peers that send NOTIFY are ignored.
 
 ### Static Tokens
 
-The same static-token mechanism that the relay's transports support
-(see [Static Tokens](#static-tokens) above) applies to the broker:
+The same static-token mechanism that the relay's transports support (see
+[Static Tokens](#static-tokens) above) applies to the broker:
 
 - Both peers compute `token = SHA256(min(A, B) || max(A, B))[:16]` from each
   other's long-term public keys.
-- Peer A registers as listener with the static token; peer B joins with the
-  same token. The broker matches them.
-- When peer A's IP changes (NAT rebinding, DHCP renewal), both peers
-  re-derive the same token from the same public keys — no OOB exchange
-  needed.
+- Peer A registers as listener with the static token; peer B joins with the same
+  token. The broker matches them.
+- When peer A's IP changes (NAT rebinding, DHCP renewal), both peers re-derive
+  the same token from the same public keys — no OOB exchange needed.
 
 **Design decision: peer identity = `PEER_EPH_PUB`, not source address.** The
-broker identifies the same peer by the X25519 public key it sends in
-REGISTER, not by the source UDP address. This handles NAT rebinding (the
-peer's source port changes but the key stays the same) and treats two
-distinct processes from the same IP as different peers (their keys
-differ). The peer must use a stable key across re-registrations; the
-client library holds one key for its lifetime.
+broker identifies the same peer by the X25519 public key it sends in REGISTER,
+not by the source UDP address. This handles NAT rebinding (the peer's source
+port changes but the key stays the same) and treats two distinct processes from
+the same IP as different peers (their keys differ). The peer must use a stable
+key across re-registrations; the client library holds one key for its lifetime.
 
 **Design decision: hybrid token model.** Static tokens (above) and
-broker-assigned random tokens share the same wire format. A peer
-registering with an empty `TOKEN` field gets a 16-byte random token via
-`NOTIFY(TOKEN_ASSIGNED)` and shares it with the dialer out of band. Both
-modes go through the same registry and the same match logic.
+broker-assigned random tokens share the same wire format. A peer registering
+with an empty `TOKEN` field gets a 16-byte random token via
+`NOTIFY(TOKEN_ASSIGNED)` and shares it with the dialer out of band. Both modes
+go through the same registry and the same match logic.
 
 ### Server Behavior
 
@@ -659,10 +803,10 @@ ephemeral X25519 key, and branches on the token:
 | non-empty | held by a different peer (different `PEER_EPH_PUB`)          | Match. Send `NOTIFY(PEER_MATCHED)` to BOTH peers, each with its own fresh broker ephemeral key. Clear the entry. |
 | non-empty | held by the same peer (same `PEER_EPH_PUB`, re-registration) | Refresh TTL. No NOTIFY.                                                                                          |
 
-The broker generates a **fresh** X25519 key pair for **every** NOTIFY it
-sends. A match produces two NOTIFYs, each with its own broker ephemeral
-public key in the header. Forward secrecy is per-NOTIFY, not per-REGISTER.
-After the NOTIFY is sent, the broker's ephemeral private key is discarded.
+The broker generates a **fresh** X25519 key pair for **every** NOTIFY it sends.
+A match produces two NOTIFYs, each with its own broker ephemeral public key in
+the header. Forward secrecy is per-NOTIFY, not per-REGISTER. After the NOTIFY is
+sent, the broker's ephemeral private key is discarded.
 
 **`NOTIFY`** (opcode 0x03): ignored. Peers should not send NOTIFY.
 
@@ -679,57 +823,56 @@ some random opcode is silently dropped.
 | Random UDP                                     | No response                 | Ignored                                                              |
 | Random UDP that happens to start with `"KBRK"` | Falls into "unknown opcode" | Ignored                                                              |
 
-A passive observer sees the 4-byte magic, the 1-byte version, the 1-byte
-opcode, and (for NOTIFY) the broker's ephemeral public key and the nonce.
-They cannot read the payload or tag without the peer's ephemeral private
-key. Packet sizes and timing metadata are visible, as on any UDP service.
+A passive observer sees the 4-byte magic, the 1-byte version, the 1-byte opcode,
+and (for NOTIFY) the broker's ephemeral public key and the nonce. They cannot
+read the payload or tag without the peer's ephemeral private key. Packet sizes
+and timing metadata are visible, as on any UDP service.
 
-This is better stealth than a design that echoes every packet: random
-UDP scanners see no response and cannot tell if the broker is up. A more
-elaborate stealth design (variable packet sizes, padding, timing
-obfuscation) is out of scope for v1.
+This is better stealth than a design that echoes every packet: random UDP
+scanners see no response and cannot tell if the broker is up. A more elaborate
+stealth design (variable packet sizes, padding, timing obfuscation) is out of
+scope for v1.
 
 ### Threat Model
 
 The broker is **lower-trust** than the relay's transports:
 
-- The broker **sees** the matched peers' claimed IP:port and ephemeral
-  public keys (passed through in NOTIFY plaintext).
-- The broker **does not see** message content (the broker hands off and is
-  out of the picture; subsequent traffic is end-to-end between peers).
-- A malicious broker can disrupt rendezvous (drop REGISTERs, refuse
-  matches) but cannot read application traffic.
-- The broker does not pin a long-term identity; every broker ephemeral
-  key is fresh per NOTIFY. A compromised broker cannot decrypt past
-  NOTIFYs (forward secrecy per NOTIFY).
+- The broker **sees** the matched peers' claimed IP:port and ephemeral public
+  keys (passed through in NOTIFY plaintext).
+- The broker **does not see** message content (the broker hands off and is out
+  of the picture; subsequent traffic is end-to-end between peers).
+- A malicious broker can disrupt rendezvous (drop REGISTERs, refuse matches) but
+  cannot read application traffic.
+- The broker does not pin a long-term identity; every broker ephemeral key is
+  fresh per NOTIFY. A compromised broker cannot decrypt past NOTIFYs (forward
+  secrecy per NOTIFY).
 
-**Design decision: no long-term broker identity.** This removes the
-operational burden of key distribution and gives forward secrecy
-automatically. Peers do not need to pin anything.
+**Design decision: no long-term broker identity.** This removes the operational
+burden of key distribution and gives forward secrecy automatically. Peers do not
+need to pin anything.
 
 ### Replay Considerations
 
 The v1 broker does not implement anti-replay. The shared secret prevents
 forgery; only valid packets can be replayed. The threat model:
 
-- **Replayed `REGISTER`**: an attacker can disrupt legitimate registrations
-  or refresh a held entry's TTL. Mitigation: per-IP rate limiter (shared
-  with the relay).
-- **Replayed `NOTIFY`**: the peer receives a duplicate. AEAD verification
-  still applies; if the broker's ephemeral key has changed (which it does
-  on every re-registration, since the broker generates a fresh key per
-  NOTIFY), the replayed ciphertext fails verification. Captured NOTIFYs
-  are mostly self-healing.
-- **Replayed `STUN_ECHO`**: a known STUN protocol property; v1's response
-  does not include a request nonce. Peers should cross-check STUN_ECHO
-  responses against a parallel connection attempt, or use a different
-  STUN source. The broker is not the only STUN source a peer should trust.
+- **Replayed `REGISTER`**: an attacker can disrupt legitimate registrations or
+  refresh a held entry's TTL. Mitigation: per-IP rate limiter (shared with the
+  relay).
+- **Replayed `NOTIFY`**: the peer receives a duplicate. AEAD verification still
+  applies; if the broker's ephemeral key has changed (which it does on every
+  re-registration, since the broker generates a fresh key per NOTIFY), the
+  replayed ciphertext fails verification. Captured NOTIFYs are mostly
+  self-healing.
+- **Replayed `STUN_ECHO`**: a known STUN protocol property; v1's response does
+  not include a request nonce. Peers should cross-check STUN_ECHO responses
+  against a parallel connection attempt, or use a different STUN source. The
+  broker is not the only STUN source a peer should trust.
 
 Adding full anti-replay (sequence numbers, nonce tracking, per-peer
-session-expiry state) would significantly complicate the implementation
-for limited benefit at v1's threat model. The shared AEAD already prevents
-forgery; the per-IP rate limiter caps the most relevant attack (replayed
-REGISTER).
+session-expiry state) would significantly complicate the implementation for
+limited benefit at v1's threat model. The shared AEAD already prevents forgery;
+the per-IP rate limiter caps the most relevant attack (replayed REGISTER).
 
 ## Configuration Reference
 
