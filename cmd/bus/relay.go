@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -46,14 +47,14 @@ type tokenTracker struct {
 	dead       chan struct{}
 	deadOnce   sync.Once
 	sessionID  string
-	consumed   bool
+	consumed   atomic.Bool
 }
 
 func (t *tokenTracker) Accept() (kamune.Conn, error) {
 	cn, err := t.Listener.Accept()
 	if err == nil {
 		t.cancelExpiry()
-		t.consumed = true
+		t.consumed.Store(true)
 		t.app.markRelayTokenConsumed(t.token)
 	} else {
 		t.closeDead()
@@ -63,7 +64,7 @@ func (t *tokenTracker) Accept() (kamune.Conn, error) {
 
 func (t *tokenTracker) Stop() {
 	t.cancelExpiry()
-	if !t.consumed {
+	if !t.consumed.Load() {
 		t.closeDead()
 	}
 	if s, ok := t.Listener.(interface{ Stop() }); ok {
@@ -422,6 +423,7 @@ func (a *App) relayReconnectLoop(
 			// Track the new listener's death for the next cycle.
 			if tt, ok := listener.(*tokenTracker); ok {
 				currentDead = tt.Dead()
+				tt.sessionID = sessionID
 			}
 			registered = true
 			break

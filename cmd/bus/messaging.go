@@ -228,18 +228,19 @@ func (a *App) reconnectSession(session *liveSession) bool {
 	)
 
 	for attempt := range maxAttempts {
-		delay := min(baseDelay*time.Duration(1<<attempt), maxDelay)
+		if attempt > 0 {
+			delay := min(baseDelay*time.Duration(1<<(attempt-1)), maxDelay)
+			select {
+			case <-time.After(delay):
+			case <-session.reconnectCtx.Done():
+				return false
+			}
+		}
 
 		a.addLogEntry(
 			"INFO", fmt.Sprintf("Reconnecting session %s (attempt %d/%d)", session.ID, attempt+1, maxAttempts),
 		)
 		runtime.EventsEmit(a.ctx, "session-reconnecting", session.ID, attempt+1, maxAttempts)
-
-		select {
-		case <-time.After(delay):
-		case <-session.reconnectCtx.Done():
-			return false
-		}
 
 		t, err := session.reconnectFn(session.ID)
 		if err != nil {

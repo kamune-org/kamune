@@ -351,8 +351,8 @@ func TestTokenTracker_DeadNotClosedOnConsumed(t *testing.T) {
 	tt := &tokenTracker{
 		Listener: &fakeListener{},
 		dead:     make(chan struct{}),
-		consumed: true,
 	}
+	tt.consumed.Store(true)
 
 	// Stop() on a consumed tracker should NOT close the dead channel.
 	tt.Stop()
@@ -374,8 +374,8 @@ func TestTokenTracker_ShortCircuitOnConsumedStop(t *testing.T) {
 	tt := &tokenTracker{
 		Listener: fl,
 		dead:     make(chan struct{}),
-		consumed: true,
 	}
+	tt.consumed.Store(true)
 
 	tt.Stop()
 	assert.True(t, stopped, "underlying listener.Stop() should still be called")
