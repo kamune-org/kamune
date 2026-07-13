@@ -12,8 +12,9 @@ import (
 	"github.com/kamune-org/kamune"
 )
 
+var version = "dev"
+
 const (
-	version          = "1.0.0"
 	maxScanTokenSize = 1024 * 1024 // 1MB
 	channelTimeout   = 5 * time.Second
 )
