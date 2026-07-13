@@ -8,14 +8,26 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
+	"github.com/zalando/go-keyring"
 )
+
+const keychainService = "kamune"
+
+func keychainAccount(dbPath string) string {
+	if dbPath == "" {
+		return "default"
+	}
+	return filepath.Base(dbPath)
+}
 
 // Daemon manages the kamune server and client connections
 type Daemon struct {
@@ -50,6 +62,10 @@ type Daemon struct {
 	relayTokens     []relayToken
 	relayListeners  *multiListener
 
+	p2pTokens     []p2pToken
+	p2pListener   *p2pListener
+	brokerClient  *BrokerClient
+
 	startCtx    context.Context
 	startCancel context.CancelFunc
 
@@ -64,6 +80,13 @@ type Daemon struct {
 
 	passphrase atomic.Value
 
+	logEntries    []LogEntryInfo
+	logMu         sync.RWMutex
+	logBufferSize int
+	logLevel      string
+
+	fingerprintFmt string
+
 	wg sync.WaitGroup
 }
 
@@ -71,15 +94,19 @@ type Daemon struct {
 func NewDaemon() *Daemon {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Daemon{
-		sessions:      make(map[string]*liveSession),
-		histSessions:  make([]*historySession, 0),
-		output:        json.NewEncoder(os.Stdout),
-		ctx:           ctx,
-		cancel:        cancel,
-		verifMode:     VerificationModeQuick,
-		status:        StatusDisconnected,
-		statusMsg:     "Not connected",
-		verifRequests: make(map[int64]*pendingVerification),
+		sessions:       make(map[string]*liveSession),
+		histSessions:   make([]*historySession, 0),
+		output:         json.NewEncoder(os.Stdout),
+		ctx:            ctx,
+		cancel:         cancel,
+		verifMode:      VerificationModeQuick,
+		status:         StatusDisconnected,
+		statusMsg:      "Not connected",
+		verifRequests:  make(map[int64]*pendingVerification),
+		logBufferSize:  200,
+		logEntries:     make([]LogEntryInfo, 0, 200),
+		logLevel:       "INFO",
+		fingerprintFmt: "hex",
 	}
 }
 
@@ -104,8 +131,9 @@ func (d *Daemon) emitError(correlationID ID, errMsg string) {
 	d.emit(EvtError, correlationID, MapS{"error": errMsg})
 }
 
-// addLogEntry logs a message at the given level. The daemon has no in-app log
-// buffer or Wails event surface, so this is a thin slog wrapper.
+// addLogEntry logs a message at the given level and stores it in the in-memory
+// log buffer for retrieval via get_logs. Also emits evt_log_entry for live
+// subscribers.
 func (d *Daemon) addLogEntry(level, msg string) {
 	var lvl slog.Level
 	switch level {
@@ -119,6 +147,21 @@ func (d *Daemon) addLogEntry(level, msg string) {
 		lvl = slog.LevelInfo
 	}
 	slog.Log(d.ctx, lvl, msg)
+
+	entry := LogEntryInfo{
+		Timestamp: time.Now(),
+		Level:     level,
+		Message:   "[cmd/daemon] " + msg,
+	}
+
+	d.logMu.Lock()
+	d.logEntries = append(d.logEntries, entry)
+	if len(d.logEntries) > d.logBufferSize {
+		d.logEntries = d.logEntries[len(d.logEntries)-d.logBufferSize:]
+	}
+	d.logMu.Unlock()
+
+	d.emit(EvtLogEntry, "", entry)
 }
 
 // setStatus updates the daemon's connection status and emits status_changed.
@@ -306,6 +349,12 @@ func (d *Daemon) handleCommand(cmd Command) {
 		d.handleRemoveRelayToken(cmd)
 	case CmdListRelayTokens:
 		d.handleListRelayTokens(cmd)
+	case CmdGenerateP2PToken:
+		d.handleGenerateP2PToken(cmd)
+	case CmdRemoveP2PToken:
+		d.handleRemoveP2PToken(cmd)
+	case CmdListP2PTokens:
+		d.handleListP2PTokens(cmd)
 	case CmdGetShareInfo:
 		d.handleGetShareInfo(cmd)
 	case CmdVerifyResponse:
@@ -344,6 +393,32 @@ func (d *Daemon) handleCommand(cmd Command) {
 		d.handleGetIncognito(cmd)
 	case CmdSetIncognito:
 		d.handleSetIncognito(cmd)
+	case CmdAddPeer:
+		d.handleAddPeer(cmd)
+	case CmdRenamePeer:
+		d.handleRenamePeer(cmd)
+	case CmdGetPeer:
+		d.handleGetPeer(cmd)
+	case CmdGetSessionInfo:
+		d.handleGetSessionInfo(cmd)
+	case CmdGetLogs:
+		d.handleGetLogs(cmd)
+	case CmdClearLogs:
+		d.handleClearLogs(cmd)
+	case CmdExportLogs:
+		d.handleExportLogs(cmd)
+	case CmdGetLogLevel:
+		d.handleGetLogLevel(cmd)
+	case CmdSetLogLevel:
+		d.handleSetLogLevel(cmd)
+	case CmdHasKeychainPassphrase:
+		d.handleHasKeychainPassphrase(cmd)
+	case CmdClearKeychainPassphrase:
+		d.handleClearKeychainPassphrase(cmd)
+	case CmdGetFingerprintFormat:
+		d.handleGetFingerprintFormat(cmd)
+	case CmdSetFingerprintFormat:
+		d.handleSetFingerprintFormat(cmd)
 	case CmdShutdown:
 		d.Shutdown()
 	default:
@@ -469,4 +544,329 @@ func (d *Daemon) Shutdown() {
 
 	// Close stdin so the scanner loop in Run exits
 	os.Stdin.Close()
+}
+
+// --- P2: Peer management ---
+
+// handleAddPeer adds a known peer to storage (mirrors cmd/bus/peers.go:67-101).
+func (d *Daemon) handleAddPeer(cmd Command) {
+	var params AddPeerParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	pub, err := decodePeerPubKey(params.PublicKey)
+	if err != nil {
+		d.emitError(cmd.ID, err.Error())
+		return
+	}
+
+	store := d.store()
+	if store == nil {
+		d.emitError(cmd.ID, "storage is not available")
+		return
+	}
+
+	if _, err := store.FindPeer(pub); err == nil {
+		d.emitError(cmd.ID, fmt.Sprintf("peer already exists: %s", params.PublicKey))
+		return
+	}
+
+	name := params.Name
+	if name == "" {
+		name = fingerprint.Pseudonym(pub)
+	}
+
+	now := time.Now()
+	if err := store.StorePeer(&storage.Peer{
+		Name:       name,
+		PublicKey:  pub,
+		FirstSeen:  now,
+		LastSeen:   now,
+		AppVersion: "",
+	}); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("store peer: %v", err))
+		return
+	}
+
+	d.addLogEntry("INFO", "Added peer: "+name)
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "added", "name": name})
+}
+
+// handleRenamePeer changes the display name of a known peer (mirrors
+// cmd/bus/peers.go:129-158).
+func (d *Daemon) handleRenamePeer(cmd Command) {
+	var params RenamePeerParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	pub, err := decodePeerPubKey(params.PublicKey)
+	if err != nil {
+		d.emitError(cmd.ID, err.Error())
+		return
+	}
+
+	store := d.store()
+	if store == nil {
+		d.emitError(cmd.ID, "storage is not available")
+		return
+	}
+
+	existing, err := store.FindPeer(pub)
+	if err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("peer not found: %s", params.PublicKey))
+		return
+	}
+
+	name := params.Name
+	if name == "" {
+		name = fingerprint.Pseudonym(pub)
+	}
+	existing.Name = name
+	if err := store.StorePeer(existing); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("store peer: %v", err))
+		return
+	}
+
+	d.addLogEntry("INFO", "Renamed peer to "+params.Name)
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "renamed", "name": params.Name})
+}
+
+// handleGetPeer returns a single known peer by base64 public key (mirrors
+// cmd/bus/peers.go:46-60).
+func (d *Daemon) handleGetPeer(cmd Command) {
+	var params GetPeerParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	pub, err := decodePeerPubKey(params.PublicKey)
+	if err != nil {
+		d.emitError(cmd.ID, err.Error())
+		return
+	}
+
+	store := d.store()
+	if store == nil {
+		d.emitError(cmd.ID, "storage is not available")
+		return
+	}
+
+	p, err := store.FindPeer(pub)
+	if err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("peer not found: %s", params.PublicKey))
+		return
+	}
+
+	d.emit(EvtResponse, cmd.ID, MapA{
+		"name":        p.Name,
+		"public_key":  fingerprint.Base64(p.PublicKey),
+		"first_seen":  p.FirstSeen,
+		"last_seen":   p.LastSeen,
+		"app_version": p.AppVersion,
+	})
+}
+
+// --- P2: Get single session info ---
+
+// handleGetSessionInfo returns info for a single live or history session
+// (mirrors cmd/bus/app.go:1237-1271).
+func (d *Daemon) handleGetSessionInfo(cmd Command) {
+	var params GetSessionInfoParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	for _, s := range d.sessions {
+		if s.ID == params.SessionID {
+			info := d.sessionInfoLocked(s)
+			d.emit(EvtResponse, cmd.ID, MapA{
+				"type":           "live",
+				"session_id":     info.SessionID,
+				"peer_name":      info.PeerName,
+				"is_server":      info.IsServer,
+				"msg_count":      info.MsgCount,
+				"last_activity":  info.LastActivity,
+				"transport_type": info.TransportType,
+				"remote_version": info.RemoteVersion,
+				"session_ttl_ns": info.SessionTTL,
+				"started_at":     info.SessionStartedAt,
+				"remote_addr":    info.RemoteAddr,
+			})
+			return
+		}
+	}
+
+	for _, hs := range d.histSessions {
+		if hs.ID == params.SessionID {
+			d.emit(EvtResponse, cmd.ID, MapA{
+				"type":          "history",
+				"session_id":    hs.ID,
+				"name":          hs.Name,
+				"msg_count":     hs.MessageCount,
+				"first_message": hs.FirstMessage,
+				"last_message":  hs.LastMessage,
+				"loaded":        hs.Loaded,
+			})
+			return
+		}
+	}
+
+	d.emitError(cmd.ID, fmt.Sprintf("session not found: %s", params.SessionID))
+}
+
+// --- P3: Log management ---
+
+// handleGetLogs returns buffered log entries (mirrors cmd/bus/app.go:1030-1036).
+func (d *Daemon) handleGetLogs(cmd Command) {
+	d.logMu.RLock()
+	entries := make([]LogEntryInfo, len(d.logEntries))
+	copy(entries, d.logEntries)
+	d.logMu.RUnlock()
+
+	d.emit(EvtResponse, cmd.ID, MapA{"entries": entries})
+}
+
+// handleClearLogs clears the in-memory log buffer (mirrors cmd/bus/app.go:1038-1042).
+func (d *Daemon) handleClearLogs(cmd Command) {
+	d.logMu.Lock()
+	d.logEntries = d.logEntries[:0]
+	d.logMu.Unlock()
+
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "cleared"})
+}
+
+// handleExportLogs writes buffered log entries to a file (mirrors
+// cmd/bus/app.go:1044-1082).
+func (d *Daemon) handleExportLogs(cmd Command) {
+	var params ExportLogsParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	d.logMu.RLock()
+	entries := make([]LogEntryInfo, len(d.logEntries))
+	copy(entries, d.logEntries)
+	d.logMu.RUnlock()
+
+	filePath := params.FilePath
+	if filePath == "" {
+		filePath = fmt.Sprintf("kamune-logs-%s.txt", time.Now().Format("2006-01-02_150405"))
+	}
+
+	f, err := os.Create(filePath)
+	if err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("create file: %v", err))
+		return
+	}
+	defer f.Close()
+
+	for _, e := range entries {
+		if _, err := fmt.Fprintf(f, "%s [%s] %s\n",
+			e.Timestamp.Format(time.RFC3339), e.Level, e.Message,
+		); err != nil {
+			d.emitError(cmd.ID, fmt.Sprintf("write file: %v", err))
+			return
+		}
+	}
+
+	d.addLogEntry("INFO", "Exported logs to "+filePath)
+	d.emit(EvtResponse, cmd.ID, MapA{"status": "exported", "file_path": filePath})
+}
+
+// handleGetLogLevel returns the current log level (mirrors cmd/bus/app.go:1084-1087).
+func (d *Daemon) handleGetLogLevel(cmd Command) {
+	d.mu.RLock()
+	level := d.logLevel
+	d.mu.RUnlock()
+
+	d.emit(EvtResponse, cmd.ID, MapS{"level": level})
+}
+
+// handleSetLogLevel sets the minimum log level (mirrors cmd/bus/app.go:1090-1097).
+// Persisted to storage when available.
+func (d *Daemon) handleSetLogLevel(cmd Command) {
+	var params SetLogLevelParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	d.mu.Lock()
+	d.logLevel = params.Level
+	d.mu.Unlock()
+
+	if store := d.store(); store != nil {
+		_ = store.SetSettings("daemon", "log_level", params.Level)
+	}
+
+	d.addLogEntry("INFO", "Log level set to: "+params.Level)
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "set", "level": params.Level})
+}
+
+// --- P3: Keychain ---
+
+// handleHasKeychainPassphrase checks if a passphrase is stored in the system
+// keychain (mirrors cmd/bus/app.go:880-886).
+func (d *Daemon) handleHasKeychainPassphrase(cmd Command) {
+	d.mu.RLock()
+	path := d.dbPath
+	d.mu.RUnlock()
+
+	_, err := keyring.Get(keychainService, keychainAccount(path))
+	d.emit(EvtResponse, cmd.ID, MapA{"has_passphrase": err == nil})
+}
+
+// handleClearKeychainPassphrase removes the stored passphrase from the system
+// keychain (mirrors cmd/bus/app.go:888-897).
+func (d *Daemon) handleClearKeychainPassphrase(cmd Command) {
+	d.mu.RLock()
+	path := d.dbPath
+	d.mu.RUnlock()
+
+	if err := keyring.Delete(keychainService, keychainAccount(path)); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("failed to clear keychain: %v", err))
+		return
+	}
+
+	d.addLogEntry("INFO", "Passphrase cleared from keychain")
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "cleared"})
+}
+
+// --- P3: Fingerprint format ---
+
+// handleGetFingerprintFormat returns the current fingerprint display format
+// (mirrors cmd/bus/app.go:832-836).
+func (d *Daemon) handleGetFingerprintFormat(cmd Command) {
+	d.mu.RLock()
+	fmt := d.fingerprintFmt
+	d.mu.RUnlock()
+
+	d.emit(EvtResponse, cmd.ID, MapS{"format": fmt})
+}
+
+// handleSetFingerprintFormat sets the fingerprint display format
+// (mirrors cmd/bus/app.go:838-844).
+func (d *Daemon) handleSetFingerprintFormat(cmd Command) {
+	var params SetFingerprintFormatParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	d.mu.Lock()
+	d.fingerprintFmt = params.Format
+	d.mu.Unlock()
+
+	d.addLogEntry("DEBUG", "Fingerprint format set to: "+params.Format)
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "set", "format": params.Format})
 }

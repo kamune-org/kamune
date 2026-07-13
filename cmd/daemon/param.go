@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 // OpenStorageParams contains parameters for opening the single shared storage.
 type OpenStorageParams struct {
 	StoragePath    string `json:"storage_path"`
@@ -19,6 +21,12 @@ type StartServerParams struct {
 	RelayAddr string `json:"relay_addr,omitempty"`
 	Password  string `json:"password,omitempty"`
 	Name      string `json:"name,omitempty"`
+
+	BrokerAddr     string `json:"broker_addr,omitempty"`
+	PeerPubB64     string `json:"peer_pub_b64,omitempty"`
+	DirectPeerAddr string `json:"direct_peer_addr,omitempty"`
+	UseP2P         bool   `json:"use_p2p"`
+	UseBroker      bool   `json:"use_broker"`
 }
 
 // DialParams contains parameters for dialing a remote server.
@@ -29,6 +37,13 @@ type DialParams struct {
 	Token     string `json:"token,omitempty"`
 	Password  string `json:"password,omitempty"`
 	Name      string `json:"name,omitempty"`
+
+	BrokerAddr     string `json:"broker_addr,omitempty"`
+	PeerPubB64     string `json:"peer_pub_b64,omitempty"`
+	P2PToken       string `json:"p2p_token,omitempty"`
+	UseP2P         bool   `json:"use_p2p"`
+	UseBroker      bool   `json:"use_broker"`
+	DirectPeerAddr string `json:"direct_peer_addr,omitempty"`
 }
 
 // SendMessageParams contains parameters for sending a message
@@ -87,8 +102,55 @@ type DeleteHistorySessionParams struct {
 
 // DeletePeerParams removes a known peer by its public key.
 type DeletePeerParams struct {
-	PublicKey string `json:"public_key"` // base64-encoded
+	PublicKey string `json:"public_key"`
 }
+
+// AddPeerParams adds a new known peer.
+type AddPeerParams struct {
+	PublicKey string `json:"public_key"`
+	Name      string `json:"name,omitempty"`
+}
+
+// RenamePeerParams changes the display name of a known peer.
+type RenamePeerParams struct {
+	PublicKey string `json:"public_key"`
+	Name      string `json:"name"`
+}
+
+// GetPeerParams retrieves a single known peer.
+type GetPeerParams struct {
+	PublicKey string `json:"public_key"`
+}
+
+// GetSessionInfoParams retrieves info for a single session (live or history).
+type GetSessionInfoParams struct {
+	SessionID string `json:"session_id"`
+}
+
+// LogEntryInfo is one buffered log entry.
+type LogEntryInfo struct {
+	Timestamp time.Time `json:"timestamp"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+}
+
+// ExportLogsParams controls log export.
+type ExportLogsParams struct {
+	FilePath string `json:"file_path"`
+}
+
+// SetLogLevelParams controls the minimum log level (e.g. "DEBUG", "INFO", "WARN", "ERROR").
+type SetLogLevelParams struct {
+	Level string `json:"level"`
+}
+
+// SetFingerprintFormatParams controls the fingerprint display format.
+type SetFingerprintFormatParams struct {
+	Format string `json:"format"`
+}
+
+// RemoveKeychainPassphraseParams clears the stored keychain passphrase.
+type RemoveKeychainPassphraseParams struct{}
 
 // SetMyNameParams sets the local display name.
 type SetMyNameParams struct {

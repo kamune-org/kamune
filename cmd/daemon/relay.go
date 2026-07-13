@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kamune-org/kamune"
@@ -36,22 +37,40 @@ type tokenTracker struct {
 	app        *Daemon
 	expiryOnce sync.Once
 	expiryFn   func()
+	dead       chan struct{}
+	deadOnce   sync.Once
+	sessionID  string
+	consumed   atomic.Bool
 }
 
 func (t *tokenTracker) Accept() (kamune.Conn, error) {
 	cn, err := t.Listener.Accept()
 	if err == nil {
 		t.cancelExpiry()
+		t.consumed.Store(true)
 		t.app.markRelayTokenConsumed(t.token)
+	} else {
+		t.closeDead()
 	}
 	return cn, err
 }
 
 func (t *tokenTracker) Stop() {
 	t.cancelExpiry()
+	if !t.consumed.Load() {
+		t.closeDead()
+	}
 	if s, ok := t.Listener.(interface{ Stop() }); ok {
 		s.Stop()
 	}
+}
+
+func (t *tokenTracker) closeDead() {
+	t.deadOnce.Do(func() { close(t.dead) })
+}
+
+func (t *tokenTracker) Dead() <-chan struct{} {
+	return t.dead
 }
 
 func (t *tokenTracker) cancelExpiry() {
@@ -73,8 +92,8 @@ func startExpiryTimer(t *tokenTracker) {
 	t.expiryFn = func() { timer.Stop() }
 }
 
-func listenRelayTracked(ctx context.Context, a *Daemon, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, time.Duration, time.Duration, error) {
-	listener, tokenHex, ttl, sessionTTL, err := listenRelay(ctx, relayAddr, password, insecureSkipVerify)
+func listenRelayTracked(ctx context.Context, a *Daemon, relayAddr, password string, insecureSkipVerify bool, staticToken []byte) (kamune.Listener, string, time.Duration, time.Duration, error) {
+	listener, tokenHex, ttl, sessionTTL, err := listenRelay(ctx, relayAddr, password, insecureSkipVerify, staticToken)
 	if err != nil {
 		return nil, "", 0, 0, err
 	}
@@ -85,6 +104,7 @@ func listenRelayTracked(ctx context.Context, a *Daemon, relayAddr, password stri
 		sessionTTL: sessionTTL,
 		expiresAt:  time.Now().Add(ttl),
 		app:        a,
+		dead:       make(chan struct{}),
 	}
 	startExpiryTimer(tracker)
 	return tracker, tokenHex, ttl, sessionTTL, nil
@@ -122,7 +142,7 @@ func parseInsecureFlag(s string) (host string, override *bool) {
 	return s, nil
 }
 
-func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVerify bool) (kamune.Listener, string, time.Duration, time.Duration, error) {
+func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVerify bool, staticToken []byte) (kamune.Listener, string, time.Duration, time.Duration, error) {
 	if strings.TrimSpace(relayAddr) == "" {
 		return nil, "", 0, 0, errors.New("relay server address is required")
 	}
@@ -130,6 +150,9 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 	var opts []relayconn.Option
 	if password != "" {
 		opts = append(opts, relayconn.WithPassword(password))
+	}
+	if len(staticToken) > 0 {
+		opts = append(opts, relayconn.WithToken(staticToken))
 	}
 
 	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
@@ -157,6 +180,56 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 
 func dialRelayFunc(relayAddr, tokenHex, password string, insecureSkipVerify bool) (func(string) (kamune.Conn, error), error) {
 	return dialRelayFuncWithSessionTTL(relayAddr, tokenHex, password, insecureSkipVerify, nil)
+}
+
+// dialRelayFuncMultiToken returns a dial function that tries each of the given
+// relay tokens in order, returning the first successful connection.
+func dialRelayFuncMultiToken(
+	relayAddr, password string,
+	insecureSkipVerify bool,
+	tokens [][]byte,
+) (func(string) (kamune.Conn, error), error) {
+	if strings.TrimSpace(relayAddr) == "" {
+		return nil, errors.New("relay server address is required")
+	}
+	if len(tokens) == 0 {
+		return nil, errors.New("at least one relay token is required")
+	}
+
+	ctx := context.Background()
+	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
+	if insecureOverride != nil {
+		insecureSkipVerify = *insecureOverride
+	}
+
+	return func(addr string) (kamune.Conn, error) {
+		var lastErr error
+		for _, rawToken := range tokens {
+			var (
+				conn kamune.Conn
+				err  error
+			)
+			opts := []relayconn.Option{}
+			if password != "" {
+				opts = append(opts, relayconn.WithPassword(password))
+			}
+			switch scheme {
+			case "tcp":
+				conn, err = relayconn.DialRelayTCP(ctx, host, rawToken, opts...)
+			case "wss":
+				conn, err = relayconn.DialRelayWSS(ctx, host, rawToken, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+			case "tls":
+				conn, err = relayconn.DialRelayTLS(ctx, host, rawToken, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+			default:
+				conn, err = relayconn.DialRelay(ctx, host, rawToken, opts...)
+			}
+			if err == nil {
+				return conn, nil
+			}
+			lastErr = wrapRelayError(scheme, host, password != "", err)
+		}
+		return nil, lastErr
+	}, nil
 }
 
 func dialRelayFuncWithSessionTTL(relayAddr, tokenHex, password string, insecureSkipVerify bool, sessionTTL *time.Duration) (func(string) (kamune.Conn, error), error) {

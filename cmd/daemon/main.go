@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -68,6 +69,22 @@ const (
 	CmdGetIncognito         CMD = "get_incognito"
 	CmdSetIncognito         CMD = "set_incognito"
 	CmdShutdown             CMD = "shutdown"
+	CmdGenerateP2PToken     CMD = "generate_p2p_token"
+	CmdRemoveP2PToken       CMD = "remove_p2p_token"
+	CmdListP2PTokens        CMD = "list_p2p_tokens"
+	CmdAddPeer              CMD = "add_peer"
+	CmdRenamePeer           CMD = "rename_peer"
+	CmdGetPeer              CMD = "get_peer"
+	CmdGetSessionInfo       CMD = "get_session_info"
+	CmdGetLogs              CMD = "get_logs"
+	CmdClearLogs            CMD = "clear_logs"
+	CmdExportLogs           CMD = "export_logs"
+	CmdGetLogLevel          CMD = "get_log_level"
+	CmdSetLogLevel          CMD = "set_log_level"
+	CmdHasKeychainPassphrase CMD = "has_keychain_passphrase"
+	CmdClearKeychainPassphrase CMD = "clear_keychain_passphrase"
+	CmdGetFingerprintFormat CMD = "get_fingerprint_format"
+	CmdSetFingerprintFormat CMD = "set_fingerprint_format"
 )
 
 // Evt represents events
@@ -90,12 +107,14 @@ const (
 	EvtVersionWarning    Evt = "version_warning"
 	EvtRelayToken        Evt = "relay_token"
 	EvtRelayTokens       Evt = "relay_tokens"
+	EvtP2PTokens         Evt = "p2p_tokens"
 	EvtVerifyPeer        Evt = "verify_peer"
 	EvtHistoryUpdated    Evt = "history_updated"
 	EvtHistoryLoaded     Evt = "history_loaded"
 	EvtLocalNameChanged  Evt = "local_name_changed"
 	EvtError             Evt = "error"
 	EvtResponse          Evt = "response"
+	EvtLogEntry          Evt = "log_entry"
 )
 
 // Command represents an incoming command from stdin
@@ -190,11 +209,13 @@ type relayToken struct {
 	TTL        time.Duration `json:"ttl_ns"`
 	SessionTTL time.Duration `json:"session_ttl_ns"`
 	ExpiresAt  time.Time     `json:"expires_at"`
+	Mode       string        `json:"mode"`
 	listener   kamune.Listener
+	sessionID  string
 }
 
 // liveSession wraps a kamune.Transport with metadata. Mirrors bus.liveSession
-// (cmd/bus/app.go:126-138).
+// (cmd/bus/app.go:147-167).
 type liveSession struct {
 	ID               string
 	PeerName         string
@@ -208,6 +229,14 @@ type liveSession struct {
 	TransportType    string
 	SessionTTL       time.Duration
 	SessionStartedAt time.Time
+	pingFailures     int
+	lastPongAt       time.Time
+	pongCh           chan []byte
+
+	reconnectFn     func(sessionID string) (*kamune.Transport, error)
+	reconnectCtx    context.Context
+	reconnectCancel context.CancelFunc
+	keepAliveDone   chan struct{}
 }
 
 // historySession is the daemon's cached view of a past chat session.

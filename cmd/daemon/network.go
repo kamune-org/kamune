@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -12,6 +15,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/relayconn"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -97,7 +101,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		}
 		ml := newMultiListener()
 		listener, token, ttl, sessionTTL, err := listenRelayTracked(
-			context.Background(), d, params.RelayAddr, params.Password, false,
+			context.Background(), d, params.RelayAddr, params.Password, false, nil,
 		)
 		if err != nil {
 			d.mu.RLock()
@@ -127,9 +131,65 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		d.relayListeners = ml
 		d.relayTokens = []relayToken{{
 			Token: token, TTL: ttl, SessionTTL: sessionTTL,
-			ExpiresAt: time.Now().Add(ttl), listener: listener,
+			ExpiresAt: time.Now().Add(ttl), Mode: "random",
+			listener: listener,
 		}}
 		d.mu.Unlock()
+		d.wg.Go(func() {
+			d.relayReconnectLoop(context.Background(), ml)
+		})
+	case "p2p":
+		d.mu.Lock()
+		if d.brokerClient == nil {
+			bc, err := NewBrokerClient()
+			if err != nil {
+				d.mu.Unlock()
+				d.setStatus(StatusError, "Failed to create broker client")
+				d.emitError(cmd.ID, fmt.Sprintf("broker client: %v", err))
+				return
+			}
+			d.brokerClient = bc
+		}
+		d.mu.Unlock()
+
+		tokenHex, err := d.GenerateP2PToken(
+			params.BrokerAddr, params.PeerPubB64,
+		)
+		if err != nil {
+			d.setStatus(StatusError, "Failed to create p2p token")
+			d.emitError(cmd.ID, fmt.Sprintf("p2p token: %v", err))
+			return
+		}
+
+		tokenBytes, err := hex.DecodeString(tokenHex)
+		if err != nil {
+			d.setStatus(StatusError, "Failed to decode p2p token")
+			d.emitError(cmd.ID, fmt.Sprintf("decode token: %v", err))
+			return
+		}
+		pl, err := newP2PListener(
+			d.brokerClient, params.BrokerAddr, tokenBytes, params.Addr,
+		)
+		if err != nil {
+			d.setStatus(StatusError, "Failed to create p2p listener")
+			d.emitError(cmd.ID, fmt.Sprintf("p2p listener: %v", err))
+			return
+		}
+		opts = append(opts, kamune.ServeWithUDP())
+		d.mu.Lock()
+		d.p2pListener = pl
+		d.mu.Unlock()
+	case "direct-p2p":
+		pl, err := newDirectP2PListener(
+			params.Addr, params.DirectPeerAddr,
+		)
+		if err != nil {
+			d.setStatus(StatusError, "Failed to create direct p2p listener")
+			d.emitError(cmd.ID, fmt.Sprintf("direct p2p listener: %v", err))
+			return
+		}
+		opts = append(opts, kamune.ServeWithListener(pl))
+		params.Addr = pl.Addr().String()
 	case "udp":
 		opts = append(opts, kamune.ServeWithUDP())
 	default:
@@ -400,6 +460,54 @@ func (d *Daemon) handleDial(cmd Command) {
 		}
 		opts = append(opts, kamune.DialWithFunc(fn))
 		params.Addr = params.RelayAddr
+	case "p2p":
+		if d.brokerClient == nil {
+			d.mu.Lock()
+			if d.brokerClient == nil {
+				bc, err := NewBrokerClient()
+				if err != nil {
+					d.mu.Unlock()
+					d.emitError(cmd.ID, fmt.Sprintf("broker client: %v", err))
+					return
+				}
+				d.brokerClient = bc
+			}
+			d.mu.Unlock()
+		}
+		punchConn, payload, err := d.brokerClient.WaitMatch(
+			context.Background(), params.BrokerAddr,
+			[]byte(params.P2PToken),
+		)
+		if err != nil {
+			d.emitError(cmd.ID, fmt.Sprintf("wait match: %v", err))
+			return
+		}
+		conn, err := d.brokerClient.HolePunch(
+			context.Background(), punchConn,
+			payload.IP, payload.Port, DefaultHolePunchTimeout,
+		)
+		if err != nil {
+			d.emitError(cmd.ID, fmt.Sprintf("hole punch: %v", err))
+			return
+		}
+		opts = append(opts, kamune.DialWithFunc(
+			func(_ string) (kamune.Conn, error) {
+				return kamune.NewConn(conn), nil
+			},
+		))
+		params.Addr = "p2p"
+	case "direct-p2p":
+		conn, err := directP2PDial(params.DirectPeerAddr)
+		if err != nil {
+			d.emitError(cmd.ID, fmt.Sprintf("direct p2p dial: %v", err))
+			return
+		}
+		opts = append(opts, kamune.DialWithFunc(
+			func(_ string) (kamune.Conn, error) {
+				return conn, nil
+			},
+		))
+		params.Addr = params.DirectPeerAddr
 	case "udp":
 		opts = append(opts, kamune.DialWithUDP())
 	default:
@@ -450,13 +558,25 @@ func (d *Daemon) handleDial(cmd Command) {
 			TransportType:    params.Transport,
 			SessionTTL:       sessionTTL,
 			SessionStartedAt: time.Now(),
+			pongCh:           make(chan []byte, 1),
+			keepAliveDone:    make(chan struct{}),
 		}
 
-		if store := d.store(); store != nil && !d.incognito {
+		var store *storage.Storage
+		if s := d.store(); s != nil && !d.incognito {
+			store = s
 			if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 				d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 			}
+			d.deriveAndStoreRelayTokens(t, sessionID)
 		}
+
+		// Store dial params for transparent resumption on involuntary
+		// disconnect.
+		reconnectCtx, reconnectCancel := context.WithCancel(d.ctx)
+		session.reconnectCtx = reconnectCtx
+		session.reconnectCancel = reconnectCancel
+		session.reconnectFn = d.makeReconnectFn(sessionID, &params, store, opts)
 
 		d.loadChatHistory(session)
 
@@ -477,6 +597,7 @@ func (d *Daemon) handleDial(cmd Command) {
 		d.setStatus(StatusConnected, "Connected to "+params.Addr)
 		d.addLogEntry("INFO", "Connected to "+params.Addr+" (session: "+sessionID+")")
 
+		go d.keepAliveLoop(session)
 		d.receiveMessages(session)
 		d.loadHistorySessions()
 	})
@@ -507,12 +628,33 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 		TransportType:    transport,
 		SessionTTL:       relaySessionTTL,
 		SessionStartedAt: time.Now(),
+		pongCh:           make(chan []byte, 1),
+		keepAliveDone:    make(chan struct{}),
 	}
 
-	if store := d.store(); store != nil && !d.incognito {
+	var store *storage.Storage
+	if s := d.store(); s != nil && !d.incognito {
+		store = s
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
+		d.deriveAndStoreRelayTokens(t, sessionID)
+	}
+
+	// Link the session ID to the consumed relay token so the
+	// reconnect loop can look up stored tokens from BoltDB.
+	if store != nil && transport == "relay" {
+		d.mu.Lock()
+		for i := range d.relayTokens {
+			if d.relayTokens[i].Consumed {
+				d.relayTokens[i].sessionID = sessionID
+				if tt, ok := d.relayTokens[i].listener.(*tokenTracker); ok {
+					tt.sessionID = sessionID
+				}
+				break
+			}
+		}
+		d.mu.Unlock()
 	}
 
 	d.loadChatHistory(session)
@@ -606,8 +748,301 @@ func (d *Daemon) handleRenameSession(cmd Command) {
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "ok"})
 }
 
+// handleGenerateP2PToken creates a new p2p token for the running server.
+func (d *Daemon) handleGenerateP2PToken(cmd Command) {
+	var params struct {
+		BrokerAddr string `json:"broker_addr"`
+		PeerPubB64 string `json:"peer_pub_b64,omitempty"`
+	}
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	if d.brokerClient == nil {
+		d.mu.Lock()
+		bc, err := NewBrokerClient()
+		if err != nil {
+			d.mu.Unlock()
+			d.emitError(cmd.ID, fmt.Sprintf("broker client: %v", err))
+			return
+		}
+		d.brokerClient = bc
+		d.mu.Unlock()
+	}
+
+	tokenHex, err := d.GenerateP2PToken(params.BrokerAddr, params.PeerPubB64)
+	if err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("generate p2p token: %v", err))
+		return
+	}
+	d.emit(EvtResponse, cmd.ID, MapA{
+		"token": tokenHex, "broker_addr": params.BrokerAddr,
+		"peer_pub_b64": params.PeerPubB64,
+	})
+}
+
+// handleRemoveP2PToken removes an active p2p token.
+func (d *Daemon) handleRemoveP2PToken(cmd Command) {
+	var params struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+	if err := d.RemoveP2PToken(params.Token); err != nil {
+		d.emitError(cmd.ID, err.Error())
+		return
+	}
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "removed"})
+}
+
+// handleListP2PTokens returns all active p2p tokens.
+func (d *Daemon) handleListP2PTokens(cmd Command) {
+	tokens := d.GetP2PTokens()
+	d.emit(EvtResponse, cmd.ID, MapA{"tokens": tokens})
+}
+
+// deriveAndStoreRelayTokens performs an ECDH exchange over the transport to
+// derive relay reconnect tokens and stores them in the session's meta bucket
+// (mirrors cmd/bus/network.go:924-945).
+func (d *Daemon) deriveAndStoreRelayTokens(t *kamune.Transport, sessionID string) {
+	tokens, err := relayconn.DeriveRelayTokens(t)
+	if err != nil {
+		d.addLogEntry("WARN", "Failed to derive relay tokens: "+err.Error())
+		return
+	}
+	slices := make([][]byte, len(tokens))
+	for i := range tokens {
+		slices[i] = tokens[i][:]
+	}
+	store := d.store()
+	if store == nil {
+		return
+	}
+	if err := store.SetMeta(sessionID,
+		storage.NewByteSlicesMeta(storage.RelayTokensKey, slices),
+	); err != nil {
+		d.addLogEntry("WARN", "Failed to store relay tokens: "+err.Error())
+	}
+}
+
+// deriveAndStoreRelayTokensForPeers derives relay tokens for existing sessions
+// using static peer keys and stores them.
+func (d *Daemon) deriveAndStoreRelayTokensForPeers(peerPubB64 ...string) error {
+	store := d.store()
+	if store == nil {
+		return errors.New("storage is not available")
+	}
+	myPubPKIX, err := store.PublicKey()
+	if err != nil {
+		return fmt.Errorf("get identity: %w", err)
+	}
+	myPubB64 := fingerprint.Base64(myPubPKIX)
+	myPubRaw, err := parsePeerPubB64ToRaw(myPubB64)
+	if err != nil {
+		return fmt.Errorf("parse local key: %w", err)
+	}
+	for _, pubB64 := range peerPubB64 {
+		if pubB64 == "" {
+			continue
+		}
+		peerPubRaw, err := parsePeerPubB64ToRaw(pubB64)
+		if err != nil {
+			d.addLogEntry("WARN", "Skipping peer (bad key): "+err.Error())
+			continue
+		}
+		t, err := relayconn.TokenFromKeys(myPubRaw, peerPubRaw)
+		if err != nil {
+			d.addLogEntry("WARN",
+				"Derive token for "+pubB64+": "+err.Error())
+			continue
+		}
+		pubPKIX, err := decodePeerPubKey(pubB64)
+		if err != nil {
+			d.addLogEntry("WARN", "Skipping peer (bad key): "+err.Error())
+			continue
+		}
+		sessionID, err := store.FindSessionByPeer(pubPKIX)
+		if err != nil {
+			d.addLogEntry("WARN",
+				"Find session for peer: "+err.Error())
+			continue
+		}
+		if sessionID == "" {
+			continue
+		}
+		existing, err := store.GetMeta(sessionID, storage.RelayTokensKey)
+		if err != nil || existing.Value() == nil {
+			d.addLogEntry("INFO",
+				"Storing derived relay token for session: "+sessionID)
+			if err := store.SetMeta(
+				sessionID,
+				storage.NewByteSlicesMeta(storage.RelayTokensKey, [][]byte{t}),
+			); err != nil {
+				d.addLogEntry("WARN",
+					"Store token for "+sessionID+": "+err.Error())
+			}
+		}
+	}
+	return nil
+}
+
+// makeReconnectFn returns a reconnect function that re-dials with resumption
+// tokens, trying stored ECDH tokens for relay connections (mirrors
+// cmd/bus/network.go:687-723).
+func (d *Daemon) makeReconnectFn(sessionID string, params *DialParams, store *storage.Storage, opts []kamune.DialOption) func(string) (*kamune.Transport, error) {
+	addr := params.Addr
+	relayAddr := params.RelayAddr
+	password := params.Password
+	return func(sessionID string) (*kamune.Transport, error) {
+		resumeOpts := append(
+			[]kamune.DialOption{kamune.DialWithResume(sessionID)}, opts...,
+		)
+		if store != nil && relayAddr != "" {
+			if m, err := store.GetMeta(
+				sessionID, storage.RelayTokensKey,
+			); err == nil && m.Value() != nil {
+				if tokens := decodeTokenList(m.Value()); len(tokens) > 1 {
+					fn, err := dialRelayFuncMultiToken(
+						relayAddr, password, false, tokens,
+					)
+					if err == nil {
+						resumeOpts = append(
+							resumeOpts, kamune.DialWithFunc(fn),
+						)
+					}
+				}
+			}
+		}
+		dl, err := kamune.NewDialer(addr, store, resumeOpts...)
+		if err != nil {
+			return nil, err
+		}
+		t, err := dl.Dial()
+		if err != nil {
+			return nil, err
+		}
+		d.deriveAndStoreRelayTokens(t, sessionID)
+		return t, nil
+	}
+}
+
+// relayReconnectLoop monitors the relay listener for death and automatically
+// re-registers with the next available token from the stored pool (mirrors
+// cmd/bus/relay.go:299-442).
+func (d *Daemon) relayReconnectLoop(ctx context.Context, ml *multiListener) {
+	const (
+		minBackoff = 1 * time.Second
+		maxBackoff = 5 * time.Second
+	)
+
+	d.mu.RLock()
+	var currentDead <-chan struct{}
+	var sessionID string
+	for i := len(d.relayTokens) - 1; i >= 0; i-- {
+		if tt, ok := d.relayTokens[i].listener.(*tokenTracker); ok {
+			currentDead = tt.Dead()
+			sessionID = tt.sessionID
+			break
+		}
+	}
+	d.mu.RUnlock()
+
+	if currentDead == nil {
+		slog.Warn("relay reconnect: no tracker found")
+		return
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-currentDead:
+		}
+
+		jitter := time.Duration(rand.Int63n(int64(maxBackoff - minBackoff)))
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(minBackoff + jitter):
+		}
+
+		d.mu.RLock()
+		server := d.server
+		d.mu.RUnlock()
+		if server == nil {
+			return
+		}
+
+		st := d.store()
+		if st == nil {
+			return
+		}
+		m, err := st.GetMeta(sessionID, storage.RelayTokensKey)
+		if err != nil || m.Value() == nil {
+			slog.Warn("relay reconnect: no stored tokens, cold start required", "session", sessionID)
+			return
+		}
+		tokens := decodeTokenList(m.Value())
+		if len(tokens) == 0 {
+			slog.Warn("relay reconnect: empty token pool, cold start required", "session", sessionID)
+			return
+		}
+
+		d.mu.RLock()
+		relayAddr := d.relayAddr
+		password := d.relayPassword
+		d.mu.RUnlock()
+
+		var registered bool
+		for _, token := range tokens {
+			listener, tokenHex, ttl, sessTTL, listenErr :=
+				listenRelayTracked(ctx, d, relayAddr, password, false, token)
+			if listenErr != nil {
+				slog.Warn("relay reconnect: attempt failed", "err", listenErr)
+				continue
+			}
+			if addErr := ml.Add(listener); addErr != nil {
+				listener.Close()
+				slog.Warn("relay reconnect: add to multi-listener failed", "err", addErr)
+				continue
+			}
+			d.mu.Lock()
+			d.relayTokens = append(d.relayTokens, relayToken{
+				Token: tokenHex, TTL: ttl, SessionTTL: sessTTL,
+				ExpiresAt: time.Now().Add(ttl), Mode: "ecdh",
+				sessionID: sessionID, listener: listener,
+			})
+			d.mu.Unlock()
+			slog.Info("relay reconnect: listener re-registered", "token_prefix", tokenHex[:8])
+			if tt, ok := listener.(*tokenTracker); ok {
+				currentDead = tt.Dead()
+				tt.sessionID = sessionID
+			}
+			registered = true
+			break
+		}
+
+		if !registered {
+			slog.Warn("relay reconnect: all tokens exhausted, cold start required", "session", sessionID, "pool_size", len(tokens))
+			return
+		}
+	}
+}
+
 // handleGenerateRelayToken creates a new relay token for the running server.
+// When peer_pub_b64 is provided, it derives a deterministic (static) token
+// using ECDH (mirrors cmd/bus/network.go:427-466).
 func (d *Daemon) handleGenerateRelayToken(cmd Command) {
+	var params struct {
+		PeerPubB64 string `json:"peer_pub_b64,omitempty"`
+	}
+	if cmd.Params != nil {
+		_ = json.Unmarshal(cmd.Params, &params)
+	}
+
 	d.mu.Lock()
 	if d.relayListeners == nil {
 		d.mu.Unlock()
@@ -618,8 +1053,18 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 	relayPassword := d.relayPassword
 	d.mu.Unlock()
 
+	var staticToken []byte
+	relayMode := "random"
+	if params.PeerPubB64 != "" {
+		tok, err := d.deriveP2PToken(params.PeerPubB64)
+		if err == nil {
+			staticToken = tok
+			relayMode = "static"
+		}
+	}
+
 	listener, token, ttl, sessionTTL, err := listenRelayTracked(
-		context.Background(), d, relayAddr, relayPassword, false,
+		context.Background(), d, relayAddr, relayPassword, false, staticToken,
 	)
 	if err != nil {
 		d.emitError(cmd.ID, err.Error())
@@ -640,7 +1085,8 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 	}
 	d.relayTokens = append(d.relayTokens, relayToken{
 		Token: token, TTL: ttl, SessionTTL: sessionTTL,
-		ExpiresAt: time.Now().Add(ttl), listener: listener,
+		ExpiresAt: time.Now().Add(ttl), Mode: relayMode,
+		listener: listener,
 	})
 	tokens := make([]relayToken, len(d.relayTokens))
 	copy(tokens, d.relayTokens)
@@ -743,7 +1189,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 		urlStr = fmt.Sprintf("%s://%s:%s", scheme, address, port)
 	case "relay":
 		listener, token, ttl, sessionTTL, err := listenRelayTracked(
-			context.Background(), d, relayAddr, relayPassword, false,
+			context.Background(), d, relayAddr, relayPassword, false, nil,
 		)
 		if err != nil {
 			d.emitError(cmd.ID, fmt.Sprintf("generate relay token: %v", err))
