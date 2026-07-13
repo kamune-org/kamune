@@ -3,8 +3,8 @@
 password = ""
 
 [session]
-token_ttl = "5m"
-session_ttl = "30m"          # max lifetime for paired sessions (0 = no limit)
+token_ttl = "10m"
+session_ttl = "60m"          # max lifetime for paired sessions (0 = no limit)
 handshake_timeout = "30s"    # max time for HPKE + registration (0 = no limit)
 max_concurrent_sessions = 10_000
 max_message_size = 65536
@@ -16,35 +16,35 @@ max_entries = 100_000        # max unique IPs tracked
 
 # Monitoring server (HTTP, /health only).
 [diagnose]
-enabled = true
+enabled = false
 address = "127.0.0.1:9090"
 
 # Plain WebSocket transport (peer-facing).
 [ws]
-enabled = true
-address = "127.0.0.1:8888"
+enabled = false
+address = "0.0.0.0:8888"
 
 # Raw TCP transport (kamune over TCP).
 [tcp]
 enabled = true
-address = "127.0.0.1:8889"
+address = "0.0.0.0:8889"
 
 # Raw TLS transport (kamune over TLS).
 [tls]
 enabled   = true
-address   = "127.0.0.1:8890"
+address   = "0.0.0.0:8890"
 # cert_file = "assets/cert/server.crt"
 # key_file  = "assets/cert/server.key"
 
 # WSS transport (WebSocket over TLS).
 [wss]
 enabled   = true
-address   = "127.0.0.1:8891"
+address   = "0.0.0.0:8891"
 # cert_file = "assets/cert/server.crt"
 # key_file  = "assets/cert/server.key"
 
 # UDP broker (STUN-like IP echo + signal introduction for P2P hole-punching).
 [broker]
 enabled = true
-address = "127.0.0.1:4788"
+address = "0.0.0.0:4788"
 # registration_ttl = "60s"

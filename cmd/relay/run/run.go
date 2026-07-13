@@ -9,7 +9,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
-	"flag"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -26,13 +25,9 @@ import (
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
 )
 
-func Run() error {
+func Run(cfgPath string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	var cfgPath string
-	flag.StringVar(&cfgPath, "c", "", "config file path (omit to use "+config.EnvKey+" env var)")
-	flag.Parse()
 
 	cfg, err := config.New(cfgPath)
 	if err != nil {

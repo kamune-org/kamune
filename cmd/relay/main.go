@@ -1,10 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"runtime/debug"
 
+	"github.com/kamune-org/kamune/cmd/relay/internal/config"
 	"github.com/kamune-org/kamune/cmd/relay/run"
 )
 
@@ -26,12 +28,18 @@ func kamuneVersion() string {
 }
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "-version" || os.Args[1] == "--version") {
+	var cfgPath string
+	var showVersion bool
+	flag.StringVar(&cfgPath, "c", "", "config file path (omit to use "+config.EnvKey+" env var)")
+	flag.BoolVar(&showVersion, "v", false, "print version")
+	flag.Parse()
+
+	if showVersion {
 		fmt.Printf("kamune-relay %s (kamune: %s)\n", version, kamuneVersion())
 		return
 	}
 
-	if err := run.Run(); err != nil {
+	if err := run.Run(cfgPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
