@@ -3,8 +3,9 @@
 The `cmd/daemon` module provides a JSON-over-stdio protocol for integrating
 kamune with external applications (Tauri, Electron, editor plugins, scripts).
 The daemon exposes the same surface area as the `cmd/bus` Wails GUI client:
-TCP/UDP/relay transports, peer verification, chat history persistence, relay
-token management, identity, and share info.
+TCP/UDP/relay/P2P transports, peer verification, chat history persistence, relay
+and P2P token management, identity, share info, log management, and keychain
+integration.
 
 This document is the **authoritative protocol specification**. For build
 instructions and a quick-start, see [`cmd/daemon/README.md`](../cmd/daemon/README.md).
@@ -68,7 +69,7 @@ need to read any other section to use a command.
 
 ## Commands
 
-All 36 commands, grouped by category. Each block shows the **exact JSON**
+All 49 commands, grouped by category. Each block shows the **exact JSON**
 to send and the **exact JSON** to expect back.
 
 ### `SessionInfo` Shape
@@ -153,11 +154,12 @@ a prior `open_storage` call.
 
 #### `start_server`
 
-Starts a kamune server. `transport` is `"tcp"` (default), `"udp"`, or
-`"relay"`. When `"relay"`, `relay_addr` is required (supports `tcp://`,
-`ws://`, `wss://`, `tls://` schemes; `?insecure=true` overrides TLS
-verification). `name` defaults to `fingerprint.Pseudonym(pubKey)`. When
-incognito mode is enabled, a pseudonym is always used regardless of `name`.
+Starts a kamune server. `transport` is `"tcp"` (default), `"udp"`,
+`"relay"`, `"p2p"`, or `"direct-p2p"`. When `"relay"`, `relay_addr` is
+required (supports `tcp://`, `ws://`, `wss://`, `tls://` schemes;
+`?insecure=true` overrides TLS verification). `name` defaults to
+`fingerprint.Pseudonym(pubKey)`. When incognito mode is enabled, a pseudonym is
+always used regardless of `name`.
 
 **Input (TCP):**
 
@@ -182,6 +184,37 @@ incognito mode is enabled, a pseudonym is always used regardless of `name`.
     "relay_addr": "wss://relay.example.com:8443",
     "password": "psk-secret",
     "name": "MyServer"
+  }
+}
+```
+
+**Input (P2P via broker):**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "start_server",
+  "id": "1",
+  "params": {
+    "transport": "p2p",
+    "addr": "0.0.0.0:0",
+    "broker_addr": "wss://broker.example.com",
+    "peer_pub_b64": "<optional-base64-public-key>"
+  }
+}
+```
+
+**Input (Direct P2P):**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "start_server",
+  "id": "1",
+  "params": {
+    "transport": "direct-p2p",
+    "addr": "0.0.0.0:0",
+    "direct_peer_addr": "203.0.113.5:9000"
   }
 }
 ```
@@ -315,9 +348,9 @@ Returns the current connection status.
 
 #### `dial`
 
-Connects to a remote kamune server. `transport` is `"tcp"` (default),
-`"udp"`, or `"relay"`. For relay, `token` is the hex-encoded token from the
-server.
+Connects to a remote kamune server. `transport` is `"tcp"` (default), `"udp"`,
+`"relay"`, `"p2p"`, or `"direct-p2p"`. For relay, `token` is the hex-encoded
+token from the server.
 
 **Input (TCP):**
 
@@ -342,6 +375,37 @@ server.
     "relay_addr": "wss://relay.example.com:8443",
     "token": "deadbeef...",
     "password": "psk-secret"
+  }
+}
+```
+
+**Input (P2P via broker):**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "dial",
+  "id": "1",
+  "params": {
+    "transport": "p2p",
+    "broker_addr": "wss://broker.example.com",
+    "p2p_token": "hex-token-from-server",
+    "name": "MyClient"
+  }
+}
+```
+
+**Input (Direct P2P):**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "dial",
+  "id": "1",
+  "params": {
+    "transport": "direct-p2p",
+    "direct_peer_addr": "203.0.113.5:9000",
+    "name": "MyClient"
   }
 }
 ```
@@ -495,12 +559,25 @@ message is not persisted to chat history.
 
 #### `generate_relay_token`
 
-Generates a new relay token for the running relay server.
+Generates a new relay token for the running relay server. When `peer_pub_b64` is
+set, derives a deterministic (static) token via ECDH — only that peer can
+connect using it.
 
-**Input:** (no params)
+**Input (random token):**
 
 ```json
 { "type": "cmd", "cmd": "generate_relay_token", "id": "1", "params": {} }
+```
+
+**Input (static token for specific peer):**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "generate_relay_token",
+  "id": "1",
+  "params": { "peer_pub_b64": "base64key..." }
+}
 ```
 
 **Output:**
@@ -601,6 +678,154 @@ For `relay`, generates a fresh token and includes `relay_info`.
 { "type": "evt", "evt": "response", "id": "1", "data": { "url": "relay://relay.example.com:8443?token=freshbeef...&scheme=wss", "transport": "relay", "address": "", "port": "", "fingerprint_emoji": "🦊 • 🐱", "fingerprint_hex": "ab12cd34...", "relay_info": { "address": "relay.example.com:8443", "scheme": "wss", "token": "freshbeef...", "password": false } } }
 ```
 
+### P2P Tokens
+
+#### `generate_p2p_token`
+
+Generates a new P2P token for broker-based hole-punching. When `peer_pub_b64` is
+set, the token is derived via ECDH so only that peer can match.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "generate_p2p_token",
+  "id": "1",
+  "params": {
+    "broker_addr": "wss://broker.example.com",
+    "peer_pub_b64": "base64key..."
+  }
+}
+```
+
+**Output:**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": {
+    "token": "hex-token...",
+    "broker_addr": "wss://broker.example.com",
+    "peer_pub_b64": "base64key..."
+  }
+}
+```
+
+#### `remove_p2p_token`
+
+Removes an active P2P token.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "remove_p2p_token",
+  "id": "1",
+  "params": { "token": "hex-token..." }
+}
+```
+
+**Output:**
+
+```json
+{ "type": "evt", "evt": "response", "id": "1", "data": { "status": "removed" } }
+```
+
+#### `list_p2p_tokens`
+
+Returns all active P2P tokens.
+
+**Input:** (no params)
+
+```json
+{ "type": "cmd", "cmd": "list_p2p_tokens", "id": "1", "params": {} }
+```
+
+**Output:**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": {
+    "tokens": [
+      {
+        "token": "hex-token...",
+        "nonce": "base64...",
+        "pub": "base64...",
+        "peer": "base64...",
+        "broker_addr": "wss://broker.example.com",
+        "expires_at": "2026-06-21T11:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+### Connections (continued)
+
+#### `get_session_info`
+
+Returns info for a single session, either live or from history. Returns `null`
+if the session ID is not found.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "get_session_info",
+  "id": "1",
+  "params": { "session_id": "xyz789..." }
+}
+```
+
+**Output (live session):**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": {
+    "type": "live",
+    "session_id": "xyz789...",
+    "peer_name": "CrimsonOtter",
+    "is_server": false,
+    "msg_count": 3,
+    "last_activity": "2026-06-21T10:30:00Z",
+    "transport_type": "tcp",
+    "remote_version": "0.5.0",
+    "session_ttl_ns": 3600000000000,
+    "session_started_at": "2026-06-21T10:25:00Z",
+    "remote_addr": "192.168.1.10:9000"
+  }
+}
+```
+
+**Output (history session):**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": {
+    "type": "history",
+    "session_id": "abc123...",
+    "name": "Alice",
+    "message_count": 15,
+    "first_message": "2026-06-20T09:00:00Z",
+    "last_message": "2026-06-20T10:30:00Z"
+  }
+}
+```
+
 ### Verification
 
 Modes: `0` = Strict (always prompt), `1` = Quick (auto-accept known peers,
@@ -634,8 +859,8 @@ is auto-restarted to apply the new mode to incoming connections.
 }
 ```
 
-If a server was running, also emits `server_stopped` + `server_started`
-(the `restart_server` flow).
+If a server was running, also emits `server_stopped` + `server_started` (the
+`restart_server` flow).
 
 #### `get_verification_mode`
 
@@ -907,6 +1132,97 @@ Returns all known peers.
 }
 ```
 
+#### `add_peer`
+
+Adds a known peer manually. `name` is optional; defaults to the fingerprint
+pseudonym.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "add_peer",
+  "id": "1",
+  "params": {
+    "public_key": "base64encodedkey...",
+    "name": "Alice"
+  }
+}
+```
+
+**Output:**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": { "status": "added", "name": "Alice" }
+}
+```
+
+#### `rename_peer`
+
+Updates the display name of a known peer.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "rename_peer",
+  "id": "1",
+  "params": {
+    "public_key": "base64encodedkey...",
+    "name": "NewName"
+  }
+}
+```
+
+**Output:**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": { "status": "renamed", "name": "NewName" }
+}
+```
+
+#### `get_peer`
+
+Returns a single known peer by base64 public key.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "get_peer",
+  "id": "1",
+  "params": { "public_key": "base64encodedkey..." }
+}
+```
+
+**Output:**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": {
+    "name": "CrimsonOtter",
+    "public_key": "base64key...",
+    "first_seen": "2026-06-15T10:00:00Z",
+    "last_seen": "2026-06-21T10:30:00Z",
+    "app_version": "0.5.0"
+  }
+}
+```
+
 #### `delete_peer`
 
 Removes a known peer.
@@ -926,6 +1242,216 @@ Removes a known peer.
 
 ```json
 { "type": "evt", "evt": "response", "id": "1", "data": { "status": "deleted" } }
+```
+
+### Log Management
+
+Log entries are buffered in memory (200-entry ring buffer). Each entry emits a
+`log_entry` push event (see [Push Events](#log_entry)).
+
+#### `get_logs`
+
+Returns all buffered log entries.
+
+**Input:** (no params)
+
+```json
+{ "type": "cmd", "cmd": "get_logs", "id": "1", "params": {} }
+```
+
+**Output:**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": {
+    "entries": [
+      {
+        "timestamp": "2026-06-21T10:30:00Z",
+        "level": "INFO",
+        "message": "[cmd/daemon] Server started"
+      }
+    ]
+  }
+}
+```
+
+#### `clear_logs`
+
+Clears all buffered log entries.
+
+**Input:** (no params)
+
+```json
+{ "type": "cmd", "cmd": "clear_logs", "id": "1", "params": {} }
+```
+
+**Output:**
+
+```json
+{ "type": "evt", "evt": "response", "id": "1", "data": { "status": "cleared" } }
+```
+
+#### `export_logs`
+
+Writes buffered logs to a file. `file_path` is optional — defaults to
+`kamune-logs-<timestamp>.txt` in the current directory.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "export_logs",
+  "id": "1",
+  "params": { "file_path": "/tmp/kamune-logs.txt" }
+}
+```
+
+**Output:**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": { "status": "exported", "file_path": "/tmp/kamune-logs.txt" }
+}
+```
+
+#### `get_log_level`
+
+Returns the current log level.
+
+**Input:** (no params)
+
+```json
+{ "type": "cmd", "cmd": "get_log_level", "id": "1", "params": {} }
+```
+
+**Output:**
+
+```json
+{ "type": "evt", "evt": "response", "id": "1", "data": { "level": "INFO" } }
+```
+
+#### `set_log_level`
+
+Sets the log level. Persisted to storage. Accepted values: `"DEBUG"`, `"INFO"`,
+`"WARN"`, `"ERROR"`.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "set_log_level",
+  "id": "1",
+  "params": { "level": "DEBUG" }
+}
+```
+
+**Output:**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": { "status": "ok", "level": "DEBUG" }
+}
+```
+
+### Keychain
+
+The daemon can save and retrieve the storage passphrase from the system keychain
+(macOS Keychain, Linux Secret Service, Windows Credential Manager).
+
+#### `has_keychain_passphrase`
+
+Returns whether a passphrase is stored in the system keychain for the current
+database path.
+
+**Input:** (no params)
+
+```json
+{ "type": "cmd", "cmd": "has_keychain_passphrase", "id": "1", "params": {} }
+```
+
+**Output:**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": { "has_passphrase": true }
+}
+```
+
+#### `clear_keychain_passphrase`
+
+Removes the stored passphrase from the system keychain.
+
+**Input:** (no params)
+
+```json
+{ "type": "cmd", "cmd": "clear_keychain_passphrase", "id": "1", "params": {} }
+```
+
+**Output:**
+
+```json
+{ "type": "evt", "evt": "response", "id": "1", "data": { "status": "cleared" } }
+```
+
+### Fingerprint Format
+
+The daemon can display fingerprints in different formats. Default is `"hex"`.
+Format is stored in memory only (not persisted).
+
+#### `get_fingerprint_format`
+
+Returns the current fingerprint format.
+
+**Input:** (no params)
+
+```json
+{ "type": "cmd", "cmd": "get_fingerprint_format", "id": "1", "params": {} }
+```
+
+**Output:**
+
+```json
+{ "type": "evt", "evt": "response", "id": "1", "data": { "format": "hex" } }
+```
+
+#### `set_fingerprint_format`
+
+Sets the fingerprint display format.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "set_fingerprint_format",
+  "id": "1",
+  "params": { "format": "emoji" }
+}
+```
+
+**Output:**
+
+```json
+{
+  "type": "evt",
+  "evt": "response",
+  "id": "1",
+  "data": { "status": "ok", "format": "emoji" }
+}
 ```
 
 ### Identity
@@ -1135,8 +1661,8 @@ Emitted when the local display name changes.
 ### `session_started` (incoming)
 
 Emitted when a peer connects to the server (not from `dial`). The
-`session_started` from `dial` is correlated with the command `id` and
-documented in [Commands](#connections).
+`session_started` from `dial` is correlated with the command `id` and documented
+in [Commands](#connections).
 
 ```json
 {
@@ -1226,8 +1752,8 @@ Emitted when a peer has a different minor version.
 
 ### `verify_peer`
 
-Emitted when a new peer needs verification (Strict or Quick mode). The
-client must respond with a `verify_response` command within 2 minutes.
+Emitted when a new peer needs verification (Strict or Quick mode). The client
+must respond with a `verify_response` command within 2 minutes.
 
 ```json
 {
@@ -1267,10 +1793,50 @@ removed).
 }
 ```
 
+### `p2p_tokens`
+
+Emitted when the P2P token list changes (token generated or removed).
+
+```json
+{
+  "type": "evt",
+  "evt": "p2p_tokens",
+  "data": {
+    "tokens": [
+      {
+        "token": "hex-token...",
+        "nonce": "base64...",
+        "pub": "base64...",
+        "peer": "base64...",
+        "broker_addr": "wss://broker.example.com",
+        "expires_at": "2026-06-21T11:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+### `log_entry`
+
+Emitted for each log entry added to the in-memory buffer. The same entries are
+returned by `get_logs`.
+
+```json
+{
+  "type": "evt",
+  "evt": "log_entry",
+  "data": {
+    "timestamp": "2026-06-21T10:30:00Z",
+    "level": "INFO",
+    "message": "[cmd/daemon] Server started"
+  }
+}
+```
+
 ### `error`
 
-Emitted when a command fails or an internal error occurs. Correlated by
-command `id` when applicable.
+Emitted when a command fails or an internal error occurs. Correlated by command
+`id` when applicable.
 
 ```json
 {
@@ -1283,8 +1849,8 @@ command `id` when applicable.
 
 ## Storage Model
 
-The daemon holds a single shared storage instance opened by `open_storage`
-(or re-opened by `submit_passphrase`). The same storage is used for:
+The daemon holds a single shared storage instance opened by `open_storage` (or
+re-opened by `submit_passphrase`). The same storage is used for:
 
 - **Local identity** — Ed25519 keypair, loaded on `open_storage` as `pubKey`.
 - **Chat history** — `AddChatEntry` on every send and receive.
@@ -1293,9 +1859,10 @@ The daemon holds a single shared storage instance opened by `open_storage`
   - `verification_mode` (int: 0/1/2)
   - `local_name` (string)
   - `incognito` (bool: "true"/"false")
+  - `log_level` (string: "DEBUG"/"INFO"/"WARN"/"ERROR")
 
-Calling `open_storage` or `submit_passphrase` while a storage is already
-open **closes the previous instance first**.
+Calling `open_storage` or `submit_passphrase` while a storage is already open
+**closes the previous instance first**.
 
 ### Passphrase Sources
 
@@ -1308,9 +1875,9 @@ open **closes the previous instance first**.
 
 ## Verification Flow
 
-The daemon supports three peer verification modes. The mode is persisted
-in storage settings under `daemon/verification_mode` and can be changed
-at runtime via `set_verification_mode`.
+The daemon supports three peer verification modes. The mode is persisted in
+storage settings under `daemon/verification_mode` and can be changed at runtime
+via `set_verification_mode`.
 
 ```
                   ┌──────────────────────────────────────────┐
@@ -1345,13 +1912,15 @@ verification is triggered by the protocol, not by a client command. Match
 
 ## Transports
 
-| Transport       | Server-side                                                   | Client-side                               |
-| --------------- | ------------------------------------------------------------- | ----------------------------------------- |
-| `tcp` (default) | `kamune.ServeWithTCP`                                         | `kamune.DialWithTCP`                      |
-| `udp`           | `kamune.ServeWithUDP`                                         | `kamune.DialWithUDP`                      |
-| `relay`         | `relayconn.ListenRelay*` + `ServeWithListener(multiListener)` | `relayconn.DialRelay*` via `DialWithFunc` |
+| Transport       | Server-side                                                   | Client-side                                  |
+| --------------- | ------------------------------------------------------------- | -------------------------------------------- |
+| `tcp` (default) | `kamune.ServeWithTCP`                                         | `kamune.DialWithTCP`                         |
+| `udp`           | `kamune.ServeWithUDP`                                         | `kamune.DialWithUDP`                         |
+| `relay`         | `relayconn.ListenRelay*` + `ServeWithListener(multiListener)` | `relayconn.DialRelay*` via `DialWithFunc`    |
+| `p2p`           | `broker.BrokerClient` + `newP2PListener` + `ServeWithUDP`     | `WaitMatch` + `HolePunch` via `DialWithFunc` |
+| `direct-p2p`    | `newDirectP2PListener` + `ServeWithListener`                  | `directP2PDial` via `DialWithFunc`           |
 
 For relay mode, the relay address supports `tcp://`, `ws://`, `wss://`, and
-`tls://` schemes. An optional `?insecure=true` query parameter overrides
-TLS certificate verification. A PSK `password` can be supplied for relays
-that require one.
+`tls://` schemes. An optional `?insecure=true` query parameter overrides TLS
+certificate verification. A PSK `password` can be supplied for relays that
+require one.
