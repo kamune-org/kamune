@@ -136,14 +136,32 @@ func (c Config) Validate() error {
 	return nil
 }
 
+const EnvKey = "KAMUNE_RELAY_CONFIG"
+
+// New loads config from the given file path. If path is empty, it falls back to
+// the KAMUNE_RELAY_CONFIG environment variable. Returns an error if neither
+// source is available or parsing fails.
 func New(path string) (Config, error) {
-	cfg := Config{}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return cfg, fmt.Errorf("reading file: %w", err)
+	var data []byte
+	if path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return Config{}, fmt.Errorf("reading config %q: %w", path, err)
+		}
+		data = raw
+	} else {
+		raw, ok := os.LookupEnv(EnvKey)
+		if !ok || raw == "" {
+			return Config{}, fmt.Errorf(
+				"no config file (-c) and %s env var not set", EnvKey,
+			)
+		}
+		data = []byte(raw)
 	}
-	if err = toml.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("unmarshal: %w", err)
+
+	var cfg Config
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return Config{}, fmt.Errorf("unmarshal: %w", err)
 	}
 	return cfg, nil
 }

@@ -31,7 +31,7 @@ func Run() error {
 	defer cancel()
 
 	var cfgPath string
-	flag.StringVar(&cfgPath, "c", "config.toml", "config path")
+	flag.StringVar(&cfgPath, "c", "", "config file path (omit to use "+config.EnvKey+" env var)")
 	flag.Parse()
 
 	cfg, err := config.New(cfgPath)

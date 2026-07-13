@@ -302,3 +302,49 @@ func TestConfig_Validate_RejectsNoServersEnabled(t *testing.T) {
 	r.Error(err, "expected error when no servers are enabled")
 	a.Contains(err.Error(), "at least one server")
 }
+
+func TestNew_EnvVar(t *testing.T) {
+	r := require.New(t)
+	t.Setenv(EnvKey, `
+[diagnose]
+enabled = true
+address = "0.0.0.0:19090"
+
+[ws]
+enabled = true
+address = "0.0.0.0:18888"
+
+[session]
+token_ttl = "10m"
+session_ttl = "1h"
+max_concurrent_sessions = 500
+`)
+	cfg, err := New("")
+	r.NoError(err)
+	a := assert.New(t)
+	a.Equal("0.0.0.0:19090", cfg.Diagnose.Address)
+	a.Equal("0.0.0.0:18888", cfg.WS.Address)
+	a.Equal(10*time.Minute, cfg.Session.TokenTTL)
+	a.Equal(time.Hour, cfg.Session.SessionTTL)
+	a.Equal(500, cfg.Session.MaxConcurrentSessions)
+}
+
+func TestNew_EnvVarEmpty(t *testing.T) {
+	_, err := New("")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "env var not set")
+}
+
+func TestNew_FileOverridesEnvVar(t *testing.T) {
+	r := require.New(t)
+	t.Setenv(EnvKey, `
+[diagnose]
+enabled = true
+address = "0.0.0.0:19090"
+`)
+	// When a file is explicitly provided, env var is ignored.
+	// The file from assets is a known-good config.
+	cfg, err := New("../../assets/config.toml")
+	r.NoError(err)
+	assert.NotEmpty(t, cfg.WS.Address, "should load from file, not env")
+}
