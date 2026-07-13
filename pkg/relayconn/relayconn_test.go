@@ -2,6 +2,7 @@ package relayconn
 
 import (
 	"context"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/exchange"
@@ -119,6 +122,7 @@ func relayDial(conn net.Conn, errCh chan<- error) {
 // --- Handshake tests ---
 
 func TestListenHandshake_Success(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
@@ -130,26 +134,17 @@ func TestListenHandshake_Success(t *testing.T) {
 	defer cancel()
 
 	result, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
-	if err != nil {
-		t.Fatal(err)
-	}
+	a.NoError(err)
 	defer result.Listener.Close()
 
-	if err := <-errCh; err != nil {
-		t.Fatal("relay side:", err)
-	}
-	if string(result.Token) != "test-token" {
-		t.Errorf("token = %q, want %q", result.Token, "test-token")
-	}
-	if result.TTL != 5*time.Minute {
-		t.Errorf("ttl = %v, want %v", result.TTL, 5*time.Minute)
-	}
-	if result.Listener.TTL() != 5*time.Minute {
-		t.Errorf("TTL() = %v, want %v", result.Listener.TTL(), 5*time.Minute)
-	}
+	a.NoError(<-errCh)
+	a.Equal("test-token", string(result.Token))
+	a.Equal(5*time.Minute, result.TTL)
+	a.Equal(5*time.Minute, result.Listener.TTL())
 }
 
 func TestListenHandshake_EmptyToken(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
@@ -161,13 +156,13 @@ func TestListenHandshake_EmptyToken(t *testing.T) {
 	defer cancel()
 
 	_, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
-	if err == nil || err.Error() != "relay returned empty token" {
-		t.Fatalf("expected 'relay returned empty token', got %v", err)
-	}
+	a.Error(err)
+	a.Equal("relay returned empty token", err.Error())
 	<-errCh // drain relay error (expected)
 }
 
 func TestListenHandshake_BadUnmarshal(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
@@ -176,13 +171,10 @@ func TestListenHandshake_BadUnmarshal(t *testing.T) {
 		rw := newTCPAdapter(s)
 		ch, err := exchange.Accept(rw)
 		if err != nil {
-			t.Errorf("exchange.Accept: %v", err)
 			return
 		}
 		defer ch.Close()
-		// Read and discard Register
 		ch.ReadBytes()
-		// Send garbage
 		ch.WriteBytes([]byte("not a valid protobuf"))
 	}()
 
@@ -190,12 +182,11 @@ func TestListenHandshake_BadUnmarshal(t *testing.T) {
 	defer cancel()
 
 	_, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
+	a.Error(err)
 }
 
 func TestListenHandshake_WithAuth(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
@@ -207,23 +198,16 @@ func TestListenHandshake_WithAuth(t *testing.T) {
 	defer cancel()
 
 	result, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() }, WithPassword("sekret"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	a.NoError(err)
 	defer result.Listener.Close()
 
-	if err := <-errCh; err != nil {
-		t.Fatal("relay side:", err)
-	}
-	if string(result.Token) != "auth-token" {
-		t.Errorf("token = %q, want %q", result.Token, "auth-token")
-	}
-	if result.TTL != time.Minute {
-		t.Errorf("ttl = %v, want %v", result.TTL, time.Minute)
-	}
+	a.NoError(<-errCh)
+	a.Equal("auth-token", string(result.Token))
+	a.Equal(time.Minute, result.TTL)
 }
 
 func TestListenHandshake_SessionTTL(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
@@ -258,26 +242,17 @@ func TestListenHandshake_SessionTTL(t *testing.T) {
 	defer cancel()
 
 	result, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
-	if err != nil {
-		t.Fatal(err)
-	}
+	a.NoError(err)
 	defer result.Listener.Close()
 
-	if err := <-errCh; err != nil {
-		t.Fatal("relay side:", err)
-	}
-	if string(result.Token) != "sttl-token" {
-		t.Errorf("token = %q, want %q", result.Token, "sttl-token")
-	}
-	if result.TTL != 5*time.Minute {
-		t.Errorf("TTL = %v, want %v", result.TTL, 5*time.Minute)
-	}
-	if result.SessionTTL != 30*time.Minute {
-		t.Errorf("SessionTTL = %v, want %v", result.SessionTTL, 30*time.Minute)
-	}
+	a.NoError(<-errCh)
+	a.Equal("sttl-token", string(result.Token))
+	a.Equal(5*time.Minute, result.TTL)
+	a.Equal(30*time.Minute, result.SessionTTL)
 }
 
 func TestDialHandshake_Success(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
@@ -289,17 +264,14 @@ func TestDialHandshake_Success(t *testing.T) {
 	defer cancel()
 
 	rc, err := relayHandshake(ctx, newTCPAdapter(c), []byte("dial-token"), func() { c.Close() })
-	if err != nil {
-		t.Fatal(err)
-	}
+	a.NoError(err)
 	defer rc.Close()
 
-	if err := <-errCh; err != nil {
-		t.Fatal("relay side:", err)
-	}
+	a.NoError(<-errCh)
 }
 
 func TestDialHandshake_WrongFrame(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
@@ -308,12 +280,10 @@ func TestDialHandshake_WrongFrame(t *testing.T) {
 		rw := newTCPAdapter(s)
 		ch, err := exchange.Accept(rw)
 		if err != nil {
-			t.Errorf("exchange.Accept: %v", err)
 			return
 		}
 		defer ch.Close()
-		ch.ReadBytes() // discard Register
-		// Send unexpected Ping instead of Registered
+		ch.ReadBytes()
 		ping := &pb.Frame{Kind: &pb.Frame_Ping{Ping: &pb.Ping{}}}
 		b, _ := proto.Marshal(ping)
 		ch.WriteBytes(b)
@@ -323,14 +293,13 @@ func TestDialHandshake_WrongFrame(t *testing.T) {
 	defer cancel()
 
 	_, err := relayHandshake(ctx, newTCPAdapter(c), []byte("t"), func() { c.Close() })
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
+	a.Error(err)
 }
 
 // --- Listener lifecycle ---
 
 func TestListenAccept_AfterStop(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
@@ -342,20 +311,17 @@ func TestListenAccept_AfterStop(t *testing.T) {
 	defer cancel()
 
 	result, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
-	if err != nil {
-		t.Fatal(err)
-	}
+	a.NoError(err)
 	defer result.Listener.Close()
 	<-errCh
 
 	result.Listener.Stop()
 	_, err = result.Listener.Accept()
-	if err != net.ErrClosed {
-		t.Fatalf("Accept() after Stop: got %v, want net.ErrClosed", err)
-	}
+	a.ErrorIs(err, net.ErrClosed)
 }
 
 func TestListenAccept_AfterClose(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
@@ -367,26 +333,22 @@ func TestListenAccept_AfterClose(t *testing.T) {
 	defer cancel()
 
 	result, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
-	if err != nil {
-		t.Fatal(err)
-	}
+	a.NoError(err)
 	<-errCh
 
 	result.Listener.Close()
 	_, err = result.Listener.Accept()
-	if err != net.ErrClosed {
-		t.Fatalf("Accept() after Close: got %v, want net.ErrClosed", err)
-	}
+	a.ErrorIs(err, net.ErrClosed)
 }
 
 // --- RelayConn ---
 
 func TestRelayConnWriteRead(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
 
-	// Establish exchange channel pair
 	var (
 		serverCh *exchange.Channel
 		serverOK = make(chan error, 1)
@@ -402,74 +364,52 @@ func TestRelayConnWriteRead(t *testing.T) {
 	}()
 
 	clientCh, err := exchange.Initiate(newTCPAdapter(c))
-	if err != nil {
-		t.Fatal("Initiate:", err)
-	}
+	a.NoError(err)
 	defer clientCh.Close()
-	if err := <-serverOK; err != nil {
-		t.Fatal("Accept:", err)
-	}
+	a.NoError(<-serverOK)
 	defer serverCh.Close()
 
-	// Create RelayConn on client side. readPump starts later to avoid pipe
-	// contention (net.Pipe requires concurrent read/write).
 	var mu sync.Mutex
 	rc := newRelayConn(t.Context(), clientCh, &mu)
 	rc.closeFn = func() { clientCh.Close() }
 	defer rc.Close()
 
-	// Client writes, relay reads concurrently (net.Pipe is unbuffered)
 	serverGot := make(chan []byte, 1)
 	go func() {
 		data, err := serverCh.ReadBytes()
 		if err != nil {
-			t.Error("serverCh.ReadBytes:", err)
 			return
 		}
 		serverGot <- data
 	}()
 
-	if err := rc.WriteBytes([]byte("hello")); err != nil {
-		t.Fatal("WriteBytes:", err)
-	}
+	a.NoError(rc.WriteBytes([]byte("hello")))
 
 	got := <-serverGot
 	var frame pb.Frame
-	if err := proto.Unmarshal(got, &frame); err != nil {
-		t.Fatal("unmarshal:", err)
-	}
-	if string(frame.GetMsg().GetData()) != "hello" {
-		t.Errorf("got %q, want %q", frame.GetMsg().GetData(), "hello")
-	}
+	a.NoError(proto.Unmarshal(got, &frame))
+	a.Equal("hello", string(frame.GetMsg().GetData()))
 
-	// Now start readPump for the read-back direction
 	go rc.readPump()
 
-	// Relay writes, client reads
 	resp := &pb.Frame{
 		Kind: &pb.Frame_Msg{
 			Msg: &pb.Message{Data: []byte("world")},
 		},
 	}
 	b, _ := proto.Marshal(resp)
-	if err := serverCh.WriteBytes(b); err != nil {
-		t.Fatal("server WriteBytes:", err)
-	}
+	a.NoError(serverCh.WriteBytes(b))
 	got2, err := rc.ReadBytes()
-	if err != nil {
-		t.Fatal("rc ReadBytes:", err)
-	}
-	if string(got2) != "world" {
-		t.Errorf("got %q, want %q", got2, "world")
-	}
+	a.NoError(err)
+	a.Equal("world", string(got2))
 }
 
 func TestRelayConnDeadline(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
 
-	// Establish exchange channel pair
 	var (
 		serverCh *exchange.Channel
 		serverOK = make(chan error, 1)
@@ -484,13 +424,9 @@ func TestRelayConnDeadline(t *testing.T) {
 		serverOK <- err
 	}()
 	clientCh, err := exchange.Initiate(newTCPAdapter(c))
-	if err != nil {
-		t.Fatal("Initiate:", err)
-	}
+	a.NoError(err)
 	defer clientCh.Close()
-	if err := <-serverOK; err != nil {
-		t.Fatal("Accept:", err)
-	}
+	a.NoError(<-serverOK)
 	defer serverCh.Close()
 
 	var mu sync.Mutex
@@ -499,24 +435,21 @@ func TestRelayConnDeadline(t *testing.T) {
 	go rc.readPump()
 	defer rc.Close()
 
-	// Set deadline in the past → immediate timeout
 	rc.SetDeadline(time.Now().Add(-time.Second))
 	_, err = rc.ReadBytes()
-	if err != os.ErrDeadlineExceeded {
-		t.Fatalf("got %v, want os.ErrDeadlineExceeded", err)
-	}
+	a.ErrorIs(err, os.ErrDeadlineExceeded)
 }
 
 func TestRelayConnCloseIdempotent(t *testing.T) {
 	rc := newRelayConn(t.Context(), nil, nil)
-
 	rc.Close()
-	rc.Close() // second close must not panic
+	rc.Close()
 }
 
 // --- Transport ---
 
 func TestTcpAdapterLengthPrefix(t *testing.T) {
+	a := require.New(t)
 	c, s := net.Pipe()
 	defer c.Close()
 	defer s.Close()
@@ -525,24 +458,380 @@ func TestTcpAdapterLengthPrefix(t *testing.T) {
 		adapter := newTCPAdapter(s)
 		data, err := adapter.ReadBytes()
 		if err != nil {
-			t.Errorf("ReadBytes: %v", err)
 			return
 		}
-		if string(data) != "hello" {
-			t.Errorf("got %q, want %q", data, "hello")
-		}
 		adapter.WriteBytes([]byte("world"))
+		_ = data
 	}()
 
 	adapter := newTCPAdapter(c)
-	if err := adapter.WriteBytes([]byte("hello")); err != nil {
-		t.Fatal("WriteBytes:", err)
-	}
+	a.NoError(adapter.WriteBytes([]byte("hello")))
 	data, err := adapter.ReadBytes()
-	if err != nil {
-		t.Fatal("ReadBytes:", err)
+	a.NoError(err)
+	a.Equal("world", string(data))
+}
+
+// setupListener creates a listener via listenHandshake and returns the
+// listener plus a server-side exchange.Channel for sending frames.
+func setupListener(t *testing.T) (*RelayListener, *exchange.Channel) {
+	t.Helper()
+	a := require.New(t)
+	c, s := net.Pipe()
+	t.Cleanup(func() { c.Close(); s.Close() })
+
+	serverReady := make(chan *exchange.Channel, 1)
+	go func() {
+		rw := newTCPAdapter(s)
+		ch, err := exchange.Accept(rw)
+		if err != nil {
+			serverReady <- nil
+			return
+		}
+
+		data, err := ch.ReadBytes()
+		if err != nil {
+			serverReady <- nil
+			return
+		}
+		var f pb.Frame
+		if err := proto.Unmarshal(data, &f); err != nil {
+			serverReady <- nil
+			return
+		}
+
+		registered := &pb.Frame{
+			Kind: &pb.Frame_Registered{
+				Registered: &pb.Registered{
+					Token:      []byte("test-token"),
+					TtlSeconds: 300,
+				},
+			},
+		}
+		b, _ := proto.Marshal(registered)
+		if err := ch.WriteBytes(b); err != nil {
+			serverReady <- nil
+			return
+		}
+		serverReady <- ch
+	}()
+
+	ctx := t.Context()
+	result, err := listenHandshake(ctx, newTCPAdapter(c), func() {
+		c.Close()
+	})
+	a.NoError(err)
+	t.Cleanup(func() { result.Listener.Close() })
+
+	serverCh := <-serverReady
+	a.NotNil(serverCh)
+	t.Cleanup(func() { serverCh.Close() })
+
+	return result.Listener, serverCh
+}
+
+func TestListenerDeliver_FirstMessage(t *testing.T) {
+	a := require.New(t)
+	listener, serverCh := setupListener(t)
+
+	msg := &pb.Frame{
+		Kind: &pb.Frame_Msg{
+			Msg: &pb.Message{Data: []byte("hello")},
+		},
 	}
-	if string(data) != "world" {
-		t.Errorf("got %q, want %q", data, "world")
+	b, _ := proto.Marshal(msg)
+	a.NoError(serverCh.WriteBytes(b))
+
+	conn, err := listener.Accept()
+	a.NoError(err)
+	defer conn.Close()
+
+	got, err := conn.ReadBytes()
+	a.NoError(err)
+	a.Equal("hello", string(got))
+}
+
+func TestListenerDeliver_SecondMessage(t *testing.T) {
+	a := require.New(t)
+	listener, serverCh := setupListener(t)
+
+	msg1 := &pb.Frame{Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: []byte("one")}}}
+	b1, _ := proto.Marshal(msg1)
+	a.NoError(serverCh.WriteBytes(b1))
+
+	conn, err := listener.Accept()
+	a.NoError(err)
+	defer conn.Close()
+
+	got1, err := conn.ReadBytes()
+	a.NoError(err)
+	a.Equal("one", string(got1))
+
+	msg2 := &pb.Frame{Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: []byte("two")}}}
+	b2, _ := proto.Marshal(msg2)
+	a.NoError(serverCh.WriteBytes(b2))
+
+	got2, err := conn.ReadBytes()
+	a.NoError(err)
+	a.Equal("two", string(got2))
+}
+
+func TestListenerStop_PreventsNewConnections(t *testing.T) {
+	a := require.New(t)
+	listener, serverCh := setupListener(t)
+
+	msg1 := &pb.Frame{Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: []byte("first")}}}
+	b1, _ := proto.Marshal(msg1)
+	a.NoError(serverCh.WriteBytes(b1))
+
+	conn, err := listener.Accept()
+	a.NoError(err)
+	defer conn.Close()
+
+	_, err = conn.ReadBytes()
+	a.NoError(err)
+
+	listener.Stop()
+
+	msg2 := &pb.Frame{Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: []byte("still here")}}}
+	b2, _ := proto.Marshal(msg2)
+	a.NoError(serverCh.WriteBytes(b2))
+
+	got, err := conn.ReadBytes()
+	a.NoError(err)
+	a.Equal("still here", string(got))
+
+	_, err = listener.Accept()
+	a.ErrorIs(err, net.ErrClosed)
+}
+
+func TestListenerClose_CleansUpActiveConn(t *testing.T) {
+	a := require.New(t)
+	listener, serverCh := setupListener(t)
+
+	msg := &pb.Frame{Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: []byte("data")}}}
+	b, _ := proto.Marshal(msg)
+	a.NoError(serverCh.WriteBytes(b))
+
+	conn, err := listener.Accept()
+	a.NoError(err)
+
+	_, err = conn.ReadBytes()
+	a.NoError(err)
+
+	a.NoError(listener.Close())
+
+	_, err = conn.ReadBytes()
+	a.Error(err)
+}
+
+func TestRelayConnReadPump_PingReply(t *testing.T) {
+	a := require.New(t)
+	c, s := net.Pipe()
+	defer c.Close()
+	defer s.Close()
+
+	serverReady := make(chan struct{}, 1)
+	var serverCh *exchange.Channel
+	go func() {
+		ch, err := exchange.Accept(newTCPAdapter(s))
+		if err != nil {
+			serverReady <- struct{}{}
+			return
+		}
+		serverCh = ch
+		serverReady <- struct{}{}
+	}()
+
+	clientCh, err := exchange.Initiate(newTCPAdapter(c))
+	a.NoError(err)
+	defer clientCh.Close()
+	<-serverReady
+	defer serverCh.Close()
+
+	var mu sync.Mutex
+	rc := newRelayConn(t.Context(), clientCh, &mu)
+	rc.closeFn = func() { clientCh.Close() }
+	defer rc.Close()
+
+	go rc.readPump()
+
+	ping := &pb.Frame{Kind: &pb.Frame_Ping{Ping: &pb.Ping{}}}
+	b, _ := proto.Marshal(ping)
+	a.NoError(serverCh.WriteBytes(b))
+
+	data, err := serverCh.ReadBytes()
+	a.NoError(err)
+	var frame pb.Frame
+	a.NoError(proto.Unmarshal(data, &frame))
+	a.IsType(&pb.Frame_Pong{}, frame.Kind)
+}
+
+func TestRelayConnContextCancel_CleansUp(t *testing.T) {
+	a := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	rc := newRelayConn(ctx, nil, nil)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := rc.ReadBytes()
+		done <- err
+	}()
+
+	select {
+	case <-done:
+		a.Fail("ReadBytes returned before context was cancelled")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		a.ErrorIs(err, io.EOF)
+	case <-time.After(2 * time.Second):
+		a.Fail("ReadBytes did not return after context cancellation")
+	}
+}
+
+func TestListenHandshake_WithToken(t *testing.T) {
+	a := require.New(t)
+	c, s := net.Pipe()
+	defer c.Close()
+	defer s.Close()
+
+	regToken := make(chan []byte, 1)
+	go func() {
+		rw := newTCPAdapter(s)
+		ch, err := exchange.Accept(rw)
+		if err != nil {
+			regToken <- nil
+			return
+		}
+		defer ch.Close()
+
+		data, err := ch.ReadBytes()
+		if err != nil {
+			regToken <- nil
+			return
+		}
+		var f pb.Frame
+		if err := proto.Unmarshal(data, &f); err != nil {
+			regToken <- nil
+			return
+		}
+		reg := f.GetRegister()
+		if reg == nil {
+			regToken <- nil
+			return
+		}
+		regToken <- reg.GetToken()
+
+		registered := &pb.Frame{
+			Kind: &pb.Frame_Registered{
+				Registered: &pb.Registered{
+					Token:      []byte("from-relay"),
+					TtlSeconds: 300,
+				},
+			},
+		}
+		b, _ := proto.Marshal(registered)
+		ch.WriteBytes(b)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	staticToken := []byte("static-token-1234")
+	result, err := listenHandshake(ctx, newTCPAdapter(c), func() {
+		c.Close()
+	}, WithToken(staticToken))
+	a.NoError(err)
+	defer result.Listener.Close()
+
+	got := <-regToken
+	a.Equal(staticToken, got)
+}
+
+func TestDialHandshake_WithAuth(t *testing.T) {
+	a := require.New(t)
+	c, s := net.Pipe()
+	defer c.Close()
+	defer s.Close()
+
+	go func() {
+		rw := newTCPAdapter(s)
+		ch, err := exchange.Accept(rw)
+		if err != nil {
+			return
+		}
+		defer ch.Close()
+
+		data, err := ch.ReadBytes()
+		if err != nil {
+			return
+		}
+		var f pb.Frame
+		if err := proto.Unmarshal(data, &f); err != nil {
+			return
+		}
+		if f.GetAuth() == nil {
+			return
+		}
+
+		authResp := &pb.Frame{
+			Kind: &pb.Frame_Auth{Auth: &pb.Auth{Psk: []byte("sekret")}},
+		}
+		b, _ := proto.Marshal(authResp)
+		ch.WriteBytes(b)
+
+		data, err = ch.ReadBytes()
+		if err != nil {
+			return
+		}
+		var f2 pb.Frame
+		if err := proto.Unmarshal(data, &f2); err != nil {
+			return
+		}
+		if f2.GetRegister() == nil {
+			return
+		}
+
+		registered := &pb.Frame{
+			Kind: &pb.Frame_Registered{
+				Registered: &pb.Registered{Token: []byte("auth-token")},
+			},
+		}
+		b, _ = proto.Marshal(registered)
+		ch.WriteBytes(b)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	rc, err := relayHandshake(ctx, newTCPAdapter(c), []byte("my-token"), func() {
+		c.Close()
+	}, WithPassword("sekret"))
+	a.NoError(err)
+	defer rc.Close()
+}
+
+func TestListenerMultipleBufferedMessages(t *testing.T) {
+	a := require.New(t)
+	listener, serverCh := setupListener(t)
+
+	for _, data := range []string{"first", "second", "third"} {
+		msg := &pb.Frame{Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: []byte(data)}}}
+		b, _ := proto.Marshal(msg)
+		a.NoError(serverCh.WriteBytes(b))
+	}
+
+	conn, err := listener.Accept()
+	a.NoError(err)
+	defer conn.Close()
+
+	for _, want := range []string{"first", "second", "third"} {
+		got, err := conn.ReadBytes()
+		a.NoError(err)
+		a.Equal(want, string(got))
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,12 +28,13 @@ type testBroker struct {
 
 func newTestBroker(t *testing.T) *testBroker {
 	t.Helper()
+	a := require.New(t)
 	addr, err := net.ResolveUDPAddr("udp4", "127.0.0.1:0")
-	require.NoError(t, err)
+	a.NoError(err)
 	conn, err := net.ListenUDP("udp4", addr)
-	require.NoError(t, err)
+	a.NoError(err)
 	key, err := ecdh.X25519().GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	a.NoError(err)
 	t.Cleanup(func() { _ = conn.Close() })
 	return &testBroker{
 		conn: conn,
@@ -47,19 +47,21 @@ func (b *testBroker) readOne(
 	t *testing.T, timeout time.Duration,
 ) ([]byte, *net.UDPAddr) {
 	t.Helper()
+	a := require.New(t)
 	_ = b.conn.SetReadDeadline(time.Now().Add(timeout))
 	buf := make([]byte, 1500)
 	n, src, err := b.conn.ReadFromUDP(buf)
-	require.NoError(t, err)
+	a.NoError(err)
 	return buf[:n], src
 }
 
 // respondEcho sends `ip:port\0` to src.
 func (b *testBroker) respondEcho(t *testing.T, src *net.UDPAddr) {
 	t.Helper()
+	a := require.New(t)
 	resp := append([]byte(src.IP.String()+":"+fmt.Sprintf("%d", src.Port)), 0)
 	_, err := b.conn.WriteToUDP(resp, src)
-	require.NoError(t, err)
+	a.NoError(err)
 }
 
 // respondAssignedToken sends a NOTIFY(TOKEN_ASSIGNED) to the peer whose
@@ -68,9 +70,10 @@ func (b *testBroker) respondAssignedToken(
 	t *testing.T, src *net.UDPAddr, peerEphPub []byte,
 ) []byte {
 	t.Helper()
+	a := require.New(t)
 	token := make([]byte, 16)
 	_, err := rand.Read(token)
-	require.NoError(t, err)
+	a.NoError(err)
 	b.sendNotifyTokenAssigned(t, src, peerEphPub, token, 60)
 	return token
 }
@@ -108,12 +111,13 @@ func (b *testBroker) sendNotify(
 	t *testing.T, plaintext []byte, dst *net.UDPAddr, peerEphPub []byte,
 ) {
 	t.Helper()
+	a := require.New(t)
 	eph, err := ecdh.X25519().GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	a.NoError(err)
 	peerPub, err := ecdh.X25519().NewPublicKey(peerEphPub)
-	require.NoError(t, err)
+	a.NoError(err)
 	shared, err := eph.ECDH(peerPub)
-	require.NoError(t, err)
+	a.NoError(err)
 	key := sha256.Sum256(shared)
 	brokerEphPub := eph.PublicKey().Bytes()
 	nonce, sealed := SealNotify(key[:], brokerEphPub, plaintext)
@@ -125,18 +129,17 @@ func (b *testBroker) sendNotify(
 		pkt = BuildNotifyTokenAssigned(brokerEphPub, nonce, sealed)
 	}
 	_, err = b.conn.WriteToUDP(pkt, dst)
-	require.NoError(t, err)
+	a.NoError(err)
 }
 
 // --- Client tests ---------------------------------------------------------
 
 func TestClient_Echo(t *testing.T) {
+	a := require.New(t)
 	tb := newTestBroker(t)
 	c, err := NewClient(tb.addr.String())
-	require.NoError(t, err)
+	a.NoError(err)
 
-	// Run the test broker in a goroutine: read one packet, respond
-	// with `ip:port\0`.
 	go func() {
 		_, src := tb.readOne(t, 2*time.Second)
 		tb.respondEcho(t, src)
@@ -146,17 +149,16 @@ func TestClient_Echo(t *testing.T) {
 	defer cancel()
 
 	ip, port, err := c.Echo(ctx)
-	require.NoError(t, err)
-	// The client dials from 127.0.0.1:PORTA → broker 127.0.0.1:PORTB. Echo
-	// response is the source IP:port as seen by the broker.
-	assert.Equal(t, "127.0.0.1", ip.String())
-	assert.NotZero(t, port)
+	a.NoError(err)
+	a.Equal("127.0.0.1", ip.String())
+	a.NotZero(port)
 }
 
 func TestClient_Register_Random_AssignsToken(t *testing.T) {
+	a := require.New(t)
 	tb := newTestBroker(t)
 	c, err := NewClient(tb.addr.String())
-	require.NoError(t, err)
+	a.NoError(err)
 
 	expectedToken := make([]byte, 16)
 	for i := range expectedToken {
@@ -165,8 +167,6 @@ func TestClient_Register_Random_AssignsToken(t *testing.T) {
 
 	go func() {
 		_, src := tb.readOne(t, 2*time.Second)
-		// Token is generated server-side; the client just receives whatever the
-		// broker sends. We use a fixed pattern for assertion.
 		tb.sendNotifyTokenAssigned(t, src, c.PublicKey(), expectedToken, 60)
 	}()
 
@@ -175,44 +175,43 @@ func TestClient_Register_Random_AssignsToken(t *testing.T) {
 
 	ip4 := net.IPv4(127, 0, 0, 1)
 	got, err := c.Register(ctx, nil, ip4, 12345)
-	require.NoError(t, err)
-	assert.Equal(t, expectedToken, got)
+	a.NoError(err)
+	a.Equal(expectedToken, got)
 }
 
 func TestClient_Register_Static_NoResponse(t *testing.T) {
+	a := require.New(t)
 	tb := newTestBroker(t)
 	c, err := NewClient(tb.addr.String())
-	require.NoError(t, err)
+	a.NoError(err)
 
 	token := make([]byte, 16)
 	for i := range token {
 		token[i] = byte(i + 1)
 	}
 
-	// Static mode: the broker sends no response. Verify the client
-	// returns the input token without hanging.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	ip4 := net.IPv4(127, 0, 0, 1)
 	got, err := c.Register(ctx, token, ip4, 12345)
-	require.NoError(t, err)
-	assert.Equal(t, token, got)
+	a.NoError(err)
+	a.Equal(token, got)
 }
 
 func TestClient_Listen_ReceivesPeerMatched(t *testing.T) {
+	a := require.New(t)
 	tb := newTestBroker(t)
 	c, err := NewClient(tb.addr.String())
-	require.NoError(t, err)
+	a.NoError(err)
 
 	ctx := t.Context()
 	out, clientAddr, err := c.Listen(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, clientAddr)
+	a.NoError(err)
+	a.NotNil(clientAddr)
 
-	// Send a NOTIFY(PEER_MATCHED) to the client.
 	otherEph, err := ecdh.X25519().GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	a.NoError(err)
 	tb.respondPeerMatched(
 		t, clientAddr, c.PublicKey(),
 		otherEph.PublicKey().Bytes(),
@@ -221,24 +220,25 @@ func TestClient_Listen_ReceivesPeerMatched(t *testing.T) {
 
 	select {
 	case p, ok := <-out:
-		require.True(t, ok, "channel should not be closed yet")
-		assert.Equal(t, NotifyPeerMatched, p.Type)
-		assert.Equal(t, otherEph.PublicKey().Bytes(), p.OtherPeerEphPub)
-		assert.Equal(t, "192.0.2.1", p.IP.String())
-		assert.Equal(t, uint16(54321), p.Port)
+		a.True(ok, "channel should not be closed yet")
+		a.Equal(NotifyPeerMatched, p.Type)
+		a.Equal(otherEph.PublicKey().Bytes(), p.OtherPeerEphPub)
+		a.Equal("192.0.2.1", p.IP.String())
+		a.Equal(uint16(54321), p.Port)
 	case <-time.After(2 * time.Second):
-		t.Fatal("did not receive NOTIFY within 2s")
+		a.Fail("did not receive NOTIFY within 2s")
 	}
 }
 
 func TestClient_Listen_ReceivesTokenAssigned(t *testing.T) {
+	a := require.New(t)
 	tb := newTestBroker(t)
 	c, err := NewClient(tb.addr.String())
-	require.NoError(t, err)
+	a.NoError(err)
 
 	ctx := t.Context()
 	out, clientAddr, err := c.Listen(ctx)
-	require.NoError(t, err)
+	a.NoError(err)
 
 	assigned := make([]byte, 16)
 	for i := range assigned {
@@ -248,43 +248,39 @@ func TestClient_Listen_ReceivesTokenAssigned(t *testing.T) {
 
 	select {
 	case p, ok := <-out:
-		require.True(t, ok)
-		assert.Equal(t, NotifyTokenAssigned, p.Type)
-		assert.Equal(t, assigned, p.Token)
-		assert.Equal(t, uint32(60), p.TTLSeconds)
+		a.True(ok)
+		a.Equal(NotifyTokenAssigned, p.Type)
+		a.Equal(assigned, p.Token)
+		a.Equal(uint32(60), p.TTLSeconds)
 	case <-time.After(2 * time.Second):
-		t.Fatal("did not receive NOTIFY within 2s")
+		a.Fail("did not receive NOTIFY within 2s")
 	}
 }
 
 func TestClient_Listen_RejectsWrongKey(t *testing.T) {
+	a := require.New(t)
 	tb := newTestBroker(t)
 	c, err := NewClient(tb.addr.String())
-	require.NoError(t, err)
+	a.NoError(err)
 
 	ctx := t.Context()
 	out, clientAddr, err := c.Listen(ctx)
-	require.NoError(t, err)
+	a.NoError(err)
 
-	// Send a NOTIFY encrypted for a DIFFERENT peer eph pub.
 	wrongEph, err := ecdh.X25519().GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	a.NoError(err)
 	otherEph, err := ecdh.X25519().GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	a.NoError(err)
 	tb.respondPeerMatched(
 		t, clientAddr, wrongEph.PublicKey().Bytes(),
 		otherEph.PublicKey().Bytes(),
 		net.IPv4(192, 0, 2, 1), 54321,
 	)
 
-	// The client's listen loop should silently drop the bad
-	// packet; no payload should be emitted on the channel within
-	// 500ms (the read deadline). Verify by reading a different
-	// event in that window.
 	select {
 	case _, ok := <-out:
 		if ok {
-			t.Fatal("client emitted a payload for a NOTIFY encrypted with a wrong key")
+			a.Fail("client emitted a payload for a NOTIFY encrypted with a wrong key")
 		}
 	case <-time.After(700 * time.Millisecond):
 		// Expected: no payload within the read deadline.
@@ -292,10 +288,11 @@ func TestClient_Listen_RejectsWrongKey(t *testing.T) {
 }
 
 func TestClient_PublicKey_Stable(t *testing.T) {
+	a := require.New(t)
 	c, err := NewClient("127.0.0.1:0")
-	require.NoError(t, err)
+	a.NoError(err)
 	k1 := c.PublicKey()
 	k2 := c.PublicKey()
-	assert.True(t, bytes.Equal(k1, k2), "PublicKey must be stable")
-	assert.Len(t, k1, 32)
+	a.True(bytes.Equal(k1, k2), "PublicKey must be stable")
+	a.Len(k1, 32)
 }

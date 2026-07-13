@@ -197,10 +197,11 @@ func (l *RelayListener) Accept() (kamune.Conn, error) {
 
 func (l *RelayListener) Close() error {
 	l.mu.Lock()
-	if l.conn != nil {
-		l.conn.Close()
-	}
+	conn := l.conn
 	l.mu.Unlock()
+	if conn != nil {
+		conn.Close()
+	}
 	l.cancel()
 	l.closeOnce.Do(func() {
 		if l.closeFn != nil {
