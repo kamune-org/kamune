@@ -580,7 +580,7 @@ func TestRelay_PanicRecovery(t *testing.T) {
 
 // makeStaticToken returns a deterministic 16-byte token.
 func makeStaticToken(seed byte) []byte {
-	tok := make([]byte, 16)
+	tok := make([]byte, 32)
 	for i := range tok {
 		tok[i] = seed + byte(i)
 	}

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"encoding/binary"
 	"io"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune/pkg/exchange"
+	"github.com/kamune-org/kamune/pkg/relayconn"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
@@ -479,9 +481,9 @@ func TestSessionManager_TTL_And_SessionTTL(t *testing.T) {
 
 // --- CreateWith (static-token mode) ---------------------------------------
 
-// makeToken builds a deterministic 16-byte token with byte i set to i+1.
+// makeToken builds a deterministic 32-byte token with byte i set to i+seed.
 func makeToken(seed byte) []byte {
-	tok := make([]byte, 16)
+	tok := make([]byte, 32)
 	for i := range tok {
 		tok[i] = seed + byte(i)
 	}
@@ -525,8 +527,8 @@ func TestSessionManager_CreateWith_RejectsDuplicate(t *testing.T) {
 	if err := sm.CreateWith(listener1, token); err != nil {
 		t.Fatalf("first CreateWith: %v", err)
 	}
-	if err := sm.CreateWith(listener2, token); err != ErrStaticTokenInUse {
-		t.Errorf("second CreateWith err = %v, want ErrStaticTokenInUse", err)
+	if err := sm.CreateWith(listener2, token); err != ErrTokenInUse {
+		t.Errorf("second CreateWith err = %v, want ErrTokenInUse", err)
 	}
 }
 
@@ -541,7 +543,7 @@ func TestSessionManager_CreateWith_RejectsWhenFull(t *testing.T) {
 	}
 
 	// Server is at capacity; a fresh token must report ErrSessionFull,
-	// not ErrStaticTokenInUse (capacity precedes uniqueness).
+	// not ErrTokenInUse (capacity precedes uniqueness).
 	l2, _, c2 := pipeChans(t)
 	defer c2()
 	defer l2.Close()
@@ -551,7 +553,7 @@ func TestSessionManager_CreateWith_RejectsWhenFull(t *testing.T) {
 	}
 }
 
-func TestSessionManager_CreateWith_RejectsWrongSize(t *testing.T) {
+func TestSessionManager_CreateWith_RejectsInvalid(t *testing.T) {
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
 	listener, _, cleanup := pipeChans(t)
@@ -559,18 +561,21 @@ func TestSessionManager_CreateWith_RejectsWrongSize(t *testing.T) {
 	defer listener.Close()
 
 	cases := []struct {
-		name  string
-		token []byte
+		name    string
+		token   []byte
+		wantErr error
 	}{
-		{"empty", nil},
-		{"short", make([]byte, 15)},
-		{"long", make([]byte, 17)},
+		{"empty", nil, relayconn.ErrTokenTooShort},
+		{"short", make([]byte, 15), relayconn.ErrTokenTooShort},
+		{"long", make([]byte, 17), relayconn.ErrTokenTooShort},
+		{"all-zeros-32", make([]byte, 32), relayconn.ErrTokenInsufficientEntropy},
+		{"constant-byte", bytes.Repeat([]byte{0xAA}, 32), relayconn.ErrTokenInsufficientEntropy},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := sm.CreateWith(listener, tc.token)
-			if err != ErrInvalidTokenSize {
-				t.Errorf("err = %v, want ErrInvalidTokenSize", err)
+			if err != tc.wantErr {
+				t.Errorf("err = %v, want %v", err, tc.wantErr)
 			}
 		})
 	}
