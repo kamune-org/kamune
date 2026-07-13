@@ -10,23 +10,44 @@ import (
 	"github.com/kamune-org/kamune/internal/store"
 )
 
-const (
-	resumptionTokenSize = 32
-)
+// ElemSize is the fixed size in bytes of each element in a packed list.
+const ElemSize = 32
 
-// SessionRecord holds metadata for a session stored under sessions/<id>.
-type SessionRecord struct {
-	EstablishedAt time.Time
-	Peer          *Peer
-	Token         []byte
+// Meta is a key-value pair stored in a session's metadata bucket.
+// It carries both the key and the encoded value, coupling them together to
+// prevent mismatches.
+type Meta struct {
+	key, value []byte
 }
+
+// NewBytesMeta creates a Meta carrying raw bytes under the given key.
+func NewBytesMeta(key string, value []byte) Meta {
+	return Meta{key: []byte(key), value: value}
+}
+
+// NewByteSlicesMeta creates a Meta carrying packed byte slices
+// (count prefix + fixed-size elements).
+func NewByteSlicesMeta(key string, slices [][]byte) Meta {
+	return Meta{
+		key:   []byte(key),
+		value: serializeList(slices),
+	}
+}
+
+func (m Meta) Key() string   { return string(m.key) }
+func (m Meta) Value() []byte { return m.value }
+
+// Exported metadata key constants for session meta buckets.
+const (
+	PeerKey             = "peer"
+	EstablishedAtKey    = "established_at"
+	ResumptionTokensKey = "resumption_tokens"
+	RelayTokensKey      = "relay_tokens"
+)
 
 var (
 	ErrSessionNotFound = errors.New("session not found")
-	ErrTokenNotFound   = errors.New("token not found")
-
-	resumptionTokensKey = []byte("resumption_tokens")
-	establishedAtKey    = []byte("established_at")
+	ErrNotFound        = errors.New("not found")
 )
 
 // CreateSession creates a new session record under sessions/<id>/meta/ with
@@ -39,7 +60,7 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 		}
 
 		meta := sessionMeta(b, sessionID)
-		err = meta.PutEncrypted([]byte("peer"), peer.PublicKey)
+		err = meta.PutEncrypted([]byte(PeerKey), peer.PublicKey)
 		if err != nil {
 			return fmt.Errorf("store peer key: %w", err)
 		}
@@ -47,14 +68,14 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 		// Store establishment timestamp.
 		var tsBuf [8]byte
 		binary.BigEndian.PutUint64(tsBuf[:], uint64(s.clock.Now().UnixNano()))
-		err = meta.PutEncrypted(establishedAtKey, tsBuf[:])
+		err = meta.PutEncrypted([]byte(EstablishedAtKey), tsBuf[:])
 		if err != nil {
 			return fmt.Errorf("store established_at: %w", err)
 		}
 
 		// Pre-create the chat sub-bucket so GetChatHistory works without
 		// attempting to create it inside a read-only Query.
-		sessionChat(b, sessionID)
+		_ = sessionChat(b, sessionID)
 
 		return nil
 	})
@@ -64,161 +85,184 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 	return nil
 }
 
-// StoreResumptionTokens stores the resumption token set for a session.
-// Tokens are stored as a serialized binary blob: uint32 count followed by
-// N * 32-byte (resumptionTokenSize) tokens.
-func (s *Storage) StoreResumptionTokens(sessionID string, tokens [][]byte) error {
-	err := s.store.Command(func(b *store.Bucket) error {
+// GetMeta reads a single key from a session's meta bucket. Returns a Meta with
+// nil Value when the key does not exist.
+func (s *Storage) GetMeta(sessionID, key string) (Meta, error) {
+	var val []byte
+	err := s.store.Query(func(b *store.Bucket) error {
 		meta := sessionMeta(b, sessionID)
-		data := serializeTokens(tokens)
-		return meta.PutEncrypted(resumptionTokensKey, data)
+		data, err := meta.GetEncrypted([]byte(key))
+		if err != nil {
+			return err
+		}
+		val = data
+		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("store resumption tokens for %s: %w", sessionID, err)
+		if isMissing(err) {
+			return Meta{}, nil
+		}
+		return Meta{}, fmt.Errorf("get session meta %s/%s: %w", sessionID, key, err)
+	}
+	return NewBytesMeta(key, val), nil
+}
+
+// SetMeta writes a Meta's key-value pair into a session's meta bucket.
+func (s *Storage) SetMeta(sessionID string, m Meta) error {
+	err := s.store.Command(func(b *store.Bucket) error {
+		meta := sessionMeta(b, sessionID)
+		return meta.PutEncrypted(m.key, m.value)
+	})
+	if err != nil {
+		return fmt.Errorf("set session meta %s/%s: %w", sessionID, m.Key(), err)
 	}
 	return nil
 }
 
-func (s *Storage) GetSession(
-	sessionID string,
-) (*SessionRecord, error) {
-	record := &SessionRecord{}
+// DeleteMeta removes a key from a session's meta bucket.
+func (s *Storage) DeleteMeta(sessionID, key string) error {
 	err := s.store.Command(func(b *store.Bucket) error {
 		meta := sessionMeta(b, sessionID)
+		return meta.Delete([]byte(key))
+	})
+	if err != nil {
+		return fmt.Errorf("delete session meta %s/%s: %w", sessionID, key, err)
+	}
+	return nil
+}
 
-		peerPublicKey, err := meta.GetEncrypted([]byte("peer"))
-		if err != nil {
-			return fmt.Errorf("get peer key: %w", err)
+// GetPeer returns the peer associated with a session.
+func (s *Storage) GetPeer(sessionID string) (*Peer, error) {
+	m, err := s.GetMeta(sessionID, PeerKey)
+	if err != nil {
+		return nil, err
+	}
+	if m.Value() == nil {
+		return nil, ErrSessionNotFound
+	}
+	var peer *Peer
+	err = s.store.Query(func(b *store.Bucket) error {
+		p, findErr := s.findPeer(b, peerKey(m.Value()))
+		if findErr != nil {
+			return findErr
 		}
-		peer, err := s.findPeer(b, peerKey(peerPublicKey))
-		if err != nil {
-			return fmt.Errorf("find peer: %w", err)
-		}
-		record.Peer = peer
-
-		// Check if the session exists by looking for established_at.
-		tsBytes, err := meta.GetEncrypted(establishedAtKey)
-		if err != nil {
-			return fmt.Errorf("get established_at: %w", err)
-		}
-		if len(tsBytes) == 8 {
-			record.EstablishedAt = time.Unix(
-				0, int64(binary.BigEndian.Uint64(tsBytes)),
-			)
-		}
-
-		data, err := meta.GetEncrypted(resumptionTokensKey)
-		if err != nil {
-			if errors.Is(err, store.ErrMissingItem) {
-				return nil
-			}
-			return err
-		}
-		tokens := deserializeTokens(data)
-		if len(tokens) == 0 {
-			return nil
-		}
-		token := tokens[0]
-		tokens = tokens[1:]
-		err = meta.PutEncrypted(resumptionTokensKey, serializeTokens(tokens))
-		if err != nil {
-			return fmt.Errorf("store resumption tokens: %w", err)
-		}
-		record.Token = token
-
+		peer = p
 		return nil
 	})
 	if err != nil {
-		if errors.Is(err, store.ErrMissingItem) ||
-			errors.Is(err, store.ErrMissingBucket) {
-			return nil, ErrSessionNotFound
-		}
-		return nil, fmt.Errorf("get session %s: %w", sessionID, err)
+		return nil, fmt.Errorf("find peer for session %s: %w", sessionID, err)
 	}
-	return record, nil
+	return peer, nil
 }
 
-func (s *Storage) MarkTokenUsed(
-	sessionID string, token []byte,
-) (*SessionRecord, error) {
-	record := &SessionRecord{Token: token}
+// GetEstablishedAt returns the establishment timestamp of a session.
+func (s *Storage) GetEstablishedAt(sessionID string) (time.Time, error) {
+	m, err := s.GetMeta(sessionID, EstablishedAtKey)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if len(m.Value()) < 8 {
+		return time.Time{}, ErrSessionNotFound
+	}
+	return time.Unix(0, int64(binary.BigEndian.Uint64(m.Value()[:8]))), nil
+}
+
+// PopList removes and returns the first entry from the packed list stored under
+// the given key. Returns ErrNotFound when the list is empty or missing.
+func (s *Storage) PopList(sessionID, key string) ([]byte, error) {
+	var entry []byte
 	err := s.store.Command(func(b *store.Bucket) error {
 		meta := sessionMeta(b, sessionID)
-
-		peerPublicKey, err := meta.GetEncrypted([]byte("peer"))
+		data, err := meta.GetEncrypted([]byte(key))
 		if err != nil {
-			return fmt.Errorf("get peer key: %w", err)
+			return err
 		}
-		peer, err := s.findPeer(b, peerKey(peerPublicKey))
+		list, err := deserializeList(data)
 		if err != nil {
-			return fmt.Errorf("find peer: %w", err)
+			return err
 		}
-		record.Peer = peer
-
-		// Check if the session exists by looking for established_at.
-		tsBytes, err := meta.GetEncrypted(establishedAtKey)
-		if err != nil {
-			return fmt.Errorf("get established_at: %w", err)
+		if len(list) == 0 {
+			return ErrNotFound
 		}
-		if len(tsBytes) == 8 {
-			record.EstablishedAt = time.Unix(
-				0, int64(binary.BigEndian.Uint64(tsBytes)),
-			)
-		}
-
-		data, err := meta.GetEncrypted(resumptionTokensKey)
-		if err != nil {
-			return fmt.Errorf("get resumption tokens: %w", err)
-		}
-		tokens := deserializeTokens(data)
-		for i, t := range tokens {
-			if subtle.ConstantTimeCompare(t, token) == 1 {
-				// Remove by swapping with last and truncating.
-				tokens[i] = tokens[len(tokens)-1]
-				tokens = tokens[:len(tokens)-1]
-				err = meta.PutEncrypted(
-					resumptionTokensKey, serializeTokens(tokens),
-				)
-				if err != nil {
-					return fmt.Errorf("put resumption tokens: %w", err)
-				}
-				return nil
-			}
-		}
-
-		return ErrTokenNotFound
+		entry = list[0]
+		list = list[1:]
+		return meta.PutEncrypted([]byte(key), serializeList(list))
 	})
-
 	if err != nil {
-		return nil, fmt.Errorf("mark token used for %s: %w", sessionID, err)
+		if isMissing(err) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("pop from %s/%s: %w", sessionID, key, err)
 	}
-	return record, nil
+	return entry, nil
 }
 
-// serializeTokens encodes a token set as: uint32(count) || token_0 || ... || token_N-1.
-func serializeTokens(tokens [][]byte) []byte {
-	count := uint32(len(tokens))
-	data := make([]byte, 4+len(tokens)*resumptionTokenSize)
+// RemoveListItem removes a specific entry from the packed list stored under the
+// given key. Returns ErrNotFound when the entry is not present.
+func (s *Storage) RemoveListItem(sessionID, key string, entry []byte) error {
+	err := s.store.Command(func(b *store.Bucket) error {
+		meta := sessionMeta(b, sessionID)
+		data, err := meta.GetEncrypted([]byte(key))
+		if err != nil {
+			return err
+		}
+		list, err := deserializeList(data)
+		if err != nil {
+			return err
+		}
+		for i, item := range list {
+			if subtle.ConstantTimeCompare(item, entry) == 1 {
+				// Remove by swapping with last and truncating.
+				list[i] = list[len(list)-1]
+				list = list[:len(list)-1]
+				return meta.PutEncrypted([]byte(key), serializeList(list))
+			}
+		}
+		return ErrNotFound
+	})
+	if err != nil {
+		if isMissing(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("remove from %s/%s: %w", sessionID, key, err)
+	}
+	return nil
+}
+
+// serializeList encodes a list as: uint32(count) || elem_0 || ... || elem_N-1.
+func serializeList(list [][]byte) []byte {
+	count := uint32(len(list))
+	data := make([]byte, 4+len(list)*ElemSize)
 	binary.BigEndian.PutUint32(data[:4], count)
-	for i, t := range tokens {
-		copy(data[4+i*resumptionTokenSize:], t)
+	for i, item := range list {
+		copy(data[4+i*ElemSize:], item)
 	}
 	return data
 }
 
-// deserializeTokens decodes a token set from the serialized format.
-func deserializeTokens(data []byte) [][]byte {
+// deserializeList decodes a list from the serialized format.
+// Returns nil, nil when data is too short to contain a count prefix (<4 bytes).
+// Returns nil, ErrNotFound when the data has a count prefix but the length
+// doesn't match the expected packed format.
+func deserializeList(data []byte) ([][]byte, error) {
 	if len(data) < 4 {
-		return nil
+		return nil, nil
 	}
 	count := int(binary.BigEndian.Uint32(data[0:4]))
-	if len(data) < 4+count*resumptionTokenSize {
-		return nil
+	if 4+count*ElemSize != len(data) {
+		return nil, ErrNotFound
 	}
-	tokens := make([][]byte, count)
-	for i := range tokens {
-		off := 4 + i*resumptionTokenSize
-		tokens[i] = data[off : off+resumptionTokenSize]
+	list := make([][]byte, count)
+	for i := range list {
+		off := 4 + i*ElemSize
+		list[i] = data[off : off+ElemSize]
 	}
-	return tokens
+	return list, nil
+}
+
+// isMissing reports whether err indicates a missing bucket or item in the
+// underlying store.
+func isMissing(err error) bool {
+	return errors.Is(err, store.ErrMissingItem) ||
+		errors.Is(err, store.ErrMissingBucket)
 }

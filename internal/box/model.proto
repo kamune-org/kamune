@@ -34,3 +34,7 @@ message ResumeAccept {
   bool Accepted = 1;
   string Reason = 2;
 }
+
+message SessionData {
+  map<string, bytes> Fields = 1;
+}

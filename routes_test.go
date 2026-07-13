@@ -26,6 +26,9 @@ func TestRouteString(t *testing.T) {
 		{"CloseTransport", RouteCloseTransport},
 		{"Ping", RoutePing},
 		{"Pong", RoutePong},
+		{"ResumeRequest", RouteResumeRequest},
+		{"ResumeAccept", RouteResumeAccept},
+		{"SessionData", RouteSessionData},
 		{"Invalid", Route(999)},
 	}
 
@@ -49,6 +52,9 @@ func TestRouteIsValid(t *testing.T) {
 		RouteCloseTransport,
 		RoutePing,
 		RoutePong,
+		RouteResumeRequest,
+		RouteResumeAccept,
+		RouteSessionData,
 	}
 
 	for _, route := range validRoutes {
@@ -86,6 +92,9 @@ func TestRouteProtoConversion(t *testing.T) {
 		{RouteCloseTransport, pb.Route_ROUTE_CLOSE_TRANSPORT},
 		{RoutePing, pb.Route_ROUTE_PING},
 		{RoutePong, pb.Route_ROUTE_PONG},
+		{RouteResumeRequest, pb.Route_ROUTE_RESUME_REQUEST},
+		{RouteResumeAccept, pb.Route_ROUTE_RESUME_ACCEPT},
+		{RouteSessionData, pb.Route_ROUTE_SESSION_DATA},
 		{RouteInvalid, pb.Route_ROUTE_INVALID},
 	}
 

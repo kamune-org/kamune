@@ -177,8 +177,8 @@ func setupResumptionTest(
 	a.NoError(store2.CreateSession(sessionID, att1.MarshalPublicKey()))
 
 	// Store resumption tokens in both storages.
-	a.NoError(store1.StoreResumptionTokens(sessionID, t1.deriveResumptionTokens()))
-	a.NoError(store2.StoreResumptionTokens(sessionID, t2.deriveResumptionTokens()))
+	a.NoError(store1.SetMeta(sessionID, storage.NewByteSlicesMeta(storage.ResumptionTokensKey, t1.deriveResumptionTokens())))
+	a.NoError(store2.SetMeta(sessionID, storage.NewByteSlicesMeta(storage.ResumptionTokensKey, t2.deriveResumptionTokens())))
 
 	cleanup := func() {
 		conn1.Close()
@@ -329,15 +329,15 @@ func TestResume_HappyPath(t *testing.T) {
 	ec3, ec4 := setupExchange(t, conn3, conn4)
 
 	// Client: get token and send ResumeRequest.
-	record, err := ctx.storage1.GetSession(ctx.sessionID)
+	token, err := ctx.storage1.PopList(ctx.sessionID, storage.ResumptionTokensKey)
 	a.NoError(err)
-	a.NotNil(record.Token)
+	a.NotNil(token)
 
 	var reqErr error
 	reqDone := make(chan struct{})
 	go func() {
 		defer close(reqDone)
-		reqErr = sendResumeRequest(ec3, ctx.attest1, ctx.sessionID, record.Token)
+		reqErr = sendResumeRequest(ec3, ctx.attest1, ctx.sessionID, token)
 	}()
 
 	// Server: read and validate.
@@ -352,11 +352,18 @@ func TestResume_HappyPath(t *testing.T) {
 	a.NoError(proto.Unmarshal(st.GetData(), &req))
 	a.Equal(ctx.sessionID, req.GetSessionID())
 
-	session, err := ctx.storage2.MarkTokenUsed(req.GetSessionID(), req.GetToken())
+	err = ctx.storage2.RemoveListItem(
+		req.GetSessionID(), storage.ResumptionTokensKey, req.GetToken(),
+	)
 	a.NoError(err)
 
-	a.True(attest.Verify(session.Peer.PublicKey, st.GetData(), st.GetSignature()))
-	a.False(time.Since(session.EstablishedAt) > resumptionGracePeriod)
+	peer, err := ctx.storage2.GetPeer(req.GetSessionID())
+	a.NoError(err)
+	establishedAt, err := ctx.storage2.GetEstablishedAt(req.GetSessionID())
+	a.NoError(err)
+
+	a.True(attest.Verify(peer.PublicKey, st.GetData(), st.GetSignature()))
+	a.False(time.Since(establishedAt) > resumptionGracePeriod)
 
 	// Server: accept (must goroutine — pipe is synchronous).
 	var acceptErr error
@@ -452,8 +459,10 @@ func TestResumeRejected_InvalidToken(t *testing.T) {
 	var req pb.ResumeRequest
 	a.NoError(proto.Unmarshal(st.GetData(), &req))
 
-	// MarkTokenUsed should fail (token not found).
-	_, err = ctx.storage2.MarkTokenUsed(req.GetSessionID(), req.GetToken())
+	// RemoveSessionToken should fail (token not found).
+	err = ctx.storage2.RemoveListItem(
+		req.GetSessionID(), storage.ResumptionTokensKey, req.GetToken(),
+	)
 	a.Error(err)
 
 	// Server rejects.
@@ -488,15 +497,15 @@ func TestResumeRejected_ExpiredSession(t *testing.T) {
 	ec3, ec4 := setupExchange(t, conn3, conn4)
 
 	// Client: get token and send ResumeRequest.
-	record, err := ctx.storage1.GetSession(ctx.sessionID)
+	token, err := ctx.storage1.PopList(ctx.sessionID, storage.ResumptionTokensKey)
 	a.NoError(err)
-	a.NotNil(record.Token)
+	a.NotNil(token)
 
 	var reqErr error
 	reqDone := make(chan struct{})
 	go func() {
 		defer close(reqDone)
-		reqErr = sendResumeRequest(ec3, ctx.attest1, ctx.sessionID, record.Token)
+		reqErr = sendResumeRequest(ec3, ctx.attest1, ctx.sessionID, token)
 	}()
 
 	// Server: read and validate.
@@ -508,16 +517,21 @@ func TestResumeRejected_ExpiredSession(t *testing.T) {
 	var req pb.ResumeRequest
 	a.NoError(proto.Unmarshal(st.GetData(), &req))
 
-	session, err := ctx.storage2.MarkTokenUsed(req.GetSessionID(), req.GetToken())
+	err = ctx.storage2.RemoveListItem(
+		req.GetSessionID(), storage.ResumptionTokensKey, req.GetToken(),
+	)
+	a.NoError(err)
+
+	peer, err := ctx.storage2.GetPeer(req.GetSessionID())
+	a.NoError(err)
+	establishedAt, err := ctx.storage2.GetEstablishedAt(req.GetSessionID())
 	a.NoError(err)
 
 	// Verify signature passes...
-	a.True(attest.Verify(
-		session.Peer.PublicKey, st.GetData(), st.GetSignature(),
-	))
+	a.True(attest.Verify(peer.PublicKey, st.GetData(), st.GetSignature()))
 
 	// ...but expiry check fails.
-	a.True(time.Since(session.EstablishedAt) > resumptionGracePeriod)
+	a.True(time.Since(establishedAt) > resumptionGracePeriod)
 
 	// Server rejects.
 	var rejectErr2 error
@@ -554,15 +568,15 @@ func TestResumeRejected_SignatureMismatch(t *testing.T) {
 	ec3, ec4 := setupExchange(t, conn3, conn4)
 
 	// Client: get token and send ResumeRequest signed by wrong key.
-	record, err := ctx.storage1.GetSession(ctx.sessionID)
+	token, err := ctx.storage1.PopList(ctx.sessionID, storage.ResumptionTokensKey)
 	a.NoError(err)
-	a.NotNil(record.Token)
+	a.NotNil(token)
 
 	var reqErr error
 	reqDone := make(chan struct{})
 	go func() {
 		defer close(reqDone)
-		reqErr = sendResumeRequest(ec3, attWrong, ctx.sessionID, record.Token)
+		reqErr = sendResumeRequest(ec3, attWrong, ctx.sessionID, token)
 	}()
 
 	// Server: read and validate.
@@ -574,13 +588,16 @@ func TestResumeRejected_SignatureMismatch(t *testing.T) {
 	var req pb.ResumeRequest
 	a.NoError(proto.Unmarshal(st.GetData(), &req))
 
-	session, err := ctx.storage2.MarkTokenUsed(req.GetSessionID(), req.GetToken())
+	err = ctx.storage2.RemoveListItem(
+		req.GetSessionID(), storage.ResumptionTokensKey, req.GetToken(),
+	)
+	a.NoError(err)
+
+	peer, err := ctx.storage2.GetPeer(req.GetSessionID())
 	a.NoError(err)
 
 	// Token is valid but signature is wrong.
-	a.False(attest.Verify(
-		session.Peer.PublicKey, st.GetData(), st.GetSignature(),
-	))
+	a.False(attest.Verify(peer.PublicKey, st.GetData(), st.GetSignature()))
 
 	// Server rejects.
 	var rejectErr3 error
@@ -613,14 +630,14 @@ func TestResumeRejected_Disabled(t *testing.T) {
 	ec3, ec4 := setupExchange(t, conn3, conn4)
 
 	// Client sends ResumeRequest.
-	record, err := ctx.storage1.GetSession(ctx.sessionID)
+	token, err := ctx.storage1.PopList(ctx.sessionID, storage.ResumptionTokensKey)
 	a.NoError(err)
 
 	var reqErr error
 	reqDone := make(chan struct{})
 	go func() {
 		defer close(reqDone)
-		reqErr = sendResumeRequest(ec3, ctx.attest1, ctx.sessionID, record.Token)
+		reqErr = sendResumeRequest(ec3, ctx.attest1, ctx.sessionID, token)
 	}()
 
 	// Server reads and checks route — simulating resumeEnabled: false.

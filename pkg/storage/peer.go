@@ -141,8 +141,7 @@ func (s *Storage) UpdatePeerLastSeen(claim []byte, t time.Time) error {
 		return err
 	})
 	if err != nil {
-		if errors.Is(err, store.ErrMissingItem) ||
-			errors.Is(err, store.ErrMissingBucket) {
+		if isMissing(err) {
 			return nil
 		}
 		return fmt.Errorf("reading peer for LastSeen update: %w", err)

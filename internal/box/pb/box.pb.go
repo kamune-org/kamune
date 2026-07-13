@@ -38,6 +38,7 @@ const (
 	Route_ROUTE_PONG               Route = 10
 	Route_ROUTE_RESUME_REQUEST     Route = 11
 	Route_ROUTE_RESUME_ACCEPT      Route = 12
+	Route_ROUTE_SESSION_DATA       Route = 13
 )
 
 // Enum value maps for Route.
@@ -56,6 +57,7 @@ var (
 		10: "ROUTE_PONG",
 		11: "ROUTE_RESUME_REQUEST",
 		12: "ROUTE_RESUME_ACCEPT",
+		13: "ROUTE_SESSION_DATA",
 	}
 	Route_value = map[string]int32{
 		"ROUTE_INVALID":            0,
@@ -71,6 +73,7 @@ var (
 		"ROUTE_PONG":               10,
 		"ROUTE_RESUME_REQUEST":     11,
 		"ROUTE_RESUME_ACCEPT":      12,
+		"ROUTE_SESSION_DATA":       13,
 	}
 )
 
@@ -252,7 +255,7 @@ const file_box_proto_rawDesc = "" +
 	"\tTimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tTimestamp\x12\x1a\n" +
 	"\bSequence\x18\x03 \x01(\x04R\bSequence\x12 \n" +
 	"\x05Route\x18\x04 \x01(\x0e2\n" +
-	".box.RouteR\x05Route*\xc6\x02\n" +
+	".box.RouteR\x05Route*\xde\x02\n" +
 	"\x05Route\x12\x11\n" +
 	"\rROUTE_INVALID\x10\x00\x12\x12\n" +
 	"\x0eROUTE_IDENTITY\x10\x01\x12\x1b\n" +
@@ -269,7 +272,8 @@ const file_box_proto_rawDesc = "" +
 	"ROUTE_PONG\x10\n" +
 	"\x12\x18\n" +
 	"\x14ROUTE_RESUME_REQUEST\x10\v\x12\x17\n" +
-	"\x13ROUTE_RESUME_ACCEPT\x10\fB\x06Z\x04./pbb\x06proto3"
+	"\x13ROUTE_RESUME_ACCEPT\x10\f\x12\x16\n" +
+	"\x12ROUTE_SESSION_DATA\x10\rB\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_box_proto_rawDescOnce sync.Once

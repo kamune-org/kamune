@@ -131,7 +131,9 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
 	t.remotePeer = peer
-	_ = d.storage.StoreResumptionTokens(t.sessionID, t.deriveResumptionTokens())
+	_ = d.storage.SetMeta(t.sessionID, storage.NewByteSlicesMeta(
+		storage.ResumptionTokensKey, t.deriveResumptionTokens(),
+	))
 
 	slog.Info(
 		"session established",
@@ -149,13 +151,17 @@ func (d *Dialer) attemptResume(
 	ec *exchange.Channel, cn Conn,
 ) (*Transport, error) {
 	sessionID := d.handshakeOpts.sessionID
-	session, err := d.storage.GetSession(sessionID)
+	token, err := d.storage.PopList(sessionID, storage.ResumptionTokensKey)
 	if err != nil {
-		return nil, fmt.Errorf("getting session: %w", err)
+		return nil, fmt.Errorf("getting resumption token: %w", err)
+	}
+	peer, err := d.storage.GetPeer(sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("getting session peer: %w", err)
 	}
 
 	// Send ResumeRequest.
-	err = sendResumeRequest(ec, d.attest, sessionID, session.Token)
+	err = sendResumeRequest(ec, d.attest, sessionID, token)
 	if err != nil {
 		return nil, fmt.Errorf("sending resume request: %w", err)
 	}
@@ -170,15 +176,17 @@ func (d *Dialer) attemptResume(
 	}
 
 	// Resume accepted — proceed to handshake with predetermined session ID.
-	serde := newSignedSerde(session.Peer.PublicKey, d.attest)
+	serde := newSignedSerde(peer.PublicKey, d.attest)
 	t, err := requestHandshake(ec, serde, d.handshakeOpts)
 	if err != nil {
 		return nil, fmt.Errorf("request handshake after resume: %w", err)
 	}
 
 	t.conn = cn
-	t.remotePeer = session.Peer
-	_ = d.storage.StoreResumptionTokens(t.sessionID, t.deriveResumptionTokens())
+	t.remotePeer = peer
+	_ = d.storage.SetMeta(t.sessionID, storage.NewByteSlicesMeta(
+		storage.ResumptionTokensKey, t.deriveResumptionTokens(),
+	))
 
 	slog.Info("session resumed", slog.String("session_id", t.sessionID))
 

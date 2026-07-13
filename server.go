@@ -213,7 +213,9 @@ func (s *Server) handleNewConnection(
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
 	t.remotePeer = peer
-	_ = s.storage.StoreResumptionTokens(t.sessionID, t.deriveResumptionTokens())
+	_ = s.storage.SetMeta(t.sessionID, storage.NewByteSlicesMeta(
+		storage.ResumptionTokensKey, t.deriveResumptionTokens(),
+	))
 
 	slog.Info(
 		"session established",
@@ -244,7 +246,9 @@ func (s *Server) handleResume(
 	sessionID := req.GetSessionID()
 	token := req.GetToken()
 
-	session, err := s.storage.MarkTokenUsed(sessionID, token)
+	err := s.storage.RemoveListItem(
+		sessionID, storage.ResumptionTokensKey, token,
+	)
 	if err != nil {
 		if err := sendResumeAccept(ec, false); err != nil {
 			return fmt.Errorf("sending resume accept: %w", err)
@@ -252,8 +256,17 @@ func (s *Server) handleResume(
 		return fmt.Errorf("resume rejected: token invalid")
 	}
 
+	peer, err := s.storage.GetPeer(sessionID)
+	if err != nil {
+		return fmt.Errorf("get session peer: %w", err)
+	}
+	establishedAt, err := s.storage.GetEstablishedAt(sessionID)
+	if err != nil {
+		return fmt.Errorf("get session established_at: %w", err)
+	}
+
 	// Verify the signature against the stored peer key.
-	if !attest.Verify(session.Peer.PublicKey, st.GetData(), st.GetSignature()) {
+	if !attest.Verify(peer.PublicKey, st.GetData(), st.GetSignature()) {
 		if err := sendResumeAccept(ec, false); err != nil {
 			return fmt.Errorf("sending resume accept: %w", err)
 		}
@@ -261,7 +274,7 @@ func (s *Server) handleResume(
 	}
 
 	// Check the resumption window.
-	if s.clock.Now().Sub(session.EstablishedAt) > resumptionGracePeriod {
+	if s.clock.Now().Sub(establishedAt) > resumptionGracePeriod {
 		if err := sendResumeAccept(ec, false); err != nil {
 			return fmt.Errorf("sending resume accept: %w", err)
 		}
@@ -273,7 +286,7 @@ func (s *Server) handleResume(
 		return fmt.Errorf("sending resume accept: %w", err)
 	}
 
-	serde := newSignedSerde(session.Peer.PublicKey, s.attest)
+	serde := newSignedSerde(peer.PublicKey, s.attest)
 
 	opts := s.handshakeOpts
 	opts.sessionID = sessionID
@@ -283,13 +296,15 @@ func (s *Server) handleResume(
 	}
 
 	t.conn = cn
-	t.remotePeer = session.Peer
-	_ = s.storage.StoreResumptionTokens(t.sessionID, t.deriveResumptionTokens())
+	t.remotePeer = peer
+	_ = s.storage.SetMeta(t.sessionID, storage.NewByteSlicesMeta(
+		storage.ResumptionTokensKey, t.deriveResumptionTokens(),
+	))
 
 	slog.Info(
 		"session resumed",
 		slog.String("session_id", t.sessionID),
-		slog.String("peer", session.Peer.Name),
+		slog.String("peer", peer.Name),
 	)
 
 	if err := s.handlerFunc(t); err != nil {

@@ -300,19 +300,22 @@ func TestCreateAndGetSession(t *testing.T) {
 	before := time.Now()
 	a.NoError(storage.CreateSession("sess-1", att.MarshalPublicKey()))
 
-	record, err := storage.GetSession("sess-1")
+	peer, err := storage.GetPeer("sess-1")
 	a.NoError(err)
-	a.Equal(att.MarshalPublicKey(), record.Peer.PublicKey)
-	a.Equal("alice", record.Peer.Name)
-	a.False(record.EstablishedAt.Before(before))
+	a.Equal(att.MarshalPublicKey(), peer.PublicKey)
+	a.Equal("alice", peer.Name)
+
+	ts, err := storage.GetEstablishedAt("sess-1")
+	a.NoError(err)
+	a.False(ts.Before(before))
 }
 
-func TestGetSessionNotFound(t *testing.T) {
+func TestGetSessionPeerNotFound(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	_, err := storage.GetSession("nonexistent")
+	_, err := storage.GetPeer("nonexistent")
 	a.ErrorIs(err, ErrSessionNotFound)
 }
 
@@ -363,14 +366,14 @@ func TestDeleteSessionRemovesRecord(t *testing.T) {
 	a.NoError(storage.CreateSession("del-me", att.MarshalPublicKey()))
 
 	// Verify it exists.
-	_, err = storage.GetSession("del-me")
+	_, err = storage.GetPeer("del-me")
 	a.NoError(err)
 
 	// Delete it.
 	a.NoError(storage.DeleteSession("del-me"))
 
 	// Should be gone.
-	_, err = storage.GetSession("del-me")
+	_, err = storage.GetPeer("del-me")
 	a.ErrorIs(err, ErrSessionNotFound)
 }
 
@@ -417,25 +420,30 @@ func TestStoreAndRetrieveResumptionTokens(t *testing.T) {
 	}))
 	a.NoError(storage.CreateSession("sess-tok", att.MarshalPublicKey()))
 
-	tokens := make([][]byte, resumptionTokenSize)
+	tokens := make([][]byte, 20)
 	for i := range tokens {
 		tokens[i] = makeToken(byte(i), 32)
 	}
-	a.NoError(storage.StoreResumptionTokens("sess-tok", tokens))
-
-	// GetSession pops the first token.
-	record, err := storage.GetSession("sess-tok")
+	err = storage.SetMeta("sess-tok", NewByteSlicesMeta(ResumptionTokensKey, tokens))
 	a.NoError(err)
-	a.Equal(tokens[0], record.Token)
 
-	// 19 remain.
-	record2, err := storage.GetSession("sess-tok")
+	// Pop returns the first entry.
+	tok, err := storage.PopList(
+		"sess-tok", ResumptionTokensKey,
+	)
 	a.NoError(err)
-	a.NotNil(record2.Token)
-	a.NotEqual(tokens[0], record2.Token)
+	a.Equal(tokens[0], tok)
+
+	// Second pop gets a different entry.
+	tok2, err := storage.PopList(
+		"sess-tok", ResumptionTokensKey,
+	)
+	a.NoError(err)
+	a.NotNil(tok2)
+	a.NotEqual(tokens[0], tok2)
 }
 
-func TestGetSession_PopsTokensSequentially(t *testing.T) {
+func TestPopSessionToken_Sequential(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
@@ -453,22 +461,24 @@ func TestGetSession_PopsTokensSequentially(t *testing.T) {
 	for i := range tokens {
 		tokens[i] = makeToken(byte(i+10), 32)
 	}
-	a.NoError(storage.StoreResumptionTokens("sess-seq", tokens))
+	err = storage.SetMeta("sess-seq", NewByteSlicesMeta(ResumptionTokensKey, tokens))
+	a.NoError(err)
 
 	// Pop all three in order.
 	for i := 0; i < 3; i++ {
-		record, err := storage.GetSession("sess-seq")
+		tok, err := storage.PopList(
+			"sess-seq", ResumptionTokensKey,
+		)
 		a.NoError(err)
-		a.Equal(tokens[i], record.Token)
+		a.Equal(tokens[i], tok)
 	}
 
-	// Fourth call returns no token.
-	record, err := storage.GetSession("sess-seq")
-	a.NoError(err)
-	a.Nil(record.Token)
+	// Fourth call returns empty list.
+	_, err = storage.PopList("sess-seq", ResumptionTokensKey)
+	a.ErrorIs(err, ErrNotFound)
 }
 
-func TestMarkTokenUsed_RemovesCorrectToken(t *testing.T) {
+func TestRemoveSessionToken_RemovesCorrectToken(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
@@ -485,24 +495,26 @@ func TestMarkTokenUsed_RemovesCorrectToken(t *testing.T) {
 	tA := makeToken(0xAA, 32)
 	tB := makeToken(0xBB, 32)
 	tC := makeToken(0xCC, 32)
-	a.NoError(storage.StoreResumptionTokens("sess-mark", [][]byte{tA, tB, tC}))
-
-	// Mark B as used.
-	_, err = storage.MarkTokenUsed("sess-mark", tB)
+	err = storage.SetMeta("sess-mark", NewByteSlicesMeta(ResumptionTokensKey,
+		[][]byte{tA, tB, tC}))
 	a.NoError(err)
 
-	// GetSession should pop A (first remaining).
-	record, err := storage.GetSession("sess-mark")
+	// Remove B.
+	err = storage.RemoveListItem("sess-mark", ResumptionTokensKey, tB)
 	a.NoError(err)
-	a.Equal(tA, record.Token)
+
+	// Pop should return A (first remaining).
+	tok, err := storage.PopList("sess-mark", ResumptionTokensKey)
+	a.NoError(err)
+	a.Equal(tA, tok)
 
 	// Next pop should be C.
-	record, err = storage.GetSession("sess-mark")
+	tok, err = storage.PopList("sess-mark", ResumptionTokensKey)
 	a.NoError(err)
-	a.Equal(tC, record.Token)
+	a.Equal(tC, tok)
 }
 
-func TestMarkTokenUsed_RejectsUnknownToken(t *testing.T) {
+func TestRemoveSessionToken_RejectsUnknownToken(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
@@ -516,16 +528,19 @@ func TestMarkTokenUsed_RejectsUnknownToken(t *testing.T) {
 	}))
 	a.NoError(storage.CreateSession("sess-unk", att.MarshalPublicKey()))
 
-	a.NoError(storage.StoreResumptionTokens("sess-unk", [][]byte{
+	err = storage.SetMeta("sess-unk", NewByteSlicesMeta(ResumptionTokensKey, [][]byte{
 		makeToken(0x01, 32),
 		makeToken(0x02, 32),
 	}))
+	a.NoError(err)
 
-	_, err = storage.MarkTokenUsed("sess-unk", makeToken(0xFF, 32))
-	a.ErrorIs(err, ErrTokenNotFound)
+	err = storage.RemoveListItem(
+		"sess-unk", ResumptionTokensKey, makeToken(0xFF, 32),
+	)
+	a.ErrorIs(err, ErrNotFound)
 }
 
-func TestMarkTokenUsed_RejectsAlreadyUsedToken(t *testing.T) {
+func TestRemoveSessionToken_RejectsAlreadyRemovedToken(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
@@ -540,13 +555,15 @@ func TestMarkTokenUsed_RejectsAlreadyUsedToken(t *testing.T) {
 	a.NoError(storage.CreateSession("sess-used", att.MarshalPublicKey()))
 
 	tok := makeToken(0x42, 32)
-	a.NoError(storage.StoreResumptionTokens("sess-used", [][]byte{tok}))
-
-	// First MarkTokenUsed succeeds.
-	_, err = storage.MarkTokenUsed("sess-used", tok)
+	err = storage.SetMeta("sess-used", NewByteSlicesMeta(ResumptionTokensKey,
+		[][]byte{tok}))
 	a.NoError(err)
 
-	// Second MarkTokenUsed with same token fails.
-	_, err = storage.MarkTokenUsed("sess-used", tok)
-	a.ErrorIs(err, ErrTokenNotFound)
+	// First remove succeeds.
+	err = storage.RemoveListItem("sess-used", ResumptionTokensKey, tok)
+	a.NoError(err)
+
+	// Second remove with same token fails.
+	err = storage.RemoveListItem("sess-used", ResumptionTokensKey, tok)
+	a.ErrorIs(err, ErrNotFound)
 }

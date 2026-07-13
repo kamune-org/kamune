@@ -246,6 +246,36 @@ func (s *Storage) ListSessions() ([]string, error) {
 	return sessions, nil
 }
 
+// FindSessionByPeer returns the session ID whose PeerKey metadata matches the
+// given public key (44-byte PKIX form). Returns an empty string when no match
+// is found.
+func (s *Storage) FindSessionByPeer(pubKey []byte) (string, error) {
+	var sessionID string
+	err := s.store.Query(func(b *store.Bucket) error {
+		sessions := b.Sub(
+			[]byte(store.SessionsBucket),
+		).ListSubBuckets()
+		for _, sid := range sessions {
+			meta := sessionMeta(b, sid)
+			data, err := meta.GetEncrypted([]byte(PeerKey))
+			if err != nil {
+				continue
+			}
+			if bytes.Equal(data, pubKey) {
+				sessionID = sid
+				return nil
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf(
+			"find session by peer: %w", err,
+		)
+	}
+	return sessionID, nil
+}
+
 // SessionTimestamps returns the first and last message timestamps for the
 // given session by reading only the first and last keys in its chat bucket.
 // Note that these are local receive timestamps from the key, not the sender's
@@ -323,7 +353,7 @@ func (s *Storage) GetSessionName(sessionID string) (string, error) {
 	})
 	if err != nil {
 		// Missing bucket or key just means no name set yet.
-		if errors.Is(err, store.ErrMissingBucket) || errors.Is(err, store.ErrMissingItem) {
+		if isMissing(err) {
 			return "", nil
 		}
 		return "", fmt.Errorf("get session name for %s: %w", sessionID, err)

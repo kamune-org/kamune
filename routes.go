@@ -21,6 +21,7 @@ const (
 	RoutePong
 	RouteResumeRequest
 	RouteResumeAccept
+	RouteSessionData
 )
 
 // String returns the string representation of the route.
@@ -50,6 +51,8 @@ func (r Route) String() string {
 		return "ResumeRequest"
 	case RouteResumeAccept:
 		return "ResumeAccept"
+	case RouteSessionData:
+		return "SessionData"
 	default:
 		return "Invalid"
 	}
@@ -57,7 +60,7 @@ func (r Route) String() string {
 
 // IsValid returns true if the route is a valid, non-invalid route.
 func (r Route) IsValid() bool {
-	return r > RouteInvalid && r <= RouteResumeAccept
+	return r > RouteInvalid && r <= RouteSessionData
 }
 
 // ToProto converts the Route to its protobuf enum representation.
@@ -87,6 +90,8 @@ func (r Route) ToProto() pb.Route {
 		return pb.Route_ROUTE_RESUME_REQUEST
 	case RouteResumeAccept:
 		return pb.Route_ROUTE_RESUME_ACCEPT
+	case RouteSessionData:
+		return pb.Route_ROUTE_SESSION_DATA
 	default:
 		return pb.Route_ROUTE_INVALID
 	}
@@ -119,6 +124,8 @@ func RouteFromProto(r pb.Route) Route {
 		return RouteResumeRequest
 	case pb.Route_ROUTE_RESUME_ACCEPT:
 		return RouteResumeAccept
+	case pb.Route_ROUTE_SESSION_DATA:
+		return RouteSessionData
 	default:
 		return RouteInvalid
 	}

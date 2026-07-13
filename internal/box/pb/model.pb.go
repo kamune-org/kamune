@@ -322,6 +322,50 @@ func (x *ResumeAccept) GetReason() string {
 	return ""
 }
 
+type SessionData struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fields        map[string][]byte      `protobuf:"bytes,1,rep,name=Fields,proto3" json:"Fields,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionData) Reset() {
+	*x = SessionData{}
+	mi := &file_model_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionData) ProtoMessage() {}
+
+func (x *SessionData) ProtoReflect() protoreflect.Message {
+	mi := &file_model_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionData.ProtoReflect.Descriptor instead.
+func (*SessionData) Descriptor() ([]byte, []int) {
+	return file_model_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SessionData) GetFields() map[string][]byte {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
 var File_model_proto protoreflect.FileDescriptor
 
 const file_model_proto_rawDesc = "" +
@@ -352,7 +396,12 @@ const file_model_proto_rawDesc = "" +
 	"\x05Token\x18\x02 \x01(\fR\x05Token\"B\n" +
 	"\fResumeAccept\x12\x1a\n" +
 	"\bAccepted\x18\x01 \x01(\bR\bAccepted\x12\x16\n" +
-	"\x06Reason\x18\x02 \x01(\tR\x06ReasonB\x06Z\x04./pbb\x06proto3"
+	"\x06Reason\x18\x02 \x01(\tR\x06Reason\"~\n" +
+	"\vSessionData\x124\n" +
+	"\x06Fields\x18\x01 \x03(\v2\x1c.box.SessionData.FieldsEntryR\x06Fields\x1a9\n" +
+	"\vFieldsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01B\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_model_proto_rawDescOnce sync.Once
@@ -366,23 +415,26 @@ func file_model_proto_rawDescGZIP() []byte {
 	return file_model_proto_rawDescData
 }
 
-var file_model_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_model_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_model_proto_goTypes = []any{
 	(*Introduce)(nil),             // 0: box.Introduce
 	(*Handshake)(nil),             // 1: box.Handshake
 	(*Peer)(nil),                  // 2: box.Peer
 	(*ResumeRequest)(nil),         // 3: box.ResumeRequest
 	(*ResumeAccept)(nil),          // 4: box.ResumeAccept
-	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
+	(*SessionData)(nil),           // 5: box.SessionData
+	nil,                           // 6: box.SessionData.FieldsEntry
+	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
 }
 var file_model_proto_depIdxs = []int32{
-	5, // 0: box.Peer.FirstSeen:type_name -> google.protobuf.Timestamp
-	5, // 1: box.Peer.LastSeen:type_name -> google.protobuf.Timestamp
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	7, // 0: box.Peer.FirstSeen:type_name -> google.protobuf.Timestamp
+	7, // 1: box.Peer.LastSeen:type_name -> google.protobuf.Timestamp
+	6, // 2: box.SessionData.Fields:type_name -> box.SessionData.FieldsEntry
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_model_proto_init() }
@@ -396,7 +448,7 @@ func file_model_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_model_proto_rawDesc), len(file_model_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
