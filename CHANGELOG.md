@@ -1,3 +1,71 @@
+## v0.6.0
+
+### Core Library
+
+- Add session resumption: `DialWithResume` reconnects with tokens from the initial handshake; server validates via `ServeWithResumeEnabled`. Tokens are invalidated on explicit disconnect.
+- Add `clock.Clock` abstraction with `internal/clock` (Real + Fake) for deterministic session-resumption expiry in tests.
+- Replace `Query`/`Command` with unified `Bucket` type for sub-bucket navigation, encrypted get/put/delete, and iteration.
+- Add `CreateSession`/`GetSession`/`DeleteSession` methods to `pkg/storage`.
+- Pre-create chat sub-bucket in `CreateSession` so `GetChatHistory` works inside read-only `Bucket`.
+- Refactor session storage: replace `SessionRecord` with per-key meta fields (`GetPeer`, `GetEstablishedAt`, `SetMeta`, `PopList`, `RemoveListItem`, `FindSessionByPeer`).
+- Add `RouteSessionData` route constant.
+- Split `conn.go` mutex into `readMu`/`writeMu` for full-duplex TCP (`closed` becomes `atomic.Bool`).
+- Remove `Ping()`/`Pong()` from `Transport`; move responsibility to the application layer.
+- Add `ErrResumeRejected` sentinel error.
+- Add `DeriveRelayTokens` for ECDH-based relay token pool generation.
+- Add `ValidateUserToken` for entropy and length enforcement.
+- Change `TokenFromKeys` to full 32-byte SHA-256 derivation.
+- Fix race condition in `RelayListener.Close`.
+
+### Relay (v1.2.0)
+
+- Increase user provided token size from 16 to 32 bytes.
+- Replace manual token validation with `relayconn.ValidateUserToken`.
+- Load config via the env-var (`KAMUNE_RELAY_CONFIG`).
+- Add Dockerfile (multi-stage) and VERSION file.
+
+### Bus (v2.2.0)
+
+- Add UDP+P2P support with broker-based hole-punch listener and fallback dialog (`p2plistener.go`, `directp2p.go`).
+- Add direct peer-to-peer hole punching (`directP2PListener`, `directP2PDial`).
+- Add persistent relay tokens with consumption tracking and dead channel.
+- Add session reconnection with exponential backoff (up to 10 attempts).
+- Add app-level keepalive with token-based ping/pong (`RoutePing`/`RoutePong`, 30s interval, 3-strike failure).
+- Add incognito mode (no message/peer/session persistence, pseudonym used).
+- Add unified `slog.Handler` with log level filtering for the UI log viewer.
+- Add inline help tooltips and welcome tips.
+- Persist session records on connection (both client and server paths).
+- Fix data race in `tokenTracker.consumed` (convert to `atomic.Bool`).
+- Add Linux build support with Docker and release zip.
+
+### TUI
+
+- Add keep-alive ping loop with challenge verification (30s interval, 3-strike failure).
+- Replace `Transport.Pong()` with `RoutePong` send.
+- Persist session when entering chat mode.
+
+### Daemon (v1.0.0)
+
+- First release. JSON-over-stdio protocol wrapper for external applications.
+- 49 commands: start/stop server, dial, P2P connectivity, relay management, peer and session management, log management, keychain, incognito mode.
+- Build script with version injection via `-ldflags`.
+
+### Docs
+
+- Update SPEC.md to v0.6.0: rename handshake params, increase session ID to 24 bytes, add resumption grace period, add `ROUTE_SESSION_DATA` spec, resumption token invalidation on close
+- Add `RFC001_session-resumption.md` (third revision, merged into spec).
+- Add `RFC002_signed-metadata.md` and `RFC003_sequence-replay-window.md`.
+- Formalize double ratchet plan as `RFC004_double-ratchet.md`.
+- Update RELAY.md with 32-byte tokens, ECDH-derived static tokens, entropy validation.
+- Add changelog immutability convention.
+
+### Miscellaneous
+
+- Add Docker support and daemon build target to Makefile.
+- Add `.dockerignore`.
+- Adopt MIT license across all sub-modules (kamune, relay, bus, tui, daemon).
+- Rename cipher suite to `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X`.
+
 ## v0.5.0
 
 ### Core Library
