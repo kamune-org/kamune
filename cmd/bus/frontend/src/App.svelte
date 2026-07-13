@@ -968,8 +968,10 @@
                                                     >static</span
                                                 >
                                                 Derived from both peers' public
-                                                keys — convenient, but linked to
-                                                your identity.
+                                                keys — anyone who knows both
+                                                keys can derive the same token
+                                                and probe the relay for a
+                                                session.
                                             </p>
                                         {:else}
                                             <p class="dialog-hint p2p-hint">
@@ -1034,7 +1036,9 @@
                         {#if serverSelectedPeer}
                             <p class="dialog-hint p2p-hint">
                                 <span class="p2p-badge">static</span>
-                                Derived from the peer's public key — convenient, but linked to your identity.
+                                Derived from the peer's public key — anyone
+                                who knows both keys can derive the same token
+                                and probe the relay for a session.
                             </p>
                         {/if}
                         {#if serverRelayScheme === "wss" || serverRelayScheme === "tls"}
@@ -1190,8 +1194,10 @@
                                                     >static</span
                                                 >
                                                 Derived from the peer's public
-                                                key — convenient, but linked to
-                                                your identity.
+                                                key — anyone who knows both
+                                                keys can derive the same token
+                                                and probe the relay for a
+                                                session.
                                             </p>
                                         {:else}
                                             <input

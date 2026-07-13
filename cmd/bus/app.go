@@ -194,8 +194,9 @@ type relayToken struct {
 	// PeerPubB64 is set when Mode == "static"; identifies the
 	// peer this token was derived for (so the sidebar can show the
 	// peer's name alongside the token).
-	PeerPubB64 string `json:"peerPubB64,omitempty"`
+	PeerPubB64 string    `json:"peerPubB64,omitempty"`
 	listener   kamune.Listener
+	sessionID  string
 }
 
 type ShareInfo struct {

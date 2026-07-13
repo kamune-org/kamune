@@ -9,6 +9,7 @@ import (
 
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/relayconn"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // p2pTokenRefreshInterval is how often the bus re-registers a p2p token on the
@@ -199,10 +200,10 @@ func (a *App) refreshBrokerRegistration(
 	return nil
 }
 
-// deriveP2PToken returns the static token derived from the local and peer
-// public keys (when peerPubB64 is set), or nil for random-token mode
-// (where the broker assigns a fresh token). Used by both GenerateP2PToken
-// and StartServer's p2pListener wiring.
+// deriveP2PToken returns a relay token for the given peer. It prefers
+// ECDH-derived tokens stored in a previous session (after handshake), falling
+// back to the static token derived from public keys. Returns nil for
+// random-token mode (when peerPubB64 is empty).
 func (a *App) deriveP2PToken(peerPubB64 string) ([]byte, error) {
 	if peerPubB64 == "" {
 		return nil, nil
@@ -211,6 +212,28 @@ func (a *App) deriveP2PToken(peerPubB64 string) ([]byte, error) {
 	if store == nil {
 		return nil, errors.New("storage is not available")
 	}
+
+	// Check for stored ECDH-derived relay tokens from a previous session.
+	peerPubPKIX, err := decodePeerPubKey(peerPubB64)
+	if err != nil {
+		return nil, fmt.Errorf("decode peer public key: %w", err)
+	}
+	sessionID, err := store.FindSessionByPeer(peerPubPKIX)
+	if err != nil {
+		return nil, fmt.Errorf("find session by peer: %w", err)
+	}
+	if sessionID != "" {
+		m, err := store.GetMeta(
+			sessionID, storage.RelayTokensKey,
+		)
+		if err == nil && m.Value() != nil {
+			if tokens := decodeTokenList(m.Value()); len(tokens) > 0 {
+				return tokens[0], nil
+			}
+		}
+	}
+
+	// Fall back to static token derived from public keys.
 	myPubPKIX, err := store.PublicKey()
 	if err != nil {
 		return nil, fmt.Errorf("get identity: %w", err)

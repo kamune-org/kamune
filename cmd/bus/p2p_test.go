@@ -268,7 +268,7 @@ func TestTokenFromKeysIsOrderIndependent(t *testing.T) {
 	t2, err := relayconn.TokenFromKeys(b, a)
 	require.NoError(t, err)
 	assert.Equal(t, t1, t2)
-	assert.Len(t, t1, 16)
+	assert.Len(t, t1, 32)
 }
 
 // ---------------------------------------------------------------------------

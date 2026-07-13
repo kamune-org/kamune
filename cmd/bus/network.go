@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/relayconn"
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -136,6 +138,7 @@ func (a *App) StartServer(
 		a.relaySessionTTL = sessionTTL
 		a.relayListeners = ml
 		a.relayTokens = []relayToken{{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), Mode: relayMode, PeerPubB64: peerPubB64, listener: listener}}
+		go a.relayReconnectLoop(ctx, ml)
 	case "udp":
 		if useP2P && useBroker && brokerAddr != "" {
 			// P2P mode: build a p2pListener that registers on the
@@ -673,6 +676,7 @@ func (a *App) ConnectToServer(
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
+		a.deriveAndStoreRelayTokens(t, sessionID)
 	}
 
 	// Store dial params for transparent resumption on involuntary
@@ -684,11 +688,38 @@ func (a *App) ConnectToServer(
 		resumeOpts := append(
 			[]kamune.DialOption{kamune.DialWithResume(sessionID)}, opts...,
 		)
+
+		// For relay connections with stored ECDH tokens, try all tokens
+		// on reconnect instead of just the original one.
+		if store != nil && relayAddr != "" {
+			if m, err := store.GetMeta(
+				sessionID, storage.RelayTokensKey,
+			); err == nil && m.Value() != nil {
+				if tokens := decodeTokenList(m.Value()); len(tokens) > 1 {
+					fn, err := dialRelayFuncMultiToken(
+						relayAddr, password, false, tokens,
+					)
+					if err == nil {
+						resumeOpts = append(
+							resumeOpts, kamune.DialWithFunc(fn),
+						)
+					}
+				}
+			}
+		}
+
 		d, err := kamune.NewDialer(addr, store, resumeOpts...)
 		if err != nil {
 			return nil, err
 		}
-		return d.Dial()
+		t, err := d.Dial()
+		if err != nil {
+			return nil, err
+		}
+		// Fresh ECDH exchange over the new transport so the local
+		// token pool stays in sync with the listener's.
+		a.deriveAndStoreRelayTokens(t, sessionID)
+		return t, nil
 	}
 
 	a.loadChatHistory(session)
@@ -780,7 +811,9 @@ func (a *App) DisconnectSession(sessionID string) error {
 	// Invalidate resumption tokens so this explicitly closed
 	// session cannot be resumed later.
 	if store := a.store(); store != nil {
-		if err := store.StoreResumptionTokens(sessionID, nil); err != nil {
+		if err := store.SetMeta(sessionID,
+			storage.NewByteSlicesMeta(storage.ResumptionTokensKey, nil),
+		); err != nil {
 			a.addLogEntry("WARN", "Failed to clear resumption tokens: "+err.Error())
 		}
 	}
@@ -837,7 +870,22 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
+		a.deriveAndStoreRelayTokens(t, sessionID)
 	}
+
+	// Link the session ID to the consumed relay token so the
+	// reconnect loop can look up stored tokens from BoltDB.
+	a.mu.Lock()
+	for i := range a.relayTokens {
+		if a.relayTokens[i].Consumed {
+			a.relayTokens[i].sessionID = sessionID
+			if tt, ok := a.relayTokens[i].listener.(*tokenTracker); ok {
+				tt.sessionID = sessionID
+			}
+			break
+		}
+	}
+	a.mu.Unlock()
 
 	a.loadChatHistory(session)
 
@@ -868,6 +916,32 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	go a.keepAliveLoop(session)
 	a.receiveMessages(session)
 	return nil
+}
+
+// deriveAndStoreRelayTokens performs an ECDH exchange over the transport to
+// derive3 reconnect tokens and stores them in the session's meta bucket.
+// Failures are logged but non-fatal — the session works without ECDH tokens.
+func (a *App) deriveAndStoreRelayTokens(
+	t *kamune.Transport, sessionID string,
+) {
+	tokens, err := relayconn.DeriveRelayTokens(t)
+	if err != nil {
+		a.addLogEntry("WARN", "Failed to derive relay tokens: "+err.Error())
+		return
+	}
+	slices := make([][]byte, len(tokens))
+	for i := range tokens {
+		slices[i] = tokens[i][:]
+	}
+	store := a.store()
+	if store == nil {
+		return
+	}
+	if err := store.SetMeta(sessionID,
+		storage.NewByteSlicesMeta(storage.RelayTokensKey, slices),
+	); err != nil {
+		a.addLogEntry("WARN", "Failed to store relay tokens: "+err.Error())
+	}
 }
 
 func (a *App) loadChatHistory(session *liveSession) {
@@ -1011,6 +1085,24 @@ func parseServerAddr(addr string) (host, port string, autoDetect bool) {
 		return "", p, true
 	}
 	return h, p, false
+}
+
+// decodeTokenList decodes the packed list format
+// (uint32(count) || elem_0 || ... || elem_N) used for stored relay tokens.
+func decodeTokenList(data []byte) [][]byte {
+	if len(data) < 4 {
+		return nil
+	}
+	count := int(binary.BigEndian.Uint32(data[:4]))
+	if count == 0 || len(data) < 4+count*storage.ElemSize {
+		return nil
+	}
+	tokens := make([][]byte, count)
+	for i := range tokens {
+		off := 4 + i*storage.ElemSize
+		tokens[i] = data[off : off+storage.ElemSize]
+	}
+	return tokens
 }
 
 func detectLocalIP() (string, error) {
