@@ -12,7 +12,7 @@ Monorepo with 5 Go 1.26 modules:
 | `cmd/bus/`    | `github.com/kamune-org/kamune/cmd/bus`    | GUI client (Wails)                                |
 | `cmd/daemon/` | `github.com/kamune-org/kamune/cmd/daemon` | JSON-over-stdio daemon for external apps          |
 
-All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `go.mod` (daemon uses `../`).
+All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `go.mod`.
 
 ## Commands
 
@@ -24,7 +24,7 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 - **Align structs** (fieldalignment only): `make align-structs` in root or `golangci-lint run --fix`
 - **Regenerate protobuf** (root or relay): `make gen-proto` requires `protoc` with Go plugin
 - **Build relay**: `make relay` from root or `bash scripts/build.sh` in `cmd/relay/`
-- **Run relay**: `go run ./cmd/relay -config <path>`
+- **Run relay**: `go run ./cmd/relay -c <path>`
 - **Build daemon**: `go build -o daemon ./cmd/daemon` (from root)
 - **Build chat TUI**: `go build -o tui .` in `cmd/tui/`
 - **Build bus GUI**: `wails build` in `cmd/bus/` (requires Wails CLI)
@@ -46,19 +46,18 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 
 ## Architecture notes
 
-- Root package exports: `Server`, `Dialer`, `Transport`, `Conn` interface
-- `pkg/` contains public sub-packages: `attest`, `exchange`, `fingerprint`, `storage`
-- `internal/` is private: `box/pb` (protobuf), `enigma` (XChaCha20-Poly1305), `store` (BoltDB wrapper)
-- Relay is a stateless blind session switch with optional PSK auth; uses WebSocket and TCP transports
-- Cipher suite: `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X`
+- Core abstraction: `Server`, `Dialer`, `Transport`, `Conn` — bidirectional encrypted channels
 - Protocol flow: Exchange (HPKE) → Introduction → Handshake (ML-KEM-768) → Challenge → Communication
+- Session resumption: parallel path that skips the full handshake for reconnections
+- Cipher suite: `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X`
+- `pkg/` public packages: `attest`, `exchange`, `fingerprint`, `relayconn`, `storage`
+- `internal/` private packages: `box/pb`, `clock`, `enigma`, `store`
+- Relay is a stateless blind session switch with optional PSK auth
 
-## Storage quirks
+## Storage
 
-- Root DB is BoltDB at `~/.config/kamune/db` (override with `KAMUNE_DB_PATH`)
-- Passphrase from `KAMUNE_DB_PASSPHRASE` env var, otherwise stdin prompt
-- Use `storage.WithNoPassphrase()` for tests or `db_no_passphrase: true` in daemon
-- Relay is stateless (in-memory session tokens, no storage)
+- Root uses BoltDB with optional passphrase encryption
+- Relay is stateless (in-memory session tokens only)
 
 ## Conventions
 
@@ -71,6 +70,8 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 - `ErrPeerDisconnected` returned by `Transport.Receive()` when the remote peer sends `RouteCloseTransport` (graceful close). `ErrConnClosed` indicates an abrupt/network drop.
 - Logging uses `log/slog` with structured attributes (`slog.String`, `slog.Any`)
 - No mock framework — tests use real implementations, interfaces, and standard
-  `testing.T`. Use `assert` and `require` from `testify` for assertions.
+  `testing.T`. Use `require` from `testify` with the instance pattern:
+  `a := require.New(t)`, then `a.Equal(...)`, `a.NoError(...)`, etc.
+  Do not use `assert` or direct `require.Fn(t, ...)` calls.
 - Table-driven tests preferred for multiple cases
-- `internal/` packages are private to root module; sub-modules (relay, chat, bus) have their own `internal/`
+- `internal/` packages are private to root module; sub-modules (relay, tui, bus, daemon) may have their own `internal/`
