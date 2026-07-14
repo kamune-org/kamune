@@ -2,7 +2,7 @@
 
 **Status:** Draft — for discussion, not yet merged into SPEC.md
 
-**Target:** Kamune Protocol Specification v0.6.0
+**Target:** Kamune Protocol Specification v0.7.0
 
 **Relates to:** Transport layer (§9), Signed Transport envelope (§4)
 

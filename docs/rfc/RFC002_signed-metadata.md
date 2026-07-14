@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-**Target:** Kamune Protocol Specification v0.6.0
+**Target:** Kamune Protocol Specification v0.7.0
 
 **Relates to:** §8.4 (Multi-Layer Integrity), §12.2 (Integrity)
 
