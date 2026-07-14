@@ -128,7 +128,7 @@ for plat in $PLATFORMS; do
 		cp "$LICENSE_FILE" "$staging/"
 		( cd "$staging" && zip -q -r "$DIST_PATH/${zipbase}.zip" ./* )
 		rm -rf "$staging"
-		rm -f "$DIST_PATH/$output" "$DIST_PATH/${output}.app"
+		rm -rf "$DIST_PATH/$output" "$DIST_PATH/${output}.app"
 		echo "  $output -> ${zipbase}.zip"
 	fi
 done
