@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -148,7 +147,7 @@ func TestConfig_Validate_AllowsZeroMaxMessageSize(t *testing.T) {
 }
 
 func TestConfig_Validate_AllowsTLSWithoutCerts(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.TLS.Enabled = true
 	cfg.TLS.CertFile = ""
@@ -158,7 +157,7 @@ func TestConfig_Validate_AllowsTLSWithoutCerts(t *testing.T) {
 }
 
 func TestConfig_Validate_AllowsTLSWithBothCertPaths(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.TLS.Enabled = true
 	cfg.TLS.CertFile = "assets/cert/server.crt"
@@ -167,33 +166,31 @@ func TestConfig_Validate_AllowsTLSWithBothCertPaths(t *testing.T) {
 }
 
 func TestConfig_Validate_RejectsTLSWithOnlyCertFile(t *testing.T) {
-	r := require.New(t)
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.TLS.Enabled = true
 	cfg.TLS.CertFile = "assets/cert/server.crt"
 	cfg.TLS.KeyFile = ""
 	err := cfg.Validate()
-	r.Error(err, "expected error for half-configured TLS")
+	a.Error(err, "expected error for half-configured TLS")
 	a.Contains(err.Error(), "cert_file")
 	a.Contains(err.Error(), "key_file")
 }
 
 func TestConfig_Validate_RejectsTLSWithOnlyKeyFile(t *testing.T) {
-	r := require.New(t)
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.TLS.Enabled = true
 	cfg.TLS.CertFile = ""
 	cfg.TLS.KeyFile = "assets/cert/server.key"
 	err := cfg.Validate()
-	r.Error(err, "expected error for half-configured TLS")
+	a.Error(err, "expected error for half-configured TLS")
 	a.Contains(err.Error(), "cert_file")
 	a.Contains(err.Error(), "key_file")
 }
 
 func TestConfig_Validate_IgnoresTLSWhenDisabled(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.TLS.Enabled = false
 	cfg.TLS.CertFile = ""
@@ -203,7 +200,7 @@ func TestConfig_Validate_IgnoresTLSWhenDisabled(t *testing.T) {
 }
 
 func TestConfig_Validate_AllowsWSSWithBothCertPaths(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.WSS.Enabled = true
 	cfg.WSS.CertFile = "assets/cert/server.crt"
@@ -212,7 +209,7 @@ func TestConfig_Validate_AllowsWSSWithBothCertPaths(t *testing.T) {
 }
 
 func TestConfig_Validate_AllowsWSSWithBothCertPathsEmpty(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.WSS.Enabled = true
 	cfg.WSS.CertFile = ""
@@ -222,76 +219,68 @@ func TestConfig_Validate_AllowsWSSWithBothCertPathsEmpty(t *testing.T) {
 }
 
 func TestConfig_Validate_RejectsWSSWithOnlyCertFile(t *testing.T) {
-	r := require.New(t)
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.WSS.Enabled = true
 	cfg.WSS.CertFile = "assets/cert/server.crt"
 	cfg.WSS.KeyFile = ""
 	err := cfg.Validate()
-	r.Error(err, "expected error for half-configured WSS")
+	a.Error(err, "expected error for half-configured WSS")
 	a.Contains(err.Error(), "cert_file")
 	a.Contains(err.Error(), "key_file")
 }
 
 func TestConfig_Validate_RejectsWSSWithOnlyKeyFile(t *testing.T) {
-	r := require.New(t)
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.WSS.Enabled = true
 	cfg.WSS.CertFile = ""
 	cfg.WSS.KeyFile = "assets/cert/server.key"
 	err := cfg.Validate()
-	r.Error(err, "expected error for half-configured WSS")
+	a.Error(err, "expected error for half-configured WSS")
 	a.Contains(err.Error(), "cert_file")
 	a.Contains(err.Error(), "key_file")
 }
 
 func TestConfig_Validate_IgnoresWSSWhenDisabled(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.WSS.Enabled = false
 	cfg.WSS.CertFile = ""
 	cfg.WSS.KeyFile = "assets/cert/server.key"
-	a.NoError(cfg.Validate(),
-		"disabled WSS should skip cert_file/key_file check")
+	a.NoError(cfg.Validate(), "disabled WSS should skip cert_file/key_file check")
 }
 
 func TestConfig_Validate_RateLimit_DefaultOnWhenSectionMissing(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.RateLimit = RateLimit{}
-	a.True(cfg.RateLimit.IsEnabled(),
-		"zero-value RateLimit should have IsEnabled() == true")
+	a.True(cfg.RateLimit.IsEnabled(), "zero-value RateLimit should have IsEnabled() == true")
 }
 
 func TestConfig_Validate_RateLimit_DefaultOnWhenKeyMissing(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.RateLimit.Disabled = false
-	a.True(cfg.RateLimit.IsEnabled(),
-		"explicit false should have IsEnabled() == true")
+	a.True(cfg.RateLimit.IsEnabled(), "explicit false should have IsEnabled() == true")
 }
 
 func TestConfig_Validate_RateLimit_DisabledTrueTurnsOff(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.RateLimit.Disabled = true
-	a.False(cfg.RateLimit.IsEnabled(),
-		"disabled = true should have IsEnabled() == false")
+	a.False(cfg.RateLimit.IsEnabled(), "disabled = true should have IsEnabled() == false")
 }
 
 func TestConfig_Validate_RateLimit_DisabledFalseExplicitOn(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.RateLimit.Disabled = false
-	a.True(cfg.RateLimit.IsEnabled(),
-		"disabled = false explicit should have IsEnabled() == true")
+	a.True(cfg.RateLimit.IsEnabled(), "disabled = false explicit should have IsEnabled() == true")
 }
 
 func TestConfig_Validate_RejectsNoServersEnabled(t *testing.T) {
-	r := require.New(t)
-	a := assert.New(t)
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.Diagnose.Enabled = false
 	cfg.WS.Enabled = false
@@ -299,12 +288,12 @@ func TestConfig_Validate_RejectsNoServersEnabled(t *testing.T) {
 	cfg.TLS.Enabled = false
 	cfg.WSS.Enabled = false
 	err := cfg.Validate()
-	r.Error(err, "expected error when no servers are enabled")
+	a.Error(err, "expected error when no servers are enabled")
 	a.Contains(err.Error(), "at least one server")
 }
 
 func TestNew_EnvVar(t *testing.T) {
-	r := require.New(t)
+	a := require.New(t)
 	t.Setenv(EnvKey, `
 [diagnose]
 enabled = true
@@ -320,8 +309,7 @@ session_ttl = "1h"
 max_concurrent_sessions = 500
 `)
 	cfg, err := New("")
-	r.NoError(err)
-	a := assert.New(t)
+	a.NoError(err)
 	a.Equal("0.0.0.0:19090", cfg.Diagnose.Address)
 	a.Equal("0.0.0.0:18888", cfg.WS.Address)
 	a.Equal(10*time.Minute, cfg.Session.TokenTTL)
@@ -330,13 +318,14 @@ max_concurrent_sessions = 500
 }
 
 func TestNew_EnvVarEmpty(t *testing.T) {
+	a := require.New(t)
 	_, err := New("")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "env var not set")
+	a.Error(err)
+	a.Contains(err.Error(), "env var not set")
 }
 
 func TestNew_FileOverridesEnvVar(t *testing.T) {
-	r := require.New(t)
+	a := require.New(t)
 	t.Setenv(EnvKey, `
 [diagnose]
 enabled = true
@@ -345,6 +334,6 @@ address = "0.0.0.0:19090"
 	// When a file is explicitly provided, env var is ignored.
 	// The file from assets is a known-good config.
 	cfg, err := New("../../assets/config.toml")
-	r.NoError(err)
-	assert.NotEmpty(t, cfg.WS.Address, "should load from file, not env")
+	a.NoError(err)
+	a.NotEmpty(cfg.WS.Address, "should load from file, not env")
 }

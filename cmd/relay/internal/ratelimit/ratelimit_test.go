@@ -4,54 +4,49 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestAllowWithinQuota(t *testing.T) {
+	a := require.New(t)
 	rl := New(5, time.Minute, 100)
 	for i := range 5 {
-		if !rl.Allow("1.2.3.4") {
-			t.Fatalf("attempt %d denied, expected allow", i+1)
-		}
+		a.True(rl.Allow("1.2.3.4"), "attempt %d denied, expected allow", i+1)
 	}
 }
 
 func TestBlockAfterQuota(t *testing.T) {
+	a := require.New(t)
 	rl := New(3, time.Minute, 100)
 	for range 3 {
 		rl.Allow("1.2.3.4")
 	}
-	if rl.Allow("1.2.3.4") {
-		t.Fatal("expected deny after quota exceeded")
-	}
+	a.False(rl.Allow("1.2.3.4"), "expected deny after quota exceeded")
 }
 
 func TestResetAfterWindow(t *testing.T) {
+	a := require.New(t)
 	rl := New(2, 50*time.Millisecond, 100)
 	rl.Allow("1.2.3.4")
 	rl.Allow("1.2.3.4")
-	if rl.Allow("1.2.3.4") {
-		t.Fatal("expected deny after quota")
-	}
+	a.False(rl.Allow("1.2.3.4"), "expected deny after quota")
 	time.Sleep(60 * time.Millisecond)
-	if !rl.Allow("1.2.3.4") {
-		t.Fatal("expected allow after window elapsed")
-	}
+	a.True(rl.Allow("1.2.3.4"), "expected allow after window elapsed")
 }
 
 func TestMultipleIPsIndependent(t *testing.T) {
+	a := require.New(t)
 	rl := New(2, time.Minute, 100)
 	rl.Allow("1.1.1.1")
 	rl.Allow("1.1.1.1")
 	rl.Allow("2.2.2.2")
-	if rl.Allow("1.1.1.1") {
-		t.Fatal("expected deny for 1.1.1.1 after quota")
-	}
-	if !rl.Allow("2.2.2.2") {
-		t.Fatal("expected allow for 2.2.2.2 (separate quota)")
-	}
+	a.False(rl.Allow("1.1.1.1"), "expected deny for 1.1.1.1 after quota")
+	a.True(rl.Allow("2.2.2.2"), "expected allow for 2.2.2.2 (separate quota)")
 }
 
 func TestConcurrentSameIP(t *testing.T) {
+	a := require.New(t)
 	rl := New(10, time.Minute, 100)
 	var wg sync.WaitGroup
 	for range 20 {
@@ -67,12 +62,11 @@ func TestConcurrentSameIP(t *testing.T) {
 			allowed++
 		}
 	}
-	if allowed > 0 {
-		t.Fatalf("expected 0 allowed after quota, got %d", allowed)
-	}
+	a.Equal(0, allowed, "expected 0 allowed after quota, got %d", allowed)
 }
 
 func TestConcurrentDifferentIPs(t *testing.T) {
+	a := require.New(t)
 	rl := New(5, time.Minute, 100)
 	var wg sync.WaitGroup
 	for _, ip := range []string{"1.1.1.1", "2.2.2.2", "3.3.3.3"} {
@@ -85,61 +79,43 @@ func TestConcurrentDifferentIPs(t *testing.T) {
 	wg.Wait()
 
 	for _, ip := range []string{"1.1.1.1", "2.2.2.2", "3.3.3.3"} {
-		if rl.Allow(ip) {
-			t.Fatalf("expected deny for %s after concurrent quota fill", ip)
-		}
+		a.False(rl.Allow(ip), "expected deny for %s after concurrent quota fill", ip)
 	}
 }
 
 func TestLRUSizeLimit(t *testing.T) {
+	a := require.New(t)
 	const quota = 3
 	rl := New(quota, time.Minute, 2)
 
 	// Fill both slots.
-	if !rl.Allow("1.1.1.1") {
-		t.Fatal("first allow for 1.1.1.1 should pass")
-	}
-	if !rl.Allow("2.2.2.2") {
-		t.Fatal("first allow for 2.2.2.2 should pass")
-	}
+	a.True(rl.Allow("1.1.1.1"), "first allow for 1.1.1.1 should pass")
+	a.True(rl.Allow("2.2.2.2"), "first allow for 2.2.2.2 should pass")
 
 	// Adding a third key must evict the oldest entry (1.1.1.1).
-	if !rl.Allow("3.3.3.3") {
-		t.Fatal("first allow for 3.3.3.3 should pass")
-	}
+	a.True(rl.Allow("3.3.3.3"), "first allow for 3.3.3.3 should pass")
 
 	// 1.1.1.1 was evicted; its quota is now reset, so it must accept
 	// up to `quota` requests before denying.
-	for i := 0; i < quota; i++ {
-		if !rl.Allow("1.1.1.1") {
-			t.Fatalf(
-				"allow #%d for evicted 1.1.1.1 should pass (LRU eviction reset the window)",
-				i+1,
-			)
-		}
+	for i := range quota {
+		a.True(rl.Allow("1.1.1.1"), "allow #%d for evicted 1.1.1.1 should pass (LRU eviction reset the window)", i+1)
 	}
 	// ...and the (quota+1)th must be denied.
-	if rl.Allow("1.1.1.1") {
-		t.Fatal("1.1.1.1 should be denied after refilling its quota")
-	}
+	a.False(rl.Allow("1.1.1.1"), "1.1.1.1 should be denied after refilling its quota")
 }
 
 func TestQuotaOne(t *testing.T) {
+	a := require.New(t)
 	rl := New(1, time.Minute, 100)
-	if !rl.Allow("1.2.3.4") {
-		t.Fatal("expected allow for first attempt with quota=1")
-	}
-	if rl.Allow("1.2.3.4") {
-		t.Fatal("expected deny for second attempt with quota=1")
-	}
+	a.True(rl.Allow("1.2.3.4"), "expected allow for first attempt with quota=1")
+	a.False(rl.Allow("1.2.3.4"), "expected deny for second attempt with quota=1")
 }
 
 func TestHighQuota(t *testing.T) {
+	a := require.New(t)
 	n := 100
 	rl := New(n, time.Minute, 1000)
 	for i := range n {
-		if !rl.Allow("1.2.3.4") {
-			t.Fatalf("attempt %d denied with quota=%d", i+1, n)
-		}
+		a.True(rl.Allow("1.2.3.4"), "attempt %d denied with quota=%d", i+1, n)
 	}
 }

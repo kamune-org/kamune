@@ -11,6 +11,7 @@ import (
 
 	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/relayconn"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
@@ -22,6 +23,7 @@ import (
 // function closes the underlying pipes.
 func pipeChans(t *testing.T) (a, b *exchange.Channel, cleanup func()) {
 	t.Helper()
+	r := require.New(t)
 
 	c, s := net.Pipe()
 
@@ -40,18 +42,12 @@ func pipeChans(t *testing.T) (a, b *exchange.Channel, cleanup func()) {
 	}()
 
 	chA, err := exchange.Initiate(&testAdapter{conn: c})
-	if err != nil {
-		t.Fatalf("exchange.Initiate: %v", err)
-	}
-	if err := <-acceptCh; err != nil {
-		t.Fatalf("exchange.Accept: %v", err)
-	}
+	r.NoError(err, "exchange.Initiate")
+	r.NoError(<-acceptCh, "exchange.Accept")
 
 	mu.Lock()
 	defer mu.Unlock()
-	if chB == nil {
-		t.Fatal("accept did not complete")
-	}
+	r.NotNil(chB, "accept did not complete")
 
 	cleanup = func() {
 		_ = c.Close()
@@ -107,27 +103,10 @@ func drainRead(t *testing.T, ch *exchange.Channel) {
 // sendFrame marshals and writes a Frame over the exchange channel.
 func sendFrame(t *testing.T, ch *exchange.Channel, f *pb.Frame) {
 	t.Helper()
+	a := require.New(t)
 	b, err := proto.Marshal(f)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if err := ch.WriteBytes(b); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-}
-
-// readFrame reads a single Frame from the channel.
-func readFrame(t *testing.T, ch *exchange.Channel) *pb.Frame {
-	t.Helper()
-	b, err := ch.ReadBytes()
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	var f pb.Frame
-	if err := proto.Unmarshal(b, &f); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	return &f
+	a.NoError(err, "marshal")
+	a.NoError(ch.WriteBytes(b), "write")
 }
 
 func newTestSessionManager(tokenTTL, sessionTTL time.Duration, maxConns int) *SessionManager {
@@ -137,6 +116,7 @@ func newTestSessionManager(tokenTTL, sessionTTL time.Duration, maxConns int) *Se
 // --- SessionManager tests ------------------------------------------------
 
 func TestSessionManager_Create_Roundtrip(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 	defer sm.Remove(nil) // no-op, just to ensure no panic
 
@@ -145,20 +125,15 @@ func TestSessionManager_Create_Roundtrip(t *testing.T) {
 	defer listener.Close()
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if len(token) != 16 {
-		t.Errorf("token length = %d, want 16", len(token))
-	}
-	if sm.Len() != 1 {
-		t.Errorf("Len = %d, want 1", sm.Len())
-	}
+	a.NoError(err, "Create")
+	a.Len(token, 16)
+	a.Equal(1, sm.Len())
 }
 
 func TestSessionManager_Create_RespectsMaxConns(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 2)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		_, _, cleanup := pipeChans(t)
 		// We don't keep the channel around — we only need to fill the map.
 		// But we need to keep the channel alive, so do it differently.
@@ -171,27 +146,25 @@ func TestSessionManager_Create_RespectsMaxConns(t *testing.T) {
 	l1, _, c1 := pipeChans(t)
 	defer c1()
 	defer l1.Close()
-	if _, err := sm.Create(l1); err != nil {
-		t.Fatalf("Create 1: %v", err)
-	}
+	_, err := sm.Create(l1)
+	a.NoError(err, "Create 1")
 
 	l2, _, c2 := pipeChans(t)
 	defer c2()
 	defer l2.Close()
-	if _, err := sm.Create(l2); err != nil {
-		t.Fatalf("Create 2: %v", err)
-	}
+	_, err = sm.Create(l2)
+	a.NoError(err, "Create 2")
 
 	// Third should fail.
 	l3, _, c3 := pipeChans(t)
 	defer c3()
 	defer l3.Close()
-	if _, err := sm.Create(l3); err != ErrSessionFull {
-		t.Errorf("err = %v, want ErrSessionFull", err)
-	}
+	_, err = sm.Create(l3)
+	a.ErrorIs(err, ErrSessionFull)
 }
 
 func TestSessionManager_Join_RejectsUnknownToken(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
 	dialer, _, cleanup := pipeChans(t)
@@ -199,12 +172,11 @@ func TestSessionManager_Join_RejectsUnknownToken(t *testing.T) {
 	defer dialer.Close()
 
 	err := sm.Join([]byte("doesnt-exist"), dialer)
-	if err != ErrTokenNotFound {
-		t.Errorf("err = %v, want ErrTokenNotFound", err)
-	}
+	a.ErrorIs(err, ErrTokenNotFound)
 }
 
 func TestSessionManager_Join_RejectsConsumed(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
 	listener, _, cleanup := pipeChans(t)
@@ -212,27 +184,22 @@ func TestSessionManager_Join_RejectsConsumed(t *testing.T) {
 	defer listener.Close()
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
+	a.NoError(err, "Create")
 
 	dialer1, dialerRemote1, cleanup1 := pipeChans(t)
 	defer cleanup1()
-	if err := sm.Join(token, dialer1); err != nil {
-		t.Fatalf("first Join: %v", err)
-	}
+	a.NoError(sm.Join(token, dialer1), "first Join")
 	_ = dialerRemote1
 
 	// Second join with the same token must fail.
 	dialer2, _, cleanup2 := pipeChans(t)
 	defer cleanup2()
 	defer dialer2.Close()
-	if err := sm.Join(token, dialer2); err != ErrTokenConsumed {
-		t.Errorf("err = %v, want ErrTokenConsumed", err)
-	}
+	a.ErrorIs(sm.Join(token, dialer2), ErrTokenConsumed)
 }
 
 func TestSessionManager_Join_RejectsExpired(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(10*time.Millisecond, 0, 10)
 
 	listener, _, cleanup := pipeChans(t)
@@ -240,21 +207,18 @@ func TestSessionManager_Join_RejectsExpired(t *testing.T) {
 	defer listener.Close()
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
+	a.NoError(err, "Create")
 
 	time.Sleep(20 * time.Millisecond)
 
 	dialer, _, cleanup2 := pipeChans(t)
 	defer cleanup2()
 	defer dialer.Close()
-	if err := sm.Join(token, dialer); err != ErrSessionExpired {
-		t.Errorf("err = %v, want ErrSessionExpired", err)
-	}
+	a.ErrorIs(sm.Join(token, dialer), ErrSessionExpired)
 }
 
 func TestSessionManager_Recipient_DirectionAware(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
 	listener, _, cleanup := pipeChans(t)
@@ -265,41 +229,29 @@ func TestSessionManager_Recipient_DirectionAware(t *testing.T) {
 	defer dialer.Close()
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if err := sm.Join(token, dialer); err != nil {
-		t.Fatalf("Join: %v", err)
-	}
+	a.NoError(err, "Create")
+	a.NoError(sm.Join(token, dialer), "Join")
 
 	// From listener's perspective, recipient is the dialer.
 	got, err := sm.Recipient(token, listener)
-	if err != nil {
-		t.Fatalf("Recipient(listener): %v", err)
-	}
-	if got != dialer {
-		t.Errorf("Recipient(listener) returned wrong peer")
-	}
+	a.NoError(err, "Recipient(listener)")
+	a.Equal(dialer, got, "Recipient(listener) returned wrong peer")
 
 	// From dialer's perspective, recipient is the listener.
 	got, err = sm.Recipient(token, dialer)
-	if err != nil {
-		t.Fatalf("Recipient(dialer): %v", err)
-	}
-	if got != listener {
-		t.Errorf("Recipient(dialer) returned wrong peer")
-	}
+	a.NoError(err, "Recipient(dialer)")
+	a.Equal(listener, got, "Recipient(dialer) returned wrong peer")
 
 	// From a stranger, returns error.
 	stranger, _, cleanup3 := pipeChans(t)
 	defer cleanup3()
 	defer stranger.Close()
-	if _, err := sm.Recipient(token, stranger); err != ErrPeerNotFound {
-		t.Errorf("Recipient(stranger) = %v, want ErrPeerNotFound", err)
-	}
+	_, err = sm.Recipient(token, stranger)
+	a.ErrorIs(err, ErrPeerNotFound)
 }
 
 func TestSessionManager_Recipient_ListenerOnlyHasNoPeer(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
 	listener, _, cleanup := pipeChans(t)
@@ -307,16 +259,14 @@ func TestSessionManager_Recipient_ListenerOnlyHasNoPeer(t *testing.T) {
 	defer listener.Close()
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
+	a.NoError(err, "Create")
 
-	if _, err := sm.Recipient(token, listener); err != ErrPeerNotFound {
-		t.Errorf("Recipient(listener, no peer) = %v, want ErrPeerNotFound", err)
-	}
+	_, err = sm.Recipient(token, listener)
+	a.ErrorIs(err, ErrPeerNotFound, "Recipient(listener, no peer)")
 }
 
 func TestSessionManager_ClosePeerChannel_ClosesPeer(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
 	listener, dialerRemote, cleanup := pipeChans(t)
@@ -325,12 +275,8 @@ func TestSessionManager_ClosePeerChannel_ClosesPeer(t *testing.T) {
 	defer cleanup2()
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if err := sm.Join(token, dialer); err != nil {
-		t.Fatalf("Join: %v", err)
-	}
+	a.NoError(err, "Create")
+	a.NoError(sm.Join(token, dialer), "Join")
 	_ = dialerRemote
 	_ = dialerRemote2
 
@@ -351,15 +297,14 @@ func TestSessionManager_ClosePeerChannel_ClosesPeer(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
-		if err == nil {
-			t.Error("dialer ReadBytes returned nil after peer close")
-		}
+		a.Error(err, "dialer ReadBytes returned nil after peer close")
 	case <-time.After(2 * time.Second):
-		t.Fatal("dialer ReadBytes did not return after peer close")
+		a.FailNow("dialer ReadBytes did not return after peer close")
 	}
 }
 
 func TestSessionManager_Remove_Idempotent(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
 	listener, _, cleanup := pipeChans(t)
@@ -367,14 +312,10 @@ func TestSessionManager_Remove_Idempotent(t *testing.T) {
 	defer listener.Close()
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
+	a.NoError(err, "Create")
 
 	sm.Remove(token)
-	if sm.Len() != 0 {
-		t.Errorf("Len = %d, want 0", sm.Len())
-	}
+	a.Equal(0, sm.Len())
 
 	// Remove again — must not panic.
 	sm.Remove(token)
@@ -382,6 +323,7 @@ func TestSessionManager_Remove_Idempotent(t *testing.T) {
 }
 
 func TestSessionManager_PurgeExpired_UnpairedSession(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(20*time.Millisecond, 0, 10)
 
 	listener, _, cleanup := pipeChans(t)
@@ -391,9 +333,7 @@ func TestSessionManager_PurgeExpired_UnpairedSession(t *testing.T) {
 	drainRead(t, listener)
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
+	a.NoError(err, "Create")
 
 	// Wait past the token TTL.
 	time.Sleep(40 * time.Millisecond)
@@ -402,14 +342,13 @@ func TestSessionManager_PurgeExpired_UnpairedSession(t *testing.T) {
 	sm.purgeExpired()
 
 	// Session is gone.
-	if sm.Len() != 0 {
-		t.Errorf("Len = %d, want 0", sm.Len())
-	}
+	a.Equal(0, sm.Len())
 
 	_ = token
 }
 
 func TestSessionManager_PurgeExpired_PairedSession(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 30*time.Millisecond, 10)
 
 	listener, listenerRemote, cleanup := pipeChans(t)
@@ -421,27 +360,20 @@ func TestSessionManager_PurgeExpired_PairedSession(t *testing.T) {
 	drainRead(t, dialerRemote)
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if err := sm.Join(token, dialer); err != nil {
-		t.Fatalf("Join: %v", err)
-	}
+	a.NoError(err, "Create")
+	a.NoError(sm.Join(token, dialer), "Join")
 
 	// Session should still be alive before expiry.
-	if sm.Len() != 1 {
-		t.Errorf("Len = %d, want 1", sm.Len())
-	}
+	a.Equal(1, sm.Len())
 
 	time.Sleep(60 * time.Millisecond)
 	sm.purgeExpired()
 
-	if sm.Len() != 0 {
-		t.Errorf("Len = %d, want 0 after expiry", sm.Len())
-	}
+	a.Equal(0, sm.Len())
 }
 
 func TestSessionManager_PurgeExpired_NeverExpiresWhenSessionTTLZero(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(10*time.Millisecond, 0, 10)
 
 	listener, listenerRemote, cleanup := pipeChans(t)
@@ -453,30 +385,21 @@ func TestSessionManager_PurgeExpired_NeverExpiresWhenSessionTTLZero(t *testing.T
 	drainRead(t, dialerRemote)
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if err := sm.Join(token, dialer); err != nil {
-		t.Fatalf("Join: %v", err)
-	}
+	a.NoError(err, "Create")
+	a.NoError(sm.Join(token, dialer), "Join")
 
 	time.Sleep(30 * time.Millisecond)
 	sm.purgeExpired()
 
 	// sessionTTL=0 → paired sessions should not be purged.
-	if sm.Len() != 1 {
-		t.Errorf("Len = %d, want 1 (sessionTTL=0 should disable)", sm.Len())
-	}
+	a.Equal(1, sm.Len(), "sessionTTL=0 should disable purge")
 }
 
 func TestSessionManager_TTL_And_SessionTTL(t *testing.T) {
+	a := require.New(t)
 	sm := NewSessionManager(5*time.Minute, 10, 30*time.Minute)
-	if got := sm.TTL(); got != 5*time.Minute {
-		t.Errorf("TTL = %v, want 5m", got)
-	}
-	if got := sm.SessionTTL(); got != 30*time.Minute {
-		t.Errorf("SessionTTL = %v, want 30m", got)
-	}
+	a.Equal(5*time.Minute, sm.TTL())
+	a.Equal(30*time.Minute, sm.SessionTTL())
 }
 
 // --- CreateWith (static-token mode) ---------------------------------------
@@ -491,6 +414,7 @@ func makeToken(seed byte) []byte {
 }
 
 func TestSessionManager_CreateWith_HappyPath(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
 	listener, listenerRemote, cleanup := pipeChans(t)
@@ -501,19 +425,14 @@ func TestSessionManager_CreateWith_HappyPath(t *testing.T) {
 	drainRead(t, dialerRemote)
 
 	token := makeToken(0x10)
-	if err := sm.CreateWith(listener, token); err != nil {
-		t.Fatalf("CreateWith: %v", err)
-	}
-	if sm.Len() != 1 {
-		t.Errorf("Len = %d, want 1", sm.Len())
-	}
+	a.NoError(sm.CreateWith(listener, token), "CreateWith")
+	a.Equal(1, sm.Len())
 
-	if err := sm.Join(token, dialer); err != nil {
-		t.Fatalf("Join: %v", err)
-	}
+	a.NoError(sm.Join(token, dialer), "Join")
 }
 
 func TestSessionManager_CreateWith_RejectsDuplicate(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
 	listener1, _, c1 := pipeChans(t)
@@ -524,33 +443,25 @@ func TestSessionManager_CreateWith_RejectsDuplicate(t *testing.T) {
 	defer listener2.Close()
 
 	token := makeToken(0x20)
-	if err := sm.CreateWith(listener1, token); err != nil {
-		t.Fatalf("first CreateWith: %v", err)
-	}
-	if err := sm.CreateWith(listener2, token); err != ErrTokenInUse {
-		t.Errorf("second CreateWith err = %v, want ErrTokenInUse", err)
-	}
+	a.NoError(sm.CreateWith(listener1, token), "first CreateWith")
+	a.ErrorIs(sm.CreateWith(listener2, token), ErrTokenInUse, "second CreateWith err")
 }
 
 func TestSessionManager_CreateWith_RejectsWhenFull(t *testing.T) {
+	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 1)
 
 	l1, _, c1 := pipeChans(t)
 	defer c1()
 	defer l1.Close()
-	if err := sm.CreateWith(l1, makeToken(0x30)); err != nil {
-		t.Fatalf("first CreateWith: %v", err)
-	}
+	a.NoError(sm.CreateWith(l1, makeToken(0x30)), "first CreateWith")
 
 	// Server is at capacity; a fresh token must report ErrSessionFull,
 	// not ErrTokenInUse (capacity precedes uniqueness).
 	l2, _, c2 := pipeChans(t)
 	defer c2()
 	defer l2.Close()
-	err := sm.CreateWith(l2, makeToken(0x40))
-	if err != ErrSessionFull {
-		t.Errorf("CreateWith on full server err = %v, want ErrSessionFull", err)
-	}
+	a.ErrorIs(sm.CreateWith(l2, makeToken(0x40)), ErrSessionFull, "CreateWith on full server")
 }
 
 func TestSessionManager_CreateWith_RejectsInvalid(t *testing.T) {
@@ -573,15 +484,15 @@ func TestSessionManager_CreateWith_RejectsInvalid(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
 			err := sm.CreateWith(listener, tc.token)
-			if err != tc.wantErr {
-				t.Errorf("err = %v, want %v", err, tc.wantErr)
-			}
+			a.ErrorIs(err, tc.wantErr)
 		})
 	}
 }
 
 func TestSessionManager_Create_RandomStillWorks(t *testing.T) {
+	a := require.New(t)
 	// Regression: Create (random mode) must be unaffected by the
 	// CreateWith additions.
 	sm := newTestSessionManager(time.Minute, 0, 10)
@@ -591,13 +502,7 @@ func TestSessionManager_Create_RandomStillWorks(t *testing.T) {
 	defer listener.Close()
 
 	token, err := sm.Create(listener)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if len(token) != 16 {
-		t.Errorf("token length = %d, want 16", len(token))
-	}
-	if sm.Len() != 1 {
-		t.Errorf("Len = %d, want 1", sm.Len())
-	}
+	a.NoError(err, "Create")
+	a.Len(token, 16)
+	a.Equal(1, sm.Len())
 }

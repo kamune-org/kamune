@@ -1,13 +1,13 @@
 package handlers
 
 import (
-	"bytes"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
@@ -38,29 +38,22 @@ func dialClient(
 	token []byte,
 ) (*exchange.Channel, *pb.Registered) {
 	t.Helper()
+	a := require.New(t)
+
 	ch, err := exchange.Initiate(newRawTCPAdapter(conn, 0))
-	if err != nil {
-		t.Fatalf("Initiate: %v", err)
-	}
+	a.NoError(err, "Initiate")
 
 	if password != "" {
-		if authPassword == "" {
-			t.Fatalf("dialClient: password required but authPassword empty")
-		}
+		a.NotEmpty(authPassword, "dialClient: password required but authPassword empty")
 		auth := &pb.Frame{
 			Kind: &pb.Frame_Auth{Auth: &pb.Auth{Psk: []byte(authPassword)}},
 		}
 		b, err := proto.Marshal(auth)
-		if err != nil {
-			t.Fatalf("marshal auth: %v", err)
-		}
-		if err := ch.WriteBytes(b); err != nil {
-			t.Fatalf("write auth: %v", err)
-		}
+		a.NoError(err, "marshal auth")
+		a.NoError(ch.WriteBytes(b), "write auth")
 		// Drain the ack.
-		if _, err := ch.ReadBytes(); err != nil {
-			t.Fatalf("read auth ack: %v", err)
-		}
+		_, err = ch.ReadBytes()
+		a.NoError(err, "read auth ack")
 	}
 
 	reg := &pb.Frame{
@@ -70,51 +63,35 @@ func dialClient(
 		}},
 	}
 	b, err := proto.Marshal(reg)
-	if err != nil {
-		t.Fatalf("marshal register: %v", err)
-	}
-	if err := ch.WriteBytes(b); err != nil {
-		t.Fatalf("write register: %v", err)
-	}
+	a.NoError(err, "marshal register")
+	a.NoError(ch.WriteBytes(b), "write register")
 
 	resp, err := ch.ReadBytes()
-	if err != nil {
-		t.Fatalf("read registered: %v", err)
-	}
+	a.NoError(err, "read registered")
 	var f pb.Frame
-	if err := proto.Unmarshal(resp, &f); err != nil {
-		t.Fatalf("unmarshal registered: %v", err)
-	}
+	a.NoError(proto.Unmarshal(resp, &f), "unmarshal registered")
 	reg2 := f.GetRegistered()
-	if reg2 == nil {
-		t.Fatalf("expected Registered frame, got %T", f.Kind)
-	}
+	a.NotNil(reg2, "expected Registered frame, got %T", f.Kind)
 	return ch, reg2
 }
 
 // sendFrame marshals and writes a Frame over the exchange channel.
 func sendFrame(t *testing.T, ch *exchange.Channel, f *pb.Frame) {
 	t.Helper()
+	a := require.New(t)
 	b, err := proto.Marshal(f)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if err := ch.WriteBytes(b); err != nil {
-		t.Fatalf("write: %v", err)
-	}
+	a.NoError(err, "marshal")
+	a.NoError(ch.WriteBytes(b), "write")
 }
 
 // readFrame reads a single Frame from the channel.
 func readFrame(t *testing.T, ch *exchange.Channel) *pb.Frame {
 	t.Helper()
+	a := require.New(t)
 	b, err := ch.ReadBytes()
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
+	a.NoError(err, "read")
 	var f pb.Frame
-	if err := proto.Unmarshal(b, &f); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	a.NoError(proto.Unmarshal(b, &f), "unmarshal")
 	return &f
 }
 
@@ -145,6 +122,7 @@ func runServer(
 // after registration and a message exchanged after the timeout must
 // still succeed.
 func TestRelay_HandshakeTimeout_AppliesOnlyToHandshake(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 80*time.Millisecond)
 
 	// Listener side: we drive the client end and run the server end.
@@ -169,19 +147,13 @@ func TestRelay_HandshakeTimeout_AppliesOnlyToHandshake(t *testing.T) {
 
 	// Listener: empty token, creates a session.
 	listenerCh, reg := dialClient(t, listenerClient, "", "", pb.Register_MODE_CREATE, nil)
-	if got := reg.GetTtlSeconds(); got == 0 {
-		t.Errorf("TtlSeconds = 0, want > 0")
-	}
+	a.Greater(reg.GetTtlSeconds(), uint32(0))
 	token := reg.GetToken()
-	if len(token) != 16 {
-		t.Errorf("token length = %d, want 16", len(token))
-	}
+	a.Len(token, 16)
 
 	// Timer should be stopped after handshake completes.
 	time.Sleep(20 * time.Millisecond)
-	if listenerTimer.Stop() {
-		t.Error("listenerTimer was not stopped after registration")
-	}
+	a.False(listenerTimer.Stop(), "listenerTimer was not stopped after registration")
 
 	// Dialer joins with the listener's token.
 	dialerCh, _ := dialClient(t, dialerClient, "", "", pb.Register_MODE_JOIN, token)
@@ -196,11 +168,8 @@ func TestRelay_HandshakeTimeout_AppliesOnlyToHandshake(t *testing.T) {
 		Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: want}},
 	})
 	got := readFrame(t, dialerCh)
-	if msg := got.GetMsg(); msg == nil {
-		t.Fatalf("expected Msg frame, got %T", got.Kind)
-	} else if !bytes.Equal(msg.GetData(), want) {
-		t.Errorf("payload = %q, want %q", msg.GetData(), want)
-	}
+	a.NotNil(got.GetMsg(), "expected Msg frame, got %T", got.Kind)
+	a.Equal(want, got.GetMsg().GetData())
 
 	// And dialer → listener.
 	want2 := []byte("hello from dialer")
@@ -208,11 +177,8 @@ func TestRelay_HandshakeTimeout_AppliesOnlyToHandshake(t *testing.T) {
 		Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: want2}},
 	})
 	got2 := readFrame(t, listenerCh)
-	if msg := got2.GetMsg(); msg == nil {
-		t.Fatalf("expected Msg frame, got %T", got2.Kind)
-	} else if !bytes.Equal(msg.GetData(), want2) {
-		t.Errorf("payload = %q, want %q", msg.GetData(), want2)
-	}
+	a.NotNil(got2.GetMsg(), "expected Msg frame, got %T", got2.Kind)
+	a.Equal(want2, got2.GetMsg().GetData())
 
 	stopListener()
 	stopDialer()
@@ -222,6 +188,7 @@ func TestRelay_HandshakeTimeout_AppliesOnlyToHandshake(t *testing.T) {
 // underlying connection causes the other peer's channel to close
 // (via ClosePeerChannel) and ReadPump to exit.
 func TestRelay_Disconnect_ClosesPeer(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	listenerClient, listenerServer := net.Pipe()
@@ -256,11 +223,9 @@ func TestRelay_Disconnect_ClosesPeer(t *testing.T) {
 
 	select {
 	case err := <-readErr:
-		if err == nil {
-			t.Error("listener ReadBytes returned nil after peer disconnect")
-		}
+		a.Error(err, "listener ReadBytes returned nil after peer disconnect")
 	case <-time.After(2 * time.Second):
-		t.Fatal("listener ReadBytes did not return after peer disconnect")
+		a.FailNow("listener ReadBytes did not return after peer disconnect")
 	}
 
 	_ = listenerClient.Close()
@@ -269,6 +234,7 @@ func TestRelay_Disconnect_ClosesPeer(t *testing.T) {
 
 // TestRelay_Auth_Required exercises the password path end-to-end.
 func TestRelay_Auth_Required(t *testing.T) {
+	a := require.New(t)
 	const password = "s3kret"
 	hub := newTestHub(t, password, 0)
 
@@ -280,9 +246,7 @@ func TestRelay_Auth_Required(t *testing.T) {
 	defer stop()
 
 	ch, reg := dialClient(t, client, password, password, pb.Register_MODE_CREATE, nil)
-	if reg == nil {
-		t.Fatal("Registered is nil")
-	}
+	a.NotNil(reg, "Registered is nil")
 	_ = ch.Close()
 }
 
@@ -290,6 +254,7 @@ func TestRelay_Auth_Required(t *testing.T) {
 // relay to close the connection (we expect a read error from the
 // client's side).
 func TestRelay_Auth_WrongPSK(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "right", 0)
 
 	client, server := net.Pipe()
@@ -302,18 +267,14 @@ func TestRelay_Auth_WrongPSK(t *testing.T) {
 	// The client does HPKE Initiate, then sends auth with wrong PSK.
 	// The server should close before we ever see a Registered frame.
 	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
-	if err != nil {
-		t.Fatalf("Initiate: %v", err)
-	}
+	a.NoError(err, "Initiate")
 	defer ch.Close()
 
 	auth := &pb.Frame{
 		Kind: &pb.Frame_Auth{Auth: &pb.Auth{Psk: []byte("wrong")}},
 	}
 	b, _ := proto.Marshal(auth)
-	if err := ch.WriteBytes(b); err != nil {
-		t.Fatalf("write auth: %v", err)
-	}
+	a.NoError(ch.WriteBytes(b), "write auth")
 
 	// The relay closes the connection. We expect an error reading
 	// either the auth ack or anything after it.
@@ -324,11 +285,9 @@ func TestRelay_Auth_WrongPSK(t *testing.T) {
 	}()
 	select {
 	case err := <-readErr:
-		if err == nil {
-			t.Error("expected error after wrong PSK, got nil")
-		}
+		a.Error(err, "expected error after wrong PSK, got nil")
 	case <-time.After(2 * time.Second):
-		t.Fatal("no error after wrong PSK (relay should have closed)")
+		a.FailNow("no error after wrong PSK (relay should have closed)")
 	}
 }
 
@@ -336,6 +295,7 @@ func TestRelay_Auth_WrongPSK(t *testing.T) {
 // the client does not send an Auth frame, the relay closes the
 // connection.
 func TestRelay_Auth_Missing(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "required", 0)
 
 	client, server := net.Pipe()
@@ -347,16 +307,12 @@ func TestRelay_Auth_Missing(t *testing.T) {
 
 	// Initiate HPKE then send a Register frame without an auth frame.
 	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
-	if err != nil {
-		t.Fatalf("Initiate: %v", err)
-	}
+	a.NoError(err, "Initiate")
 	defer ch.Close()
 
 	reg := &pb.Frame{Kind: &pb.Frame_Register{Register: &pb.Register{}}}
 	b, _ := proto.Marshal(reg)
-	if err := ch.WriteBytes(b); err != nil {
-		t.Fatalf("write register: %v", err)
-	}
+	a.NoError(ch.WriteBytes(b), "write register")
 
 	// The relay closes the connection.
 	readErr := make(chan error, 1)
@@ -366,17 +322,16 @@ func TestRelay_Auth_Missing(t *testing.T) {
 	}()
 	select {
 	case err := <-readErr:
-		if err == nil {
-			t.Error("expected error when auth missing, got nil")
-		}
+		a.Error(err, "expected error when auth missing, got nil")
 	case <-time.After(2 * time.Second):
-		t.Fatal("relay did not close on missing auth")
+		a.FailNow("relay did not close on missing auth")
 	}
 }
 
 // TestRelay_Auth_NotRequired verifies that an Auth frame sent when
 // auth is not required causes the relay to close the connection.
 func TestRelay_Auth_NotRequired(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	client, server := net.Pipe()
@@ -387,18 +342,14 @@ func TestRelay_Auth_NotRequired(t *testing.T) {
 	defer stop()
 
 	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
-	if err != nil {
-		t.Fatalf("Initiate: %v", err)
-	}
+	a.NoError(err, "Initiate")
 	defer ch.Close()
 
 	auth := &pb.Frame{
 		Kind: &pb.Frame_Auth{Auth: &pb.Auth{Psk: []byte("anything")}},
 	}
 	b, _ := proto.Marshal(auth)
-	if err := ch.WriteBytes(b); err != nil {
-		t.Fatalf("write auth: %v", err)
-	}
+	a.NoError(ch.WriteBytes(b), "write auth")
 
 	readErr := make(chan error, 1)
 	go func() {
@@ -407,17 +358,16 @@ func TestRelay_Auth_NotRequired(t *testing.T) {
 	}()
 	select {
 	case err := <-readErr:
-		if err == nil {
-			t.Error("expected error when auth not required, got nil")
-		}
+		a.Error(err, "expected error when auth not required, got nil")
 	case <-time.After(2 * time.Second):
-		t.Fatal("relay did not close on extra auth frame")
+		a.FailNow("relay did not close on extra auth frame")
 	}
 }
 
 // TestRelay_BadRegisterFrame verifies that a non-Register frame after
 // the handshake causes the relay to close the connection.
 func TestRelay_BadRegisterFrame(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	client, server := net.Pipe()
@@ -428,17 +378,13 @@ func TestRelay_BadRegisterFrame(t *testing.T) {
 	defer stop()
 
 	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
-	if err != nil {
-		t.Fatalf("Initiate: %v", err)
-	}
+	a.NoError(err, "Initiate")
 	defer ch.Close()
 
 	// Send a Ping frame (not a Register).
 	ping := &pb.Frame{Kind: &pb.Frame_Ping{Ping: &pb.Ping{}}}
 	b, _ := proto.Marshal(ping)
-	if err := ch.WriteBytes(b); err != nil {
-		t.Fatalf("write ping: %v", err)
-	}
+	a.NoError(ch.WriteBytes(b), "write ping")
 
 	readErr := make(chan error, 1)
 	go func() {
@@ -447,17 +393,16 @@ func TestRelay_BadRegisterFrame(t *testing.T) {
 	}()
 	select {
 	case err := <-readErr:
-		if err == nil {
-			t.Error("expected error on non-Register frame, got nil")
-		}
+		a.Error(err, "expected error on non-Register frame, got nil")
 	case <-time.After(2 * time.Second):
-		t.Fatal("relay did not close on non-Register frame")
+		a.FailNow("relay did not close on non-Register frame")
 	}
 }
 
 // TestRelay_BadProtoFrame verifies that a non-protobuf frame causes
 // the relay to close the connection.
 func TestRelay_BadProtoFrame(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	client, server := net.Pipe()
@@ -468,14 +413,10 @@ func TestRelay_BadProtoFrame(t *testing.T) {
 	defer stop()
 
 	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
-	if err != nil {
-		t.Fatalf("Initiate: %v", err)
-	}
+	a.NoError(err, "Initiate")
 	defer ch.Close()
 
-	if err := ch.WriteBytes([]byte("not a valid protobuf")); err != nil {
-		t.Fatalf("write garbage: %v", err)
-	}
+	a.NoError(ch.WriteBytes([]byte("not a valid protobuf")), "write garbage")
 
 	readErr := make(chan error, 1)
 	go func() {
@@ -484,17 +425,16 @@ func TestRelay_BadProtoFrame(t *testing.T) {
 	}()
 	select {
 	case err := <-readErr:
-		if err == nil {
-			t.Error("expected error on garbage frame, got nil")
-		}
+		a.Error(err, "expected error on garbage frame, got nil")
 	case <-time.After(2 * time.Second):
-		t.Fatal("relay did not close on garbage frame")
+		a.FailNow("relay did not close on garbage frame")
 	}
 }
 
 // TestRelay_PingPong verifies the in-band ping/pong is handled by the
 // relay's read pump.
 func TestRelay_PingPong(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	listenerClient, listenerServer := net.Pipe()
@@ -511,9 +451,7 @@ func TestRelay_PingPong(t *testing.T) {
 	sendFrame(t, listenerCh, ping)
 
 	got := readFrame(t, listenerCh)
-	if got.GetPong() == nil {
-		t.Fatalf("expected Pong, got %T", got.Kind)
-	}
+	a.NotNil(got.GetPong(), "expected Pong, got %T", got.Kind)
 }
 
 // panickingRW is a ReadWriter whose first ReadBytes call panics. It is
@@ -537,6 +475,7 @@ func (p *panickingRW) SetDeadline(time.Time) error {
 // (before the exchange.Channel is constructed) is recovered, the
 // underlying connection is closed, and the goroutine returns normally.
 func TestRelay_PanicRecovery(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	client, server := net.Pipe()
@@ -562,17 +501,15 @@ func TestRelay_PanicRecovery(t *testing.T) {
 
 	select {
 	case err := <-readErr:
-		if err == nil {
-			t.Error("client read returned nil, expected connection close")
-		}
+		a.Error(err, "client read returned nil, expected connection close")
 	case <-time.After(2 * time.Second):
-		t.Fatal("client read did not return (panic recovery should have closed the conn)")
+		a.FailNow("client read did not return (panic recovery should have closed the conn)")
 	}
 
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("handleRelayConn did not return (panic should be recovered)")
+		a.FailNow("handleRelayConn did not return (panic should be recovered)")
 	}
 }
 
@@ -588,6 +525,7 @@ func makeStaticToken(seed byte) []byte {
 }
 
 func TestHandler_StaticToken_AcceptsProvided(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	listenerClient, listenerServer := net.Pipe()
@@ -608,9 +546,7 @@ func TestHandler_StaticToken_AcceptsProvided(t *testing.T) {
 		t, listenerClient, "", "",
 		pb.Register_MODE_CREATE, token,
 	)
-	if got := reg.GetToken(); !bytes.Equal(got, token) {
-		t.Errorf("echoed token = %x, want %x", got, token)
-	}
+	a.Equal(token, reg.GetToken(), "echoed token")
 
 	// Dialer joins with the same token.
 	dialerCh, _ := dialClient(
@@ -624,28 +560,23 @@ func TestHandler_StaticToken_AcceptsProvided(t *testing.T) {
 		Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: want}},
 	})
 	got := readFrame(t, dialerCh)
-	if msg := got.GetMsg(); msg == nil {
-		t.Fatalf("expected Msg frame, got %T", got.Kind)
-	} else if !bytes.Equal(msg.GetData(), want) {
-		t.Errorf("payload = %q, want %q", msg.GetData(), want)
-	}
+	a.NotNil(got.GetMsg(), "expected Msg frame, got %T", got.Kind)
+	a.Equal(want, got.GetMsg().GetData())
 
 	want2 := []byte("hello from dialer")
 	sendFrame(t, dialerCh, &pb.Frame{
 		Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: want2}},
 	})
 	got2 := readFrame(t, listenerCh)
-	if msg := got2.GetMsg(); msg == nil {
-		t.Fatalf("expected Msg frame, got %T", got2.Kind)
-	} else if !bytes.Equal(msg.GetData(), want2) {
-		t.Errorf("payload = %q, want %q", msg.GetData(), want2)
-	}
+	a.NotNil(got2.GetMsg(), "expected Msg frame, got %T", got2.Kind)
+	a.Equal(want2, got2.GetMsg().GetData())
 
 	stopListener()
 	stopDialer()
 }
 
 func TestHandler_RejectsModeUnspecified(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	client, server := net.Pipe()
@@ -656,9 +587,7 @@ func TestHandler_RejectsModeUnspecified(t *testing.T) {
 	defer stop()
 
 	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
-	if err != nil {
-		t.Fatalf("Initiate: %v", err)
-	}
+	a.NoError(err, "Initiate")
 	defer ch.Close()
 
 	reg := &pb.Frame{
@@ -668,9 +597,7 @@ func TestHandler_RejectsModeUnspecified(t *testing.T) {
 		}},
 	}
 	b, _ := proto.Marshal(reg)
-	if err := ch.WriteBytes(b); err != nil {
-		t.Fatalf("write register: %v", err)
-	}
+	a.NoError(ch.WriteBytes(b), "write register")
 
 	readErr := make(chan error, 1)
 	go func() {
@@ -679,15 +606,14 @@ func TestHandler_RejectsModeUnspecified(t *testing.T) {
 	}()
 	select {
 	case err := <-readErr:
-		if err == nil {
-			t.Error("expected error on MODE_UNSPECIFIED, got nil")
-		}
+		a.Error(err, "expected error on MODE_UNSPECIFIED, got nil")
 	case <-time.After(2 * time.Second):
-		t.Fatal("relay did not close on MODE_UNSPECIFIED")
+		a.FailNow("relay did not close on MODE_UNSPECIFIED")
 	}
 }
 
 func TestHandler_RejectsJoinWithoutToken(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	client, server := net.Pipe()
@@ -698,9 +624,7 @@ func TestHandler_RejectsJoinWithoutToken(t *testing.T) {
 	defer stop()
 
 	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
-	if err != nil {
-		t.Fatalf("Initiate: %v", err)
-	}
+	a.NoError(err, "Initiate")
 	defer ch.Close()
 
 	reg := &pb.Frame{
@@ -710,9 +634,7 @@ func TestHandler_RejectsJoinWithoutToken(t *testing.T) {
 		}},
 	}
 	b, _ := proto.Marshal(reg)
-	if err := ch.WriteBytes(b); err != nil {
-		t.Fatalf("write register: %v", err)
-	}
+	a.NoError(ch.WriteBytes(b), "write register")
 
 	readErr := make(chan error, 1)
 	go func() {
@@ -721,17 +643,14 @@ func TestHandler_RejectsJoinWithoutToken(t *testing.T) {
 	}()
 	select {
 	case err := <-readErr:
-		if err == nil {
-			t.Error(
-				"expected error on MODE_JOIN without token, got nil",
-			)
-		}
+		a.Error(err, "expected error on MODE_JOIN without token, got nil")
 	case <-time.After(2 * time.Second):
-		t.Fatal("relay did not close on MODE_JOIN without token")
+		a.FailNow("relay did not close on MODE_JOIN without token")
 	}
 }
 
 func TestHandler_RandomTokenStillWorks(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	listenerClient, listenerServer := net.Pipe()
@@ -750,12 +669,7 @@ func TestHandler_RandomTokenStillWorks(t *testing.T) {
 		pb.Register_MODE_CREATE, nil,
 	)
 	token := reg.GetToken()
-	if len(token) != 16 {
-		t.Fatalf(
-			"relay-generated token length = %d, want 16",
-			len(token),
-		)
-	}
+	a.Len(token, 16)
 
 	// Dialer: MODE_JOIN with the relay-generated token.
 	dialerCh, _ := dialClient(
@@ -768,17 +682,15 @@ func TestHandler_RandomTokenStillWorks(t *testing.T) {
 		Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: want}},
 	})
 	got := readFrame(t, dialerCh)
-	if msg := got.GetMsg(); msg == nil {
-		t.Fatalf("expected Msg frame, got %T", got.Kind)
-	} else if !bytes.Equal(msg.GetData(), want) {
-		t.Errorf("payload = %q, want %q", msg.GetData(), want)
-	}
+	a.NotNil(got.GetMsg(), "expected Msg frame, got %T", got.Kind)
+	a.Equal(want, got.GetMsg().GetData())
 
 	stopListener()
 	stopDialer()
 }
 
 func TestHandler_RejectsWrongSizeToken(t *testing.T) {
+	a := require.New(t)
 	hub := newTestHub(t, "", 0)
 
 	client, server := net.Pipe()
@@ -789,9 +701,7 @@ func TestHandler_RejectsWrongSizeToken(t *testing.T) {
 	defer stop()
 
 	ch, err := exchange.Initiate(newRawTCPAdapter(client, 0))
-	if err != nil {
-		t.Fatalf("Initiate: %v", err)
-	}
+	a.NoError(err, "Initiate")
 	defer ch.Close()
 
 	// 15-byte token (one short).
@@ -802,9 +712,7 @@ func TestHandler_RejectsWrongSizeToken(t *testing.T) {
 		}},
 	}
 	b, _ := proto.Marshal(reg)
-	if err := ch.WriteBytes(b); err != nil {
-		t.Fatalf("write register: %v", err)
-	}
+	a.NoError(ch.WriteBytes(b), "write register")
 
 	readErr := make(chan error, 1)
 	go func() {
@@ -813,12 +721,8 @@ func TestHandler_RejectsWrongSizeToken(t *testing.T) {
 	}()
 	select {
 	case err := <-readErr:
-		if err == nil {
-			t.Error(
-				"expected error on wrong-size token, got nil",
-			)
-		}
+		a.Error(err, "expected error on wrong-size token, got nil")
 	case <-time.After(2 * time.Second):
-		t.Fatal("relay did not close on wrong-size token")
+		a.FailNow("relay did not close on wrong-size token")
 	}
 }

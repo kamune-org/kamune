@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,12 +20,11 @@ func TestLoadTLSConfig_InMemoryWhenPathsEmpty(t *testing.T) {
 	cfg, err := loadTLSConfig("", "")
 	r.NoError(err)
 	r.NotNil(cfg)
-	assert.Len(t, cfg.Certificates, 1)
+	r.Len(cfg.Certificates, 1)
 }
 
 func TestLoadTLSConfig_LoadsExistingCert(t *testing.T) {
 	r := require.New(t)
-	a := assert.New(t)
 	dir := t.TempDir()
 	certPath := filepath.Join(dir, "server.crt")
 	keyPath := filepath.Join(dir, "server.key")
@@ -38,24 +36,22 @@ func TestLoadTLSConfig_LoadsExistingCert(t *testing.T) {
 	cfg, err := loadTLSConfig(certPath, keyPath)
 	r.NoError(err)
 	r.NotNil(cfg)
-	a.Len(cfg.Certificates, 1)
+	r.Len(cfg.Certificates, 1)
 }
 
 func TestLoadTLSConfig_HardErrorsWhenFileMissing(t *testing.T) {
 	r := require.New(t)
-	a := assert.New(t)
 	dir := t.TempDir()
 	certPath := filepath.Join(dir, "missing.crt")
 	keyPath := filepath.Join(dir, "missing.key")
 
 	_, err := loadTLSConfig(certPath, keyPath)
 	r.Error(err)
-	a.Contains(err.Error(), "load tls cert")
+	r.Contains(err.Error(), "load tls cert")
 }
 
 func TestLoadTLSConfig_HardErrorsWhenFileInvalid(t *testing.T) {
 	r := require.New(t)
-	a := assert.New(t)
 	dir := t.TempDir()
 	certPath := filepath.Join(dir, "server.crt")
 	keyPath := filepath.Join(dir, "server.key")
@@ -67,20 +63,19 @@ func TestLoadTLSConfig_HardErrorsWhenFileInvalid(t *testing.T) {
 
 	_, err := loadTLSConfig(certPath, keyPath)
 	r.Error(err)
-	a.Contains(err.Error(), "load tls cert")
+	r.Contains(err.Error(), "load tls cert")
 
 	gotCert, err := os.ReadFile(certPath)
 	r.NoError(err)
-	assert.Equal(t, junkCert, gotCert, "cert file must not be overwritten")
+	r.Equal(junkCert, gotCert, "cert file must not be overwritten")
 
 	gotKey, err := os.ReadFile(keyPath)
 	r.NoError(err)
-	assert.Equal(t, junkKey, gotKey, "key file must not be overwritten")
+	r.Equal(junkKey, gotKey, "key file must not be overwritten")
 }
 
 func TestLoadTLSConfig_DoesNotOverwriteOnFailure(t *testing.T) {
 	r := require.New(t)
-	a := assert.New(t)
 	dir := t.TempDir()
 	certPath := filepath.Join(dir, "server.crt")
 	keyPath := filepath.Join(dir, "server.key")
@@ -98,11 +93,11 @@ func TestLoadTLSConfig_DoesNotOverwriteOnFailure(t *testing.T) {
 
 	gotCert, err := os.ReadFile(certPath)
 	r.NoError(err)
-	a.Equal([]byte("corrupted"), gotCert)
+	r.Equal([]byte("corrupted"), gotCert)
 
 	gotKey, err := os.ReadFile(keyPath)
 	r.NoError(err)
-	a.Equal(originalKey, gotKey, "key file must remain untouched on load failure")
+	r.Equal(originalKey, gotKey, "key file must remain untouched on load failure")
 }
 
 // writeSelfSignedPEM writes a self-signed cert+key pair to disk using

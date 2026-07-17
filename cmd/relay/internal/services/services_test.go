@@ -2,11 +2,11 @@ package services
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
+	"github.com/stretchr/testify/require"
 )
 
 // validConfig returns a config that passes cfg.Validate. Tests mutate
@@ -48,56 +48,41 @@ func validConfig() config.Config {
 }
 
 func TestServices_New_ValidConfig(t *testing.T) {
+	a := require.New(t)
 	s, err := New(context.Background(), validConfig())
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if s == nil {
-		t.Fatal("service is nil")
-	}
-	if s.Hub() == nil {
-		t.Error("Hub is nil")
-	}
+	a.NoError(err, "New")
+	a.NotNil(s, "service is nil")
+	a.NotNil(s.Hub(), "Hub is nil")
 }
 
 // Defaults are applied by services.New, not by cfg.Validate; that is
 // why these tests live here rather than in the config package.
 func TestServices_New_DefaultsHandshakeTimeout(t *testing.T) {
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.Session.HandshakeTimeout = 0 // unset → 30s default
 	s, err := New(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if got := s.Hub().HandshakeTimeout(); got != 30*time.Second {
-		t.Errorf("HandshakeTimeout = %v, want 30s", got)
-	}
+	a.NoError(err, "New")
+	a.Equal(30*time.Second, s.Hub().HandshakeTimeout())
 }
 
 func TestServices_New_DisablesHandshakeTimeout(t *testing.T) {
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.Session.HandshakeTimeout = -1 // negative → disabled (0)
 	s, err := New(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if got := s.Hub().HandshakeTimeout(); got != 0 {
-		t.Errorf("HandshakeTimeout = %v, want 0 (disabled)", got)
-	}
+	a.NoError(err, "New")
+	a.Equal(time.Duration(0), s.Hub().HandshakeTimeout())
 }
 
 // Verify the wrapping applied by services.New: a validation error from
 // cfg.Validate is wrapped with an "invalid config:" prefix.
 func TestServices_New_WrapsValidationError(t *testing.T) {
+	a := require.New(t)
 	cfg := validConfig()
 	cfg.Session.MaxConcurrentSessions = 0
 	_, err := New(context.Background(), cfg)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	got := err.Error()
-	if !strings.Contains(got, "invalid config") ||
-		!strings.Contains(got, "max_concurrent_sessions") {
-		t.Errorf("err = %q, want it to contain 'invalid config' and 'max_concurrent_sessions'", got)
-	}
+	a.Error(err, "expected error, got nil")
+	a.Contains(err.Error(), "invalid config")
+	a.Contains(err.Error(), "max_concurrent_sessions")
 }
