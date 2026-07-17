@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBase64(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 
 	input := []byte("hello world")
 	expected := base64.RawURLEncoding.EncodeToString([]byte("hello world")) // aGVsbG8gd29ybGQ
@@ -25,7 +25,7 @@ func TestBase64(t *testing.T) {
 }
 
 func TestEmojiListDistinct(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 
 	a.Len(emojiList, 96)
 	seen := make(map[string]bool, len(emojiList))
@@ -37,7 +37,7 @@ func TestEmojiListDistinct(t *testing.T) {
 }
 
 func TestEmoji(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 
 	input := []byte("test")
 	emojis := Emoji(input)
@@ -56,7 +56,7 @@ func TestEmoji(t *testing.T) {
 }
 
 func TestHex(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 
 	input := []byte{0xAB, 0xCD, 0xEF}
 	expected := "AB:CD:EF"
@@ -74,7 +74,7 @@ func TestHex(t *testing.T) {
 }
 
 func TestPseudonym(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 
 	input := []byte("test")
 	result := Pseudonym(input)

@@ -1,8 +1,9 @@
 package kamune
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func testCheckVersion(localVersion, remote string) error {
@@ -34,15 +35,13 @@ func TestCheckVersion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
 			err := testCheckVersion(tt.local, tt.remote)
-			if tt.wantErr && err == nil {
-				t.Errorf("checkVersion(%q) = nil, want error", tt.remote)
-			}
-			if !tt.wantErr && err != nil {
-				t.Errorf("checkVersion(%q) = %v, want nil", tt.remote, err)
-			}
-			if tt.wantErr && err != nil && !errors.Is(err, ErrVersionMismatch) {
-				t.Errorf("checkVersion(%q) error %v does not wrap ErrVersionMismatch", tt.remote, err)
+			if tt.wantErr {
+				a.Error(err)
+				a.ErrorIs(err, ErrVersionMismatch)
+			} else {
+				a.NoError(err)
 			}
 		})
 	}
@@ -65,20 +64,16 @@ func TestParseSemver(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			a := require.New(t)
 			v, err := parseSemver(tt.input)
 			if tt.fail {
-				if err == nil {
-					t.Errorf("parseSemver(%q) = %+v, want error", tt.input, v)
-				}
+				a.Error(err)
 				return
 			}
-			if err != nil {
-				t.Errorf("parseSemver(%q) = _, %v, want no error", tt.input, err)
-				return
-			}
-			if v.major != tt.major || v.minor != tt.minor || v.patch != tt.patch {
-				t.Errorf("parseSemver(%q) = %+v, want {%d,%d,%d}", tt.input, v, tt.major, tt.minor, tt.patch)
-			}
+			a.NoError(err)
+			a.Equal(tt.major, v.major)
+			a.Equal(tt.minor, v.minor)
+			a.Equal(tt.patch, v.patch)
 		})
 	}
 }

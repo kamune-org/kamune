@@ -62,6 +62,7 @@ func TestNaturalBucketIndex(t *testing.T) {
 }
 
 func TestSelectBump_Distribution(t *testing.T) {
+	a := require.New(t)
 	const iterations = 10000
 	hits := make([]int, len(bumpProbabilities))
 	for range iterations {
@@ -73,8 +74,7 @@ func TestSelectBump_Distribution(t *testing.T) {
 		if diff < 0 {
 			diff = -diff
 		}
-		require.LessOrEqual(t, diff, 3,
-			"bump level %d: got %d%%, want ~%d%%", i, got, want)
+		a.LessOrEqual(diff, 3, "bump level %d: got %d%%, want ~%d%%", i, got, want)
 	}
 }
 
@@ -101,8 +101,9 @@ func TestSelectBucketSize_AlwaysAtLeastBase(t *testing.T) {
 }
 
 func TestPadSignedTransport_LandsOnBucket(t *testing.T) {
+	a := require.New(t)
 	att, err := attest.New()
-	require.NoError(t, err)
+	a.NoError(err)
 	sizes := []int{0, 32, 500, 2000, 10_000}
 	for _, keySize := range sizes {
 		t.Run("", func(t *testing.T) {
