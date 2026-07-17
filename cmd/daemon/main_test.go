@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCommandSerialization(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	tests := []struct {
 		name     string
 		wantType string
@@ -69,7 +69,7 @@ func TestCommandSerialization(t *testing.T) {
 }
 
 func TestEventSerialization(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	tests := []struct {
 		name     string
 		evt      Event
@@ -143,7 +143,7 @@ func TestEventSerialization(t *testing.T) {
 }
 
 func TestStartServerParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := StartServerParams{
 		Addr:      "127.0.0.1:9000",
 		Transport: "relay",
@@ -167,7 +167,7 @@ func TestStartServerParams(t *testing.T) {
 }
 
 func TestDialParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := DialParams{
 		Addr:      "relay.example.com:8443",
 		Transport: "relay",
@@ -193,7 +193,7 @@ func TestDialParams(t *testing.T) {
 }
 
 func TestOpenStorageParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := OpenStorageParams{
 		StoragePath:    "/tmp/test.db",
 		DBNoPassphrase: true,
@@ -211,7 +211,7 @@ func TestOpenStorageParams(t *testing.T) {
 }
 
 func TestSubmitPassphraseParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := SubmitPassphraseParams{
 		Passphrase: "correct horse battery staple",
 	}
@@ -227,7 +227,7 @@ func TestSubmitPassphraseParams(t *testing.T) {
 }
 
 func TestMessageInfo(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	ts := time.Date(2026, 6, 21, 10, 30, 0, 0, time.UTC)
 	msg := MessageInfo{
 		Text:      "Hello, World!",
@@ -248,7 +248,7 @@ func TestMessageInfo(t *testing.T) {
 }
 
 func TestRenameSessionParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := RenameSessionParams{
 		SessionID: "abc123",
 		Name:      "Alice",
@@ -266,7 +266,7 @@ func TestRenameSessionParams(t *testing.T) {
 }
 
 func TestRemoveRelayTokenParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := RemoveRelayTokenParams{
 		Token: "deadbeefcafebabe",
 	}
@@ -282,7 +282,7 @@ func TestRemoveRelayTokenParams(t *testing.T) {
 }
 
 func TestVerifyResponseParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := VerifyResponseParams{
 		RequestID: 42,
 		Accepted:  true,
@@ -300,7 +300,7 @@ func TestVerifyResponseParams(t *testing.T) {
 }
 
 func TestSetVerificationModeParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := SetVerificationModeParams{
 		Mode: int(VerificationModeStrict),
 	}
@@ -316,7 +316,7 @@ func TestSetVerificationModeParams(t *testing.T) {
 }
 
 func TestGetHistoryMessagesParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := GetHistoryMessagesParams{SessionID: "abc123"}
 	data, err := json.Marshal(params)
 	a.NoError(err)
@@ -326,7 +326,7 @@ func TestGetHistoryMessagesParams(t *testing.T) {
 }
 
 func TestLoadHistoryParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := LoadHistoryParams{SessionID: "abc123"}
 	data, err := json.Marshal(params)
 	a.NoError(err)
@@ -336,7 +336,7 @@ func TestLoadHistoryParams(t *testing.T) {
 }
 
 func TestRenameHistorySessionParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := RenameHistorySessionParams{SessionID: "abc123", Name: "Alice"}
 	data, err := json.Marshal(params)
 	a.NoError(err)
@@ -347,7 +347,7 @@ func TestRenameHistorySessionParams(t *testing.T) {
 }
 
 func TestDeleteHistorySessionParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := DeleteHistorySessionParams{SessionID: "abc123"}
 	data, err := json.Marshal(params)
 	a.NoError(err)
@@ -357,7 +357,7 @@ func TestDeleteHistorySessionParams(t *testing.T) {
 }
 
 func TestDeletePeerParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := DeletePeerParams{PublicKey: "deadbeef"}
 	data, err := json.Marshal(params)
 	a.NoError(err)
@@ -367,7 +367,7 @@ func TestDeletePeerParams(t *testing.T) {
 }
 
 func TestSetMyNameParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	params := SetMyNameParams{Name: "CrimsonOtter"}
 	data, err := json.Marshal(params)
 	a.NoError(err)
@@ -377,7 +377,7 @@ func TestSetMyNameParams(t *testing.T) {
 }
 
 func TestHistorySessionInfo(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	ts := time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC)
 	info := HistorySessionInfo{
 		ID: "abc123", Name: "Alice", MessageCount: 10,
@@ -395,7 +395,7 @@ func TestHistorySessionInfo(t *testing.T) {
 }
 
 func TestPeerInfo(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	ts := time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC)
 	info := PeerInfo{
 		Name: "Bob", AppVersion: "0.5.0",
@@ -411,7 +411,7 @@ func TestPeerInfo(t *testing.T) {
 }
 
 func TestFingerprintInfo(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	info := FingerprintInfo{
 		Emoji: "🦊 • 🐱", B64: "abc", Hex: "def", Sum: "ghi",
 	}
@@ -426,14 +426,14 @@ func TestFingerprintInfo(t *testing.T) {
 }
 
 func TestVerificationModeConstants(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	a.Equal(VerificationMode(0), VerificationModeStrict, "Strict mismatch")
 	a.Equal(VerificationMode(1), VerificationModeQuick, "Quick mismatch")
 	a.Equal(VerificationMode(2), VerificationModeAutoAccept, "AutoAccept mismatch")
 }
 
 func TestConnectionStatusConstants(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	a.Equal(ConnectionStatus("disconnected"), StatusDisconnected)
 	a.Equal(ConnectionStatus("connecting"), StatusConnecting)
 	a.Equal(ConnectionStatus("connected"), StatusConnected)
@@ -442,7 +442,7 @@ func TestConnectionStatusConstants(t *testing.T) {
 }
 
 func TestRelayToken(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	expires := time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC)
 	tok := relayToken{
 		Token:      "deadbeef",
@@ -467,7 +467,7 @@ func TestRelayToken(t *testing.T) {
 }
 
 func TestSendMessageParams(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	message := "Hello, World!"
 	params := SendMessageParams{
 		SessionID:  "session-abc-123",
@@ -491,7 +491,7 @@ func TestSendMessageParams(t *testing.T) {
 }
 
 func TestSessionInfo(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	ts := time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC)
 	info := SessionInfo{
 		SessionID:        "test-session-id",
@@ -526,7 +526,7 @@ func TestSessionInfo(t *testing.T) {
 }
 
 func TestDaemonNew(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	daemon := NewDaemon()
 	a.NotNil(daemon, "NewDaemon() should not return nil")
 
@@ -537,7 +537,7 @@ func TestDaemonNew(t *testing.T) {
 }
 
 func TestCommandConstants(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	expectedCommands := map[string]CMD{
 		"open_storage":           CmdOpenStorage,
 		"submit_passphrase":      CmdSubmitPassphrase,
@@ -581,7 +581,7 @@ func TestCommandConstants(t *testing.T) {
 }
 
 func TestEventConstants(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	expectedEvents := map[string]Evt{
 		"ready":                  EvtReady,
 		"server_started":         EvtServerStarted,
@@ -612,7 +612,7 @@ func TestEventConstants(t *testing.T) {
 }
 
 func TestParseCommand(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	tests := []struct {
 		name      string
 		input     string
@@ -663,7 +663,7 @@ func TestParseCommand(t *testing.T) {
 }
 
 func TestTruncateSessionID(t *testing.T) {
-	a := assert.New(t)
+	a := require.New(t)
 	a.Equal("short", truncateSessionID("short"), "short ID should be unchanged")
 	a.Equal(
 		"abcdefgh...wxyz",

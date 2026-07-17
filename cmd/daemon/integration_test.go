@@ -12,9 +12,12 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIntegrationEndToEnd(t *testing.T) {
+	a := require.New(t)
 	if testing.Short() {
 		t.Skip("skipping integration test in -short mode")
 	}
@@ -24,9 +27,7 @@ func TestIntegrationEndToEnd(t *testing.T) {
 
 	build := exec.Command("go", "build", "-o", binaryPath, ".")
 	build.Stderr = os.Stderr
-	if err := build.Run(); err != nil {
-		t.Fatalf("failed to build daemon: %v", err)
-	}
+	a.NoError(build.Run(), "failed to build daemon")
 
 	storageDir := t.TempDir()
 	storagePath := filepath.Join(storageDir, "test.db")
@@ -36,17 +37,11 @@ func TestIntegrationEndToEnd(t *testing.T) {
 
 	cmd := exec.Command(binaryPath)
 	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
+	a.NoError(err)
 	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
+	a.NoError(err)
 	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
+	a.NoError(cmd.Start())
 	defer func() {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
@@ -54,9 +49,7 @@ func TestIntegrationEndToEnd(t *testing.T) {
 
 	events := make(chan map[string]any, 64)
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			var evt map[string]any
@@ -64,7 +57,7 @@ func TestIntegrationEndToEnd(t *testing.T) {
 				events <- evt
 			}
 		}
-	}()
+	})
 
 	sendCmd := func(name string, params any) {
 		data, _ := json.Marshal(map[string]any{
@@ -88,7 +81,7 @@ func TestIntegrationEndToEnd(t *testing.T) {
 					}
 				}
 			case <-deadline:
-				t.Fatalf("timeout waiting for event %s (id=%s)", name, expectedID)
+				a.FailNowf("timeout waiting for event %s (id=%s)", name, expectedID)
 				return nil
 			}
 		}
@@ -110,9 +103,7 @@ func TestIntegrationEndToEnd(t *testing.T) {
 	evt := waitEvent("session_started", "dial-id", 10*time.Second)
 	sessionData, _ := evt["data"].(map[string]any)
 	sessionID, _ := sessionData["session_id"].(string)
-	if sessionID == "" {
-		t.Fatal("dial session_started has no session_id")
-	}
+	a.NotEmpty(sessionID, "dial session_started has no session_id")
 
 	msg := "Hello, integration test!"
 	sendCmd("send_message", map[string]any{
@@ -131,28 +122,23 @@ func TestIntegrationEndToEnd(t *testing.T) {
 	resp := waitEvent("response", "get_history_sessions-id", 5*time.Second)
 	data, _ := resp["data"].(map[string]any)
 	sessions, _ := data["sessions"].([]any)
-	if len(sessions) == 0 {
-		t.Fatal("expected at least one history session after send + close")
-	}
+	a.NotEmpty(sessions, "expected at least one history session after send + close")
 
 	sendCmd("shutdown", nil)
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("daemon exited with error: %v", err)
-		}
+		a.NoError(err, "daemon exited with error")
 	case <-time.After(5 * time.Second):
-		t.Fatal("daemon did not shut down within 5s")
+		a.FailNow("daemon did not shut down within 5s")
 	}
 }
 
 func findFreePort(t *testing.T) int {
+	a := require.New(t)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	a.NoError(err)
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port
 }
