@@ -56,7 +56,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.65);
+    background: var(--overlay-bg);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     display: flex;
@@ -133,7 +133,7 @@
   }
   .dialog-btn-primary {
     background: var(--accent-primary);
-    color: #fff;
+    color: var(--text-on-accent);
   }
   .dialog-btn-primary:hover {
     background: var(--accent-primary-hover);

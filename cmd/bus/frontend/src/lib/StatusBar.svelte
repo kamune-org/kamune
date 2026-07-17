@@ -6,25 +6,25 @@
 
   const modeLabels = ['Strict', 'Quick', 'Auto-Accept']
 
-  $: indicatorColor = {
-    disconnected: '#5b677d',
-    connecting: '#f59e0b',
-    connected: '#10b981',
-    error: '#ef4444',
-    verifying: '#8b5cf6',
-  }[$status.status] || '#5b677d'
+  let isDark = document.documentElement.classList.contains('dark')
+
+  function toggleTheme() {
+    isDark = !isDark
+    document.documentElement.classList.toggle('dark', isDark)
+    localStorage.setItem('kamune:theme', isDark ? 'dark' : 'light')
+  }
 
   $: indicatorText = $status.message || 'Not connected'
-  $: isConnecting = $status.status === 'connecting' || $status.status === 'verifying'
 </script>
 
 <div class="statusbar">
   <div class="status-left">
     <span
       class="dot"
-      class:connecting={isConnecting}
+      class:connecting={$status.status === 'connecting'}
       class:verifying={$status.status === 'verifying'}
-      style="background:{indicatorColor}"
+      class:connected={$status.status === 'connected'}
+      class:error={$status.status === 'error'}
     ></span>
     <span class="status-msg">{indicatorText}</span>
     <span class="sep">·</span>
@@ -41,6 +41,17 @@
         Incognito
       </span>
     {/if}
+    <button class="status-btn theme-btn" title="Toggle theme" on:click={toggleTheme}>
+      {#if isDark}
+        <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13">
+          <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd" />
+        </svg>
+      {:else}
+        <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13">
+          <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+        </svg>
+      {/if}
+    </button>
     <button
       class="status-btn logs-btn"
       class:active={$logPanelOpen}
@@ -88,13 +99,22 @@
     border-radius: 50%;
     flex-shrink: 0;
     box-shadow: 0 0 5px currentColor;
+    background: var(--status-disconnected);
   }
   .dot.connecting {
     animation: pulse-dot 1.2s ease-in-out infinite;
+    background: var(--status-connecting);
   }
   .dot.verifying {
     animation: pulse-dot 1.2s ease-in-out infinite;
-    box-shadow: 0 0 8px #8b5cf6;
+    box-shadow: 0 0 8px var(--accent-secondary);
+    background: var(--accent-secondary);
+  }
+  .dot.connected {
+    background: var(--status-connected);
+  }
+  .dot.error {
+    background: var(--status-error);
   }
   .status-msg {
     color: var(--text-secondary);
@@ -132,8 +152,8 @@
     line-height: 1;
   }
   .incognito-badge {
-    color: #f59e0b;
-    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+    background: var(--warning-dim);
   }
   .status-btn {
     display: flex;
@@ -168,5 +188,15 @@
     color: var(--text-secondary);
     border-color: var(--border-light);
     background: var(--bg-hover);
+  }
+  .status-btn.theme-btn {
+    color: var(--text-timestamp);
+    background: transparent;
+    padding: 5px 7px;
+    border-radius: 5px;
+  }
+  .status-btn.theme-btn:hover {
+    color: var(--accent-primary);
+    background: var(--accent-primary-dim);
   }
 </style>

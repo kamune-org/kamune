@@ -23,11 +23,13 @@
     if (!qrCanvas || !url) return
     const ctx = qrCanvas.getContext('2d')
     if (ctx) ctx.clearRect(0, 0, qrCanvas.width, qrCanvas.height)
+    const s = getComputedStyle(document.documentElement)
+    const qrDark = s.getPropertyValue('--export-qr-dark').trim() || '#1a1d27'
     toCanvas(qrCanvas, url, {
       width: 220,
       margin: 2,
       color: {
-        dark: '#ffffff',
+        dark: qrDark,
         light: '#00000000',
       },
     })
@@ -100,12 +102,22 @@
     document.body.appendChild(offscreen)
     const ctx = offscreen.getContext('2d')
 
+    const s = getComputedStyle(document.documentElement);
+    const cv = (name) => s.getPropertyValue(name).trim();
+    const bgColor = cv('--export-bg') || '#f8f9fb';
+    const textColor = cv('--export-text') || '#1a1d27';
+    const mutedColor = cv('--export-muted') || '#64748b';
+    const surfaceColor = cv('--export-surface') || '#e8eaed';
+    const borderColor = cv('--export-border') || '#d1d5db';
+    const qrDark = cv('--export-qr-dark') || '#1a1d27';
+    const warningColor = cv('--warning') || '#d97706';
+
     // Background
-    ctx.fillStyle = '#0d1027'
+    ctx.fillStyle = bgColor
     ctx.fillRect(0, 0, w, h)
 
     // Title
-    ctx.fillStyle = '#e4e4e7'
+    ctx.fillStyle = textColor
     ctx.font = 'bold 18px -apple-system, BlinkMacSystemFont, sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
@@ -117,7 +129,7 @@
       await toCanvas(qrTemp, url, {
         width: qrSize,
         margin: 2,
-        color: { dark: '#ffffff', light: '#00000000' },
+        color: { dark: qrDark, light: '#00000000' },
       })
     } catch (err) {
       console.error('QR error:', err)
@@ -133,13 +145,13 @@
       let x = (w - rowW) / 2
       const y = qrY + qrSize + emojiGap + ri * (tileSize + tileGap)
       for (const emoji of row) {
-        ctx.fillStyle = '#1a1d32'
+        ctx.fillStyle = surfaceColor
         roundRect(ctx, x, y, tileSize, tileSize, 8)
         ctx.fill()
-        ctx.strokeStyle = '#2a2d42'
+        ctx.strokeStyle = borderColor
         ctx.lineWidth = 1
         ctx.stroke()
-        ctx.fillStyle = '#e4e4e7'
+        ctx.fillStyle = textColor
         ctx.font = '15px -apple-system, BlinkMacSystemFont, sans-serif'
         ctx.textAlign = 'left'
         ctx.textBaseline = 'middle'
@@ -152,7 +164,7 @@
     let nextY = qrY + qrSize + emojiGap + emojiRows * (tileSize + tileGap) + sectionGap
 
     // Transport info
-    ctx.fillStyle = '#71717a'
+    ctx.fillStyle = mutedColor
     ctx.font = '12px Menlo, Monaco, monospace'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
@@ -166,11 +178,11 @@
       const valueX = w / 2
 
       function drawRow(label, value) {
-        ctx.fillStyle = '#71717a'
+        ctx.fillStyle = mutedColor
         ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
         ctx.textBaseline = 'top'
         ctx.fillText(label, labelX, nextY)
-        ctx.fillStyle = '#e4e4e7'
+        ctx.fillStyle = textColor
         ctx.font = '11px Menlo, Monaco, monospace'
         ctx.fillText(value, valueX, nextY)
         nextY += rowHeight + 4
@@ -180,11 +192,11 @@
       drawRow('Scheme', data.relayInfo.scheme.toUpperCase())
       drawRow('Token', data.relayInfo.token)
       if (data.relayInfo.password) {
-        ctx.fillStyle = '#71717a'
+        ctx.fillStyle = mutedColor
         ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
         ctx.textBaseline = 'top'
         ctx.fillText('Password', labelX, nextY)
-        ctx.fillStyle = '#f59e0b'
+        ctx.fillStyle = warningColor
         ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
         ctx.fillText('Required', valueX, nextY)
         nextY += rowHeight + 4
@@ -195,7 +207,7 @@
     }
 
     // Scan to connect
-    ctx.fillStyle = '#52525b'
+    ctx.fillStyle = mutedColor
     ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
@@ -299,7 +311,7 @@
   .dialog-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.65);
+    background: var(--overlay-bg);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     display: flex;
@@ -523,7 +535,7 @@
   }
   .dialog-btn-primary {
     background: var(--accent-primary);
-    color: #fff;
+    color: var(--text-on-accent);
   }
   .dialog-btn-primary:hover {
     background: var(--accent-primary-hover);

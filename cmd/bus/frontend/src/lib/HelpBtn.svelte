@@ -25,9 +25,9 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    border: 1px solid rgba(255,255,255,0.2);
-    background: rgba(255,255,255,0.06);
-    color: rgba(255,255,255,0.5);
+    border: 1px solid var(--border-color);
+    background: var(--accent-primary-dim);
+    color: var(--text-muted);
     font-size: 9px;
     font-weight: 700;
     cursor: help;
@@ -37,9 +37,9 @@
     transition: all 0.15s;
   }
   .help-btn:hover {
-    border-color: rgba(255,255,255,0.5);
-    color: #fff;
-    background: rgba(255,255,255,0.12);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+    background: var(--accent-primary-dim);
   }
   .help-tooltip {
     position: fixed;

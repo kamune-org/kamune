@@ -316,7 +316,7 @@
     width: 34px;
     height: 34px;
     border-radius: 8px;
-    background: rgba(16, 185, 129, 0.12);
+    background: var(--success-dim);
     color: var(--status-connected);
     display: flex;
     align-items: center;
@@ -373,7 +373,7 @@
     color: var(--accent-primary);
   }
   .badge-type.history {
-    background: rgba(139, 92, 246, 0.12);
+    background: var(--accent-primary-dim);
     color: var(--accent-secondary);
   }
   .info-meta {
@@ -489,6 +489,9 @@
     line-height: 1.45;
     word-wrap: break-word;
     color: var(--text-primary);
+  }
+  .msg-row.local .bubble-text {
+    color: var(--bubble-local-text);
   }
 
   .copied-indicator {
@@ -671,7 +674,7 @@
     align-items: center;
     justify-content: center;
     background: var(--accent-primary);
-    color: #fff;
+    color: var(--text-on-accent);
     border-radius: 50%;
     margin-right: 2px;
     transition: all 0.2s;
@@ -691,9 +694,9 @@
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
-    background: rgba(245, 158, 11, 0.12);
-    border-bottom: 1px solid rgba(245, 158, 11, 0.25);
-    color: #f59e0b;
+    background: var(--warning-dim);
+    border-bottom: 1px solid var(--warning-dim);
+    color: var(--warning);
     font-size: 12px;
     font-weight: 500;
     flex-shrink: 0;
@@ -708,13 +711,14 @@
     width: 22px;
     height: 22px;
     background: transparent;
-    color: rgba(245, 158, 11, 0.6);
+    color: var(--warning);
+    opacity: 0.6;
     border-radius: 4px;
     flex-shrink: 0;
     transition: all 0.15s;
   }
   .warn-dismiss:hover {
-    background: rgba(245, 158, 11, 0.2);
-    color: #f59e0b;
+    background: var(--warning-dim);
+    color: var(--warning);
   }
 </style>

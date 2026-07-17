@@ -1758,7 +1758,7 @@
     .dialog-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.65);
+        background: var(--overlay-bg);
         backdrop-filter: blur(4px);
         -webkit-backdrop-filter: blur(4px);
         display: flex;
@@ -1779,7 +1779,7 @@
         overflow: hidden;
     }
     .dialog-danger {
-        border-color: rgba(239, 68, 68, 0.3);
+        border-color: var(--danger-dim);
     }
     .dialog-wide {
         min-width: 480px;
@@ -1916,19 +1916,19 @@
     }
     .pill-btn.pill-active {
         background: var(--accent-primary);
-        color: #fff;
+        color: var(--text-on-accent);
         border-color: var(--accent-primary);
     }
     .pill-btn.pill-active:hover {
         background: var(--accent-primary-hover);
     }
     .pill-btn.pill-active :global(.help-btn) {
-        color: rgba(255,255,255,0.85);
+        color: var(--text-on-accent);
         border-color: rgba(255,255,255,0.3);
         background: rgba(255,255,255,0.08);
     }
     .pill-btn.pill-active :global(.help-btn:hover) {
-        color: #fff;
+        color: var(--text-on-accent);
         border-color: rgba(255,255,255,0.6);
         background: rgba(255,255,255,0.15);
     }
@@ -1969,7 +1969,7 @@
     }
     .scheme-btn.active {
         background: var(--accent-primary);
-        color: #fff;
+        color: var(--text-on-accent);
         border-color: var(--accent-primary);
         border-right-color: var(--accent-primary);
     }
@@ -2004,7 +2004,7 @@
     }
     .dialog-btn-primary {
         background: var(--accent-primary);
-        color: #fff;
+        color: var(--text-on-accent);
     }
     .dialog-btn-primary:hover {
         background: var(--accent-primary-hover);
@@ -2030,7 +2030,7 @@
     }
     .dialog-btn-danger {
         background: var(--danger);
-        color: #fff;
+        color: var(--text-on-accent);
     }
     .dialog-btn-danger:hover {
         background: var(--danger-hover);
@@ -2118,7 +2118,7 @@
         background: var(--bg-surface);
         color: var(--text-primary);
         border: 1px solid var(--border-color);
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-md);
         display: flex;
         align-items: center;
         gap: 10px;
@@ -2153,7 +2153,7 @@
         font-size: 11px;
         font-weight: 600;
         background: var(--accent-primary);
-        color: #fff;
+        color: var(--text-on-accent);
         border: none;
         cursor: pointer;
         transition: background 0.15s;

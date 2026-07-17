@@ -124,26 +124,28 @@
     .dialog-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.5);
+        background: var(--overlay-bg);
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 1000;
     }
     .dialog {
-        background: var(--bg, #1a1a1a);
-        color: var(--fg, #fff);
-        border-radius: 8px;
+        background: var(--bg-surface);
+        color: var(--text-primary);
+        border-radius: var(--border-radius);
         padding: 1.5rem;
         max-width: 480px;
         width: 90%;
+        box-shadow: var(--shadow-lg);
     }
     h2 {
         margin: 0 0 0.5rem;
+        color: var(--text-primary);
     }
     .message {
         margin: 0 0 1rem;
-        color: var(--fg-muted, #aaa);
+        color: var(--text-muted);
     }
     .actions {
         display: flex;
@@ -163,10 +165,10 @@
     }
     .relay-fields input {
         padding: 0.4rem 0.6rem;
-        border: 1px solid var(--border, #444);
-        background: var(--bg-input, #222);
-        color: inherit;
-        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-input);
+        color: var(--text-primary);
+        border-radius: var(--border-radius);
         width: 100%;
         box-sizing: border-box;
     }
@@ -175,18 +177,23 @@
     }
     button {
         padding: 0.4rem 0.8rem;
-        border: 1px solid var(--border, #444);
-        background: var(--bg-button, #2a2a2a);
-        color: inherit;
-        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-surface);
+        color: var(--text-primary);
+        border-radius: var(--border-radius);
         cursor: pointer;
+        transition: all 0.15s;
     }
     button:disabled {
         opacity: 0.5;
         cursor: not-allowed;
     }
     button.primary {
-        background: var(--accent, #4a9eff);
-        border-color: var(--accent, #4a9eff);
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: var(--text-on-accent);
+    }
+    button.primary:hover:not(:disabled) {
+        background: var(--accent-primary-hover);
     }
 </style>
