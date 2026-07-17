@@ -3,17 +3,19 @@ package main
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"net"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
+
+var testErr = errors.New("test error")
 
 // ---------------------------------------------------------------------------
 // decodeTokenList
@@ -68,14 +70,14 @@ func TestDecodeTokenList(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name:    "single_token",
-			data:    buildPacked(tok1),
-			want:    [][]byte{tok1},
+			name: "single_token",
+			data: buildPacked(tok1),
+			want: [][]byte{tok1},
 		},
 		{
-			name:    "three_tokens",
-			data:    buildPacked(tok1, tok2, tok3),
-			want:    [][]byte{tok1, tok2, tok3},
+			name: "three_tokens",
+			data: buildPacked(tok1, tok2, tok3),
+			want: [][]byte{tok1, tok2, tok3},
 		},
 		{
 			name:    "count_mismatch_too_few_elements",
@@ -86,14 +88,15 @@ func TestDecodeTokenList(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
 			got := decodeTokenList(tc.data)
 			if tc.wantNil {
-				assert.Nil(t, got)
+				a.Nil(got)
 				return
 			}
-			require.Len(t, got, len(tc.want))
+			a.Len(got, len(tc.want))
 			for i := range tc.want {
-				assert.Equal(t, tc.want[i], got[i])
+				a.Equal(tc.want[i], got[i])
 			}
 		})
 	}
@@ -146,41 +149,42 @@ func TestParseRelayAddr(t *testing.T) {
 			addr:     "wss://relay.example.com:443?insecure=true",
 			scheme:   "wss",
 			host:     "relay.example.com:443",
-			insecure: boolPtr(true),
+			insecure: new(true),
 		},
 		{
 			name:     "insecure_false",
 			addr:     "wss://relay.example.com:443?insecure=false",
 			scheme:   "wss",
 			host:     "relay.example.com:443",
-			insecure: boolPtr(false),
+			insecure: new(false),
 		},
 		{
 			name:     "tcp_with_insecure",
 			addr:     "tcp://relay.example.com:443?insecure=true",
 			scheme:   "tcp",
 			host:     "relay.example.com:443",
-			insecure: boolPtr(true),
+			insecure: new(true),
 		},
 		{
 			name:     "bare_host_with_insecure",
 			addr:     "192.168.1.1:9000?insecure=true",
 			scheme:   "ws",
 			host:     "192.168.1.1:9000",
-			insecure: boolPtr(true),
+			insecure: new(true),
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
 			scheme, host, insecure := parseRelayAddr(tc.addr)
-			assert.Equal(t, tc.scheme, scheme)
-			assert.Equal(t, tc.host, host)
+			a.Equal(tc.scheme, scheme)
+			a.Equal(tc.host, host)
 			if tc.insecure == nil {
-				assert.Nil(t, insecure)
+				a.Nil(insecure)
 			} else {
-				require.NotNil(t, insecure)
-				assert.Equal(t, *tc.insecure, *insecure)
+				a.NotNil(insecure)
+				a.Equal(*tc.insecure, *insecure)
 			}
 		})
 	}
@@ -228,29 +232,31 @@ func TestDialRelayFuncMultiToken_Errors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
 			_, err := dialRelayFuncMultiToken(
 				tc.relayAddr, "", false, tc.tokens,
 			)
 			if tc.wantErr {
-				assert.Error(t, err)
+				a.Error(err)
 			} else {
-				assert.NoError(t, err)
+				a.NoError(err)
 			}
 		})
 	}
 }
 
 func TestDialRelayFuncMultiToken_ParsesRelayAddrOnce(t *testing.T) {
+	a := require.New(t)
 	validToken := make([]byte, 32)
 	validToken[0] = 0xAA
 	fn, err := dialRelayFuncMultiToken(
 		"wss://relay.example.com:443", "", false,
 		[][]byte{validToken},
 	)
-	require.NoError(t, err)
-	require.NotNil(t, fn)
+	a.NoError(err)
+	a.NotNil(fn)
 	_, err = fn("http://wrong-address:0")
-	assert.Error(t, err)
+	a.Error(err)
 }
 
 // ---------------------------------------------------------------------------
@@ -299,7 +305,8 @@ func (f *fakeListener) Addr() net.Addr {
 }
 
 func TestTokenTracker_DeadOnAcceptError(t *testing.T) {
-	errAccept := assert.AnError
+	a := require.New(t)
+	errAccept := testErr
 	fl := &fakeListener{
 		acceptFn: func() (kamune.Conn, error) {
 			return nil, errAccept
@@ -313,7 +320,7 @@ func TestTokenTracker_DeadOnAcceptError(t *testing.T) {
 	}
 
 	_, err := tt.Accept()
-	assert.ErrorIs(t, err, errAccept)
+	a.ErrorIs(err, errAccept)
 
 	select {
 	case <-tt.Dead():
@@ -365,6 +372,7 @@ func TestTokenTracker_DeadNotClosedOnConsumed(t *testing.T) {
 }
 
 func TestTokenTracker_ShortCircuitOnConsumedStop(t *testing.T) {
+	a := require.New(t)
 	// Verify the underlying listener's Stop() IS called even when consumed.
 	stopped := false
 	fl := &fakeListenerWithStop{
@@ -378,13 +386,13 @@ func TestTokenTracker_ShortCircuitOnConsumedStop(t *testing.T) {
 	tt.consumed.Store(true)
 
 	tt.Stop()
-	assert.True(t, stopped, "underlying listener.Stop() should still be called")
+	a.True(stopped, "underlying listener.Stop() should still be called")
 }
 
 func TestTokenTracker_DeadIdempotent(t *testing.T) {
 	fl := &fakeListener{
 		acceptFn: func() (kamune.Conn, error) {
-			return nil, assert.AnError
+			return nil, testErr
 		},
 	}
 
@@ -404,22 +412,25 @@ func TestTokenTracker_DeadIdempotent(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestMultiListener_AddAfterClose(t *testing.T) {
+	a := require.New(t)
 	ml := newMultiListener()
-	require.NoError(t, ml.Close())
+	a.NoError(ml.Close())
 
 	err := ml.Add(&fakeListener{})
-	assert.ErrorIs(t, err, net.ErrClosed)
+	a.ErrorIs(err, net.ErrClosed)
 }
 
 func TestMultiListener_AcceptAfterClose(t *testing.T) {
+	a := require.New(t)
 	ml := newMultiListener()
-	require.NoError(t, ml.Close())
+	a.NoError(ml.Close())
 
 	_, err := ml.Accept()
-	assert.ErrorIs(t, err, net.ErrClosed)
+	a.ErrorIs(err, net.ErrClosed)
 }
 
 func TestMultiListener_ListenerDeath(t *testing.T) {
+	a := require.New(t)
 	ml := newMultiListener()
 	defer ml.Close()
 
@@ -430,7 +441,7 @@ func TestMultiListener_ListenerDeath(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, ml.Add(fl))
+	a.NoError(ml.Add(fl))
 
 	// Give the goroutine time to call Accept and exit.
 	time.Sleep(50 * time.Millisecond)
@@ -444,13 +455,14 @@ func TestMultiListener_ListenerDeath(t *testing.T) {
 
 	select {
 	case err := <-errCh:
-		assert.Error(t, err)
+		a.Error(err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("multiListener.Accept did not unblock after listener death")
 	}
 }
 
 func TestMultiListener_Passthrough(t *testing.T) {
+	a := require.New(t)
 	ml := newMultiListener()
 	defer ml.Close()
 
@@ -461,11 +473,11 @@ func TestMultiListener_Passthrough(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, ml.Add(fl))
+	a.NoError(ml.Add(fl))
 
 	got, err := ml.Accept()
-	require.NoError(t, err)
-	assert.Equal(t, mlConn, got)
+	a.NoError(err)
+	a.Equal(mlConn, got)
 }
 
 // ---------------------------------------------------------------------------
@@ -473,8 +485,9 @@ func TestMultiListener_Passthrough(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestMarkRelayTokenConsumed(t *testing.T) {
-	a := &App{}
-	a.relayTokens = []relayToken{
+	a := require.New(t)
+	app := &App{}
+	app.relayTokens = []relayToken{
 		{Token: "aaa"},
 		{Token: "bbb"},
 		{Token: "ccc"},
@@ -482,47 +495,46 @@ func TestMarkRelayTokenConsumed(t *testing.T) {
 
 	// Test the consumed-flag logic directly (markRelayTokenConsumed
 	// calls runtime.EventsEmit which requires a Wails lifecycle context).
-	a.mu.Lock()
-	for i := range a.relayTokens {
-		if a.relayTokens[i].Token == "bbb" && !a.relayTokens[i].Consumed {
-			a.relayTokens[i].Consumed = true
+	app.mu.Lock()
+	for i := range app.relayTokens {
+		if app.relayTokens[i].Token == "bbb" && !app.relayTokens[i].Consumed {
+			app.relayTokens[i].Consumed = true
 			break
 		}
 	}
-	a.mu.Unlock()
+	app.mu.Unlock()
 
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	assert.False(t, a.relayTokens[0].Consumed)
-	assert.True(t, a.relayTokens[1].Consumed)
-	assert.False(t, a.relayTokens[2].Consumed)
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+	a.False(app.relayTokens[0].Consumed)
+	a.True(app.relayTokens[1].Consumed)
+	a.False(app.relayTokens[2].Consumed)
 }
 
 func TestMarkRelayTokenConsumed_NotFound(t *testing.T) {
-	a := &App{}
-	a.relayTokens = []relayToken{
+	a := require.New(t)
+	app := &App{}
+	app.relayTokens = []relayToken{
 		{Token: "aaa"},
 	}
 
-	a.mu.Lock()
-	for i := range a.relayTokens {
-		if a.relayTokens[i].Token == "zzz" && !a.relayTokens[i].Consumed {
-			a.relayTokens[i].Consumed = true
+	app.mu.Lock()
+	for i := range app.relayTokens {
+		if app.relayTokens[i].Token == "zzz" && !app.relayTokens[i].Consumed {
+			app.relayTokens[i].Consumed = true
 			break
 		}
 	}
-	a.mu.Unlock()
+	app.mu.Unlock()
 
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	assert.False(t, a.relayTokens[0].Consumed)
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+	a.False(app.relayTokens[0].Consumed)
 }
 
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
-
-func boolPtr(b bool) *bool { return &b }
 
 // fakeListenerWithStop is a kamune.Listener that also implements Stop().
 type fakeListenerWithStop struct {
@@ -537,6 +549,7 @@ func (f *fakeListenerWithStop) Stop() {
 }
 
 func TestRelayTokenHexRoundTrip(t *testing.T) {
+	a := require.New(t)
 	raw := make([]byte, 32)
 	for i := range raw {
 		raw[i] = byte(i)
@@ -544,7 +557,7 @@ func TestRelayTokenHexRoundTrip(t *testing.T) {
 
 	hexStr := hex.EncodeToString(raw)
 	decoded, err := hex.DecodeString(hexStr)
-	require.NoError(t, err)
-	assert.Equal(t, raw, decoded)
-	assert.Len(t, hexStr, 64)
+	a.NoError(err)
+	a.Equal(raw, decoded)
+	a.Len(hexStr, 64)
 }

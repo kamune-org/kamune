@@ -7,65 +7,60 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune/pkg/storage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDBPathDefault(t *testing.T) {
-	a := &App{
+	a := require.New(t)
+	app := &App{
 		dbPath: func() string {
 			home, _ := os.UserHomeDir()
 			return home + "/.config/kamune/db"
 		}(),
 	}
-	if a.GetDBPath() == "" {
-		t.Error("default DB path should not be empty")
-	}
+	a.NotEmpty(app.GetDBPath())
 }
 
 func TestGetDBPath(t *testing.T) {
-	a := &App{}
-	original := a.GetDBPath()
+	a := require.New(t)
+	app := &App{}
+	original := app.GetDBPath()
 
-	a.dbPath = "/tmp/test-kamune-db"
-	if a.GetDBPath() != "/tmp/test-kamune-db" {
-		t.Errorf("DBPath = %q, want %q", a.GetDBPath(), "/tmp/test-kamune-db")
-	}
+	app.dbPath = "/tmp/test-kamune-db"
+	a.Equal("/tmp/test-kamune-db", app.GetDBPath())
 
-	a.dbPath = original
-	if a.GetDBPath() != original {
-		t.Errorf("DBPath = %q, want %q", a.GetDBPath(), original)
-	}
+	app.dbPath = original
+	a.Equal(original, app.GetDBPath())
 }
 
 func TestDBPathConcurrency(t *testing.T) {
-	a := &App{dbPath: "/initial/path"}
+	a := require.New(t)
+	app := &App{dbPath: "/initial/path"}
 	var wg sync.WaitGroup
 
 	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			a.mu.Lock()
-			a.dbPath = "/path/" + string(rune('a'+id))
-			a.mu.Unlock()
+			app.mu.Lock()
+			app.dbPath = "/path/" + string(rune('a'+id))
+			app.mu.Unlock()
 		}(i)
 	}
 
 	for range 10 {
 		wg.Go(func() {
-			p := a.GetDBPath()
-			if p == "" {
-				t.Error("DBPath should never be empty during concurrent access")
-			}
+			p := app.GetDBPath()
+			a.NotEmpty(p, "DBPath should never be empty during concurrent access")
 		})
 	}
 
 	wg.Wait()
-	if a.GetDBPath() == "" {
-		t.Error("final DBPath should not be empty")
-	}
+	a.NotEmpty(app.GetDBPath(), "final DBPath should not be empty")
 }
 
 func TestMessageInfoStruct(t *testing.T) {
+	a := require.New(t)
 	now := time.Now()
 	msg := MessageInfo{
 		Text:      "Test message",
@@ -73,18 +68,13 @@ func TestMessageInfoStruct(t *testing.T) {
 		IsLocal:   true,
 	}
 
-	if msg.Text != "Test message" {
-		t.Errorf("Text = %q, want %q", msg.Text, "Test message")
-	}
-	if !msg.Timestamp.Equal(now) {
-		t.Error("timestamp mismatch")
-	}
-	if !msg.IsLocal {
-		t.Error("expected IsLocal to be true")
-	}
+	a.Equal("Test message", msg.Text)
+	a.True(msg.Timestamp.Equal(now), "timestamp mismatch")
+	a.True(msg.IsLocal, "expected IsLocal to be true")
 }
 
 func TestMessageAppend(t *testing.T) {
+	a := require.New(t)
 	msgs := make([]MessageInfo, 0)
 
 	msg1 := MessageInfo{Text: "Hello", Timestamp: time.Now(), IsLocal: true}
@@ -93,21 +83,14 @@ func TestMessageAppend(t *testing.T) {
 	msgs = append(msgs, msg1)
 	msgs = append(msgs, msg2)
 
-	if len(msgs) != 2 {
-		t.Errorf("len = %d, want 2", len(msgs))
-	}
-	if msgs[0].Text != "Hello" {
-		t.Errorf("msgs[0].Text = %q, want %q", msgs[0].Text, "Hello")
-	}
-	if !msgs[0].IsLocal {
-		t.Error("expected first message to be local")
-	}
-	if msgs[1].IsLocal {
-		t.Error("expected second message to be from peer")
-	}
+	a.Len(msgs, 2)
+	a.Equal("Hello", msgs[0].Text)
+	a.True(msgs[0].IsLocal, "expected first message to be local")
+	a.False(msgs[1].IsLocal, "expected second message to be from peer")
 }
 
 func TestTruncateSessionID(t *testing.T) {
+	a := require.New(t)
 	tests := []struct {
 		input    string
 		expected string
@@ -124,13 +107,12 @@ func TestTruncateSessionID(t *testing.T) {
 
 	for _, tc := range tests {
 		result := truncateSessionID(tc.input)
-		if result != tc.expected {
-			t.Errorf("truncateSessionID(%q) = %q, want %q", tc.input, result, tc.expected)
-		}
+		a.Equal(tc.expected, result, "truncateSessionID(%q)", tc.input)
 	}
 }
 
 func TestConcurrentSliceAccess(t *testing.T) {
+	a := require.New(t)
 	var mu sync.RWMutex
 	sessions := make([]*liveSession, 0)
 	var wg sync.WaitGroup
@@ -149,22 +131,19 @@ func TestConcurrentSliceAccess(t *testing.T) {
 	}
 
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			mu.RLock()
 			_ = len(sessions)
 			mu.RUnlock()
-		}()
+		})
 	}
 
 	wg.Wait()
-	if len(sessions) != 10 {
-		t.Errorf("len(sessions) = %d, want 10", len(sessions))
-	}
+	a.Len(sessions, 10)
 }
 
 func TestSessionRemoval(t *testing.T) {
+	a := require.New(t)
 	sessions := make([]*liveSession, 3)
 	for i := range 3 {
 		sessions[i] = &liveSession{
@@ -180,17 +159,14 @@ func TestSessionRemoval(t *testing.T) {
 		}
 	}
 
-	if len(sessions) != 2 {
-		t.Errorf("len = %d, want 2", len(sessions))
-	}
+	a.Len(sessions, 2)
 	for _, s := range sessions {
-		if s.ID == targetID {
-			t.Errorf("session %q should have been removed", targetID)
-		}
+		a.NotEqual(targetID, s.ID, "session %q should have been removed", targetID)
 	}
 }
 
 func TestConnectionStatusValues(t *testing.T) {
+	a := require.New(t)
 	values := []ConnectionStatus{
 		StatusDisconnected,
 		StatusConnecting,
@@ -199,17 +175,14 @@ func TestConnectionStatusValues(t *testing.T) {
 	}
 	seen := make(map[ConnectionStatus]bool)
 	for _, v := range values {
-		if seen[v] {
-			t.Errorf("duplicate ConnectionStatus value: %q", v)
-		}
+		a.False(seen[v], "duplicate ConnectionStatus value: %q", v)
 		seen[v] = true
 	}
-	if len(seen) != 4 {
-		t.Errorf("expected 4 distinct ConnectionStatus values, got %d", len(seen))
-	}
+	a.Len(seen, 4)
 }
 
 func TestVerificationModeValues(t *testing.T) {
+	a := require.New(t)
 	modes := []VerificationMode{
 		VerificationModeStrict,
 		VerificationModeQuick,
@@ -217,17 +190,14 @@ func TestVerificationModeValues(t *testing.T) {
 	}
 	seen := make(map[VerificationMode]bool)
 	for _, m := range modes {
-		if seen[m] {
-			t.Errorf("duplicate VerificationMode value: %d", m)
-		}
+		a.False(seen[m], "duplicate VerificationMode value: %d", m)
 		seen[m] = true
 	}
-	if len(seen) != 3 {
-		t.Errorf("expected 3 distinct VerificationMode values, got %d", len(seen))
-	}
+	a.Len(seen, 3)
 }
 
 func TestMessageTimestampOrdering(t *testing.T) {
+	a := require.New(t)
 	now := time.Now()
 	messages := []MessageInfo{
 		{Text: "First", Timestamp: now.Add(-2 * time.Minute), IsLocal: true},
@@ -236,43 +206,43 @@ func TestMessageTimestampOrdering(t *testing.T) {
 	}
 
 	for i := 0; i < len(messages)-1; i++ {
-		if !messages[i+1].Timestamp.After(messages[i].Timestamp) {
-			t.Errorf("message %d should be after message %d", i+1, i)
-		}
+		a.True(
+			messages[i+1].Timestamp.After(messages[i].Timestamp),
+			"message %d should be after message %d",
+			i+1, i,
+		)
 	}
 }
 
 func TestEmptySessionList(t *testing.T) {
+	a := require.New(t)
 	sessions := make([]*liveSession, 0)
-	if len(sessions) != 0 {
-		t.Errorf("expected empty list, got len %d", len(sessions))
-	}
+	a.Empty(sessions)
 	for _, s := range sessions {
-		t.Errorf("should not iterate, got session %s", s.ID)
+		a.Fail("should not iterate, got session %s", s.ID)
 	}
 }
 
 func TestSenderTypeConstants(t *testing.T) {
+	a := require.New(t)
 	local := storage.SenderLocal
 	peer := storage.SenderPeer
-	if local == peer {
-		t.Error("SenderLocal and SenderPeer should be different values")
-	}
+	a.NotEqual(local, peer, "SenderLocal and SenderPeer should be different values")
 }
 
 func TestLastActivityUpdate(t *testing.T) {
+	a := require.New(t)
 	then := time.Now().Add(-1 * time.Hour)
 	lastActivity := then
 
 	time.Sleep(10 * time.Millisecond)
 	lastActivity = time.Now()
 
-	if !lastActivity.After(then) {
-		t.Error("LastActivity should be updated to a more recent time")
-	}
+	a.True(lastActivity.After(then), "LastActivity should be updated to a more recent time")
 }
 
 func TestLiveSessionLifecycle(t *testing.T) {
+	a := require.New(t)
 	s := &liveSession{
 		ID:          "test-session-123",
 		PeerName:    "TestPeer",
@@ -280,18 +250,13 @@ func TestLiveSessionLifecycle(t *testing.T) {
 		ReceiveDone: make(chan struct{}),
 	}
 
-	if s.ID != "test-session-123" {
-		t.Errorf("ID = %q, want %q", s.ID, "test-session-123")
-	}
-	if s.PeerName != "TestPeer" {
-		t.Errorf("PeerName = %q, want %q", s.PeerName, "TestPeer")
-	}
-	if len(s.Messages) != 0 {
-		t.Errorf("expected empty messages, got %d", len(s.Messages))
-	}
+	a.Equal("test-session-123", s.ID)
+	a.Equal("TestPeer", s.PeerName)
+	a.Empty(s.Messages)
 }
 
 func TestHistorySessionInfo(t *testing.T) {
+	a := require.New(t)
 	now := time.Now()
 	hs := HistorySessionInfo{
 		ID:           "hist-session-abc",
@@ -301,18 +266,13 @@ func TestHistorySessionInfo(t *testing.T) {
 		Loaded:       false,
 	}
 
-	if hs.ID != "hist-session-abc" {
-		t.Errorf("ID = %q, want %q", hs.ID, "hist-session-abc")
-	}
-	if hs.MessageCount != 42 {
-		t.Errorf("MessageCount = %d, want 42", hs.MessageCount)
-	}
-	if hs.Loaded {
-		t.Error("history session should not be loaded initially")
-	}
+	a.Equal("hist-session-abc", hs.ID)
+	a.Equal(42, hs.MessageCount)
+	a.False(hs.Loaded, "history session should not be loaded initially")
 }
 
 func TestSessionInfo(t *testing.T) {
+	a := require.New(t)
 	now := time.Now()
 	info := SessionInfo{
 		ID:           "session-123",
@@ -322,18 +282,13 @@ func TestSessionInfo(t *testing.T) {
 		LastActivity: now,
 	}
 
-	if info.ID != "session-123" {
-		t.Errorf("ID = %q", info.ID)
-	}
-	if !info.IsServer {
-		t.Error("expected IsServer to be true")
-	}
-	if info.MsgCount != 5 {
-		t.Errorf("MsgCount = %d, want 5", info.MsgCount)
-	}
+	a.Equal("session-123", info.ID)
+	a.True(info.IsServer, "expected IsServer to be true")
+	a.Equal(5, info.MsgCount)
 }
 
 func TestLogEntryInfo(t *testing.T) {
+	a := require.New(t)
 	now := time.Now()
 	entry := LogEntryInfo{
 		Timestamp: now,
@@ -341,10 +296,6 @@ func TestLogEntryInfo(t *testing.T) {
 		Message:   "test log",
 	}
 
-	if entry.Level != "INFO" {
-		t.Errorf("Level = %q", entry.Level)
-	}
-	if entry.Message != "test log" {
-		t.Errorf("Message = %q", entry.Message)
-	}
+	a.Equal("INFO", entry.Level)
+	a.Equal("test log", entry.Message)
 }

@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kamune-org/kamune"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xtaci/kcp-go/v5"
 )
@@ -15,15 +13,17 @@ import (
 // TestP2PListener_AcceptBlocksUntilClose verifies that Accept blocks
 // indefinitely (until Close is called) when no peer connects.
 func TestP2PListener_AcceptBlocksUntilClose(t *testing.T) {
+	a := require.New(t)
+
 	bc, err := NewBrokerClient()
-	require.NoError(t, err)
+	a.NoError(err)
 
 	// newP2PListener will Echo+Register from the punch socket; we
 	// don't run a fake broker so Echo will fail. To exercise
 	// Accept-blocking behavior, build the listener manually without
 	// the broker calls.
 	listener, err := newP2PListenerNoBroker(t, bc, ":0")
-	require.NoError(t, err)
+	a.NoError(err)
 	defer listener.Close()
 
 	acceptDone := make(chan error, 1)
@@ -40,13 +40,13 @@ func TestP2PListener_AcceptBlocksUntilClose(t *testing.T) {
 	}
 
 	// Close should unblock Accept.
-	require.NoError(t, listener.Close())
+	a.NoError(listener.Close())
 	select {
 	case err := <-acceptDone:
 		// Accept should return a closed-pipe / closed-network
 		// error. We don't assert on the exact type — any error
 		// is a successful "unblocked" signal.
-		assert.Error(t, err)
+		a.Error(err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Accept did not return after Close")
 	}
@@ -65,15 +65,17 @@ func TestP2PListener_AcceptBlocksUntilClose(t *testing.T) {
 // is exercised in production (and via the kamune library's
 // integration tests).
 func TestP2PListener_AcceptDropsNonKCPFrames(t *testing.T) {
+	a := require.New(t)
+
 	bc, err := NewBrokerClient()
-	require.NoError(t, err)
+	a.NoError(err)
 
 	listener, err := newP2PListenerNoBroker(t, bc, "127.0.0.1:0")
-	require.NoError(t, err)
+	a.NoError(err)
 	defer listener.Close()
 
 	listenerUDPAddr := listener.Addr()
-	require.NotNil(t, listenerUDPAddr)
+	a.NotNil(listenerUDPAddr)
 
 	// Send a raw UDP packet to the listener. The kcp-go monitor
 	// reads it, sees it's not a valid KCP frame, and drops it.
@@ -81,10 +83,10 @@ func TestP2PListener_AcceptDropsNonKCPFrames(t *testing.T) {
 	sender, err := net.DialUDP(
 		"udp4", nil, listenerUDPAddr,
 	)
-	require.NoError(t, err)
+	a.NoError(err)
 	defer sender.Close()
 	_, err = sender.Write([]byte("not a kcp frame"))
-	require.NoError(t, err)
+	a.NoError(err)
 
 	// Give the monitor time to process the packet.
 	time.Sleep(100 * time.Millisecond)
@@ -98,20 +100,13 @@ func TestP2PListener_AcceptDropsNonKCPFrames(t *testing.T) {
 
 	// Cancel the pending Accept by closing the listener; the
 	// goroutine should return with an error.
-	require.NoError(t, listener.Close())
+	a.NoError(listener.Close())
 	select {
 	case err := <-acceptDone:
-		assert.Error(t, err)
+		a.Error(err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Accept did not return after Close")
 	}
-}
-
-// kamuneConnResult is a small wrapper to pass a Conn + error through a
-// channel.
-type kamuneConnResult struct {
-	cn  kamune.Conn
-	err error
 }
 
 // newP2PListenerNoBroker builds a p2pListener without going through the
