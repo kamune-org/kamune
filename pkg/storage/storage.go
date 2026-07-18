@@ -15,8 +15,16 @@ import (
 	"golang.org/x/term"
 
 	"github.com/kamune-org/kamune/internal/clock"
-	"github.com/kamune-org/kamune/internal/store"
+	"github.com/kamune-org/kamune/internal/engine"
 	"github.com/kamune-org/kamune/pkg/attest"
+)
+
+// Store and Namespace are aliases for the interfaces defined in
+// internal/engine. They allow external clients to implement custom storage
+// backends without importing internal packages.
+type (
+	Store     = engine.Store
+	Namespace = engine.Namespace
 )
 
 var (
@@ -75,19 +83,28 @@ func defaultPassphraseHandler() ([]byte, error) {
 type Storage struct {
 	clock             clock.Clock
 	passphraseHandler PassphraseHandler
-	store             *store.Store
+	engine            engine.Store
 	dbPath            string
 	expiryDuration    time.Duration
+	timeout           time.Duration
+	createDB          bool
 }
 
 func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	s := &Storage{
 		passphraseHandler: defaultPassphraseHandler,
 		expiryDuration:    7 * 24 * time.Hour,
+		timeout:           5 * time.Second,
 		clock:             clock.Real(),
+		createDB:          true,
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+
+	// If a backend was injected via WithBackend, skip BoltDB setup.
+	if s.engine != nil {
+		return s, nil
 	}
 
 	if s.dbPath == "" {
@@ -115,17 +132,22 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting passphrase: %w", err)
 	}
-	db, err := store.New(s.dbPath, pass)
+	db, err := engine.NewBoltDB(
+		s.dbPath,
+		pass,
+		engine.WithCreateIfMissing(s.createDB),
+		engine.WithTimeout(s.timeout),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("opening kamune db: %w", err)
 	}
-	s.store = db
+	s.engine = db
 
 	return s, nil
 }
 
 func (s *Storage) Close() error {
-	return s.store.Close()
+	return s.engine.Close()
 }
 
 // PublicKey returns the marshaled public key from the stored identity.
@@ -141,15 +163,15 @@ func (s *Storage) PublicKey() ([]byte, error) {
 func (s *Storage) Attester() (*attest.Attest, error) {
 	key := []byte("attest")
 	var id []byte
-	err := s.store.Query(func(b *store.Bucket) error {
+	err := s.engine.Query(func(b engine.Namespace) error {
 		var err error
-		id, err = b.Sub([]byte(store.DefaultBucket)).GetEncrypted(key)
+		id, err = b.Sub([]byte(engine.DefaultNamespace)).GetEncrypted(key)
 		return err
 	})
 	switch {
 	case err == nil:
 		return attest.Load(id)
-	case errors.Is(err, store.ErrMissingItem):
+	case errors.Is(err, engine.ErrMissingItem):
 		// continue
 	default:
 		return nil, fmt.Errorf("getting identity: %w", err)
@@ -163,8 +185,8 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshalling private key: %w", err)
 	}
-	err = s.store.Command(func(b *store.Bucket) error {
-		return b.Sub([]byte(store.DefaultBucket)).PutEncrypted(key, data)
+	err = s.engine.Command(func(b engine.Namespace) error {
+		return b.Ensure([]byte(engine.DefaultNamespace)).PutEncrypted(key, data)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("persisting generated attest: %w", err)
@@ -173,22 +195,22 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 	return at, nil
 }
 
-// sessionChat returns the chat sub-bucket for a session.
-func sessionChat(b *store.Bucket, sessionID string) *store.Bucket {
-	return b.Sub([]byte(store.SessionsBucket)).
+// sessionChat returns the chat sub-namespace for a session.
+func sessionChat(b engine.Namespace, sessionID string) engine.Namespace {
+	return b.Sub([]byte(engine.SessionsNamespace)).
 		Sub([]byte(sessionID)).
 		Sub([]byte("chat"))
 }
 
-// sessionMeta returns the meta sub-bucket for a session.
-func sessionMeta(b *store.Bucket, sessionID string) *store.Bucket {
-	return b.Sub([]byte(store.SessionsBucket)).
+// sessionMeta returns the meta sub-namespace for a session.
+func sessionMeta(b engine.Namespace, sessionID string) engine.Namespace {
+	return b.Sub([]byte(engine.SessionsNamespace)).
 		Sub([]byte(sessionID)).
 		Sub([]byte("meta"))
 }
 
 // GetChatHistory returns decrypted chat entries stored under the chat
-// sub-bucket for the given session ID (sessions/<id>/chat/). Keys are
+// sub-namespace for the given session ID (sessions/<id>/chat/). Keys are
 // expected to be 14 bytes total, composed of:
 //   - 8 bytes: UnixNano timestamp (big-endian) — local receive time
 //   - 2 bytes: sender ID (big-endian; 0 means local user, 1 means remote user)
@@ -199,7 +221,7 @@ func sessionMeta(b *store.Bucket, sessionID string) *store.Bucket {
 // sender.
 func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	var entries []ChatEntry
-	err := s.store.Query(func(b *store.Bucket) error {
+	err := s.engine.Query(func(b engine.Namespace) error {
 		chat := sessionChat(b, sessionID)
 		for key, value := range chat.IterateEncrypted() {
 			if len(key) < 14 {
@@ -233,11 +255,11 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	return entries, nil
 }
 
-// ListSessions returns a list of session IDs stored under the sessions bucket.
+// ListSessions returns a list of session IDs stored under the sessions namespace.
 func (s *Storage) ListSessions() ([]string, error) {
 	var sessions []string
-	err := s.store.Query(func(b *store.Bucket) error {
-		sessions = b.Sub([]byte(store.SessionsBucket)).ListSubBuckets()
+	err := s.engine.Query(func(b engine.Namespace) error {
+		sessions = b.Sub([]byte(engine.SessionsNamespace)).ListSubNamespaces()
 		return nil
 	})
 	if err != nil {
@@ -251,10 +273,8 @@ func (s *Storage) ListSessions() ([]string, error) {
 // is found.
 func (s *Storage) FindSessionByPeer(pubKey []byte) (string, error) {
 	var sessionID string
-	err := s.store.Query(func(b *store.Bucket) error {
-		sessions := b.Sub(
-			[]byte(store.SessionsBucket),
-		).ListSubBuckets()
+	err := s.engine.Query(func(b engine.Namespace) error {
+		sessions := b.Sub([]byte(engine.SessionsNamespace)).ListSubNamespaces()
 		for _, sid := range sessions {
 			meta := sessionMeta(b, sid)
 			data, err := meta.GetEncrypted([]byte(PeerKey))
@@ -285,7 +305,7 @@ func (s *Storage) FindSessionByPeer(pubKey []byte) (string, error) {
 func (s *Storage) SessionTimestamps(sessionID string) (
 	first, last time.Time, count int, err error,
 ) {
-	err = s.store.Query(func(b *store.Bucket) error {
+	err = s.engine.Query(func(b engine.Namespace) error {
 		chat := sessionChat(b, sessionID)
 		firstKey := chat.FirstKey()
 		lastKey := chat.LastKey()
@@ -342,7 +362,7 @@ func (s *Storage) ListSessionsByRecent() ([]SessionSummary, error) {
 // name has been set, an empty string is returned with a nil error.
 func (s *Storage) GetSessionName(sessionID string) (string, error) {
 	var name string
-	err := s.store.Query(func(b *store.Bucket) error {
+	err := s.engine.Query(func(b engine.Namespace) error {
 		meta := sessionMeta(b, sessionID)
 		data, err := meta.GetEncrypted(sessionMetaKey)
 		if err != nil {
@@ -352,7 +372,7 @@ func (s *Storage) GetSessionName(sessionID string) (string, error) {
 		return nil
 	})
 	if err != nil {
-		// Missing bucket or key just means no name set yet.
+		// Missing namespace or key just means no name set yet.
 		if isMissing(err) {
 			return "", nil
 		}
@@ -365,17 +385,17 @@ func (s *Storage) GetSessionName(sessionID string) (string, error) {
 // empty string to clear the name.
 func (s *Storage) SetSessionName(sessionID, name string) error {
 	if name == "" {
-		// Remove the key (and tolerate a missing bucket).
-		err := s.store.Command(func(b *store.Bucket) error {
+		// Remove the key (and tolerate a missing namespace).
+		err := s.engine.Command(func(b engine.Namespace) error {
 			meta := sessionMeta(b, sessionID)
 			return meta.Delete(sessionMetaKey)
 		})
-		if err != nil && !errors.Is(err, store.ErrMissingBucket) {
+		if err != nil && !errors.Is(err, engine.ErrMissingNamespace) {
 			return fmt.Errorf("clear session name for %s: %w", sessionID, err)
 		}
 		return nil
 	}
-	err := s.store.Command(func(b *store.Bucket) error {
+	err := s.engine.Command(func(b engine.Namespace) error {
 		meta := sessionMeta(b, sessionID)
 		return meta.PutEncrypted(sessionMetaKey, []byte(name))
 	})
@@ -394,8 +414,8 @@ func (s *Storage) GetSettings(app, key string) (string, error) {
 	}
 	var val string
 	fullKey := app + ":" + key
-	err := s.store.Query(func(b *store.Bucket) error {
-		settings := b.Sub([]byte(store.SettingsBucket))
+	err := s.engine.Query(func(b engine.Namespace) error {
+		settings := b.Sub([]byte(engine.SettingsNamespace))
 		data, err := settings.GetEncrypted([]byte(fullKey))
 		if err != nil {
 			return err
@@ -404,7 +424,7 @@ func (s *Storage) GetSettings(app, key string) (string, error) {
 		return nil
 	})
 	if err != nil {
-		if errors.Is(err, store.ErrMissingItem) {
+		if errors.Is(err, engine.ErrMissingItem) {
 			return "", nil
 		}
 		return "", fmt.Errorf("get settings %q: %w", key, err)
@@ -422,17 +442,17 @@ func (s *Storage) SetSettings(app, key, value string) error {
 	fullKey := app + ":" + key
 	k := []byte(fullKey)
 	if value == "" {
-		err := s.store.Command(func(b *store.Bucket) error {
-			settings := b.Sub([]byte(store.SettingsBucket))
+		err := s.engine.Command(func(b engine.Namespace) error {
+			settings := b.Ensure([]byte(engine.SettingsNamespace))
 			return settings.Delete(k)
 		})
-		if err != nil && !errors.Is(err, store.ErrMissingItem) {
+		if err != nil && !errors.Is(err, engine.ErrMissingItem) {
 			return fmt.Errorf("delete settings %q: %w", key, err)
 		}
 		return nil
 	}
-	err := s.store.Command(func(b *store.Bucket) error {
-		settings := b.Sub([]byte(store.SettingsBucket))
+	err := s.engine.Command(func(b engine.Namespace) error {
+		settings := b.Ensure([]byte(engine.SettingsNamespace))
 		return settings.PutEncrypted(k, []byte(value))
 	})
 	if err != nil {
@@ -441,13 +461,13 @@ func (s *Storage) SetSettings(app, key, value string) error {
 	return nil
 }
 
-// DeleteSession removes the session sub-bucket (chat, meta, resumption)
+// DeleteSession removes the session sub-namespace (chat, meta, resumption)
 // for the given session ID.
 func (s *Storage) DeleteSession(sessionID string) error {
-	err := s.store.Command(func(b *store.Bucket) error {
-		sessions := b.Sub([]byte(store.SessionsBucket))
-		if err := sessions.DeleteBucket([]byte(sessionID)); err != nil &&
-			!errors.Is(err, store.ErrMissingBucket) {
+	err := s.engine.Command(func(b engine.Namespace) error {
+		sessions := b.Sub([]byte(engine.SessionsNamespace))
+		if err := sessions.DeleteNamespace([]byte(sessionID)); err != nil &&
+			!errors.Is(err, engine.ErrMissingNamespace) {
 			return err
 		}
 		return nil
@@ -492,7 +512,7 @@ func (s *Storage) AddChatEntry(
 	binary.BigEndian.PutUint64(enc[5:], uint64(ts.UnixNano()))
 	copy(enc[13:], payload)
 
-	err := s.store.Command(func(b *store.Bucket) error {
+	err := s.engine.Command(func(b engine.Namespace) error {
 		chat := sessionChat(b, sessionID)
 		return chat.PutEncrypted(key, enc)
 	})
@@ -524,4 +544,24 @@ func WithNoPassphrase() StorageOption {
 
 func WithClock(c clock.Clock) StorageOption {
 	return func(p *Storage) { p.clock = c }
+}
+
+// WithBackend injects a custom [engine.Store] implementation. When set,
+// OpenStorage skips creating a BoltDB and uses the provided backend directly.
+// Options like [WithTimeout] and [WithCreateDB] are ignored.
+func WithBackend(b engine.Store) StorageOption {
+	return func(p *Storage) { p.engine = b }
+}
+
+// WithCreateDB controls whether OpenStorage creates the database when it does
+// not exist. The default is true.
+func WithCreateDB(v bool) StorageOption {
+	return func(p *Storage) { p.createDB = v }
+}
+
+// WithTimeout sets the maximum time the backend waits for the database to open
+// or connect. A zero value keeps the backend default (5s for BoltDB). Ignored
+// when [WithBackend] is used.
+func WithTimeout(d time.Duration) StorageOption {
+	return func(p *Storage) { p.timeout = d }
 }

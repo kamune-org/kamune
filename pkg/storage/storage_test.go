@@ -377,13 +377,20 @@ func TestDeleteSessionRemovesRecord(t *testing.T) {
 	a.ErrorIs(err, ErrSessionNotFound)
 }
 
-func TestAddChatEntryCreatesSessionBuckets(t *testing.T) {
+func TestAddChatEntryToCreatedSession(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	// AddChatEntry should work without explicit CreateSession —
-	// it creates the chat sub-bucket on demand.
+	att, err := attest.New()
+	a.NoError(err)
+	a.NoError(storage.StorePeer(&Peer{
+		Name:      "alice",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+
+	a.NoError(storage.CreateSession("auto-sess", att.MarshalPublicKey()))
 	a.NoError(storage.AddChatEntry(
 		"auto-sess", []byte("hello"), time.Now(), SenderLocal,
 	))

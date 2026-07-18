@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
-	"github.com/kamune-org/kamune/internal/store"
+	"github.com/kamune-org/kamune/internal/engine"
 )
 
 type Peer struct {
@@ -37,7 +37,7 @@ func peerKey(claim []byte) []byte {
 
 func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	var peer *Peer
-	err := s.store.Query(func(b *store.Bucket) error {
+	err := s.engine.Query(func(b engine.Namespace) error {
 		var err error
 		peer, err = s.findPeer(b, peerKey(claim))
 		return err
@@ -45,8 +45,8 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	return peer, err
 }
 
-func (s *Storage) findPeer(b *store.Bucket, key []byte) (*Peer, error) {
-	peers := b.Sub([]byte(store.PeersBucket))
+func (s *Storage) findPeer(b engine.Namespace, key []byte) (*Peer, error) {
+	peers := b.Sub([]byte(engine.PeersNamespace))
 	data, err := peers.GetEncrypted(key)
 	if err != nil {
 		return nil, fmt.Errorf("getting peer: %w", err)
@@ -58,8 +58,8 @@ func (s *Storage) findPeer(b *store.Bucket, key []byte) (*Peer, error) {
 	}
 
 	if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(s.clock.Now()) {
-		err = s.store.Command(func(b *store.Bucket) error {
-			peers := b.Sub([]byte(store.PeersBucket))
+		err = s.engine.Command(func(b engine.Namespace) error {
+			peers := b.Sub([]byte(engine.PeersNamespace))
 			return peers.Delete(key)
 		})
 		if err != nil {
@@ -116,8 +116,8 @@ func (s *Storage) StorePeer(peer *Peer) error {
 		return fmt.Errorf("marshaling peer: %w", err)
 	}
 	key := peerKey(pubKey)
-	err = s.store.Command(func(b *store.Bucket) error {
-		peers := b.Sub([]byte(store.PeersBucket))
+	err = s.engine.Command(func(b engine.Namespace) error {
+		peers := b.Sub([]byte(engine.PeersNamespace))
 		return peers.PutEncrypted(key, data)
 	})
 	if err != nil {
@@ -134,8 +134,8 @@ func (s *Storage) UpdatePeerLastSeen(claim []byte, t time.Time) error {
 	key := peerKey(claim)
 
 	var data []byte
-	err := s.store.Query(func(b *store.Bucket) error {
-		peers := b.Sub([]byte(store.PeersBucket))
+	err := s.engine.Query(func(b engine.Namespace) error {
+		peers := b.Sub([]byte(engine.PeersNamespace))
 		var err error
 		data, err = peers.GetEncrypted(key)
 		return err
@@ -162,8 +162,8 @@ func (s *Storage) UpdatePeerLastSeen(claim []byte, t time.Time) error {
 		return fmt.Errorf("marshaling peer: %w", err)
 	}
 
-	err = s.store.Command(func(b *store.Bucket) error {
-		peers := b.Sub([]byte(store.PeersBucket))
+	err = s.engine.Command(func(b engine.Namespace) error {
+		peers := b.Sub([]byte(engine.PeersNamespace))
 		return peers.PutEncrypted(key, updated)
 	})
 	if err != nil {
@@ -179,9 +179,9 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 	var peers []*Peer
 	var expiredKeys [][]byte
 
-	err := s.store.Query(func(b *store.Bucket) error {
-		bucket := b.Sub([]byte(store.PeersBucket))
-		for key, value := range bucket.IterateEncrypted() {
+	err := s.engine.Query(func(b engine.Namespace) error {
+		ns := b.Sub([]byte(engine.PeersNamespace))
+		for key, value := range ns.IterateEncrypted() {
 			var p pb.Peer
 			if err := proto.Unmarshal(value, &p); err != nil {
 				slog.Warn(
@@ -218,8 +218,8 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 
 	// Clean up expired entries outside the read transaction.
 	for _, key := range expiredKeys {
-		if err := s.store.Command(func(b *store.Bucket) error {
-			peers := b.Sub([]byte(store.PeersBucket))
+		if err := s.engine.Command(func(b engine.Namespace) error {
+			peers := b.Sub([]byte(engine.PeersNamespace))
 			return peers.Delete(key)
 		}); err != nil {
 			slog.Warn("failed to remove expired peer", slog.Any("error", err))
@@ -232,8 +232,8 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 // DeletePeer removes a peer from storage by its public key claim.
 func (s *Storage) DeletePeer(claim []byte) error {
 	key := peerKey(claim)
-	return s.store.Command(func(b *store.Bucket) error {
-		peers := b.Sub([]byte(store.PeersBucket))
+	return s.engine.Command(func(b engine.Namespace) error {
+		peers := b.Sub([]byte(engine.PeersNamespace))
 		return peers.Delete(key)
 	})
 }

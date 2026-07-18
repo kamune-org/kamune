@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kamune-org/kamune/internal/store"
+	"github.com/kamune-org/kamune/internal/engine"
 )
 
 // ElemSize is the fixed size in bytes of each element in a packed list.
 const ElemSize = 32
 
-// Meta is a key-value pair stored in a session's metadata bucket.
+// Meta is a key-value pair stored in a session's metadata namespace.
 // It carries both the key and the encoded value, coupling them together to
 // prevent mismatches.
 type Meta struct {
@@ -37,7 +37,7 @@ func NewByteSlicesMeta(key string, slices [][]byte) Meta {
 func (m Meta) Key() string   { return string(m.key) }
 func (m Meta) Value() []byte { return m.value }
 
-// Exported metadata key constants for session meta buckets.
+// Exported metadata key constants for session meta namespaces.
 const (
 	PeerKey             = "peer"
 	EstablishedAtKey    = "established_at"
@@ -53,13 +53,18 @@ var (
 // CreateSession creates a new session record under sessions/<id>/meta/ with
 // peer key, peer name, and establishment timestamp.
 func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
-	err := s.store.Command(func(b *store.Bucket) error {
+	err := s.engine.Command(func(b engine.Namespace) error {
 		peer, err := s.findPeer(b, peerKey(publicKey))
 		if err != nil {
 			return fmt.Errorf("find peer: %w", err)
 		}
 
-		meta := sessionMeta(b, sessionID)
+		// Ensure all namespaces exist for this session.
+		sessions := b.Ensure([]byte(engine.SessionsNamespace))
+		session := sessions.Ensure([]byte(sessionID))
+		meta := session.Ensure([]byte("meta"))
+		_ = session.Ensure([]byte("chat"))
+
 		err = meta.PutEncrypted([]byte(PeerKey), peer.PublicKey)
 		if err != nil {
 			return fmt.Errorf("store peer key: %w", err)
@@ -73,10 +78,6 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 			return fmt.Errorf("store established_at: %w", err)
 		}
 
-		// Pre-create the chat sub-bucket so GetChatHistory works without
-		// attempting to create it inside a read-only Query.
-		_ = sessionChat(b, sessionID)
-
 		return nil
 	})
 	if err != nil {
@@ -85,11 +86,11 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 	return nil
 }
 
-// GetMeta reads a single key from a session's meta bucket. Returns a Meta with
+// GetMeta reads a single key from a session's meta namespace. Returns a Meta with
 // nil Value when the key does not exist.
 func (s *Storage) GetMeta(sessionID, key string) (Meta, error) {
 	var val []byte
-	err := s.store.Query(func(b *store.Bucket) error {
+	err := s.engine.Query(func(b engine.Namespace) error {
 		meta := sessionMeta(b, sessionID)
 		data, err := meta.GetEncrypted([]byte(key))
 		if err != nil {
@@ -107,9 +108,9 @@ func (s *Storage) GetMeta(sessionID, key string) (Meta, error) {
 	return NewBytesMeta(key, val), nil
 }
 
-// SetMeta writes a Meta's key-value pair into a session's meta bucket.
+// SetMeta writes a Meta's key-value pair into a session's meta namespace.
 func (s *Storage) SetMeta(sessionID string, m Meta) error {
-	err := s.store.Command(func(b *store.Bucket) error {
+	err := s.engine.Command(func(b engine.Namespace) error {
 		meta := sessionMeta(b, sessionID)
 		return meta.PutEncrypted(m.key, m.value)
 	})
@@ -119,9 +120,9 @@ func (s *Storage) SetMeta(sessionID string, m Meta) error {
 	return nil
 }
 
-// DeleteMeta removes a key from a session's meta bucket.
+// DeleteMeta removes a key from a session's meta namespace.
 func (s *Storage) DeleteMeta(sessionID, key string) error {
-	err := s.store.Command(func(b *store.Bucket) error {
+	err := s.engine.Command(func(b engine.Namespace) error {
 		meta := sessionMeta(b, sessionID)
 		return meta.Delete([]byte(key))
 	})
@@ -141,7 +142,7 @@ func (s *Storage) GetPeer(sessionID string) (*Peer, error) {
 		return nil, ErrSessionNotFound
 	}
 	var peer *Peer
-	err = s.store.Query(func(b *store.Bucket) error {
+	err = s.engine.Query(func(b engine.Namespace) error {
 		p, findErr := s.findPeer(b, peerKey(m.Value()))
 		if findErr != nil {
 			return findErr
@@ -171,7 +172,7 @@ func (s *Storage) GetEstablishedAt(sessionID string) (time.Time, error) {
 // the given key. Returns ErrNotFound when the list is empty or missing.
 func (s *Storage) PopList(sessionID, key string) ([]byte, error) {
 	var entry []byte
-	err := s.store.Command(func(b *store.Bucket) error {
+	err := s.engine.Command(func(b engine.Namespace) error {
 		meta := sessionMeta(b, sessionID)
 		data, err := meta.GetEncrypted([]byte(key))
 		if err != nil {
@@ -200,7 +201,7 @@ func (s *Storage) PopList(sessionID, key string) ([]byte, error) {
 // RemoveListItem removes a specific entry from the packed list stored under the
 // given key. Returns ErrNotFound when the entry is not present.
 func (s *Storage) RemoveListItem(sessionID, key string, entry []byte) error {
-	err := s.store.Command(func(b *store.Bucket) error {
+	err := s.engine.Command(func(b engine.Namespace) error {
 		meta := sessionMeta(b, sessionID)
 		data, err := meta.GetEncrypted([]byte(key))
 		if err != nil {
@@ -260,9 +261,9 @@ func deserializeList(data []byte) ([][]byte, error) {
 	return list, nil
 }
 
-// isMissing reports whether err indicates a missing bucket or item in the
+// isMissing reports whether err indicates a missing namespace or item in the
 // underlying store.
 func isMissing(err error) bool {
-	return errors.Is(err, store.ErrMissingItem) ||
-		errors.Is(err, store.ErrMissingBucket)
+	return errors.Is(err, engine.ErrMissingItem) ||
+		errors.Is(err, engine.ErrMissingNamespace)
 }
