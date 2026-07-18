@@ -18,11 +18,11 @@ import (
 // the peer's address to open the local NAT mapping, then waits for the peer's
 // KCP SYN on the same socket. Used for UDP hole punching without a broker.
 type directP2PListener struct {
-	conn     *net.UDPConn
-	kcp      *kcp.Listener
-	peerAddr *net.UDPAddr
-	ctx      context.Context
-	cancel   context.CancelFunc
+	conn      *net.UDPConn
+	kcp       *kcp.Listener
+	peerAddr  *net.UDPAddr
+	ctx       context.Context
+	cancel    context.CancelFunc
 	closeOnce sync.Once
 	closeErr  error
 }

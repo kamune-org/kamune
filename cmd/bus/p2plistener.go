@@ -35,10 +35,10 @@ type p2pListener struct {
 	conn *net.UDPConn
 	kcp  *kcp.Listener
 
-	ctx        context.Context
-	cancel     context.CancelFunc
-	closeOnce  sync.Once
-	closeErr   error
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func newP2PListener(

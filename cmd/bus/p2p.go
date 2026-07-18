@@ -22,10 +22,10 @@ const p2pTokenRefreshInterval = 30 * time.Second
 // and runs a refresh loop to keep the registration alive until RemoveP2PToken
 // or StopServer cancels it.
 type p2pToken struct {
-	Token      string        `json:"token"`
-	Consumed   bool          `json:"consumed"`
-	TTL        time.Duration `json:"ttl"`
-	ExpiresAt  time.Time     `json:"expiresAt"`
+	Token     string        `json:"token"`
+	Consumed  bool          `json:"consumed"`
+	TTL       time.Duration `json:"ttl"`
+	ExpiresAt time.Time     `json:"expiresAt"`
 	// Mode is "static" when derived from a peer public key, "random"
 	// when the broker assigned the token. Used by the sidebar to
 	// group / label entries distinctly.
@@ -33,8 +33,8 @@ type p2pToken struct {
 	// PeerPubB64 is set when Mode == "static"; identifies the
 	// peer this token was derived for (so the sidebar can show the
 	// peer's name alongside the token).
-	PeerPubB64 string `json:"peerPubB64,omitempty"`
-	brokerAddr string `json:"-"`
+	PeerPubB64 string             `json:"peerPubB64,omitempty"`
+	brokerAddr string             `json:"-"`
 	ctx        context.Context    `json:"-"`
 	cancel     context.CancelFunc `json:"-"`
 }
