@@ -250,7 +250,7 @@ func (s *Server) handleResume(
 		sessionID, storage.ResumptionTokensKey, token,
 	)
 	if err != nil {
-		if err := sendResumeAccept(ec, false); err != nil {
+		if err := sendResumeAccept(ec, s.attest, false); err != nil {
 			return fmt.Errorf("sending resume accept: %w", err)
 		}
 		return fmt.Errorf("resume rejected: token invalid")
@@ -267,7 +267,7 @@ func (s *Server) handleResume(
 
 	// Verify the signature against the stored peer key.
 	if !attest.Verify(peer.PublicKey, st.GetData(), st.GetSignature()) {
-		if err := sendResumeAccept(ec, false); err != nil {
+		if err := sendResumeAccept(ec, s.attest, false); err != nil {
 			return fmt.Errorf("sending resume accept: %w", err)
 		}
 		return fmt.Errorf("resume rejected: invalid signature")
@@ -275,14 +275,14 @@ func (s *Server) handleResume(
 
 	// Check the resumption window.
 	if s.clock.Now().Sub(establishedAt) > resumptionGracePeriod {
-		if err := sendResumeAccept(ec, false); err != nil {
+		if err := sendResumeAccept(ec, s.attest, false); err != nil {
 			return fmt.Errorf("sending resume accept: %w", err)
 		}
 		return fmt.Errorf("resume rejected: session expired")
 	}
 
 	// Resume accepted — send accept and proceed to handshake.
-	if err := sendResumeAccept(ec, true); err != nil {
+	if err := sendResumeAccept(ec, s.attest, true); err != nil {
 		return fmt.Errorf("sending resume accept: %w", err)
 	}
 

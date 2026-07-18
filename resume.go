@@ -47,9 +47,12 @@ func sendResumeRequest(
 	return nil
 }
 
-// receiveResumeAccept reads and parses a ResumeAccept from the HPKE tunnel.
-// Returns whether resumption was accepted and any rejection reason.
-func receiveResumeAccept(conn Conn) (accepted bool, reason string, err error) {
+// receiveResumeAccept reads and parses a ResumeAccept from the HPKE tunnel,
+// verifying the signature against the server's public key. Returns whether
+// resumption was accepted and any rejection reason.
+func receiveResumeAccept(
+	conn Conn, remote []byte,
+) (accepted bool, reason string, err error) {
 	st, err := readSignedTransport(conn)
 	if err != nil {
 		return false, "", fmt.Errorf("reading resume accept: %w", err)
@@ -61,6 +64,10 @@ func receiveResumeAccept(conn Conn) (accepted bool, reason string, err error) {
 		)
 	}
 
+	if !attest.Verify(remote, st.GetData(), st.GetSignature()) {
+		return false, "", ErrInvalidSignature
+	}
+
 	var accept pb.ResumeAccept
 	if err := proto.Unmarshal(st.GetData(), &accept); err != nil {
 		return false, "", fmt.Errorf("deserializing resume accept: %w", err)
@@ -69,8 +76,9 @@ func receiveResumeAccept(conn Conn) (accepted bool, reason string, err error) {
 	return accept.GetAccepted(), accept.GetReason(), nil
 }
 
-// sendResumeAccept sends a ResumeAccept response through the HPKE tunnel.
-func sendResumeAccept(conn Conn, accepted bool) error {
+// sendResumeAccept signs and sends a ResumeAccept response through the HPKE
+// tunnel.
+func sendResumeAccept(conn Conn, at *attest.Attest, accepted bool) error {
 	var reason string
 	if !accepted {
 		reason = "resumption not available"
@@ -83,13 +91,18 @@ func sendResumeAccept(conn Conn, accepted bool) error {
 	if err != nil {
 		return fmt.Errorf("marshalling resume accept: %w", err)
 	}
+	sig, err := at.Sign(message)
+	if err != nil {
+		return fmt.Errorf("signing resume accept: %w", err)
+	}
 
 	md := &pb.Metadata{
 		Route: RouteResumeAccept.ToProto(),
 	}
 	st := &pb.SignedTransport{
-		Data:     message,
-		Metadata: md,
+		Data:      message,
+		Signature: sig,
+		Metadata:  md,
 	}
 	payload, err := padSignedTransport(st)
 	if err != nil {

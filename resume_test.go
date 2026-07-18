@@ -263,16 +263,19 @@ func TestResumeAccept_Roundtrip_Accepted(t *testing.T) {
 
 	ec1, ec2 := setupExchange(t, conn1, conn2)
 
+	att, err := attest.New()
+	a.NoError(err)
+
 	// Server sends accepted.
 	var sendErr error
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		sendErr = sendResumeAccept(ec2, true)
+		sendErr = sendResumeAccept(ec2, att, true)
 	}()
 
-	// Client receives.
-	accepted, reason, err := receiveResumeAccept(ec1)
+	// Client receives and verifies.
+	accepted, reason, err := receiveResumeAccept(ec1, att.MarshalPublicKey())
 	<-done
 	a.NoError(sendErr)
 	a.NoError(err)
@@ -293,16 +296,19 @@ func TestResumeAccept_Roundtrip_Rejected(t *testing.T) {
 
 	ec1, ec2 := setupExchange(t, conn1, conn2)
 
+	att, err := attest.New()
+	a.NoError(err)
+
 	// Server sends rejected.
 	var sendErr error
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		sendErr = sendResumeAccept(ec2, false)
+		sendErr = sendResumeAccept(ec2, att, false)
 	}()
 
-	// Client receives.
-	accepted, reason, err := receiveResumeAccept(ec1)
+	// Client receives and verifies.
+	accepted, reason, err := receiveResumeAccept(ec1, att.MarshalPublicKey())
 	<-done
 	a.NoError(sendErr)
 	a.NoError(err)
@@ -370,11 +376,11 @@ func TestResume_HappyPath(t *testing.T) {
 	acceptDone := make(chan struct{})
 	go func() {
 		defer close(acceptDone)
-		acceptErr = sendResumeAccept(ec4, true)
+		acceptErr = sendResumeAccept(ec4, ctx.attest2, true)
 	}()
 
 	// Client: receive accept.
-	accepted, reason, err := receiveResumeAccept(ec3)
+	accepted, reason, err := receiveResumeAccept(ec3, ctx.attest2.MarshalPublicKey())
 	<-acceptDone
 	a.NoError(acceptErr)
 	a.NoError(err)
@@ -470,11 +476,11 @@ func TestResumeRejected_InvalidToken(t *testing.T) {
 	rejectDone := make(chan struct{})
 	go func() {
 		defer close(rejectDone)
-		rejectErr = sendResumeAccept(ec4, false)
+		rejectErr = sendResumeAccept(ec4, ctx.attest2, false)
 	}()
 
 	// Client receives rejection.
-	accepted, reason, err := receiveResumeAccept(ec3)
+	accepted, reason, err := receiveResumeAccept(ec3, ctx.attest2.MarshalPublicKey())
 	<-rejectDone
 	a.NoError(rejectErr)
 	a.NoError(err)
@@ -538,11 +544,11 @@ func TestResumeRejected_ExpiredSession(t *testing.T) {
 	rejectDone2 := make(chan struct{})
 	go func() {
 		defer close(rejectDone2)
-		rejectErr2 = sendResumeAccept(ec4, false)
+		rejectErr2 = sendResumeAccept(ec4, ctx.attest2, false)
 	}()
 
 	// Client receives rejection.
-	accepted, reason, err := receiveResumeAccept(ec3)
+	accepted, reason, err := receiveResumeAccept(ec3, ctx.attest2.MarshalPublicKey())
 	<-rejectDone2
 	a.NoError(rejectErr2)
 	a.NoError(err)
@@ -604,11 +610,11 @@ func TestResumeRejected_SignatureMismatch(t *testing.T) {
 	rejectDone3 := make(chan struct{})
 	go func() {
 		defer close(rejectDone3)
-		rejectErr3 = sendResumeAccept(ec4, false)
+		rejectErr3 = sendResumeAccept(ec4, ctx.attest2, false)
 	}()
 
 	// Client receives rejection.
-	accepted, reason, err := receiveResumeAccept(ec3)
+	accepted, reason, err := receiveResumeAccept(ec3, ctx.attest2.MarshalPublicKey())
 	<-rejectDone3
 	a.NoError(rejectErr3)
 	a.NoError(err)

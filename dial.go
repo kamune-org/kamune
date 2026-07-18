@@ -167,7 +167,7 @@ func (d *Dialer) attemptResume(
 	}
 
 	// Receive ResumeAccept.
-	accepted, reason, err := receiveResumeAccept(ec)
+	accepted, reason, err := receiveResumeAccept(ec, peer.PublicKey)
 	switch {
 	case err != nil:
 		return nil, fmt.Errorf("receiving resume accept: %w", err)
