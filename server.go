@@ -55,6 +55,7 @@ func (l *udpListener) Accept() (Conn, error) {
 // Server handles incoming connections and manages the handshake process.
 type Server struct {
 	listener      Listener
+	clock         clock.Clock
 	attest        *attest.Attest
 	storage       *storage.Storage
 	handlerFunc   HandlerFunc
@@ -63,7 +64,6 @@ type Server struct {
 	handshakeOpts handshakeOpts
 	connOpts      []ConnOption
 	mu            sync.Mutex
-	clock         clock.Clock
 	resumeEnabled bool
 	closed        bool
 }
@@ -157,7 +157,11 @@ func (s *Server) serve(cn Conn) (err error) {
 	}
 
 	// Handle different routes at this stage
-	switch route := RouteFromProto(st.GetMetadata().GetRoute()); route {
+	route, err := routeFromST(st)
+	if err != nil {
+		return fmt.Errorf("extracting route: %w", err)
+	}
+	switch route {
 	case RouteIdentity:
 		return s.handleNewConnection(cn, ec, st)
 	case RouteResumeRequest:
@@ -266,7 +270,11 @@ func (s *Server) handleResume(
 	}
 
 	// Verify the signature against the stored peer key.
-	if !attest.Verify(peer.PublicKey, st.GetData(), st.GetSignature()) {
+	if !attest.Verify(
+		peer.PublicKey,
+		signingInput(st.GetMetadata(), st.GetData()),
+		st.GetSignature(),
+	) {
 		if err := sendResumeAccept(ec, s.attest, false); err != nil {
 			return fmt.Errorf("sending resume accept: %w", err)
 		}

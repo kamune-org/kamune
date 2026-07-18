@@ -73,11 +73,11 @@ func defaultPassphraseHandler() ([]byte, error) {
 }
 
 type Storage struct {
+	clock             clock.Clock
 	passphraseHandler PassphraseHandler
 	store             *store.Store
 	dbPath            string
 	expiryDuration    time.Duration
-	clock             clock.Clock
 }
 
 func OpenStorage(opts ...StorageOption) (*Storage, error) {

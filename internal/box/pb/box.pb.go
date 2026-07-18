@@ -108,7 +108,7 @@ type SignedTransport struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          []byte                 `protobuf:"bytes,1,opt,name=Data,proto3" json:"Data,omitempty"`
 	Signature     []byte                 `protobuf:"bytes,2,opt,name=Signature,proto3" json:"Signature,omitempty"`
-	Metadata      *Metadata              `protobuf:"bytes,3,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
+	Metadata      []byte                 `protobuf:"bytes,3,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
 	Padding       []byte                 `protobuf:"bytes,4,opt,name=Padding,proto3" json:"Padding,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -158,7 +158,7 @@ func (x *SignedTransport) GetSignature() []byte {
 	return nil
 }
 
-func (x *SignedTransport) GetMetadata() *Metadata {
+func (x *SignedTransport) GetMetadata() []byte {
 	if x != nil {
 		return x.Metadata
 	}
@@ -244,11 +244,11 @@ var File_box_proto protoreflect.FileDescriptor
 
 const file_box_proto_rawDesc = "" +
 	"\n" +
-	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"\x88\x01\n" +
+	"\tbox.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"y\n" +
 	"\x0fSignedTransport\x12\x12\n" +
 	"\x04Data\x18\x01 \x01(\fR\x04Data\x12\x1c\n" +
-	"\tSignature\x18\x02 \x01(\fR\tSignature\x12)\n" +
-	"\bMetadata\x18\x03 \x01(\v2\r.box.MetadataR\bMetadata\x12\x18\n" +
+	"\tSignature\x18\x02 \x01(\fR\tSignature\x12\x1a\n" +
+	"\bMetadata\x18\x03 \x01(\fR\bMetadata\x12\x18\n" +
 	"\aPadding\x18\x04 \x01(\fR\aPadding\"\x92\x01\n" +
 	"\bMetadata\x12\x0e\n" +
 	"\x02ID\x18\x01 \x01(\tR\x02ID\x128\n" +
@@ -296,14 +296,13 @@ var file_box_proto_goTypes = []any{
 	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
 }
 var file_box_proto_depIdxs = []int32{
-	2, // 0: box.SignedTransport.Metadata:type_name -> box.Metadata
-	3, // 1: box.Metadata.Timestamp:type_name -> google.protobuf.Timestamp
-	0, // 2: box.Metadata.Route:type_name -> box.Route
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	3, // 0: box.Metadata.Timestamp:type_name -> google.protobuf.Timestamp
+	0, // 1: box.Metadata.Route:type_name -> box.Route
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_box_proto_init() }

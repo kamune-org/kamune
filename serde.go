@@ -2,6 +2,7 @@ package kamune
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	mathrand "math/rand/v2"
 
@@ -36,21 +37,26 @@ func (s *signedSerde) serialize(
 	if len(message) > int(maxTransportSize) {
 		return nil, nil, ErrMessageTooLarge
 	}
-	sig, err := s.attest.Sign(message)
-	if err != nil {
-		return nil, nil, fmt.Errorf("signing: %w", err)
-	}
-
 	md := &pb.Metadata{
 		ID:        rand.Text(),
 		Timestamp: timestamppb.Now(),
 		Sequence:  sequence,
 		Route:     route.ToProto(),
 	}
+	metadataBytes, err := proto.Marshal(md)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshalling metadata: %w", err)
+	}
+
+	sig, err := s.attest.Sign(signingInput(metadataBytes, message))
+	if err != nil {
+		return nil, nil, fmt.Errorf("signing: %w", err)
+	}
+
 	st := &pb.SignedTransport{
 		Data:      message,
 		Signature: sig,
-		Metadata:  md,
+		Metadata:  metadataBytes,
 	}
 	payload, err := padSignedTransport(st)
 	if err != nil {
@@ -69,14 +75,47 @@ func (s *signedSerde) deserialize(
 	}
 
 	msg := st.GetData()
-	if ok := s.attest.Verify(s.remote, msg, st.Signature); !ok {
+	metadataBytes := st.GetMetadata()
+	if ok := s.attest.Verify(
+		s.remote, signingInput(metadataBytes, msg), st.Signature,
+	); !ok {
 		return nil, ErrInvalidSignature
+	}
+
+	var md pb.Metadata
+	if err := proto.Unmarshal(metadataBytes, &md); err != nil {
+		return nil, fmt.Errorf("unmarshalling metadata: %w", err)
 	}
 	if err := proto.Unmarshal(msg, dst); err != nil {
 		return nil, fmt.Errorf("unmarshalling message: %w", err)
 	}
 
-	return &Metadata{st.GetMetadata()}, nil
+	return &Metadata{&md}, nil
+}
+
+// signingInput constructs the domain-separated signing input per RFC002 §5.1:
+// "kamune/transport-sign/v1" || varint(len(metadata)) || metadata || data
+func signingInput(metadataBytes, data []byte) []byte {
+	varintLen := binary.MaxVarintLen64
+	input := make(
+		[]byte, 0,
+		len(transportSignInfo)+varintLen+len(metadataBytes)+len(data),
+	)
+	input = append(input, transportSignInfo...)
+	input = binary.AppendUvarint(input, uint64(len(metadataBytes)))
+	input = append(input, metadataBytes...)
+	input = append(input, data...)
+	return input
+}
+
+// routeFromST extracts the route from a SignedTransport's opaque metadata
+// bytes. Used for pre-verification route dispatch (introduction/resume).
+func routeFromST(st *pb.SignedTransport) (Route, error) {
+	var md pb.Metadata
+	if err := proto.Unmarshal(st.GetMetadata(), &md); err != nil {
+		return RouteInvalid, fmt.Errorf("unmarshalling metadata: %w", err)
+	}
+	return RouteFromProto(md.GetRoute()), nil
 }
 
 // readSignedTransport reads raw bytes from a Conn and unmarshals them

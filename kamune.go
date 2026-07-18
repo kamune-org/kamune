@@ -43,6 +43,9 @@ const (
 	handshakeSaltSize      = 16
 	handshakeChallengeSize = 32
 
+	// Transport signing domain separation label (RFC002).
+	transportSignInfo = "kamune/transport-sign/v1"
+
 	// Resumption domain separation labels.
 	resumptionRootInfo  = "kamune/resumption-root/v1"
 	resumptionTokenInfo = "kamune/resumption/token/v1/"

@@ -101,7 +101,11 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 	}
 
 	// Validate route
-	if r := RouteFromProto(st.GetMetadata().Route); r != RouteIdentity {
+	r, err := routeFromST(st)
+	if err != nil {
+		return nil, fmt.Errorf("extracting route: %w", err)
+	}
+	if r != RouteIdentity {
 		return nil, fmt.Errorf(
 			"%w: expected %s, got %s", ErrUnexpectedRoute, RouteIdentity, r,
 		)

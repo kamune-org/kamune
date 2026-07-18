@@ -119,14 +119,16 @@ func TestPadSignedTransport_LandsOnBucket(t *testing.T) {
 
 			sig, err := att.Sign(msg)
 			a.NoError(err)
+			mdBytes, err := proto.Marshal(&pb.Metadata{
+				ID:       "0123456789012345678901",
+				Sequence: 1,
+				Route:    7,
+			})
+			a.NoError(err)
 			st := &pb.SignedTransport{
 				Data:      msg,
 				Signature: sig,
-				Metadata: &pb.Metadata{
-					ID:       "0123456789012345678901",
-					Sequence: 1,
-					Route:    7,
-				},
+				Metadata:  mdBytes,
 			}
 			payload, err := padSignedTransport(st)
 			a.NoError(err)
@@ -151,10 +153,12 @@ func TestPadSignedTransport_NoPaddingWhenBaseExceedsAllBuckets(t *testing.T) {
 	sig, err := att.Sign(msg)
 	a.NoError(err)
 
+	mdBytes, err := proto.Marshal(&pb.Metadata{ID: "x"})
+	a.NoError(err)
 	st := &pb.SignedTransport{
 		Data:      msg,
 		Signature: sig,
-		Metadata:  &pb.Metadata{ID: "x"},
+		Metadata:  mdBytes,
 	}
 	payload, err := padSignedTransport(st)
 	a.NoError(err)

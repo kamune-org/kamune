@@ -76,19 +76,25 @@ func sendIntroduction(
 	if err != nil {
 		return fmt.Errorf("marshalling intro: %w", err)
 	}
-	sig, err := at.Sign(message)
-	if err != nil {
-		return fmt.Errorf("signing message: %w", err)
-	}
 
 	md := &pb.Metadata{
 		Timestamp: timestamppb.Now(),
 		Route:     RouteIdentity.ToProto(),
 	}
+	metadataBytes, err := proto.Marshal(md)
+	if err != nil {
+		return fmt.Errorf("marshalling metadata: %w", err)
+	}
+
+	sig, err := at.Sign(signingInput(metadataBytes, message))
+	if err != nil {
+		return fmt.Errorf("signing message: %w", err)
+	}
+
 	st := &pb.SignedTransport{
 		Data:      message,
 		Signature: sig,
-		Metadata:  md,
+		Metadata:  metadataBytes,
 	}
 	payload, err := padSignedTransport(st)
 	if err != nil {
@@ -105,8 +111,11 @@ func sendIntroduction(
 // receiveIntroduction parses an introduction message from a signed transport.
 // It validates the signature and extracts the peer's identity and version.
 func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, string, error) {
-	// Validate route
-	if r := RouteFromProto(st.GetMetadata().GetRoute()); r != RouteIdentity {
+	r, err := routeFromST(st)
+	if err != nil {
+		return nil, "", fmt.Errorf("extracting route: %w", err)
+	}
+	if r != RouteIdentity {
 		return nil, "", fmt.Errorf(
 			"%w: expected %s, got %s",
 			ErrUnexpectedRoute, RouteIdentity, r,
@@ -120,7 +129,9 @@ func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, string, error) 
 	}
 
 	remote := introduce.GetPublicKey()
-	if !attest.Verify(remote, msg, st.GetSignature()) {
+	if !attest.Verify(
+		remote, signingInput(st.GetMetadata(), msg), st.GetSignature(),
+	) {
 		return nil, "", ErrInvalidSignature
 	}
 

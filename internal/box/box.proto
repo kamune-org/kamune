@@ -8,7 +8,7 @@ option go_package = "./pb";
 message SignedTransport {
   bytes Data = 1;
   bytes Signature = 2;
-  Metadata Metadata = 3;
+  bytes Metadata = 3;
   bytes Padding = 4;
 }
 

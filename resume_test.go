@@ -238,7 +238,9 @@ func TestResumeRequest_Roundtrip(t *testing.T) {
 	a.NoError(sendErr)
 
 	// Verify route.
-	a.Equal(RouteResumeRequest, RouteFromProto(st.GetMetadata().GetRoute()))
+	route, err := routeFromST(st)
+	a.NoError(err)
+	a.Equal(RouteResumeRequest, route)
 
 	// Unmarshal and verify fields.
 	var req pb.ResumeRequest
@@ -247,7 +249,7 @@ func TestResumeRequest_Roundtrip(t *testing.T) {
 	a.Equal(token, req.GetToken())
 
 	// Verify signature.
-	a.True(attest.Verify(att.MarshalPublicKey(), st.GetData(), st.GetSignature()))
+	a.True(attest.Verify(att.MarshalPublicKey(), signingInput(st.GetMetadata(), st.GetData()), st.GetSignature()))
 }
 
 func TestResumeAccept_Roundtrip_Accepted(t *testing.T) {
@@ -352,7 +354,9 @@ func TestResume_HappyPath(t *testing.T) {
 	<-reqDone
 	a.NoError(reqErr)
 
-	a.Equal(RouteResumeRequest, RouteFromProto(st.GetMetadata().GetRoute()))
+	r, err := routeFromST(st)
+	a.NoError(err)
+	a.Equal(RouteResumeRequest, r)
 
 	var req pb.ResumeRequest
 	a.NoError(proto.Unmarshal(st.GetData(), &req))
@@ -368,7 +372,7 @@ func TestResume_HappyPath(t *testing.T) {
 	establishedAt, err := ctx.storage2.GetEstablishedAt(req.GetSessionID())
 	a.NoError(err)
 
-	a.True(attest.Verify(peer.PublicKey, st.GetData(), st.GetSignature()))
+	a.True(attest.Verify(peer.PublicKey, signingInput(st.GetMetadata(), st.GetData()), st.GetSignature()))
 	a.False(time.Since(establishedAt) > resumptionGracePeriod)
 
 	// Server: accept (must goroutine — pipe is synchronous).
@@ -534,7 +538,7 @@ func TestResumeRejected_ExpiredSession(t *testing.T) {
 	a.NoError(err)
 
 	// Verify signature passes...
-	a.True(attest.Verify(peer.PublicKey, st.GetData(), st.GetSignature()))
+	a.True(attest.Verify(peer.PublicKey, signingInput(st.GetMetadata(), st.GetData()), st.GetSignature()))
 
 	// ...but expiry check fails.
 	a.True(time.Since(establishedAt) > resumptionGracePeriod)
@@ -603,7 +607,7 @@ func TestResumeRejected_SignatureMismatch(t *testing.T) {
 	a.NoError(err)
 
 	// Token is valid but signature is wrong.
-	a.False(attest.Verify(peer.PublicKey, st.GetData(), st.GetSignature()))
+	a.False(attest.Verify(peer.PublicKey, signingInput(st.GetMetadata(), st.GetData()), st.GetSignature()))
 
 	// Server rejects.
 	var rejectErr3 error
@@ -652,6 +656,7 @@ func TestResumeRejected_Disabled(t *testing.T) {
 	<-reqDone
 	a.NoError(reqErr)
 
-	route := RouteFromProto(st.GetMetadata().GetRoute())
+	route, err := routeFromST(st)
+	a.NoError(err)
 	a.Equal(RouteResumeRequest, route)
 }

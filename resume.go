@@ -22,18 +22,24 @@ func sendResumeRequest(
 	if err != nil {
 		return fmt.Errorf("marshalling resume request: %w", err)
 	}
-	sig, err := at.Sign(message)
-	if err != nil {
-		return fmt.Errorf("signing resume request: %w", err)
-	}
 
 	md := &pb.Metadata{
 		Route: RouteResumeRequest.ToProto(),
 	}
+	metadataBytes, err := proto.Marshal(md)
+	if err != nil {
+		return fmt.Errorf("marshalling metadata: %w", err)
+	}
+
+	sig, err := at.Sign(signingInput(metadataBytes, message))
+	if err != nil {
+		return fmt.Errorf("signing resume request: %w", err)
+	}
+
 	st := &pb.SignedTransport{
 		Data:      message,
 		Signature: sig,
-		Metadata:  md,
+		Metadata:  metadataBytes,
 	}
 	payload, err := padSignedTransport(st)
 	if err != nil {
@@ -58,13 +64,19 @@ func receiveResumeAccept(
 		return false, "", fmt.Errorf("reading resume accept: %w", err)
 	}
 
-	if r := RouteFromProto(st.GetMetadata().GetRoute()); r != RouteResumeAccept {
+	r, err := routeFromST(st)
+	if err != nil {
+		return false, "", fmt.Errorf("extracting route: %w", err)
+	}
+	if r != RouteResumeAccept {
 		return false, "", fmt.Errorf(
 			"%w: expected %s, got %s", ErrUnexpectedRoute, RouteResumeAccept, r,
 		)
 	}
 
-	if !attest.Verify(remote, st.GetData(), st.GetSignature()) {
+	if !attest.Verify(
+		remote, signingInput(st.GetMetadata(), st.GetData()), st.GetSignature(),
+	) {
 		return false, "", ErrInvalidSignature
 	}
 
@@ -91,18 +103,24 @@ func sendResumeAccept(conn Conn, at *attest.Attest, accepted bool) error {
 	if err != nil {
 		return fmt.Errorf("marshalling resume accept: %w", err)
 	}
-	sig, err := at.Sign(message)
-	if err != nil {
-		return fmt.Errorf("signing resume accept: %w", err)
-	}
 
 	md := &pb.Metadata{
 		Route: RouteResumeAccept.ToProto(),
 	}
+	metadataBytes, err := proto.Marshal(md)
+	if err != nil {
+		return fmt.Errorf("marshalling metadata: %w", err)
+	}
+
+	sig, err := at.Sign(signingInput(metadataBytes, message))
+	if err != nil {
+		return fmt.Errorf("signing resume accept: %w", err)
+	}
+
 	st := &pb.SignedTransport{
 		Data:      message,
 		Signature: sig,
-		Metadata:  md,
+		Metadata:  metadataBytes,
 	}
 	payload, err := padSignedTransport(st)
 	if err != nil {

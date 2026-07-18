@@ -34,7 +34,9 @@ func TestIntroduce(t *testing.T) {
 	a.NoError(err)
 	<-done1
 	a.NoError(sendErr1)
-	a.Equal(RouteFromProto(st2.GetMetadata().GetRoute()), RouteIdentity)
+	route2, err := routeFromST(st2)
+	a.NoError(err)
+	a.Equal(route2, RouteIdentity)
 	peer, version, err := receiveIntroduction(st2)
 	a.NoError(err)
 	a.Equal(attest1.MarshalPublicKey(), peer.PublicKey)
@@ -50,7 +52,8 @@ func TestIntroduce(t *testing.T) {
 	a.NoError(err)
 	<-done2
 	a.NoError(sendErr2)
-	route1 := RouteFromProto(st1.GetMetadata().GetRoute())
+	route1, err := routeFromST(st1)
+	a.NoError(err)
 	a.True(route1 == RouteIdentity || route1 == RouteInvalid)
 	peer, version, err = receiveIntroduction(st1)
 	a.NoError(err)
