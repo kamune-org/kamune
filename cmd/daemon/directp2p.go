@@ -14,11 +14,11 @@ import (
 )
 
 type directP2PListener struct {
-	conn     *net.UDPConn
-	kcp      *kcp.Listener
-	peerAddr *net.UDPAddr
-	ctx      context.Context
-	cancel   context.CancelFunc
+	conn      *net.UDPConn
+	kcp       *kcp.Listener
+	peerAddr  *net.UDPAddr
+	ctx       context.Context
+	cancel    context.CancelFunc
 	closeOnce sync.Once
 	closeErr  error
 }

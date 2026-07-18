@@ -62,9 +62,9 @@ type Daemon struct {
 	relayTokens     []relayToken
 	relayListeners  *multiListener
 
-	p2pTokens     []p2pToken
-	p2pListener   *p2pListener
-	brokerClient  *BrokerClient
+	p2pTokens    []p2pToken
+	p2pListener  *p2pListener
+	brokerClient *BrokerClient
 
 	startCtx    context.Context
 	startCancel context.CancelFunc
