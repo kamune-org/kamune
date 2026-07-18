@@ -1,6 +1,6 @@
 # RFC: Extend Signature Coverage to Metadata
 
-**Status:** Draft
+**Status:** Merged
 
 **Target:** Kamune Protocol Specification v0.7.0
 
@@ -67,12 +67,12 @@ actually covers today.
 - R2: The bytes fed into signing and verification MUST be identical on both
   sides. This MUST be achieved by carrying `Metadata` on the wire as its own
   pre-serialized byte string, not by having the verifier independently
-  re-marshal a decoded struct — see R3.
+  re-serialize a decoded message — see R3.
 - R3: `SignedTransport.Metadata` changes from a structured nested message field
   to an opaque `bytes` field, mirroring the existing `Data` field. The sender
-  marshals `Metadata` once; those exact bytes are both the wire value and the
+  serializes `Metadata` once; those exact bytes are both the wire value and the
   signing input. This is a deliberate wire format change: relying on
-  decode-then-re-encode determinism across independent marshal calls (possibly
+  decode-then-re-encode determinism across independent serializations (possibly
   across protobuf library versions over the project's lifetime) is a fragile
   foundation for signature verification, and avoidable at negligible cost pre-v1.
 - R4: The signing input SHOULD include a domain-separation label, consistent
@@ -93,23 +93,27 @@ actually covers today.
 ### 5.1 Signing input
 
 ```
-SigningInput = "kamune/transport-sign/v1" || MetadataBytes || Data
+SigningInput = "kamune/transport-sign/v1" || varint(len(MetadataBytes)) || MetadataBytes || Data
 Signature    = Ed25519.Sign(identityKey, SigningInput)
 ```
 
 Where `MetadataBytes` is the serialized `Metadata` message (`ID`, `Timestamp`,
-`Sequence`, `Route`) — marshaled once by the sender.
+`Sequence`, `Route`) — serialized once by the sender. The `varint` is an
+unsigned base-128 variable-length integer encoding the byte length of
+`MetadataBytes`, following the standard protobuf varint format. This makes the
+signing input self-delimiting: two different `(MetadataBytes, Data)` pairs can
+never produce the same signing input, regardless of protobuf encoding details.
 
 Verification uses the exact same bytes the sender produced, taken directly from
 the wire — not a re-derivation:
 
 ```
 MetadataBytes = SignedTransport.Metadata   // raw bytes, as received
-valid = Ed25519.Verify(senderPublicKey, "kamune/transport-sign/v1" || MetadataBytes || Data, Signature)
+valid = Ed25519.Verify(senderPublicKey, "kamune/transport-sign/v1" || varint(len(MetadataBytes)) || MetadataBytes || Data, Signature)
 ```
 
-`Metadata` is then unmarshaled from those same bytes for application use
-(reading `Sequence`, `Route`, etc.).
+`Metadata` is then decoded from those same bytes for application use (reading
+`Sequence`, `Route`, etc.).
 
 ### 5.2 Metadata becomes a wire-level `bytes` field
 
@@ -121,21 +125,22 @@ bytes metadata = 3;  // pre-serialized Metadata message
 ```
 
 This is the load-bearing part of the design. The alternative — keep `Metadata`
-structured, and have the verifier independently re-marshal the decoded struct to
+structured, and have the verifier independently re-serialize the decoded
+message to
 reconstruct `MetadataBytes` — depends on decode-then-re-encode producing
-byte-identical output across two independent marshal calls, potentially on
-different protobuf library versions over the project's lifetime. `Metadata` has
+byte-identical output across two independent serializations, potentially by
+different implementations. `Metadata` has
 no `repeated` or `map` fields, so this would work in practice today, but it's
 verifying a signature against a _reconstruction_ of the original bytes rather
 than the original bytes themselves — a fragile foundation to build signature
 verification on when the fix is a one-field schema change and the project is
 pre-v1. Making `Metadata` opaque `bytes` (identical in spirit to how `Data`
-already works) removes the dependency on marshal-call determinism entirely: the
+already works) removes the dependency on serialization determinism entirely: the
 bytes that were signed are the same bytes that arrive on the wire, full stop.
 
 ### 5.3 Why `Padding` stays out of scope
 
-`Padding` is sized last, to bring the total marshaled envelope up to the target
+`Padding` is sized last, to bring the total serialized envelope up to the target
 bucket size (§12.7). Its size depends on the total serialized size of `Data`,
 `Metadata`, and `Signature` combined. Including `Padding` in the signed content
 would create a circular dependency: `Padding`'s size depends on `Signature`'s
@@ -154,7 +159,7 @@ semantic content — it is discarded on receipt and never interpreted.
 
 `Signature` field description becomes:
 
-> Ed25519 signature over `"kamune/transport-sign/v1" || Metadata || Data`, where
+> Ed25519 signature over `"kamune/transport-sign/v1" || varint(len(Metadata)) || Metadata || Data`, where
 > `Metadata` is the raw bytes of the field above, produced with the sender's
 > identity private key. Binds the message's metadata (ID, timestamp, sequence,
 > route) to its content.
@@ -167,13 +172,13 @@ being finalized first:
 1. The sender increments its send counter (starting from 0; the first message is
    sequence 1).
 2. The application message is serialized (`Data`).
-3. `Metadata` is assembled (`ID`, `Timestamp`, `Sequence`, `Route`) and marshaled
-   once to `MetadataBytes`.
-4. The signature is computed over `"kamune/transport-sign/v1" || MetadataBytes || Data`,
+3. `Metadata` is assembled (`ID`, `Timestamp`, `Sequence`, `Route`) and
+   serialized once to `MetadataBytes`.
+4. The signature is computed over `"kamune/transport-sign/v1" || varint(len(MetadataBytes)) || MetadataBytes || Data`,
    using the sender's identity key.
 5. The signature, `Data`, `MetadataBytes`, and random padding are assembled
    into a `SignedTransport` envelope — `MetadataBytes` is placed directly into
-   the `metadata` field as-is, not re-marshaled.
+   the `metadata` field as-is, not re-serialized.
 6. The entire `SignedTransport` is serialized to bytes.
 7. The bytes are encrypted using the sender's outbound cipher (unchanged).
 8. The ciphertext is written to the connection using length-prefixed framing
@@ -182,8 +187,8 @@ being finalized first:
 ### 5.6 Updated §6.5 — Receiving a message
 
 Step 4 (signature verification) changes from "verify against `Data`" to "verify
-against `SignedTransport.metadata` (raw bytes, as received) `|| Data`". Only
-after verification succeeds is `metadata` unmarshaled into a `Metadata` struct
+against `"kamune/transport-sign/v1" || varint(len(MetadataBytes)) || MetadataBytes (raw bytes, as received) || Data`". Only
+after verification succeeds is `MetadataBytes` decoded into a `Metadata` message
 for use. No change to position relative to sequence validation (step 5).
 
 ## 6. Security Considerations
@@ -204,31 +209,19 @@ for use. No change to position relative to sequence validation (step 5).
   defense-in-depth on top of an already-encrypted channel, not a fix for a
   currently reachable attack.
 - The domain-separation label (R4) prevents a signature computed under this
-  scheme from being confused with a signature computed for `Introduce` (§6.2) or
-  `Handshake` (§6.3) messages, which reuse the same identity key but currently
-  sign different, unprefixed content. This RFC does not change the Introduction
-  or Handshake signing schemes; it only notes the inconsistency as a candidate
-  for a separate follow-up.
+  RFC from being confused with a signature produced under the previous scheme
+  (pre-RFC002), where `SignedTransport` signatures covered `Data` only.
+  Since all `SignedTransport` messages — Introduction (§6.2), Handshake (§6.3),
+  and Communication (§6.5) — share the same signing scheme, updating the
+  signing format covers every protocol phase uniformly. No separate treatment
+  or follow-up RFC is needed.
 
 ## 7. Compatibility
 
 This changes both the wire schema (`Metadata` becomes `bytes`) and verification
 semantics. A peer running the old scheme and a peer running the new scheme
 cannot interoperate at all — different field type, different signing input. This
-MUST ship as a minor version bump (spec is pre-1.0, currently 0.5.0), which
+MUST ship as a minor version bump (spec is pre-1.0, currently 0.7.0), which
 triggers the existing hard-reject path in §6.2's version-compatibility table
 (pre-1.0 minor mismatch → hard reject) rather than producing a confusing wall of
 per-message decode or signature failures.
-
-## 8. Open Questions
-
-- Exact domain-separation string — `"kamune/transport-sign/v1"` is a placeholder
-  following the existing naming convention; confirm before merging.
-- Whether `Introduce` and `Handshake` signing should be brought under the same
-  domain-separation convention in a follow-up RFC (flagged in §6, not addressed
-  here).
-- Developer ergonomics: since `Metadata` is no longer directly a typed field on
-  `SignedTransport`, code that currently reads `signedTransport.Metadata.Sequence`
-  etc. needs either an accessor helper or an explicit unmarshal step at each
-  read site. Worth deciding on a helper pattern before implementation to avoid
-  scattered ad-hoc unmarshaling.

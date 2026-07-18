@@ -171,21 +171,21 @@ Every protocol message is wrapped in a `SignedTransport` envelope:
 
 ```
 SignedTransport {
-  bytes    Data      = 1;   // Serialized inner message
-  bytes    Signature = 2;   // Digital signature over Data
-  Metadata Metadata  = 3;   // Message metadata (ID, timestamp, sequence, route)
-  bytes    Padding   = 4;   // Random padding (bucketed; see §12.7)
+  bytes Data      = 1;   // Serialized inner message
+  bytes Signature = 2;   // Ed25519 signature (see §8.1)
+  bytes Metadata  = 3;   // Pre-serialized Metadata (opaque; see below)
+  bytes Padding   = 4;   // Random padding (bucketed; see §12.7)
 }
 ```
 
-| Field       | Type       | Role                                                                                                                                                                 |
-| ----------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Data`      | bytes      | The serialized inner message (for example, an `Introduce` or `Handshake` message, or application data).                                                              |
-| `Signature` | bytes      | Ed25519 signature over the raw `Data` bytes, produced with the sender's identity private key.                                                                        |
-| `Metadata`  | `Metadata` | Message metadata: unique ID, timestamp, sequence number, and route.                                                                                                  |
-| `Padding`   | bytes      | Random bytes that pad the marshaled envelope up to a bucketed target size (see §12.7). Padding is part of the signed envelope and is verified alongside the message. |
+| Field       | Type  | Role                                                                                                                                                                                                       |
+| ----------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Data`      | bytes | The serialized inner message (for example, an `Introduce` or `Handshake` message, or application data).                                                                                                    |
+| `Signature` | bytes | Ed25519 signature over the domain-separated signing input (see §8.1), produced with the sender's identity private key.                                                                                     |
+| `Metadata`  | bytes | Pre-serialized `Metadata` message (ID, timestamp, sequence, route), carried as opaque bytes. Serialized once by the sender; those same bytes are used both on the wire and as part of the signature input. |
+| `Padding`   | bytes | Random bytes that pad the serialized envelope up to a bucketed target size (see §12.7). Padding is part of the signed envelope and is verified alongside the message.                                         |
 
-The `Metadata` field is itself a structured message:
+The `Metadata` field contains a serialized `Metadata` message:
 
 ```
 Metadata {
@@ -453,12 +453,16 @@ Initiator (Client)                          Responder (Server)
 **Step-by-step:**
 
 1. **Initiator sends `Introduce`** (route: `ROUTE_IDENTITY`):
-   - The `SignedTransport` envelope's signature is computed over the serialized
-     `Introduce` message using the initiator's identity private key.
+   - The `Metadata` is assembled and serialized to bytes.
+   - The `SignedTransport` envelope's signature is computed over the
+     domain-separated signing input (see §8.1) covering both the metadata bytes
+     and the serialized `Introduce` message, using the initiator's identity
+     private key.
 
 2. **Responder receives and validates**:
    - Parses the `PublicKey` using the appropriate identity-algorithm parser.
-   - Verifies the signature over `Data` using the parsed public key.
+   - Verifies the signature over the domain-separated signing input (metadata
+     bytes || data) using the parsed public key.
    - If signature verification fails, the connection MUST be terminated.
    - Checks `AppVersion` against its own version using semver comparison.
      Version matching follows a three-tier policy:
@@ -681,30 +685,38 @@ the `Transport`:
 
 1. The sender increments its send counter (starting from 0; the first message
    is sequence 1).
-2. The application message is serialized.
-3. The serialized message is signed with the sender's identity key.
-4. The signature, message bytes, and metadata (ID, timestamp, sequence, and
-   route) plus random padding are assembled into a `SignedTransport` envelope.
-5. The entire `SignedTransport` is serialized to bytes.
-6. The bytes are encrypted using the sender's outbound cipher
+2. The application message is serialized (`Data`).
+3. `Metadata` is assembled (`ID`, `Timestamp`, `Sequence`, `Route`) and
+   serialized once to `MetadataBytes`.
+4. The signature is computed over the domain-separated signing input (see §8.1)
+   covering `MetadataBytes` and `Data`, using the sender's identity key.
+5. The signature, `Data`, `MetadataBytes`, and random padding are assembled into
+   a `SignedTransport` envelope — `MetadataBytes` is placed directly into the
+    `Metadata` field as-is, not re-serialized.
+6. The entire `SignedTransport` is serialized to bytes.
+7. The bytes are encrypted using the sender's outbound cipher
    (XChaCha20-Poly1305 with a fresh 24-byte random nonce).
-7. The ciphertext is written to the connection using length-prefixed framing.
+8. The ciphertext is written to the connection using length-prefixed framing.
 
 **Receiving a message:**
 
 1. The receiver reads the length prefix and then the full ciphertext payload.
 2. The ciphertext is decrypted using the receiver's inbound cipher.
 3. The decrypted bytes are deserialized into a `SignedTransport` envelope.
-4. The signature is verified against the remote peer's public key.
-5. The sequence number is validated: it MUST equal the last received
+4. The signature is verified against the remote peer's public key using the
+   domain-separated signing input (see §8.1) covering the raw `Metadata` bytes
+   and `Data`.
+5. Only after verification succeeds is `Metadata` decoded from the raw bytes
+   for application use.
+6. The sequence number is validated: it MUST equal the last received
    sequence + 1.
    - If the sequence is **less than** expected, the message is a duplicate and
      MUST be rejected.
    - If the sequence is **greater than** expected, messages have been lost and
      an out-of-sync condition MUST be surfaced.
-6. The receive counter is updated.
-7. The inner message is deserialized into the expected type.
-8. The route and metadata are returned to the application layer.
+7. The receive counter is updated.
+8. The inner message is deserialized into the expected type.
+9. The route and metadata are returned to the application layer.
 
 ### 6.6 Session Teardown
 
@@ -986,15 +998,25 @@ transmitted. (RFC001, §4)
 
 ### 8.1 Digital Signatures
 
-Every `SignedTransport` message includes a digital signature over the `Data`
-field. The signature is computed using the sender's long-term identity key
-(Ed25519). The receiver verifies the signature using the sender's public key
+Every `SignedTransport` message includes a digital signature over the
+domain-separated signing input:
+
+```
+SigningInput = "kamune/transport-sign/v1" || varint(len(MetadataBytes)) || MetadataBytes || Data
+```
+
+Where `MetadataBytes` is the raw bytes of the `Metadata` field (pre-serialized
+by the sender), and `Data` is the serialized inner message. The `varint` is an
+unsigned base-128 variable-length integer encoding the byte length of
+`MetadataBytes`. The signature is computed using the sender's long-term identity
+key (Ed25519). The receiver verifies the signature using the sender's public key
 obtained during the Introduction phase.
 
 This provides:
 
 - **Authentication**: Proof that the message was created by the claimed sender.
-- **Integrity**: Any modification to `Data` invalidates the signature.
+- **Integrity**: Any modification to `Metadata` or `Data` invalidates the
+  signature.
 - **Non-repudiation**: The sender cannot deny having sent the message (though
   this is a peer-to-peer context, so non-repudiation is limited to the two
   parties).
@@ -1033,8 +1055,9 @@ Kamune employs defense-in-depth with three independent integrity mechanisms:
 
 1. **AEAD tag** (Poly1305): Authenticates the ciphertext at the encryption
    layer.
-2. **Digital signature** (Ed25519): Authenticates the plaintext message
-   at the signing layer.
+2. **Digital signature** (Ed25519): Authenticates the plaintext message and
+   its metadata (ID, timestamp, sequence, route) at the signing layer using a
+   domain-separated signing input (see §8.1).
 3. **Sequence number**: Provides ordering and replay protection at the session
    layer.
 
@@ -1247,14 +1270,15 @@ the two session participants can decrypt the messages.
 ### 12.2 Integrity
 
 Messages are protected by three independent mechanisms: AEAD authentication
-tags, digital signatures, and sequence-number validation.
+tags, domain-separated digital signatures over metadata and data, and
+sequence-number validation.
 
 ### 12.3 Authentication
 
-Both peers are authenticated during the Introduction phase via digital
-signatures over their identity messages. The Challenge Exchange confirms
-that both parties derived the same shared secret and can operate the
-symmetric ciphers.
+Both peers are authenticated during the Introduction phase via domain-separated
+digital signatures over their identity messages and metadata (see §8.1). The
+Challenge Exchange confirms that both parties derived the same shared secret
+and can operate the symmetric ciphers.
 
 ### 12.4 Forward Secrecy
 
@@ -1373,11 +1397,11 @@ condition and the action the implementation takes.
 
 ## 15. Merged RFCs
 
-This section lists RFCs that have been accepted into the protocol
-specification. Each entry records the RFC identifier, title, target
-version, and the SPEC sections it affects. Draft or withdrawn RFCs
-are not listed here.
+This section lists RFCs that have been accepted into the protocol specification.
+Each entry records the RFC identifier, title, target version, and the SPEC
+sections it affects. Draft or withdrawn RFCs are not listed here.
 
-| RFC    | Title              | Target Version | SPEC Sections                       |
-| ------ | ------------------ | -------------- | ----------------------------------- |
-| RFC001 | Session Resumption | v0.6.0         | §2, §5, §6.8, §7.6, §11.3, §13, §14 |
+| RFC    | Title                        | Target Version | SPEC Sections                            |
+| ------ | ---------------------------- | -------------- | ---------------------------------------- |
+| RFC001 | Session Resumption           | v0.6.0         | §2, §5, §6.8, §7.6, §11.3, §13, §14      |
+| RFC002 | Extend Signature to Metadata | v0.7.0         | §4.2, §6.2, §6.5, §8.1, §8.4, §12.2, §15 |
