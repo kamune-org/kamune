@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte'
-  import { status, appVersion, libraryVersion, logPanelOpen, verificationMode, incognito } from './stores.js'
+  import { status, appVersion, libraryVersion, logPanelOpen, verificationMode, incognito, theme } from './stores.js'
+  import { SetTheme } from '../../wailsjs/go/main/App.js'
 
   const dispatch = createEventDispatcher()
 
@@ -8,10 +9,12 @@
 
   let isDark = document.documentElement.classList.contains('dark')
 
+  $: if ($theme) {
+    isDark = $theme === 'dark'
+  }
+
   function toggleTheme() {
-    isDark = !isDark
-    document.documentElement.classList.toggle('dark', isDark)
-    localStorage.setItem('kamune:theme', isDark ? 'dark' : 'light')
+    SetTheme(isDark ? 'light' : 'dark')
   }
 
   $: indicatorText = $status.message || 'Not connected'

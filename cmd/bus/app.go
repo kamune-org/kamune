@@ -269,6 +269,7 @@ type App struct {
 	logMu         sync.RWMutex
 	logBufferSize int
 	logLevel      string
+	theme         string
 
 	verifMu        sync.Mutex
 	verifRequests  map[int64]*pendingVerification
@@ -550,6 +551,14 @@ func (a *App) initFromStorage() {
 			runtime.EventsEmit(a.ctx, "log-level-changed", logLevel)
 		}
 
+		theme, themeErr := store.GetSettings("bus", "theme")
+		if themeErr == nil && theme != "" {
+			a.mu.Lock()
+			a.theme = theme
+			a.mu.Unlock()
+			runtime.EventsEmit(a.ctx, "theme-changed", theme)
+		}
+
 		runtime.EventsEmit(a.ctx, "storage-ready")
 		runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
 		a.addLogEntry("INFO", "Loaded fingerprint from existing identity")
@@ -781,6 +790,31 @@ func (a *App) UpdateIncognitoMenu(on bool) {
 		a.incognitoMenuItem.Checked = on
 		runtime.MenuUpdateApplicationMenu(a.ctx)
 	}
+}
+
+func (a *App) GetTheme() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.theme
+}
+
+func (a *App) SetTheme(theme string) {
+	a.mu.RLock()
+	if a.theme == theme {
+		a.mu.RUnlock()
+		return
+	}
+	a.mu.RUnlock()
+
+	a.mu.Lock()
+	a.theme = theme
+	a.mu.Unlock()
+
+	if store := a.store(); store != nil {
+		_ = store.SetSettings("bus", "theme", theme)
+	}
+	a.addLogEntry("INFO", "Theme: "+theme)
+	runtime.EventsEmit(a.ctx, "theme-changed", theme)
 }
 
 func (a *App) markRelayTokenConsumed(token string) {

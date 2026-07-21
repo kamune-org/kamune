@@ -54,6 +54,7 @@
         versionWarnings,
         libraryVersion,
         myName,
+        theme,
         relayToken,
         relayTokens,
         p2pTokens,
@@ -212,6 +213,7 @@
         EventsOff("relay-token");
         EventsOff("local-name-changed");
         EventsOff("log-level-changed");
+        EventsOff("theme-changed");
         EventsOff("relay-tokens");
         EventsOff("toast");
         EventsOff("show-share-card");
@@ -302,6 +304,10 @@
         });
         EventsOn("local-name-changed", (name) => {
             myName.set(name);
+        });
+        EventsOn("theme-changed", (t) => {
+            theme.set(t);
+            document.documentElement.classList.toggle('dark', t === 'dark');
         });
         EventsOn("server-running", (running, transportType) => {
             serverActive = running;

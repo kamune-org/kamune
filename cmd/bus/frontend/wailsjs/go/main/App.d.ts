@@ -74,6 +74,8 @@ export function GetStatus():Promise<main.StatusInfo>;
 
 export function GetStorageReady():Promise<boolean>;
 
+export function GetTheme():Promise<string>;
+
 export function GetVerificationMode():Promise<number>;
 
 export function GetVersion():Promise<string>;
@@ -117,6 +119,8 @@ export function SetIncognito(arg1:boolean):Promise<boolean>;
 export function SetLogLevel(arg1:string):Promise<void>;
 
 export function SetMyName(arg1:string):Promise<void>;
+
+export function SetTheme(arg1:string):Promise<void>;
 
 export function SetVerificationMode(arg1:number):Promise<boolean>;
 

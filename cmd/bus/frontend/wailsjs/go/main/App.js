@@ -146,6 +146,10 @@ export function GetStorageReady() {
   return window['go']['main']['App']['GetStorageReady']();
 }
 
+export function GetTheme() {
+  return window['go']['main']['App']['GetTheme']();
+}
+
 export function GetVerificationMode() {
   return window['go']['main']['App']['GetVerificationMode']();
 }
@@ -232,6 +236,10 @@ export function SetLogLevel(arg1) {
 
 export function SetMyName(arg1) {
   return window['go']['main']['App']['SetMyName'](arg1);
+}
+
+export function SetTheme(arg1) {
+  return window['go']['main']['App']['SetTheme'](arg1);
 }
 
 export function SetVerificationMode(arg1) {

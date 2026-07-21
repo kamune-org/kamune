@@ -23,6 +23,7 @@ export const incognito = writable(false)
 export const appVersion = writable('2.0.0')
 export const libraryVersion = writable('')
 export const myName = writable('')
+export const theme = writable('')
 
 export const activeSessionId = writable(null)
 export const sidebarTab = writable('sessions') // 'sessions' | 'peers' | 'history'
