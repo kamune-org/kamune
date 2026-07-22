@@ -24,8 +24,7 @@ func relayDial(relayAddr, tokenHex, password string, store *storage.Storage, ver
 	}
 
 	var sessionTTL time.Duration
-	dialer, err := kamune.NewDialer(relayAddr, store,
-		kamune.DialWithRemoteVerifier(verifyFn),
+	dialer, err := kamune.NewDialer(relayAddr, store, verifyFn,
 		kamune.DialWithFunc(func(addr string) (kamune.Conn, error) {
 			conn, err := relayconn.DialRelay(ctx, addr, token, opts...)
 			if err != nil {

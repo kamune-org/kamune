@@ -8,7 +8,7 @@ import (
 )
 
 func dial(addr string, store *storage.Storage, verifyFn kamune.RemoteVerifier) (*kamune.Transport, error) {
-	dialer, err := kamune.NewDialer(addr, store, kamune.DialWithRemoteVerifier(verifyFn))
+	dialer, err := kamune.NewDialer(addr, store, verifyFn)
 	if err != nil {
 		return nil, fmt.Errorf("create dialer: %w", err)
 	}

@@ -17,12 +17,7 @@ func serve(addr string, store *storage.Storage, verifyFn kamune.RemoteVerifier,
 		return nil
 	}
 
-	srvOpts := []kamune.ServerOptions{
-		kamune.ServeWithRemoteVerifier(verifyFn),
-	}
-	srvOpts = append(srvOpts, opts...)
-
-	srv, err := kamune.NewServer(addr, handler, store, srvOpts...)
+	srv, err := kamune.NewServer(addr, handler, store, verifyFn, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create server: %w", err)
 	}
