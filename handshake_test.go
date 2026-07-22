@@ -11,6 +11,7 @@ import (
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 func TestHandshake(t *testing.T) {
@@ -32,7 +33,7 @@ func TestHandshake(t *testing.T) {
 	serde2 := newSignedSerde(attest1.MarshalPublicKey(), attest2)
 
 	hndshkeOpts := handshakeOpts{
-		remoteVerifier: defaultRemoteVerifier,
+		remoteVerifier: func(*storage.Storage, *storage.Peer) error { return nil },
 		timeout:        30 * time.Second,
 	}
 

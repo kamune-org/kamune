@@ -12,8 +12,6 @@ import (
 	"slices"
 	"time"
 
-	"golang.org/x/term"
-
 	"github.com/kamune-org/kamune/internal/clock"
 	"github.com/kamune-org/kamune/internal/engine"
 	"github.com/kamune-org/kamune/pkg/attest"
@@ -70,14 +68,7 @@ func defaultPassphraseHandler() ([]byte, error) {
 	if envPass := os.Getenv("KAMUNE_DB_PASSPHRASE"); envPass != "" {
 		return []byte(envPass), nil
 	}
-
-	// Backward-compatible fallback for CLI usage.
-	fmt.Println("Enter passphrase:")
-	pass, err := term.ReadPassword(0)
-	if err != nil {
-		return nil, err
-	}
-	return bytes.TrimSpace(pass), nil
+	return nil, fmt.Errorf("no passphrase provided")
 }
 
 type Storage struct {

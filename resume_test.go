@@ -150,7 +150,7 @@ func setupResumptionTest(
 	serde2 := newSignedSerde(att1.MarshalPublicKey(), att2)
 
 	opts := handshakeOpts{
-		remoteVerifier: defaultRemoteVerifier,
+		remoteVerifier: func(*storage.Storage, *storage.Peer) error { return nil },
 		timeout:        30 * time.Second,
 	}
 
@@ -396,7 +396,7 @@ func TestResume_HappyPath(t *testing.T) {
 	serde4 := newSignedSerde(ctx.attest1.MarshalPublicKey(), ctx.attest2)
 
 	opts := handshakeOpts{
-		remoteVerifier: defaultRemoteVerifier,
+		remoteVerifier: func(*storage.Storage, *storage.Peer) error { return nil },
 		timeout:        30 * time.Second,
 		sessionID:      ctx.sessionID,
 	}

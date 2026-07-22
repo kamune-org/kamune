@@ -1,66 +1,15 @@
 package kamune
 
 import (
-	"bufio"
 	"fmt"
-	"os"
-	"strings"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
-	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
-
-// defaultRemoteVerifier prompts the user to accept or reject a peer
-// connection. New peers are stored on acceptance; known peers display
-// their first-seen timestamp.
-func defaultRemoteVerifier(store *storage.Storage, peer *storage.Peer) error {
-	key := peer.PublicKey
-	fmt.Printf("Received a connection request from %q.\n", peer.Name)
-	fmt.Printf(
-		"Their emoji fingerprint: %s\nHex fingerprint: %s\n",
-		strings.Join(fingerprint.Emoji(key), " • "),
-		fingerprint.Hex(key),
-	)
-
-	var isPeerNew bool
-	p, err := store.FindPeer(key)
-	if err != nil {
-		fmt.Println(
-			"Peer is not known. They will be added to the storage if you continue.",
-		)
-		isPeerNew = true
-	} else {
-		fmt.Printf(
-			"Peer is known. First seen was at: %s.\n",
-			p.FirstSeen.Local().Format(time.DateTime),
-		)
-	}
-	fmt.Printf("Proceed? (y/N)? ")
-
-	b := bufio.NewScanner(os.Stdin)
-	b.Scan()
-	answer := strings.TrimSpace(strings.ToLower(b.Text()))
-	if answer != "y" && answer != "yes" {
-		return ErrVerificationFailed
-	}
-
-	if isPeerNew {
-		peer.FirstSeen = time.Now()
-		if err := store.StorePeer(peer); err != nil {
-			fmt.Printf("Error adding peer to the known list: %s\n", err)
-			return nil
-		}
-		fmt.Println("Peer was added to the known list.")
-	}
-
-	return nil
-}
 
 // sendIntroduction sends an identity introduction message to the peer.
 // This is the first message exchanged in a new connection.

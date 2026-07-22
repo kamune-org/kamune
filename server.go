@@ -334,6 +334,7 @@ func NewServer(
 	addr string,
 	handler HandlerFunc,
 	store *storage.Storage,
+	rv RemoteVerifier,
 	opts ...ServerOptions,
 ) (*Server, error) {
 	s := &Server{
@@ -341,7 +342,7 @@ func NewServer(
 		storage:     store,
 		handlerFunc: handler,
 		handshakeOpts: handshakeOpts{
-			remoteVerifier: defaultRemoteVerifier,
+			remoteVerifier: rv,
 			timeout:        30 * time.Second,
 		},
 		clock:         clock.Real(),
@@ -369,14 +370,6 @@ func NewServer(
 // ServerOptions configures the server. Returning an error from an option
 // causes [NewServer] to fail immediately with that error.
 type ServerOptions func(*Server) error
-
-// ServeWithRemoteVerifier sets a custom remote verifier function.
-func ServeWithRemoteVerifier(remote RemoteVerifier) ServerOptions {
-	return func(s *Server) error {
-		s.handshakeOpts.remoteVerifier = remote
-		return nil
-	}
-}
 
 // ServeWithServerName sets the server's advertised name.
 func ServeWithServerName(name string) ServerOptions {

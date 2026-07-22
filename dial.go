@@ -204,14 +204,14 @@ func (d *Dialer) PublicKey() []byte {
 
 // NewDialer creates a new dialer with the given address, storage, and options.
 func NewDialer(
-	addr string, store *storage.Storage, opts ...DialOption,
+	addr string, store *storage.Storage, rv RemoteVerifier, opts ...DialOption,
 ) (*Dialer, error) {
 	d := &Dialer{
 		address:     addr,
 		storage:     store,
 		dialTimeout: 10 * time.Second,
 		handshakeOpts: handshakeOpts{
-			remoteVerifier: defaultRemoteVerifier,
+			remoteVerifier: rv,
 			timeout:        30 * time.Second,
 		},
 	}
@@ -237,14 +237,6 @@ func NewDialer(
 // DialOption configures the dialer. Returning an error from an option causes
 // [NewDialer] to fail immediately with that error.
 type DialOption func(*Dialer) error
-
-// DialWithRemoteVerifier sets a custom remote verifier function.
-func DialWithRemoteVerifier(verifier RemoteVerifier) DialOption {
-	return func(d *Dialer) error {
-		d.handshakeOpts.remoteVerifier = verifier
-		return nil
-	}
-}
 
 // DialWithFunc sets a custom dial function for the dialer. When set, the
 // dialer uses this function instead of the default TCP dial. This is the
