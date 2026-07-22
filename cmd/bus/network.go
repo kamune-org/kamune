@@ -94,7 +94,6 @@ func (a *App) StartServer(
 
 	var firstToken string
 	var opts []kamune.ServerOptions
-	opts = append(opts, kamune.ServeWithRemoteVerifier(a.getVerifier()))
 	opts = append(opts, kamune.ServeWithServerName(name))
 
 	switch transport {
@@ -217,7 +216,7 @@ func (a *App) StartServer(
 		opts = append(opts, kamune.ServeWithTCP())
 	}
 
-	svr, err := kamune.NewServer(addr, a.serverHandler, store, opts...)
+	svr, err := kamune.NewServer(addr, a.serverHandler, store, a.getVerifier(), opts...)
 	if err != nil {
 		a.setStatus(StatusError, "Failed to create server")
 		a.addLogEntry("ERROR", "Failed to create server: "+err.Error())
@@ -511,7 +510,6 @@ func (a *App) ConnectToServer(
 	}
 
 	var opts []kamune.DialOption
-	opts = append(opts, kamune.DialWithRemoteVerifier(a.getVerifier()))
 
 	// P2P: hole-punch the peer via the broker, then run the kamune
 	// handshake on the punched KCP session. The dialer opens a single
@@ -639,7 +637,7 @@ func (a *App) ConnectToServer(
 		}
 	}
 
-	dialer, err := kamune.NewDialer(addr, store, opts...)
+	dialer, err := kamune.NewDialer(addr, store, a.getVerifier(), opts...)
 	if err != nil {
 		a.setStatus(StatusError, "Failed to create dialer")
 		a.addLogEntry("ERROR", "Failed to create dialer: "+err.Error())
@@ -708,7 +706,7 @@ func (a *App) ConnectToServer(
 			}
 		}
 
-		d, err := kamune.NewDialer(addr, store, resumeOpts...)
+		d, err := kamune.NewDialer(addr, store, a.getVerifier(), resumeOpts...)
 		if err != nil {
 			return nil, err
 		}
