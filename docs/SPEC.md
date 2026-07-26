@@ -35,7 +35,7 @@
    - 7.1 [Exchange Phase Keys](#71-exchange-phase-keys)
    - 7.2 [Handshake Phase Key Derivation](#72-handshake-phase-key-derivation)
    - 7.3 [Challenge Tokens](#73-challenge-tokens)
-   - 7.4 [Enigma Cipher](#74-enigma-cipher)
+   - 7.4 [Session AEAD Construction](#74-session-aead-construction)
    - 7.5 [Key Hierarchy Summary](#75-key-hierarchy-summary)
    - 7.6 [Resumption Token Derivation](#76-resumption-token-derivation)
 8. [Message Integrity and Replay Protection](#8-message-integrity-and-replay-protection)
@@ -48,11 +48,11 @@
    - 9.2 [UDP (via KCP)](#92-udp-via-kcp)
    - 9.3 [Relay](#93-relay)
    - 9.4 [Connection Contract](#94-connection-contract)
-10. [Server and Dialer](#10-server-and-dialer)
-    - 10.1 [Server (Responder Role)](#101-server-responder-role)
-    - 10.2 [Dialer (Initiator Role)](#102-dialer-initiator-role)
+10. [Endpoint Roles](#10-endpoint-roles)
+    - 10.1 [Responder Role](#101-responder-role)
+    - 10.2 [Initiator Role](#102-initiator-role)
     - 10.3 [Role Summary](#103-role-summary)
-11. [Storage and Persistence](#11-storage-and-persistence)
+11. [Storage and Persistence (Implementation Profile)](#11-storage-and-persistence-implementation-profile)
     - 11.1 [Database](#111-database)
     - 11.2 [Database Encryption](#112-database-encryption)
     - 11.3 [Stored Entities](#113-stored-entities)
@@ -158,16 +158,18 @@ connection contract that any transport must satisfy:
   the user-message size. Defined as 65,535 minus `reservedProtocolOverhead`.
   See §13 for current values.
 
-Peers MUST reject any frame whose declared length exceeds 65,535 bytes, and MUST
-reject any user message whose size would exceed `maxTransportSize`.
-
-The length prefix is always written and read atomically. The receiver MUST
-consume exactly `Length` bytes for the payload before processing it; partial
-payloads are not a valid message boundary.
+Senders MUST NOT emit a payload larger than 65,535 bytes and MUST reject a user
+message whose encoded form would exceed `maxTransportSize`. Receivers MUST read
+exactly `Length` bytes before processing a frame. A truncated frame is invalid.
+Implementations over byte streams MUST serialize complete frame writes; partial
+underlying writes are an I/O concern and MUST be completed or treated as an
+error before another frame is written.
 
 ### 4.2 Envelope Fields
 
-Every protocol message is wrapped in a `SignedTransport` envelope:
+Every message after the Exchange phase is wrapped in a `SignedTransport`
+envelope. The Exchange phase uses the raw HPKE key-exchange frames defined in
+§6.1.
 
 ```
 SignedTransport {
@@ -183,9 +185,11 @@ SignedTransport {
 | `Data`      | bytes | The serialized inner message (for example, an `Introduce` or `Handshake` message, or application data).                                                                                                    |
 | `Signature` | bytes | Ed25519 signature over the domain-separated signing input (see §8.1), produced with the sender's identity private key.                                                                                     |
 | `Metadata`  | bytes | Pre-serialized `Metadata` message (ID, timestamp, sequence, route), carried as opaque bytes. Serialized once by the sender; those same bytes are used both on the wire and as part of the signature input. |
-| `Padding`   | bytes | Random bytes that pad the serialized envelope up to a bucketed target size (see §12.7). Padding is part of the signed envelope and is verified alongside the message.                                         |
+| `Padding`   | bytes | Random bytes that pad the serialized envelope up to a bucketed target size (see §12.7). Padding is not part of the signature input; encrypted session frames authenticate it with the AEAD tag.                 |
 
-The `Metadata` field contains a serialized `Metadata` message:
+All message definitions in this document use Protocol Buffers proto3 binary
+encoding. The `Metadata` field contains the raw proto3 encoding of a
+`Metadata` message:
 
 ```
 Metadata {
@@ -276,7 +280,7 @@ enum Route {
 
 - Routes `1–6` are **handshake routes** and MUST only appear during session
   establishment.
-- Routes `7–8` are **session routes** and MUST only appear after a session is
+- Routes `7–8` and `13` are **session routes** and MUST only appear after a session is
   fully established.
   - Route `8` (`ROUTE_CLOSE_TRANSPORT`) signals a **graceful teardown**.
     Upon receiving this route, the receiver MUST close the session and surface
@@ -358,7 +362,7 @@ using HPKE (Hybrid Public Key Encryption, RFC 9180) with the MLKEM768-X25519
 hybrid KEM. This protects the subsequent Introduction and Handshake messages
 from eavesdropping.
 
-The HPKE info parameter is a zero-length byte slice (empty byte string), not a language-specific null/nil sentinel.
+The HPKE info parameter is the empty byte string.
 
 ```
 Initiator (Client)             Responder (Server)
@@ -513,6 +517,11 @@ Handshake {
 | `Salt`       | bytes  | 16 bytes of cryptographically random salt generated by the sender.                         |
 | `SessionKey` | string | 12-character base32 half of the session ID — prefix from initiator, suffix from responder. |
 
+For a cold handshake, `SessionKey` MUST be exactly 12 ASCII characters drawn
+from `ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`. For a resumed handshake, it MUST be
+the complete, previously established 24-character session ID. The initiator
+and responder MUST send the same complete value during a resumed handshake.
+
 ```
 Initiator                                    Responder
     |                                            |
@@ -520,7 +529,7 @@ Initiator                                    Responder
     |        Handshake {                         |
     |          Key:  MLKEM PublicKey             |
     |          Salt: 16 random bytes,            |
-    |          SessionKey: 10-char prefix        |
+    |          SessionKey: 12-char prefix        |
     |        }                                   |
     |                                            |
     |   <---- SignedTransport[ACCEPT_HS] -----   |
@@ -554,8 +563,9 @@ Initiator                                    Responder
    - The `SignedTransport` signature is verified using the initiator's public
      key (from the Introduction phase).
    - The route is validated to be `ROUTE_REQUEST_HANDSHAKE`.
-   - The salt length and the session-key length are validated; any other size
-     is rejected.
+   - The salt length and the session-key form are validated; any other value is
+     rejected. A cold handshake accepts only a 12-character half; a resumed
+     handshake accepts only the pre-agreed 24-character session ID.
 
 5. **Responder generates session parameters**:
    - `localSalt`: 16 bytes of cryptographically random data.
@@ -584,7 +594,7 @@ Initiator                                    Responder
 
 9. **Initiator receives the response and derives the secret**:
    - Verifies the signature and route.
-   - Validates the salt length and the session-key length.
+   - Validates the salt length and the session-key form.
    - Constructs `sessionID = sessionPrefix + sessionSuffix`.
    - Decapsulates the responder's `enc` to derive the same shared secret.
 
@@ -633,7 +643,8 @@ Initiator                                     Responder
 
 1. **Initiator generates and sends challenge**:
    - Derives a 32-byte challenge token:
-     `HKDF-SHA512(secret, nil, sessionID + "|" + handshakeC2SInfo + "|" + transcriptHash, 32)`.
+     `HKDF-SHA512(secret, empty, sessionID || 0x7c || handshakeC2SInfo ||
+     0x7c || transcriptHash, 32)`.
      The `secret` is the shared secret from the Handshake phase and
      `handshakeC2SInfo` is `"kamune/handshake/client-to-server/v1/"`.
    - The transcript hash binds the challenge to the specific handshake
@@ -653,7 +664,8 @@ Initiator                                     Responder
 
 4. **Responder generates and sends its own challenge**:
    - Derives a 32-byte challenge token:
-     `HKDF-SHA512(secret, nil, sessionID + "|" + handshakeS2CInfo + "|" + transcriptHash, 32)`
+     `HKDF-SHA512(secret, empty, sessionID || 0x7c || handshakeS2CInfo ||
+     0x7c || transcriptHash, 32)`
      where `handshakeS2CInfo` is `"kamune/handshake/server-to-client/v1/"`.
    - Encrypts and sends it (route: `ROUTE_SEND_CHALLENGE`).
 
@@ -952,21 +964,24 @@ Where:
 Challenge tokens are derived using the same HKDF-SHA512:
 
 ```
-challenge = HKDF-SHA512(secret, nil, sessionID + "|" + directionInfo + "|" + transcriptHash, 32)
+challenge = HKDF-SHA512(
+    IKM = secret,
+    salt = empty,
+    info = UTF8(sessionID) || 0x7c || UTF8(directionInfo) || 0x7c || transcriptHash,
+    L = 32,
+)
 ```
 
 The transcript hash binds the challenge to the specific session's handshake
 payloads, preventing replay and downgrade attacks.
 
-### 7.4 Enigma Cipher
+### 7.4 Session AEAD Construction
 
-The `Enigma` wrapper provides XChaCha20-Poly1305 AEAD encryption:
-
-- `NewEnigma(secret, salt, info)`: Derives a 32-byte key via HKDF-SHA512 and
-  creates an XChaCha20-Poly1305 AEAD cipher.
-- `Encrypt(plaintext)`: Generates a fresh 24-byte random nonce, encrypts with
-  the AEAD, and prepends the nonce to the ciphertext.
-- `Decrypt(ciphertext)`: Extracts the 24-byte nonce, decrypts with the AEAD.
+Each directional session key is used with XChaCha20-Poly1305. For every
+encryption, the sender generates a fresh 24-byte random nonce and emits
+`nonce || ciphertext || tag`. The receiver extracts the first 24 bytes as the
+nonce and verifies the remaining bytes with XChaCha20-Poly1305. No associated
+data is used.
 
 ### 7.5 Key Hierarchy Summary
 
@@ -975,22 +990,38 @@ The `Enigma` wrapper provides XChaCha20-Poly1305 AEAD encryption:
 | Exchange          | HPKE sender/recipient contexts | HPKE internal key schedule (MLKEM768-X25519 + HKDF-SHA512 + ChaCha20-Poly1305)     |
 | Handshake         | 32-byte shared secret          | MLKEM768 Encapsulate/Decapsulate                                                   |
 | Cipher keys       | 32-byte per-direction keys     | HKDF-SHA512(secret, salt, domainInfo)                                              |
-| Challenge tokens  | 32-byte tokens                 | `HKDF-SHA512(secret, nil, sessionID + " \| " + dirInfo + " \| " + transcriptHash)` |
-| Resumption tokens | 32-byte per-token values       | `HKDF-SHA512(resumptionRoot, nil, "kamune/resumption/token/" + index)`             |
+| Challenge tokens  | 32-byte tokens                 | `HKDF-SHA512(secret, empty, sessionID || 0x7c || dirInfo || 0x7c || transcriptHash, 32)` |
+| Resumption tokens | 32-byte per-token values       | Defined exactly in §7.6                                                        |
 
 ### 7.6 Resumption Token Derivation
 
-At session establishment, after the Challenge Exchange succeeds, a resumption
-root is derived from the shared secret and session ID using HKDF-SHA512 with
-the info string `"kamune/resumption-root/v1"`. The root is never stored or
-exposed to the application.
+At session establishment, after the Challenge Exchange succeeds, each peer
+derives a 32-byte resumption root:
 
-From the root, N resumption tokens (each 32 bytes) are derived using
-sequential indices as HKDF info strings with the prefix
-`"kamune/resumption/token/"`. Both sides independently derive the same token
-set without any additional message exchange — this mirrors the existing pattern
-where challenge tokens (§7.3) are derived independently rather than
-transmitted. (RFC001, §4)
+```
+resumptionRoot = HKDF-SHA512(
+    IKM = sharedSecret,
+    salt = UTF8(sessionID),
+    info = UTF8("kamune/resumption-root/v1"),
+    L = 32,
+)
+```
+
+The root is never stored or exposed to the application. Each peer then derives
+exactly 20 tokens, indexed from 0 through 19 inclusive. For token `i`, let
+`I = uint32_be(i)`:
+
+```
+token[i] = HKDF-SHA512(
+    IKM = resumptionRoot,
+    salt = empty,
+    info = UTF8("kamune/resumption/token/") || I,
+    L = 32,
+)
+```
+
+Both peers independently derive the same token set without an additional
+message exchange.
 
 ---
 
@@ -1122,9 +1153,10 @@ Where:
 - **`Close`**: Releases the underlying transport. Subsequent calls return an
   error.
 
-The contract is the only requirement the protocol imposes. `Send` and `Receive`
-may be called concurrently; implementations must guard shared state (sequence
-counters, close flag) with appropriate synchronization.
+The contract is the only requirement the protocol imposes. A conforming
+implementation MUST serialize its outbound session messages so that their wire
+order is the same as their sequence-number order. Sending and receiving may
+otherwise proceed concurrently.
 
 An implementation may additionally expose the underlying connection object (for
 example, a `net.Conn` in environments that provide one) for callers that need
@@ -1137,9 +1169,12 @@ backend that can express itself in those two shapes is a valid kamune transport.
 
 ---
 
-## 10. Server and Dialer
+## 10. Endpoint Roles
 
-### 10.1 Server (Responder Role)
+This section describes endpoint roles, not a required programming interface.
+An implementation MAY use different names or expose different APIs.
+
+### 10.1 Responder Role
 
 A server listens for incoming connections and, for each one, runs the
 Introduction → Handshake → Challenge Exchange sequence in the responder role.
@@ -1153,7 +1188,7 @@ Server flow per connection:
 5. Run the Handshake phase as responder, including the Challenge Exchange.
 6. Hand the established `Transport` to the application's session handler.
 
-Configuration parameters (with their defaults):
+Common implementation parameters include:
 
 - **Handshake timeout**: 30 seconds.
 - **Transport**: pluggable. The Server accepts TCP connections by default, and
@@ -1162,7 +1197,7 @@ Configuration parameters (with their defaults):
 - **Session handler**: A user-supplied callback invoked once per established
   session, receiving the `Transport`.
 
-### 10.2 Dialer (Initiator Role)
+### 10.2 Initiator Role
 
 A dialer opens outgoing connections and runs the same handshake sequence in
 the initiator role.
@@ -1178,7 +1213,7 @@ Dialer flow:
 5. Run the Handshake phase as initiator, including the Challenge Exchange.
 6. Return the established `Transport` to the caller.
 
-Configuration parameters (with their defaults):
+Common implementation parameters include:
 
 - **Dial timeout**: 10 seconds.
 - **Handshake timeout**: 30 seconds.
@@ -1197,7 +1232,10 @@ Configuration parameters (with their defaults):
 
 ---
 
-## 11. Storage and Persistence
+## 11. Storage and Persistence (Implementation Profile)
+
+This section is non-normative. It describes the reference implementation's
+local persistence profile and is not required for protocol interoperability.
 
 <picture>
   <img alt="Storage Key Hierarchy" src="../assets/diagrams/storage-hierarchy.svg">
@@ -1205,7 +1243,7 @@ Configuration parameters (with their defaults):
 
 ### 11.1 Database
 
-Kamune persists its state in an embedded key-value store located at
+The reference implementation persists its state in an embedded key-value store located at
 `~/.config/kamune/db` by default. The location is overridable via the
 `KAMUNE_DB_PATH` environment variable.
 
@@ -1370,9 +1408,9 @@ The bump is selected independently per message and capped at bucket 6.
 
 ## 14. Error Conditions
 
-The following table lists the conditions under which the protocol reports an
-error to the application layer. Each row describes a single observable
-condition and the action the implementation takes.
+The following table lists protocol failure conditions. An implementation MAY
+map them to language- or application-specific errors, but the stated connection
+action is normative.
 
 | Condition                                                                                                                 | Action                                                                     |
 | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
