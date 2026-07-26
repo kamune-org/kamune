@@ -138,6 +138,15 @@ type StatusInfo struct {
 	Message string           `json:"message"`
 }
 
+type ServerStatusInfo struct {
+	Running   bool   `json:"running"`
+	Transport string `json:"transport"`
+	Addr      string `json:"addr"`
+	RelayAddr string `json:"relayAddr"`
+	Name      string `json:"name"`
+	StartedAt string `json:"startedAt,omitempty"`
+}
+
 type LogEntryInfo struct {
 	Timestamp time.Time `json:"timestamp"`
 	Level     string    `json:"level"`
@@ -979,6 +988,31 @@ func (a *App) GetServerBrokerAddr() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.serverBrokerAddr
+}
+
+func (a *App) GetServerStatus() ServerStatusInfo {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	status := ServerStatusInfo{
+		Running:   a.server != nil,
+		Transport: a.serverTransportType,
+		Addr:      a.serverAddr,
+		RelayAddr: a.serverRelayAddr,
+		Name:      a.serverName,
+	}
+	if status.Running {
+		var earliest time.Time
+		for _, s := range a.sessions {
+			if s.IsServer && !s.SessionStartedAt.IsZero() &&
+				(earliest.IsZero() || s.SessionStartedAt.Before(earliest)) {
+				earliest = s.SessionStartedAt
+			}
+		}
+		if !earliest.IsZero() {
+			status.StartedAt = earliest.Format(time.RFC3339)
+		}
+	}
+	return status
 }
 
 func (a *App) GetRelayToken() string {
