@@ -24,7 +24,7 @@ import (
 func (d *Daemon) handleStartServer(cmd Command) {
 	var params StartServerParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -40,6 +40,9 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	d.serverRelayAddr = params.RelayAddr
 	d.serverName = params.Name
 	d.serverPassword = params.Password
+	d.serverBrokerAddr = params.BrokerAddr
+	d.serverPeerPubB64 = params.PeerPubB64
+	d.serverDirectPeerAddr = params.DirectPeerAddr
 	d.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -62,7 +65,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	store := d.store()
 	if store == nil {
 		d.setStatus(StatusError, "Storage is not available")
-		d.emitError(cmd.ID, "storage is not available")
+		d.emitError(cmd.ID, "storage_unavailable", "storage is not available")
 		return
 	}
 
@@ -71,7 +74,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		pubKey, err := store.PublicKey()
 		if err != nil {
 			d.setStatus(StatusError, "Failed to get identity")
-			d.emitError(cmd.ID, fmt.Sprintf("getting identity: %v", err))
+			d.emitError(cmd.ID, "identity_unavailable", fmt.Sprintf("getting identity: %v", err))
 			return
 		}
 		name = fingerprint.Pseudonym(pubKey)
@@ -86,7 +89,6 @@ func (d *Daemon) handleStartServer(cmd Command) {
 
 	var firstToken string
 	var opts []kamune.ServerOptions
-	opts = append(opts, kamune.ServeWithRemoteVerifier(d.getVerifier()))
 	opts = append(opts, kamune.ServeWithServerName(name))
 
 	switch params.Transport {
@@ -114,11 +116,11 @@ func (d *Daemon) handleStartServer(cmd Command) {
 			}
 			d.setStatus(StatusError, "Failed to connect to relay")
 			d.addLogEntry("ERROR", "Relay listen failed: "+err.Error())
-			d.emitError(cmd.ID, fmt.Sprintf("relay listen: %v", err))
+			d.emitError(cmd.ID, "relay_listen_failed", fmt.Sprintf("relay listen: %v", err))
 			return
 		}
 		if err := ml.Add(listener); err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("add listener: %v", err))
+			d.emitError(cmd.ID, "listener_failed", fmt.Sprintf("add listener: %v", err))
 			return
 		}
 		firstToken = token
@@ -145,7 +147,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 			if err != nil {
 				d.mu.Unlock()
 				d.setStatus(StatusError, "Failed to create broker client")
-				d.emitError(cmd.ID, fmt.Sprintf("broker client: %v", err))
+				d.emitError(cmd.ID, "broker_client_failed", fmt.Sprintf("broker client: %v", err))
 				return
 			}
 			d.brokerClient = bc
@@ -157,14 +159,14 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to create p2p token")
-			d.emitError(cmd.ID, fmt.Sprintf("p2p token: %v", err))
+			d.emitError(cmd.ID, "p2p_token_failed", fmt.Sprintf("p2p token: %v", err))
 			return
 		}
 
 		tokenBytes, err := hex.DecodeString(tokenHex)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to decode p2p token")
-			d.emitError(cmd.ID, fmt.Sprintf("decode token: %v", err))
+			d.emitError(cmd.ID, "token_decode_failed", fmt.Sprintf("decode token: %v", err))
 			return
 		}
 		pl, err := newP2PListener(
@@ -172,7 +174,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to create p2p listener")
-			d.emitError(cmd.ID, fmt.Sprintf("p2p listener: %v", err))
+			d.emitError(cmd.ID, "p2p_listener_failed", fmt.Sprintf("p2p listener: %v", err))
 			return
 		}
 		opts = append(opts, kamune.ServeWithUDP())
@@ -185,7 +187,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to create direct p2p listener")
-			d.emitError(cmd.ID, fmt.Sprintf("direct p2p listener: %v", err))
+			d.emitError(cmd.ID, "direct_p2p_failed", fmt.Sprintf("direct p2p listener: %v", err))
 			return
 		}
 		opts = append(opts, kamune.ServeWithListener(pl))
@@ -196,11 +198,11 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		opts = append(opts, kamune.ServeWithTCP())
 	}
 
-	srv, err := kamune.NewServer(params.Addr, d.serverHandler, store, opts...)
+	srv, err := kamune.NewServer(params.Addr, d.serverHandler, store, d.getVerifier(), opts...)
 	if err != nil {
 		d.setStatus(StatusError, "Failed to create server")
 		d.addLogEntry("ERROR", "Failed to create server: "+err.Error())
-		d.emitError(cmd.ID, fmt.Sprintf("create server: %v", err))
+		d.emitError(cmd.ID, "create_server_failed", fmt.Sprintf("create server: %v", err))
 		return
 	}
 
@@ -235,6 +237,9 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		d.relayAddr = ""
 		d.relayPassword = ""
 		d.relayListeners = nil
+		d.serverBrokerAddr = ""
+		d.serverPeerPubB64 = ""
+		d.serverDirectPeerAddr = ""
 		d.server = nil
 		d.mu.Unlock()
 		d.emit(EvtServerRunning, "", MapA{
@@ -331,6 +336,9 @@ func (d *Daemon) handleRestartServer(cmd Command) {
 	relayAddr := d.serverRelayAddr
 	name := d.serverName
 	password := d.serverPassword
+	brokerAddr := d.serverBrokerAddr
+	peerPubB64 := d.serverPeerPubB64
+	directPeerAddr := d.serverDirectPeerAddr
 	d.mu.RUnlock()
 
 	d.addLogEntry("INFO", "Restarting server to apply settings change")
@@ -341,6 +349,8 @@ func (d *Daemon) handleRestartServer(cmd Command) {
 		Params: mustJSON(StartServerParams{
 			Addr: addr, Transport: transport,
 			RelayAddr: relayAddr, Password: password, Name: name,
+			BrokerAddr: brokerAddr, PeerPubB64: peerPubB64,
+			DirectPeerAddr: directPeerAddr,
 		}),
 	})
 }
@@ -408,7 +418,7 @@ func (d *Daemon) handleGetStatus(cmd Command) {
 func (d *Daemon) handleDial(cmd Command) {
 	var params DialParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -420,18 +430,17 @@ func (d *Daemon) handleDial(cmd Command) {
 
 	store := d.store()
 	if store == nil {
-		d.emitError(cmd.ID, "storage is not available")
+		d.emitError(cmd.ID, "storage_unavailable", "storage is not available")
 		return
 	}
 
 	var opts []kamune.DialOption
-	opts = append(opts, kamune.DialWithRemoteVerifier(d.getVerifier()))
 
 	name := params.Name
 	if name == "" || d.incognito {
 		pubKey, err := store.PublicKey()
 		if err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("getting identity: %v", err))
+			d.emitError(cmd.ID, "identity_unavailable", fmt.Sprintf("getting identity: %v", err))
 			return
 		}
 		name = fingerprint.Pseudonym(pubKey)
@@ -455,7 +464,7 @@ func (d *Daemon) handleDial(cmd Command) {
 		if err != nil {
 			d.setStatus(StatusError, "Failed to prepare relay dial")
 			d.addLogEntry("ERROR", "Relay dial preparation failed: "+err.Error())
-			d.emitError(cmd.ID, fmt.Sprintf("relay dial func: %v", err))
+			d.emitError(cmd.ID, "relay_dial_failed", fmt.Sprintf("relay dial func: %v", err))
 			return
 		}
 		opts = append(opts, kamune.DialWithFunc(fn))
@@ -467,7 +476,7 @@ func (d *Daemon) handleDial(cmd Command) {
 				bc, err := NewBrokerClient()
 				if err != nil {
 					d.mu.Unlock()
-					d.emitError(cmd.ID, fmt.Sprintf("broker client: %v", err))
+					d.emitError(cmd.ID, "broker_client_failed", fmt.Sprintf("broker client: %v", err))
 					return
 				}
 				d.brokerClient = bc
@@ -479,7 +488,7 @@ func (d *Daemon) handleDial(cmd Command) {
 			[]byte(params.P2PToken),
 		)
 		if err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("wait match: %v", err))
+			d.emitError(cmd.ID, "p2p_match_failed", fmt.Sprintf("wait match: %v", err))
 			return
 		}
 		conn, err := d.brokerClient.HolePunch(
@@ -487,7 +496,7 @@ func (d *Daemon) handleDial(cmd Command) {
 			payload.IP, payload.Port, DefaultHolePunchTimeout,
 		)
 		if err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("hole punch: %v", err))
+			d.emitError(cmd.ID, "hole_punch_failed", fmt.Sprintf("hole punch: %v", err))
 			return
 		}
 		opts = append(opts, kamune.DialWithFunc(
@@ -499,7 +508,7 @@ func (d *Daemon) handleDial(cmd Command) {
 	case "direct-p2p":
 		conn, err := directP2PDial(params.DirectPeerAddr)
 		if err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("direct p2p dial: %v", err))
+			d.emitError(cmd.ID, "direct_p2p_failed", fmt.Sprintf("direct p2p dial: %v", err))
 			return
 		}
 		opts = append(opts, kamune.DialWithFunc(
@@ -517,15 +526,15 @@ func (d *Daemon) handleDial(cmd Command) {
 	d.wg.Go(func() {
 		defer func() {
 			if msg := recover(); msg != nil {
-				d.emitError(cmd.ID, fmt.Sprintf("goroutine panic: %v", msg))
+				d.emitError(cmd.ID, "goroutine_panic", fmt.Sprintf("goroutine panic: %v", msg))
 			}
 		}()
 
-		dialer, err := kamune.NewDialer(params.Addr, store, opts...)
+		dialer, err := kamune.NewDialer(params.Addr, store, d.getVerifier(), opts...)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to create dialer")
 			d.addLogEntry("ERROR", "Failed to create dialer: "+err.Error())
-			d.emitError(cmd.ID, fmt.Sprintf("create dialer: %v", err))
+			d.emitError(cmd.ID, "create_dialer_failed", fmt.Sprintf("create dialer: %v", err))
 			return
 		}
 
@@ -533,7 +542,7 @@ func (d *Daemon) handleDial(cmd Command) {
 		if err != nil {
 			d.setStatus(StatusError, "Connection failed")
 			d.addLogEntry("ERROR", "Dial failed: "+err.Error())
-			d.emitError(cmd.ID, fmt.Sprintf("dial: %v", err))
+			d.emitError(cmd.ID, "dial_failed", fmt.Sprintf("dial: %v", err))
 			return
 		}
 
@@ -550,6 +559,7 @@ func (d *Daemon) handleDial(cmd Command) {
 			PeerName:         peer.Name,
 			RemoteVersion:    peer.AppVersion,
 			RemoteAddr:       params.Addr,
+			Cause:            "dial",
 			Transport:        t,
 			Messages:         make([]MessageInfo, 0),
 			LastActivity:     time.Now(),
@@ -620,6 +630,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 		ID:               sessionID,
 		PeerName:         peer.Name,
 		RemoteVersion:    peer.AppVersion,
+		Cause:            "incoming",
 		Transport:        t,
 		Messages:         make([]MessageInfo, 0),
 		LastActivity:     time.Now(),
@@ -688,7 +699,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 func (d *Daemon) handleCloseSession(cmd Command) {
 	var params CloseSessionParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -696,9 +707,9 @@ func (d *Daemon) handleCloseSession(cmd Command) {
 	session, ok := d.sessions[params.SessionID]
 	if !ok {
 		d.mu.Unlock()
-		d.emitError(
-			cmd.ID, fmt.Sprintf("session not found: %s", params.SessionID),
-		)
+	d.emitError(
+		cmd.ID, "session_not_found", fmt.Sprintf("session not found: %s", params.SessionID),
+	)
 		return
 	}
 	delete(d.sessions, params.SessionID)
@@ -731,7 +742,7 @@ func (d *Daemon) handleListSessions(cmd Command) {
 func (d *Daemon) handleRenameSession(cmd Command) {
 	var params RenameSessionParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -755,7 +766,7 @@ func (d *Daemon) handleGenerateP2PToken(cmd Command) {
 		PeerPubB64 string `json:"peer_pub_b64,omitempty"`
 	}
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -764,7 +775,7 @@ func (d *Daemon) handleGenerateP2PToken(cmd Command) {
 		bc, err := NewBrokerClient()
 		if err != nil {
 			d.mu.Unlock()
-			d.emitError(cmd.ID, fmt.Sprintf("broker client: %v", err))
+			d.emitError(cmd.ID, "broker_client_failed", fmt.Sprintf("broker client: %v", err))
 			return
 		}
 		d.brokerClient = bc
@@ -773,7 +784,7 @@ func (d *Daemon) handleGenerateP2PToken(cmd Command) {
 
 	tokenHex, err := d.GenerateP2PToken(params.BrokerAddr, params.PeerPubB64)
 	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("generate p2p token: %v", err))
+		d.emitError(cmd.ID, "p2p_token_failed", fmt.Sprintf("generate p2p token: %v", err))
 		return
 	}
 	d.emit(EvtResponse, cmd.ID, MapA{
@@ -788,11 +799,11 @@ func (d *Daemon) handleRemoveP2PToken(cmd Command) {
 		Token string `json:"token"`
 	}
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 	if err := d.RemoveP2PToken(params.Token); err != nil {
-		d.emitError(cmd.ID, err.Error())
+		d.emitError(cmd.ID, "p2p_token_remove_failed", err.Error())
 		return
 	}
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "removed"})
@@ -916,7 +927,7 @@ func (d *Daemon) makeReconnectFn(sessionID string, params *DialParams, store *st
 				}
 			}
 		}
-		dl, err := kamune.NewDialer(addr, store, resumeOpts...)
+		dl, err := kamune.NewDialer(addr, store, d.getVerifier(), resumeOpts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1046,7 +1057,7 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 	d.mu.Lock()
 	if d.relayListeners == nil {
 		d.mu.Unlock()
-		d.emitError(cmd.ID, "relay is not configured — start a relay server first")
+		d.emitError(cmd.ID, "relay_not_configured", "relay is not configured — start a relay server first")
 		return
 	}
 	relayAddr := d.relayAddr
@@ -1067,7 +1078,7 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 		context.Background(), d, relayAddr, relayPassword, false, staticToken,
 	)
 	if err != nil {
-		d.emitError(cmd.ID, err.Error())
+		d.emitError(cmd.ID, "relay_listen_failed", err.Error())
 		return
 	}
 
@@ -1075,18 +1086,19 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 	if d.relayListeners == nil {
 		d.mu.Unlock()
 		listener.Close()
-		d.emitError(cmd.ID, "server stopped while generating token")
+		d.emitError(cmd.ID, "server_stopped", "server stopped while generating token")
 		return
 	}
 	if err := d.relayListeners.Add(listener); err != nil {
 		d.mu.Unlock()
-		d.emitError(cmd.ID, fmt.Sprintf("add listener: %v", err))
+		d.emitError(cmd.ID, "listener_failed", fmt.Sprintf("add listener: %v", err))
 		return
 	}
 	d.relayTokens = append(d.relayTokens, relayToken{
 		Token: token, TTL: ttl, SessionTTL: sessionTTL,
 		ExpiresAt: time.Now().Add(ttl), Mode: relayMode,
-		listener: listener,
+		PeerPubB64: params.PeerPubB64,
+		listener:   listener,
 	})
 	tokens := make([]relayToken, len(d.relayTokens))
 	copy(tokens, d.relayTokens)
@@ -1104,7 +1116,7 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 func (d *Daemon) handleRemoveRelayToken(cmd Command) {
 	var params RemoveRelayTokenParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -1118,7 +1130,7 @@ func (d *Daemon) handleRemoveRelayToken(cmd Command) {
 	}
 	if idx == -1 {
 		d.mu.Unlock()
-		d.emitError(cmd.ID, "token not found")
+		d.emitError(cmd.ID, "token_not_found", "token not found")
 		return
 	}
 	rt := d.relayTokens[idx]
@@ -1148,7 +1160,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 	d.mu.RLock()
 	if d.server == nil {
 		d.mu.RUnlock()
-		d.emitError(cmd.ID, "server is not running")
+		d.emitError(cmd.ID, "server_not_running", "server is not running")
 		return
 	}
 	transport := d.serverTransport
@@ -1175,7 +1187,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 		if autoDetect {
 			ip, err := detectLocalIP()
 			if err != nil {
-				d.emitError(cmd.ID, fmt.Sprintf("detect local IP: %v", err))
+				d.emitError(cmd.ID, "detect_ip_failed", fmt.Sprintf("detect local IP: %v", err))
 				return
 			}
 			address = ip
@@ -1192,7 +1204,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 			context.Background(), d, relayAddr, relayPassword, false, nil,
 		)
 		if err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("generate relay token: %v", err))
+			d.emitError(cmd.ID, "relay_token_failed", fmt.Sprintf("generate relay token: %v", err))
 			return
 		}
 
@@ -1200,13 +1212,13 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 		if d.relayListeners == nil {
 			d.mu.Unlock()
 			listener.Close()
-			d.emitError(cmd.ID, "server stopped while generating token")
+			d.emitError(cmd.ID, "server_stopped", "server stopped while generating token")
 			return
 		}
 		if err := d.relayListeners.Add(listener); err != nil {
 			d.mu.Unlock()
 			listener.Close()
-			d.emitError(cmd.ID, fmt.Sprintf("add listener: %v", err))
+			d.emitError(cmd.ID, "listener_failed", fmt.Sprintf("add listener: %v", err))
 			return
 		}
 		d.relayTokens = append(d.relayTokens, relayToken{
@@ -1230,7 +1242,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 			urlStr += "&password=1"
 		}
 	default:
-		d.emitError(cmd.ID, fmt.Sprintf("unknown transport: %s", transport))
+		d.emitError(cmd.ID, "unknown_transport", fmt.Sprintf("unknown transport: %s", transport))
 		return
 	}
 
@@ -1302,6 +1314,7 @@ func (d *Daemon) sessionInfoLocked(s *liveSession) SessionInfo {
 		LastActivity:     s.LastActivity,
 		TransportType:    s.TransportType,
 		RemoteVersion:    s.RemoteVersion,
+		Cause:            s.Cause,
 		SessionTTL:       s.SessionTTL,
 		SessionStartedAt: s.SessionStartedAt,
 		RemoteAddr:       s.RemoteAddr,
