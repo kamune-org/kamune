@@ -250,19 +250,12 @@ func (s *Server) handleResume(
 	sessionID := req.GetSessionID()
 	token := req.GetToken()
 
-	err := s.storage.RemoveListItem(
-		sessionID, storage.ResumptionTokensKey, token,
-	)
+	peer, err := s.storage.GetPeer(sessionID)
 	if err != nil {
 		if err := sendResumeAccept(ec, s.attest, false); err != nil {
 			return fmt.Errorf("sending resume accept: %w", err)
 		}
-		return fmt.Errorf("resume rejected: token invalid")
-	}
-
-	peer, err := s.storage.GetPeer(sessionID)
-	if err != nil {
-		return fmt.Errorf("get session peer: %w", err)
+		return fmt.Errorf("resume rejected: unknown session")
 	}
 	establishedAt, err := s.storage.GetEstablishedAt(sessionID)
 	if err != nil {
@@ -287,6 +280,16 @@ func (s *Server) handleResume(
 			return fmt.Errorf("sending resume accept: %w", err)
 		}
 		return fmt.Errorf("resume rejected: session expired")
+	}
+
+	// Consume the single-use token only after authenticating the request and
+	// checking its session. A malformed request must not burn a valid token.
+	err = s.storage.RemoveListItem(sessionID, storage.ResumptionTokensKey, token)
+	if err != nil {
+		if err := sendResumeAccept(ec, s.attest, false); err != nil {
+			return fmt.Errorf("sending resume accept: %w", err)
+		}
+		return fmt.Errorf("resume rejected: token invalid")
 	}
 
 	// Resume accepted — send accept and proceed to handshake.

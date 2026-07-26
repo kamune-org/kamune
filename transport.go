@@ -33,6 +33,7 @@ type Transport struct {
 	encoder        *enigma.Enigma
 	decoder        *enigma.Enigma
 	mu             *sync.Mutex
+	sendMu         sync.Mutex
 	remotePeer     *storage.Peer
 	sessionID      string
 	resumptionRoot []byte
@@ -119,11 +120,13 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
 	}
 
-	t.mu.Lock()
-	t.sendSequence++
-	seq := t.sendSequence
-	t.mu.Unlock()
+	// Keep sequence allocation, serialization, and the frame write in the same
+	// critical section. Otherwise concurrent callers can put later sequence
+	// numbers on the wire first, or a serialization failure can create a gap.
+	t.sendMu.Lock()
+	defer t.sendMu.Unlock()
 
+	seq := t.sendSequence + 1
 	payload, metadata, err := t.serde.serialize(message, route, seq)
 	if err != nil {
 		return nil, fmt.Errorf("serializing: %w", err)
@@ -132,6 +135,7 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 	if err := t.conn.WriteBytes(t.encoder.Encrypt(payload)); err != nil {
 		return nil, fmt.Errorf("writing: %w", err)
 	}
+	t.sendSequence = seq
 
 	return metadata, nil
 }

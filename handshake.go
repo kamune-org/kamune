@@ -84,6 +84,9 @@ func requestHandshake(
 	if err != nil {
 		return nil, fmt.Errorf("invalid remote handshake fields: %w", err)
 	}
+	if opts.sessionID != "" && resp.GetSessionKey() != opts.sessionID {
+		return nil, fmt.Errorf("resumed handshake session ID mismatch")
+	}
 
 	if opts.sessionID == "" {
 		// Cold handshake: use the sessionSuffix from the response.
@@ -165,6 +168,9 @@ func acceptHandshake(
 	err = validateHandshakeFields(req.GetSalt(), req.GetSessionKey())
 	if err != nil {
 		return nil, fmt.Errorf("invalid remote handshake fields: %w", err)
+	}
+	if opts.sessionID != "" && req.GetSessionKey() != opts.sessionID {
+		return nil, fmt.Errorf("resumed handshake session ID mismatch")
 	}
 
 	// Step 2: Encapsulate secret and prepare response
