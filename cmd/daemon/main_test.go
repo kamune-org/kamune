@@ -501,6 +501,7 @@ func TestSessionInfo(t *testing.T) {
 		LastActivity:     ts,
 		TransportType:    "relay",
 		RemoteVersion:    "0.5.0",
+		Cause:            "dial",
 		SessionTTL:       time.Hour,
 		SessionStartedAt: ts,
 		RemoteAddr:       "192.168.1.10:9000",
@@ -520,9 +521,34 @@ func TestSessionInfo(t *testing.T) {
 	a.True(info.LastActivity.Equal(decoded.LastActivity), "LastActivity mismatch")
 	a.Equal(info.TransportType, decoded.TransportType, "TransportType mismatch")
 	a.Equal(info.RemoteVersion, decoded.RemoteVersion, "RemoteVersion mismatch")
+	a.Equal(info.Cause, decoded.Cause, "Cause mismatch")
 	a.Equal(info.SessionTTL, decoded.SessionTTL, "SessionTTL mismatch")
 	a.True(info.SessionStartedAt.Equal(decoded.SessionStartedAt), "SessionStartedAt mismatch")
 	a.Equal(info.RemoteAddr, decoded.RemoteAddr, "RemoteAddr mismatch")
+}
+
+func TestSessionInfoZeroLastActivity(t *testing.T) {
+	a := require.New(t)
+	info := SessionInfo{
+		SessionID:        "test-zero",
+		PeerName:         "TestPeer",
+		IsServer:         false,
+		SessionTTL:       time.Minute,
+		SessionStartedAt: time.Now(),
+	}
+
+	data, err := json.Marshal(info)
+	a.NoError(err)
+
+	var raw map[string]any
+	a.NoError(json.Unmarshal(data, &raw))
+
+	_, hasLA := raw["last_activity"]
+	a.False(hasLA, "zero last_activity should be omitted from JSON")
+
+	var decoded SessionInfo
+	a.NoError(json.Unmarshal(data, &decoded))
+	a.True(decoded.LastActivity.IsZero(), "zero last_activity should round-trip as zero")
 }
 
 func TestDaemonNew(t *testing.T) {
@@ -572,7 +598,25 @@ func TestCommandConstants(t *testing.T) {
 		"set_my_name":            CmdSetMyName,
 		"get_version":            CmdGetVersion,
 		"get_library_version":    CmdGetLibraryVersion,
+		"get_incognito":          CmdGetIncognito,
+		"set_incognito":          CmdSetIncognito,
 		"shutdown":               CmdShutdown,
+		"generate_p2p_token":     CmdGenerateP2PToken,
+		"remove_p2p_token":       CmdRemoveP2PToken,
+		"list_p2p_tokens":        CmdListP2PTokens,
+		"add_peer":               CmdAddPeer,
+		"rename_peer":            CmdRenamePeer,
+		"get_peer":               CmdGetPeer,
+		"get_session_info":       CmdGetSessionInfo,
+		"get_logs":               CmdGetLogs,
+		"clear_logs":             CmdClearLogs,
+		"export_logs":            CmdExportLogs,
+		"get_log_level":          CmdGetLogLevel,
+		"set_log_level":          CmdSetLogLevel,
+		"has_keychain_passphrase":   CmdHasKeychainPassphrase,
+		"clear_keychain_passphrase": CmdClearKeychainPassphrase,
+		"get_fingerprint_format":    CmdGetFingerprintFormat,
+		"set_fingerprint_format":    CmdSetFingerprintFormat,
 	}
 
 	for expected, actual := range expectedCommands {
@@ -604,6 +648,10 @@ func TestEventConstants(t *testing.T) {
 		"local_name_changed":     EvtLocalNameChanged,
 		"error":                  EvtError,
 		"response":               EvtResponse,
+		"p2p_tokens":             EvtP2PTokens,
+		"log_entry":              EvtLogEntry,
+		"session_reconnecting":   EvtSessionReconnecting,
+		"session_reconnected":    EvtSessionReconnected,
 	}
 
 	for expected, actual := range expectedEvents {

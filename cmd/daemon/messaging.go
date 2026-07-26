@@ -19,7 +19,7 @@ import (
 func (d *Daemon) handleSendMessage(cmd Command) {
 	var params SendMessageParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -29,14 +29,14 @@ func (d *Daemon) handleSendMessage(cmd Command) {
 
 	if !ok {
 		d.emitError(
-			cmd.ID, fmt.Sprintf("session not found: %s", params.SessionID),
+			cmd.ID, "session_not_found", fmt.Sprintf("session not found: %s", params.SessionID),
 		)
 		return
 	}
 
 	data, err := base64.StdEncoding.DecodeString(params.DataBase64)
 	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid base64 data: %v", err))
+		d.emitError(cmd.ID, "invalid_base64", fmt.Sprintf("invalid base64 data: %v", err))
 		return
 	}
 
@@ -44,7 +44,7 @@ func (d *Daemon) handleSendMessage(cmd Command) {
 		kamune.Bytes(data), kamune.RouteExchangeMessages,
 	)
 	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("failed to send message: %v", err))
+		d.emitError(cmd.ID, "send_message_failed", fmt.Sprintf("failed to send message: %v", err))
 		return
 	}
 
@@ -301,6 +301,12 @@ func (d *Daemon) reconnectSession(session *liveSession) bool {
 
 		d.addLogEntry("INFO", "Reconnecting session "+session.ID+" (attempt "+strconv.Itoa(attempt+1)+"/"+strconv.Itoa(maxAttempts)+")")
 
+		d.emit(EvtSessionReconnecting, "", MapA{
+			"session_id":   session.ID,
+			"attempt":      attempt + 1,
+			"max_attempts": maxAttempts,
+		})
+
 		t, err := session.reconnectFn(session.ID)
 		if err != nil {
 			d.addLogEntry("WARN", "Reconnect failed: "+err.Error())
@@ -316,6 +322,7 @@ func (d *Daemon) reconnectSession(session *liveSession) bool {
 		d.mu.Unlock()
 
 		d.addLogEntry("INFO", "Reconnected session "+session.ID)
+		d.emit(EvtSessionReconnected, "", MapS{"session_id": session.ID})
 		go d.keepAliveLoop(session)
 		return true
 	}

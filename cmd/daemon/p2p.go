@@ -22,10 +22,10 @@ const p2pTokenRefreshInterval = 30 * time.Second
 type p2pToken struct {
 	Token      string             `json:"token"`
 	Consumed   bool               `json:"consumed"`
-	TTL        time.Duration      `json:"ttl"`
-	ExpiresAt  time.Time          `json:"expiresAt"`
+	TTL        time.Duration      `json:"ttl_ns"`
+	ExpiresAt  time.Time          `json:"expires_at"`
 	Mode       string             `json:"mode"`
-	PeerPubB64 string             `json:"peerPubB64,omitempty"`
+	PeerPubB64 string             `json:"peer_pub_b64,omitempty"`
 	brokerAddr string             `json:"-"`
 	ctx        context.Context    `json:"-"`
 	cancel     context.CancelFunc `json:"-"`

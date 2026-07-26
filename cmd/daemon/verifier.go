@@ -188,7 +188,7 @@ func (d *Daemon) awaitVerification(reqID int64, result chan error) error {
 func (d *Daemon) handleVerifyResponse(cmd Command) {
 	var params VerifyResponseParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -199,7 +199,7 @@ func (d *Daemon) handleVerifyResponse(cmd Command) {
 	if !ok {
 		d.addLogEntry("WARN",
 			fmt.Sprintf("Verification request not found: %d", params.RequestID))
-		d.emitError(cmd.ID, "verification request not found")
+		d.emitError(cmd.ID, "verification_not_found", "verification request not found")
 		return
 	}
 
@@ -226,13 +226,13 @@ func (d *Daemon) handleVerifyResponse(cmd Command) {
 func (d *Daemon) handleSetVerificationMode(cmd Command) {
 	var params SetVerificationModeParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
 	mode := VerificationMode(params.Mode)
 	if mode < VerificationModeStrict || mode > VerificationModeAutoAccept {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid mode: %d", params.Mode))
+		d.emitError(cmd.ID, "invalid_verification_mode", fmt.Sprintf("invalid mode: %d", params.Mode))
 		return
 	}
 

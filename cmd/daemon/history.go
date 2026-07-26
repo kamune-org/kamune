@@ -64,6 +64,12 @@ func (d *Daemon) loadIdentityAndHistory() {
 		d.mu.Unlock()
 	}
 
+	if fmtStr, fmtErr := store.GetSettings("daemon", "fingerprint_format"); fmtErr == nil && fmtStr != "" {
+		d.mu.Lock()
+		d.fingerprintFmt = fmtStr
+		d.mu.Unlock()
+	}
+
 	d.loadHistorySessions()
 }
 
@@ -119,7 +125,7 @@ func (d *Daemon) handleGetHistorySessions(cmd Command) {
 func (d *Daemon) handleGetHistoryMessages(cmd Command) {
 	var params GetHistoryMessagesParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -136,6 +142,7 @@ func (d *Daemon) handleGetHistoryMessages(cmd Command) {
 	if !found {
 		d.emitError(
 			cmd.ID,
+			"history_not_loaded",
 			"history session not loaded — call load_history first",
 		)
 		return
@@ -143,14 +150,14 @@ func (d *Daemon) handleGetHistoryMessages(cmd Command) {
 
 	store := d.store()
 	if store == nil {
-		d.emitError(cmd.ID, "storage is not available")
+		d.emitError(cmd.ID, "storage_unavailable", "storage is not available")
 		return
 	}
 
 	entries, err := store.GetChatHistory(params.SessionID)
 	if err != nil {
 		d.addLogEntry("ERROR", "Failed to get chat history: "+err.Error())
-		d.emitError(cmd.ID, fmt.Sprintf("failed to get chat history: %v", err))
+		d.emitError(cmd.ID, "history_fetch_failed", fmt.Sprintf("failed to get chat history: %v", err))
 		return
 	}
 
@@ -169,7 +176,7 @@ func (d *Daemon) handleGetHistoryMessages(cmd Command) {
 func (d *Daemon) handleLoadHistory(cmd Command) {
 	var params LoadHistoryParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -190,19 +197,19 @@ func (d *Daemon) handleLoadHistory(cmd Command) {
 func (d *Daemon) handleRenameHistorySession(cmd Command) {
 	var params RenameHistorySessionParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
 	store := d.store()
 	if store == nil {
-		d.emitError(cmd.ID, "storage is not available")
+		d.emitError(cmd.ID, "storage_unavailable", "storage is not available")
 		return
 	}
 
 	if err := store.SetSessionName(params.SessionID, params.Name); err != nil {
 		d.addLogEntry("ERROR", "Failed to rename history session: "+err.Error())
-		d.emitError(cmd.ID, fmt.Sprintf("failed to rename: %v", err))
+		d.emitError(cmd.ID, "rename_failed", fmt.Sprintf("failed to rename: %v", err))
 		return
 	}
 
@@ -224,19 +231,19 @@ func (d *Daemon) handleRenameHistorySession(cmd Command) {
 func (d *Daemon) handleDeleteHistorySession(cmd Command) {
 	var params DeleteHistorySessionParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
 	store := d.store()
 	if store == nil {
-		d.emitError(cmd.ID, "storage is not available")
+		d.emitError(cmd.ID, "storage_unavailable", "storage is not available")
 		return
 	}
 
 	if err := store.DeleteSession(params.SessionID); err != nil {
 		d.addLogEntry("ERROR", "Failed to delete history session: "+err.Error())
-		d.emitError(cmd.ID, fmt.Sprintf("failed to delete: %v", err))
+		d.emitError(cmd.ID, "delete_failed", fmt.Sprintf("failed to delete: %v", err))
 		return
 	}
 
@@ -265,14 +272,14 @@ func (d *Daemon) handleRefreshHistory(cmd Command) {
 func (d *Daemon) handleListPeers(cmd Command) {
 	store := d.store()
 	if store == nil {
-		d.emitError(cmd.ID, "storage is not available")
+		d.emitError(cmd.ID, "storage_unavailable", "storage is not available")
 		return
 	}
 
 	peers, err := store.ListPeers()
 	if err != nil {
 		d.addLogEntry("ERROR", "Failed to list peers: "+err.Error())
-		d.emitError(cmd.ID, fmt.Sprintf("failed to list peers: %v", err))
+		d.emitError(cmd.ID, "peer_list_failed", fmt.Sprintf("failed to list peers: %v", err))
 		return
 	}
 
@@ -293,25 +300,25 @@ func (d *Daemon) handleListPeers(cmd Command) {
 func (d *Daemon) handleDeletePeer(cmd Command) {
 	var params DeletePeerParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
 	store := d.store()
 	if store == nil {
-		d.emitError(cmd.ID, "storage is not available")
+		d.emitError(cmd.ID, "storage_unavailable", "storage is not available")
 		return
 	}
 
 	pubKey, err := base64.StdEncoding.DecodeString(params.PublicKey)
 	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid base64 public_key: %v", err))
+		d.emitError(cmd.ID, "invalid_peer_key", fmt.Sprintf("invalid base64 public_key: %v", err))
 		return
 	}
 
 	if err := store.DeletePeer(pubKey); err != nil {
 		d.addLogEntry("ERROR", "Failed to delete peer: "+err.Error())
-		d.emitError(cmd.ID, fmt.Sprintf("failed to delete peer: %v", err))
+		d.emitError(cmd.ID, "peer_delete_failed", fmt.Sprintf("failed to delete peer: %v", err))
 		return
 	}
 
@@ -353,7 +360,7 @@ func (d *Daemon) handleGetMyName(cmd Command) {
 func (d *Daemon) handleSetMyName(cmd Command) {
 	var params SetMyNameParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -361,6 +368,7 @@ func (d *Daemon) handleSetMyName(cmd Command) {
 	if len(params.Name) > maxNameLength {
 		d.emitError(
 			cmd.ID,
+			"name_too_long",
 			fmt.Sprintf("name must be %d characters or fewer", maxNameLength),
 		)
 		return
@@ -369,7 +377,7 @@ func (d *Daemon) handleSetMyName(cmd Command) {
 	store := d.store()
 	if store != nil {
 		if err := store.SetSettings("daemon", "local_name", params.Name); err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("persist name: %v", err))
+			d.emitError(cmd.ID, "name_persist_failed", fmt.Sprintf("persist name: %v", err))
 			return
 		}
 	}
@@ -402,7 +410,7 @@ func (d *Daemon) handleGetIncognito(cmd Command) {
 func (d *Daemon) handleSetIncognito(cmd Command) {
 	var params SetIncognitoParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 	d.mu.Lock()

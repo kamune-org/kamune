@@ -50,11 +50,14 @@ type Daemon struct {
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
 
-	serverAddr      string
-	serverTransport string
-	serverRelayAddr string
-	serverName      string
-	serverPassword  string
+	serverAddr          string
+	serverTransport     string
+	serverRelayAddr     string
+	serverName          string
+	serverPassword      string
+	serverBrokerAddr    string
+	serverPeerPubB64    string
+	serverDirectPeerAddr string
 
 	relayAddr       string
 	relayPassword   string
@@ -127,8 +130,8 @@ func (d *Daemon) emit(evt Evt, correlationID ID, data any) {
 }
 
 // emitError sends an error event
-func (d *Daemon) emitError(correlationID ID, errMsg string) {
-	d.emit(EvtError, correlationID, MapS{"error": errMsg})
+func (d *Daemon) emitError(correlationID ID, code string, errMsg string) {
+	d.emit(EvtError, correlationID, MapS{"error": errMsg, "code": code})
 }
 
 // addLogEntry logs a message at the given level and stores it in the in-memory
@@ -199,7 +202,7 @@ func (d *Daemon) closeStore() {
 // not open. Callers should `return` immediately when this returns false.
 func (d *Daemon) requireStorage(cmdID ID) bool {
 	if d.store() == nil {
-		d.emitError(cmdID, "storage not opened — call open_storage first")
+		d.emitError(cmdID, "storage_not_opened", "storage not opened — call open_storage first")
 		return false
 	}
 	return true
@@ -267,6 +270,7 @@ func (d *Daemon) Run() {
 	// Emit ready event
 	d.emit(EvtReady, "", MapS{
 		"version": version, "pid": fmt.Sprintf("%d", os.Getpid()),
+		"protocol_version": "1",
 	})
 
 	// Read commands from stdin
@@ -289,12 +293,12 @@ func (d *Daemon) Run() {
 
 		var cmd Command
 		if err := json.Unmarshal([]byte(line), &cmd); err != nil {
-			d.emitError("", fmt.Sprintf("invalid JSON: %v", err))
+			d.emitError("", "invalid_json", fmt.Sprintf("invalid JSON: %v", err))
 			continue
 		}
 
 		if cmd.Type != "cmd" {
-			d.emitError(cmd.ID, fmt.Sprintf("unknown message type: %s", cmd.Type))
+			d.emitError(cmd.ID, "unknown_message_type", fmt.Sprintf("unknown message type: %s", cmd.Type))
 			continue
 		}
 
@@ -422,7 +426,7 @@ func (d *Daemon) handleCommand(cmd Command) {
 	case CmdShutdown:
 		d.Shutdown()
 	default:
-		d.emitError(cmd.ID, fmt.Sprintf("unknown command: %s", cmd.CMD))
+		d.emitError(cmd.ID, "unknown_command", fmt.Sprintf("unknown command: %s", cmd.CMD))
 	}
 }
 
@@ -430,15 +434,15 @@ func (d *Daemon) handleCommand(cmd Command) {
 func (d *Daemon) handleOpenStorage(cmd Command) {
 	var params OpenStorageParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 	if params.StoragePath == "" {
-		d.emitError(cmd.ID, "storage_path is required")
+		d.emitError(cmd.ID, "storage_path_required", "storage_path is required")
 		return
 	}
 	if err := d.openStorage(params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("failed to open storage: %v", err))
+		d.emitError(cmd.ID, "storage_open_failed", fmt.Sprintf("failed to open storage: %v", err))
 		return
 	}
 
@@ -454,7 +458,7 @@ func (d *Daemon) handleOpenStorage(cmd Command) {
 func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	var params SubmitPassphraseParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -463,7 +467,7 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	d.mu.RUnlock()
 
 	if dbPath == "" {
-		d.emitError(cmd.ID, "storage not opened — call open_storage first")
+		d.emitError(cmd.ID, "storage_not_opened", "storage not opened — call open_storage first")
 		return
 	}
 
@@ -478,7 +482,7 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 		}),
 	)
 	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("failed to open storage: %v", err))
+		d.emitError(cmd.ID, "storage_open_failed", fmt.Sprintf("failed to open storage: %v", err))
 		return
 	}
 
@@ -552,24 +556,24 @@ func (d *Daemon) Shutdown() {
 func (d *Daemon) handleAddPeer(cmd Command) {
 	var params AddPeerParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
 	pub, err := decodePeerPubKey(params.PublicKey)
 	if err != nil {
-		d.emitError(cmd.ID, err.Error())
+		d.emitError(cmd.ID, "invalid_peer_key", err.Error())
 		return
 	}
 
 	store := d.store()
 	if store == nil {
-		d.emitError(cmd.ID, "storage is not available")
+		d.emitError(cmd.ID, "storage_unavailable", "storage is not available")
 		return
 	}
 
 	if _, err := store.FindPeer(pub); err == nil {
-		d.emitError(cmd.ID, fmt.Sprintf("peer already exists: %s", params.PublicKey))
+		d.emitError(cmd.ID, "peer_already_exists", fmt.Sprintf("peer already exists: %s", params.PublicKey))
 		return
 	}
 
@@ -586,7 +590,7 @@ func (d *Daemon) handleAddPeer(cmd Command) {
 		LastSeen:   now,
 		AppVersion: "",
 	}); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("store peer: %v", err))
+		d.emitError(cmd.ID, "peer_store_failed", fmt.Sprintf("store peer: %v", err))
 		return
 	}
 
@@ -599,25 +603,25 @@ func (d *Daemon) handleAddPeer(cmd Command) {
 func (d *Daemon) handleRenamePeer(cmd Command) {
 	var params RenamePeerParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
 	pub, err := decodePeerPubKey(params.PublicKey)
 	if err != nil {
-		d.emitError(cmd.ID, err.Error())
+		d.emitError(cmd.ID, "invalid_peer_key", err.Error())
 		return
 	}
 
 	store := d.store()
 	if store == nil {
-		d.emitError(cmd.ID, "storage is not available")
+		d.emitError(cmd.ID, "storage_unavailable", "storage is not available")
 		return
 	}
 
 	existing, err := store.FindPeer(pub)
 	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("peer not found: %s", params.PublicKey))
+		d.emitError(cmd.ID, "peer_not_found", fmt.Sprintf("peer not found: %s", params.PublicKey))
 		return
 	}
 
@@ -627,7 +631,7 @@ func (d *Daemon) handleRenamePeer(cmd Command) {
 	}
 	existing.Name = name
 	if err := store.StorePeer(existing); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("store peer: %v", err))
+		d.emitError(cmd.ID, "peer_store_failed", fmt.Sprintf("store peer: %v", err))
 		return
 	}
 
@@ -640,25 +644,25 @@ func (d *Daemon) handleRenamePeer(cmd Command) {
 func (d *Daemon) handleGetPeer(cmd Command) {
 	var params GetPeerParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
 	pub, err := decodePeerPubKey(params.PublicKey)
 	if err != nil {
-		d.emitError(cmd.ID, err.Error())
+		d.emitError(cmd.ID, "invalid_peer_key", err.Error())
 		return
 	}
 
 	store := d.store()
 	if store == nil {
-		d.emitError(cmd.ID, "storage is not available")
+		d.emitError(cmd.ID, "storage_unavailable", "storage is not available")
 		return
 	}
 
 	p, err := store.FindPeer(pub)
 	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("peer not found: %s", params.PublicKey))
+		d.emitError(cmd.ID, "peer_not_found", fmt.Sprintf("peer not found: %s", params.PublicKey))
 		return
 	}
 
@@ -678,7 +682,7 @@ func (d *Daemon) handleGetPeer(cmd Command) {
 func (d *Daemon) handleGetSessionInfo(cmd Command) {
 	var params GetSessionInfoParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -697,6 +701,7 @@ func (d *Daemon) handleGetSessionInfo(cmd Command) {
 				"last_activity":  info.LastActivity,
 				"transport_type": info.TransportType,
 				"remote_version": info.RemoteVersion,
+				"cause":          info.Cause,
 				"session_ttl_ns": info.SessionTTL,
 				"started_at":     info.SessionStartedAt,
 				"remote_addr":    info.RemoteAddr,
@@ -720,7 +725,7 @@ func (d *Daemon) handleGetSessionInfo(cmd Command) {
 		}
 	}
 
-	d.emitError(cmd.ID, fmt.Sprintf("session not found: %s", params.SessionID))
+	d.emitError(cmd.ID, "session_not_found", fmt.Sprintf("session not found: %s", params.SessionID))
 }
 
 // --- P3: Log management ---
@@ -749,7 +754,7 @@ func (d *Daemon) handleClearLogs(cmd Command) {
 func (d *Daemon) handleExportLogs(cmd Command) {
 	var params ExportLogsParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -765,7 +770,7 @@ func (d *Daemon) handleExportLogs(cmd Command) {
 
 	f, err := os.Create(filePath)
 	if err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("create file: %v", err))
+		d.emitError(cmd.ID, "export_file_failed", fmt.Sprintf("create file: %v", err))
 		return
 	}
 	defer f.Close()
@@ -774,7 +779,7 @@ func (d *Daemon) handleExportLogs(cmd Command) {
 		if _, err := fmt.Fprintf(f, "%s [%s] %s\n",
 			e.Timestamp.Format(time.RFC3339), e.Level, e.Message,
 		); err != nil {
-			d.emitError(cmd.ID, fmt.Sprintf("write file: %v", err))
+			d.emitError(cmd.ID, "export_write_failed", fmt.Sprintf("write file: %v", err))
 			return
 		}
 	}
@@ -797,7 +802,7 @@ func (d *Daemon) handleGetLogLevel(cmd Command) {
 func (d *Daemon) handleSetLogLevel(cmd Command) {
 	var params SetLogLevelParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
@@ -834,7 +839,7 @@ func (d *Daemon) handleClearKeychainPassphrase(cmd Command) {
 	d.mu.RUnlock()
 
 	if err := keyring.Delete(keychainService, keychainAccount(path)); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("failed to clear keychain: %v", err))
+		d.emitError(cmd.ID, "keychain_clear_failed", fmt.Sprintf("failed to clear keychain: %v", err))
 		return
 	}
 
@@ -859,13 +864,17 @@ func (d *Daemon) handleGetFingerprintFormat(cmd Command) {
 func (d *Daemon) handleSetFingerprintFormat(cmd Command) {
 	var params SetFingerprintFormatParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
-		d.emitError(cmd.ID, fmt.Sprintf("invalid params: %v", err))
+		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
 
 	d.mu.Lock()
 	d.fingerprintFmt = params.Format
 	d.mu.Unlock()
+
+	if store := d.store(); store != nil {
+		_ = store.SetSettings("daemon", "fingerprint_format", params.Format)
+	}
 
 	d.addLogEntry("DEBUG", "Fingerprint format set to: "+params.Format)
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "set", "format": params.Format})

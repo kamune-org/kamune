@@ -25,8 +25,6 @@ type StartServerParams struct {
 	BrokerAddr     string `json:"broker_addr,omitempty"`
 	PeerPubB64     string `json:"peer_pub_b64,omitempty"`
 	DirectPeerAddr string `json:"direct_peer_addr,omitempty"`
-	UseP2P         bool   `json:"use_p2p"`
-	UseBroker      bool   `json:"use_broker"`
 }
 
 // DialParams contains parameters for dialing a remote server.
@@ -41,8 +39,6 @@ type DialParams struct {
 	BrokerAddr     string `json:"broker_addr,omitempty"`
 	PeerPubB64     string `json:"peer_pub_b64,omitempty"`
 	P2PToken       string `json:"p2p_token,omitempty"`
-	UseP2P         bool   `json:"use_p2p"`
-	UseBroker      bool   `json:"use_broker"`
 	DirectPeerAddr string `json:"direct_peer_addr,omitempty"`
 }
 

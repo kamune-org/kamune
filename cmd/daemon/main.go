@@ -115,6 +115,8 @@ const (
 	EvtError             Evt = "error"
 	EvtResponse          Evt = "response"
 	EvtLogEntry          Evt = "log_entry"
+	EvtSessionReconnecting Evt = "session_reconnecting"
+	EvtSessionReconnected  Evt = "session_reconnected"
 )
 
 // Command represents an incoming command from stdin
@@ -163,9 +165,31 @@ type SessionInfo struct {
 	LastActivity     time.Time     `json:"last_activity,omitempty"`
 	TransportType    string        `json:"transport_type,omitempty"`
 	RemoteVersion    string        `json:"remote_version,omitempty"`
+	Cause            string        `json:"cause,omitempty"`
 	SessionTTL       time.Duration `json:"session_ttl_ns"`
 	SessionStartedAt time.Time     `json:"session_started_at"`
 	RemoteAddr       string        `json:"remote_addr,omitempty"`
+}
+
+// MarshalJSON implements json.Marshaler so that zero-value LastActivity
+// serializes as null instead of "0001-01-01T00:00:00Z".
+func (si SessionInfo) MarshalJSON() ([]byte, error) {
+	type sessionInfoAlias SessionInfo
+	return json.Marshal(struct {
+		sessionInfoAlias
+		LastActivity *time.Time `json:"last_activity,omitempty"`
+	}{
+		sessionInfoAlias: sessionInfoAlias(si),
+		LastActivity:     marshalTime(si.LastActivity),
+	})
+}
+
+// marshalTime returns nil for zero time, otherwise a pointer to t.
+func marshalTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 // HistorySessionInfo is the public history session shape.
@@ -210,6 +234,7 @@ type relayToken struct {
 	SessionTTL time.Duration `json:"session_ttl_ns"`
 	ExpiresAt  time.Time     `json:"expires_at"`
 	Mode       string        `json:"mode"`
+	PeerPubB64 string        `json:"peer_pub_b64,omitempty"`
 	listener   kamune.Listener
 	sessionID  string
 }
@@ -221,6 +246,7 @@ type liveSession struct {
 	PeerName         string
 	RemoteVersion    string
 	RemoteAddr       string
+	Cause            string
 	Transport        *kamune.Transport
 	Messages         []MessageInfo
 	LastActivity     time.Time
