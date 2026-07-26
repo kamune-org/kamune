@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"net"
 	"testing"
 	"time"
@@ -86,6 +87,24 @@ func TestFraming_NoMaxSize(t *testing.T) {
 	a.Equal(want, got)
 }
 
+func TestFraming_WriteBytesRejectsOverflow(t *testing.T) {
+	a := require.New(t)
+	f := NewFraming(&partialReadWriteCloser{maxWrite: 1}, 0)
+
+	err := f.WriteBytes(make([]byte, math.MaxUint16+1))
+	a.Error(err)
+	a.Contains(err.Error(), "exceeds maximum")
+}
+
+func TestFraming_WriteBytesCompletesPartialWrites(t *testing.T) {
+	a := require.New(t)
+	rwc := &partialReadWriteCloser{maxWrite: 1}
+	f := NewFraming(rwc, 0)
+
+	a.NoError(f.WriteBytes([]byte("hello")))
+	a.Equal([]byte{0, 5, 'h', 'e', 'l', 'l', 'o'}, rwc.Bytes())
+}
+
 func TestFraming_TruncatedFrame(t *testing.T) {
 	a := require.New(t)
 	c, s := net.Pipe()
@@ -139,3 +158,17 @@ func TestFraming_SetDeadline_NoOp(t *testing.T) {
 	f := NewFraming(rwc, 0)
 	a.NoError(f.SetDeadline(time.Time{}))
 }
+
+type partialReadWriteCloser struct {
+	bytes.Buffer
+	maxWrite int
+}
+
+func (c *partialReadWriteCloser) Write(data []byte) (int, error) {
+	if len(data) > c.maxWrite {
+		data = data[:c.maxWrite]
+	}
+	return c.Buffer.Write(data)
+}
+
+func (*partialReadWriteCloser) Close() error { return nil }

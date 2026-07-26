@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"time"
 )
 
@@ -49,11 +50,32 @@ func (f *Framing) ReadBytes() ([]byte, error) {
 
 // WriteBytes writes one length-prefixed frame.
 func (f *Framing) WriteBytes(data []byte) error {
-	if err := binary.Write(f.rw, binary.BigEndian, uint16(len(data))); err != nil {
+	if len(data) > math.MaxUint16 {
+		return fmt.Errorf(
+			"frame size %d exceeds maximum %d", len(data), math.MaxUint16,
+		)
+	}
+	var length [2]byte
+	binary.BigEndian.PutUint16(length[:], uint16(len(data)))
+	if err := writeFull(f.rw, length[:]); err != nil {
 		return fmt.Errorf("write length: %w", err)
 	}
-	if _, err := f.rw.Write(data); err != nil {
+	if err := writeFull(f.rw, data); err != nil {
 		return fmt.Errorf("write data: %w", err)
+	}
+	return nil
+}
+
+func writeFull(w io.Writer, data []byte) error {
+	for written := 0; written < len(data); {
+		n, err := w.Write(data[written:])
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("wrote %d of %d bytes", written, len(data))
+		}
+		written += n
 	}
 	return nil
 }
