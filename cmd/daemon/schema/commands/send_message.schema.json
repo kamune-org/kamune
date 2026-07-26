@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-send-message",
+  "title": "send_message params",
+  "description": "Sends a message on an established session.",
+  "type": "object",
+  "properties": {
+    "session_id":  { "type": "string" },
+    "data_base64": { "type": "string", "description": "Base64-encoded message data." }
+  },
+  "required": ["session_id", "data_base64"]
+}

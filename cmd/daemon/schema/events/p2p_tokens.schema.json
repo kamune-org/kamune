@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-p2p-tokens",
+  "title": "p2p_tokens data",
+  "description": "Emitted when the P2P token list changes (generated or removed).",
+  "type": "object",
+  "properties": {
+    "tokens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "token":        { "type": "string" },
+          "consumed":     { "type": "boolean" },
+          "ttl_ns":       { "type": "integer", "description": "TTL in nanoseconds." },
+          "expires_at":   { "type": "string", "format": "date-time" },
+          "mode":         { "type": "string" },
+          "peer_pub_b64": { "type": "string" }
+        },
+        "required": ["token", "consumed", "ttl_ns", "expires_at", "mode"]
+      }
+    }
+  },
+  "required": ["tokens"]
+}

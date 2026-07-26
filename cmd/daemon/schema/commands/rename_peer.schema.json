@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-rename-peer",
+  "title": "rename_peer params",
+  "description": "Changes the display name of a known peer.",
+  "type": "object",
+  "properties": {
+    "public_key": { "type": "string" },
+    "name":       { "type": "string" }
+  },
+  "required": ["public_key", "name"]
+}

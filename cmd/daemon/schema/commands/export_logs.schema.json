@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-export-logs",
+  "title": "export_logs params",
+  "description": "Exports log entries to a file.",
+  "type": "object",
+  "properties": {
+    "file_path": { "type": "string", "description": "Filesystem path for the exported log file." }
+  },
+  "required": []
+}

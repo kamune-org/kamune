@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-history-updated",
+  "title": "history_updated data",
+  "description": "Emitted when the history session list changes.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

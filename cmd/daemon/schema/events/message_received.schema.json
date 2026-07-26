@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-message-received",
+  "title": "message_received data",
+  "description": "Emitted when a message is received from a peer.",
+  "type": "object",
+  "properties": {
+    "session_id":  { "type": "string" },
+    "data_base64": { "type": "string", "description": "Base64-encoded message data." },
+    "timestamp":   { "type": "string", "format": "date-time", "description": "RFC3339Nano timestamp." }
+  },
+  "required": ["session_id", "data_base64", "timestamp"]
+}

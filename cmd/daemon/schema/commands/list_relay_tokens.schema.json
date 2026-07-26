@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-list-relay-tokens",
+  "title": "list_relay_tokens params",
+  "description": "Returns all active relay tokens.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

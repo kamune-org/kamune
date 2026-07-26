@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-list-p2p-tokens",
+  "title": "list_p2p_tokens params",
+  "description": "Returns all active P2P tokens.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

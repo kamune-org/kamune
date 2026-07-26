@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-server-running",
+  "title": "server_running data",
+  "description": "Emitted when the server starts or stops.",
+  "type": "object",
+  "properties": {
+    "running":   { "type": "boolean" },
+    "transport": { "type": "string" }
+  },
+  "required": ["running"]
+}

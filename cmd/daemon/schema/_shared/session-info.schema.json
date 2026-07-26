@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-session-info",
+  "title": "SessionInfo",
+  "description": "Public session shape returned by list_sessions and emitted in session_started / session_closed events.",
+  "type": "object",
+  "properties": {
+    "session_id":         { "type": "string" },
+    "peer_name":          { "type": "string" },
+    "is_server":          { "type": "boolean" },
+    "msg_count":          { "type": "integer" },
+    "last_activity":      { "type": ["string", "null"], "format": "date-time", "description": "RFC3339 timestamp. Null for zero-value." },
+    "transport_type":     { "type": "string", "description": "e.g. \"tcp\", \"udp\", \"relay\"." },
+    "remote_version":     { "type": "string" },
+    "cause":              { "type": "string", "enum": ["dial", "incoming"], "description": "How the session was initiated." },
+    "session_ttl_ns":     { "type": "integer", "description": "Session TTL in nanoseconds." },
+    "session_started_at": { "type": "string", "format": "date-time", "description": "RFC3339 timestamp." },
+    "remote_addr":        { "type": "string", "description": "Remote peer address." }
+  },
+  "required": ["session_id", "peer_name", "is_server", "msg_count", "session_ttl_ns", "session_started_at"]
+}

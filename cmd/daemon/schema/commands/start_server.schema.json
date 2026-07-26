@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-start-server",
+  "title": "start_server params",
+  "description": "Starts a kamune server. transport is \"tcp\" (default), \"udp\", \"relay\", \"p2p\", or \"direct-p2p\".",
+  "type": "object",
+  "properties": {
+    "addr":              { "type": "string", "description": "Listen address (e.g. \"127.0.0.1:9000\")." },
+    "transport":         { "type": "string", "enum": ["tcp", "udp", "relay", "p2p", "direct-p2p"], "description": "Transport protocol. Defaults to \"tcp\"." },
+    "relay_addr":        { "type": "string", "description": "Relay server address. Required when transport is \"relay\"." },
+    "password":          { "type": "string", "description": "Pre-shared key for relay authentication." },
+    "name":              { "type": "string", "description": "Server display name. Defaults to a fingerprint pseudonym." },
+    "broker_addr":       { "type": "string", "description": "Broker address for P2P relay. Required for transport \"p2p\"." },
+    "peer_pub_b64":      { "type": "string", "description": "Base64-encoded public key of a specific peer for static P2P token derivation." },
+    "direct_peer_addr":  { "type": "string", "description": "Direct peer address for transport \"direct-p2p\"." }
+  },
+  "required": ["addr"]
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-get-my-name",
+  "title": "get_my_name params",
+  "description": "Returns the local display name.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

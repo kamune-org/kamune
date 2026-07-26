@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-get-logs",
+  "title": "get_logs params",
+  "description": "Returns buffered log entries.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-error",
+  "title": "error data",
+  "description": "Emitted when a command fails or an internal error occurs.",
+  "type": "object",
+  "properties": {
+    "error": { "type": "string", "description": "Human-readable error message." },
+    "code":  { "type": "string", "description": "Stable machine-readable error code." }
+  },
+  "required": ["error", "code"]
+}

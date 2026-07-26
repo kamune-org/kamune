@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-message-sent",
+  "title": "message_sent data",
+  "description": "Emitted when a message is sent successfully.",
+  "type": "object",
+  "properties": {
+    "session_id": { "type": "string" },
+    "timestamp":  { "type": "string", "format": "date-time", "description": "RFC3339Nano timestamp." }
+  },
+  "required": ["session_id", "timestamp"]
+}

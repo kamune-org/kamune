@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-verify-response",
+  "title": "verify_response params",
+  "description": "Answers a pending verify_peer event.",
+  "type": "object",
+  "properties": {
+    "request_id": { "type": "integer" },
+    "accepted":   { "type": "boolean" }
+  },
+  "required": ["request_id", "accepted"]
+}

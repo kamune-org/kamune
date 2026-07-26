@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-open-storage",
+  "title": "open_storage params",
+  "description": "Opens the single shared storage. Must be called before any command that requires storage.",
+  "type": "object",
+  "properties": {
+    "storage_path":      { "type": "string", "description": "Filesystem path to the BoltDB database." },
+    "db_no_passphrase":  { "type": "boolean", "description": "If true, opens without encryption." }
+  },
+  "required": ["storage_path"]
+}

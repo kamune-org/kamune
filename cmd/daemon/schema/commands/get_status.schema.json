@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-get-status",
+  "title": "get_status params",
+  "description": "Returns the current connection status.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

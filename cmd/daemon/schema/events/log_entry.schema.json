@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-log-entry",
+  "title": "log_entry data",
+  "description": "Emitted for each log entry added to the in-memory buffer.",
+  "type": "object",
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "level":     { "type": "string", "enum": ["DEBUG", "INFO", "WARN", "ERROR"] },
+    "message":   { "type": "string" }
+  },
+  "required": ["timestamp", "level", "message"]
+}

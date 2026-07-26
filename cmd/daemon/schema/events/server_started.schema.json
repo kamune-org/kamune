@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-server-started",
+  "title": "server_started data",
+  "description": "Emitted after a successful server start. Correlated with the start_server command id.",
+  "type": "object",
+  "properties": {
+    "addr":            { "type": "string", "description": "Server listen address." },
+    "transport":       { "type": "string", "description": "\"tcp\", \"udp\", \"relay\", \"p2p\", or \"direct-p2p\"." },
+    "name":            { "type": "string", "description": "Server display name." },
+    "public_key":      { "type": "string", "description": "Server public key (base64)." },
+    "emoji":           { "type": "array", "items": { "type": "string" }, "description": "Emoji fingerprint of the server." },
+    "fingerprint_hex": { "type": "string", "description": "Hex-encoded fingerprint." },
+    "fingerprint_sum": { "type": "string", "description": "Short summary fingerprint." }
+  },
+  "required": ["addr", "transport", "name", "public_key", "emoji", "fingerprint_hex", "fingerprint_sum"]
+}

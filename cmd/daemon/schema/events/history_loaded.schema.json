@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-history-loaded",
+  "title": "history_loaded data",
+  "description": "Emitted when a history session is loaded into memory.",
+  "type": "object",
+  "properties": {
+    "session_id": { "type": "string" }
+  },
+  "required": ["session_id"]
+}

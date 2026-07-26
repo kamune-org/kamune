@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-rename-history-session",
+  "title": "rename_history_session params",
+  "description": "Renames a history session.",
+  "type": "object",
+  "properties": {
+    "session_id": { "type": "string" },
+    "name":       { "type": "string" }
+  },
+  "required": ["session_id", "name"]
+}

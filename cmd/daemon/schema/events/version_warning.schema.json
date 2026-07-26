@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-version-warning",
+  "title": "version_warning data",
+  "description": "Emitted when a peer has a different minor version.",
+  "type": "object",
+  "properties": {
+    "session_id": { "type": "string" },
+    "message":    { "type": "string" }
+  },
+  "required": ["session_id", "message"]
+}

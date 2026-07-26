@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-server-stopped",
+  "title": "server_stopped data",
+  "description": "Emitted when the server has fully shut down.",
+  "type": "object",
+  "properties": {
+    "running": { "type": "boolean" }
+  },
+  "required": ["running"]
+}

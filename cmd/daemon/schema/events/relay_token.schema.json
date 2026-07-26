@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-relay-token",
+  "title": "relay_token data",
+  "description": "Emitted when a single new relay token is generated (e.g. from get_share_info).",
+  "type": "object",
+  "properties": {
+    "token":          { "type": "string" },
+    "consumed":       { "type": "boolean" },
+    "ttl_ns":         { "type": "integer" },
+    "session_ttl_ns": { "type": "integer" },
+    "expires_at":     { "type": "string", "format": "date-time" },
+    "mode":           { "type": "string" },
+    "peer_pub_b64":   { "type": "string" }
+  },
+  "required": ["token", "ttl_ns", "session_ttl_ns", "expires_at"]
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-restart-server",
+  "title": "restart_server params",
+  "description": "Restarts the server with the last used params (used after verification mode changes).",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

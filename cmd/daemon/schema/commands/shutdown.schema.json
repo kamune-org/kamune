@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-shutdown",
+  "title": "shutdown params",
+  "description": "Shuts down the daemon process.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

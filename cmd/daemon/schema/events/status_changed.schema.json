@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-status-changed",
+  "title": "status_changed data",
+  "description": "Emitted when the connection status changes.",
+  "type": "object",
+  "properties": {
+    "status":  { "type": "string", "enum": ["disconnected", "connecting", "connected", "verifying", "error"] },
+    "message": { "type": "string" }
+  },
+  "required": ["status"]
+}

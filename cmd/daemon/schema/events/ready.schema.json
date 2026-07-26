@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-ready",
+  "title": "ready data",
+  "description": "Emitted once on daemon startup.",
+  "type": "object",
+  "properties": {
+    "version":          { "type": "string", "description": "Daemon binary version." },
+    "pid":              { "type": "string", "description": "Daemon process ID." },
+    "protocol_version": { "type": "string", "description": "Protocol version (e.g. \"1\")." }
+  },
+  "required": ["version", "pid"]
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-session-reconnecting",
+  "title": "session_reconnecting data",
+  "description": "Emitted before a transparent reconnect attempt starts.",
+  "type": "object",
+  "properties": {
+    "session_id":   { "type": "string" },
+    "attempt":      { "type": "integer", "minimum": 1 },
+    "max_attempts": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["session_id", "attempt", "max_attempts"]
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-remove-relay-token",
+  "title": "remove_relay_token params",
+  "description": "Removes an active relay token.",
+  "type": "object",
+  "properties": {
+    "token": { "type": "string" }
+  },
+  "required": ["token"]
+}

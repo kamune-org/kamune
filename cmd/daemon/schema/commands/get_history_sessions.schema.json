@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-get-history-sessions",
+  "title": "get_history_sessions params",
+  "description": "Returns all history sessions.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

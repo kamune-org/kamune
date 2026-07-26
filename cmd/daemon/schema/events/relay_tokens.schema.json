@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-relay-tokens",
+  "title": "relay_tokens data",
+  "description": "Emitted when the relay token list changes (generated, consumed, or removed).",
+  "type": "object",
+  "properties": {
+    "tokens": {
+      "type": "array",
+      "items": { "$ref": "../_shared/relay-token.schema.json" }
+    }
+  },
+  "required": ["tokens"]
+}

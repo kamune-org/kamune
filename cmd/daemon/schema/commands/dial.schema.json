@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-dial",
+  "title": "dial params",
+  "description": "Connects to a remote kamune server.",
+  "type": "object",
+  "properties": {
+    "addr":              { "type": "string", "description": "Server address (e.g. \"127.0.0.1:9000\")." },
+    "transport":         { "type": "string", "enum": ["tcp", "udp", "relay", "p2p", "direct-p2p"], "description": "Transport protocol. Defaults to \"tcp\"." },
+    "relay_addr":        { "type": "string", "description": "Relay server address. Required when transport is \"relay\"." },
+    "token":             { "type": "string", "description": "Hex-encoded relay token." },
+    "password":          { "type": "string", "description": "Pre-shared key for relay authentication." },
+    "name":              { "type": "string", "description": "Client display name." },
+    "broker_addr":       { "type": "string", "description": "Broker address for P2P relay." },
+    "peer_pub_b64":      { "type": "string", "description": "Base64-encoded public key of the target peer." },
+    "p2p_token":         { "type": "string", "description": "Hex-encoded P2P token from the server." },
+    "direct_peer_addr":  { "type": "string", "description": "Direct peer address for transport \"direct-p2p\"." }
+  },
+  "required": ["addr"]
+}

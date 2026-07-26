@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-remove-p2p-token",
+  "title": "remove_p2p_token params",
+  "description": "Removes an active P2P token.",
+  "type": "object",
+  "properties": {
+    "token": { "type": "string" }
+  },
+  "required": ["token"]
+}

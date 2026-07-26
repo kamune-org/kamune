@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-add-peer",
+  "title": "add_peer params",
+  "description": "Adds a new known peer.",
+  "type": "object",
+  "properties": {
+    "public_key": { "type": "string", "description": "Base64-encoded public key." },
+    "name":       { "type": "string", "description": "Display name for the peer." }
+  },
+  "required": ["public_key"]
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-get-history-messages",
+  "title": "get_history_messages params",
+  "description": "Fetches messages for a history session.",
+  "type": "object",
+  "properties": {
+    "session_id": { "type": "string" }
+  },
+  "required": ["session_id"]
+}

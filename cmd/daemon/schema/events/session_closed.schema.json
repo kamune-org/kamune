@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-session-closed",
+  "title": "session_closed data",
+  "description": "Emitted when a session ends (peer disconnect or close_session response).",
+  "type": "object",
+  "properties": {
+    "session_id":         { "type": "string" },
+    "peer_name":          { "type": "string" },
+    "is_server":          { "type": "boolean" },
+    "msg_count":          { "type": "integer" },
+    "transport_type":     { "type": "string" },
+    "remote_version":     { "type": "string" },
+    "last_activity":      { "type": ["string", "null"], "format": "date-time", "description": "RFC3339 timestamp. Null for zero-value." },
+    "cause":              { "type": "string", "enum": ["dial", "incoming"], "description": "How the session was initiated." },
+    "session_ttl_ns":     { "type": "integer", "description": "Session TTL in nanoseconds." },
+    "session_started_at": { "type": "string", "format": "date-time", "description": "RFC3339 timestamp." },
+    "remote_addr":        { "type": "string" }
+  },
+  "required": ["session_id", "peer_name", "is_server", "msg_count", "session_ttl_ns", "session_started_at"]
+}

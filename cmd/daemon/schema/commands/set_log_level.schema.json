@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-set-log-level",
+  "title": "set_log_level params",
+  "description": "Sets the minimum log level.",
+  "type": "object",
+  "properties": {
+    "level": { "type": "string", "enum": ["DEBUG", "INFO", "WARN", "ERROR"] }
+  },
+  "required": ["level"]
+}

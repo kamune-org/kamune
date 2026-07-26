@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-get-server-status",
+  "title": "get_server_status params",
+  "description": "Returns the current server state.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

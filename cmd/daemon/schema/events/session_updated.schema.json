@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-session-updated",
+  "title": "session_updated data",
+  "description": "Emitted when a message is sent, received, or a live session is renamed.",
+  "type": "object",
+  "properties": {
+    "session_id": { "type": "string" }
+  },
+  "required": ["session_id"]
+}

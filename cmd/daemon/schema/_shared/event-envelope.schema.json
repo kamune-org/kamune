@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-event-envelope",
+  "title": "Daemon event envelope",
+  "description": "Wire format for events emitted by the daemon to stdout (NDJSON).",
+  "type": "object",
+  "properties": {
+    "type": { "const": "evt" },
+    "evt":  { "type": "string", "description": "Event name." },
+    "id":   { "type": "string", "description": "Correlation ID. Present for command responses and correlated events." },
+    "data": { "type": "object", "description": "Event-specific payload." }
+  },
+  "required": ["type", "evt", "data"]
+}

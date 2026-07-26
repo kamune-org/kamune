@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-get-session-info",
+  "title": "get_session_info params",
+  "description": "Returns info for a single session (live or history).",
+  "type": "object",
+  "properties": {
+    "session_id": { "type": "string" }
+  },
+  "required": ["session_id"]
+}

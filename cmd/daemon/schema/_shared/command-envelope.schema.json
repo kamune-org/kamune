@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-command-envelope",
+  "title": "Daemon command envelope",
+  "description": "Wire format for commands sent from client to daemon via stdin (NDJSON).",
+  "type": "object",
+  "properties": {
+    "type":   { "const": "cmd" },
+    "cmd":    { "type": "string", "description": "Command name." },
+    "id":     { "type": "string", "description": "Correlation ID echoed on the response event." },
+    "params": { "type": "object", "description": "Command-specific parameters." }
+  },
+  "required": ["type", "cmd", "id", "params"]
+}

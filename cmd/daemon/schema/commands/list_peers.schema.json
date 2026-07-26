@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-list-peers",
+  "title": "list_peers params",
+  "description": "Returns all known peers.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

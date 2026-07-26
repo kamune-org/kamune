@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-verify-peer",
+  "title": "verify_peer data",
+  "description": "Emitted when a new peer needs verification (Strict or Quick mode). Client must respond with verify_response within 2 minutes.",
+  "type": "object",
+  "properties": {
+    "request_id": { "type": "integer" },
+    "peer_name":  { "type": "string" },
+    "emoji":      { "type": "array", "items": { "type": "string" }, "description": "Array of emoji strings for fingerprint display." },
+    "hex":        { "type": "string" },
+    "known":      { "type": "boolean", "description": "Whether this peer is already in the known-peers list." },
+    "mode":       { "type": "string", "enum": ["strict", "quick"] }
+  },
+  "required": ["request_id", "peer_name", "emoji", "hex", "known", "mode"]
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-stop-server",
+  "title": "stop_server params",
+  "description": "Stops the running server.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

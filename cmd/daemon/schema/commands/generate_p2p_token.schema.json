@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-generate-p2p-token",
+  "title": "generate_p2p_token params",
+  "description": "Creates a new P2P token for the running server.",
+  "type": "object",
+  "properties": {
+    "broker_addr":  { "type": "string", "description": "Broker address." },
+    "peer_pub_b64": { "type": "string", "description": "Base64-encoded public key of the target peer." }
+  },
+  "required": ["broker_addr"]
+}

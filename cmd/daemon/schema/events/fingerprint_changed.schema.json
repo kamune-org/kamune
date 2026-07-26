@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-fingerprint-changed",
+  "title": "fingerprint_changed data",
+  "description": "Emitted when the identity fingerprint is loaded or changes.",
+  "type": "object",
+  "properties": {
+    "emoji": { "type": "string" },
+    "b64":   { "type": "string", "description": "Base64-encoded public key." },
+    "hex":   { "type": "string" },
+    "sum":   { "type": "string" }
+  },
+  "required": ["emoji", "b64", "hex", "sum"]
+}

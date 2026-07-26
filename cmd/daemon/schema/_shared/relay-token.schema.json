@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-relay-token",
+  "title": "RelayToken",
+  "description": "One active or consumed relay token.",
+  "type": "object",
+  "properties": {
+    "token":          { "type": "string" },
+    "consumed":       { "type": "boolean" },
+    "ttl_ns":         { "type": "integer", "description": "TTL in nanoseconds." },
+    "session_ttl_ns": { "type": "integer", "description": "Session TTL in nanoseconds." },
+    "expires_at":     { "type": "string", "format": "date-time", "description": "RFC3339 timestamp." },
+    "mode":           { "type": "string", "enum": ["random", "static", "ecdh"], "description": "Token derivation mode." },
+    "peer_pub_b64":   { "type": "string", "description": "Base64 public key of the peer this token was derived for. Present when mode is \"static\" or \"ecdh\"." }
+  },
+  "required": ["token", "consumed", "ttl_ns", "session_ttl_ns", "expires_at", "mode"]
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-get-fingerprint-format",
+  "title": "get_fingerprint_format params",
+  "description": "Returns the current fingerprint display format.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

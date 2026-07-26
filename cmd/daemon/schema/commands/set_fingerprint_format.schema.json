@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-set-fingerprint-format",
+  "title": "set_fingerprint_format params",
+  "description": "Sets the fingerprint display format (memory-only, resets on restart).",
+  "type": "object",
+  "properties": {
+    "format": { "type": "string", "description": "Fingerprint format (e.g. \"hex\", \"emoji\")." }
+  },
+  "required": ["format"]
+}

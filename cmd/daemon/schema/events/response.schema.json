@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-response",
+  "title": "response data",
+  "description": "Direct response to a command. Correlated by command id.",
+  "type": "object",
+  "properties": {
+    "status": { "type": "string" }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-delete-peer",
+  "title": "delete_peer params",
+  "description": "Removes a known peer by its public key.",
+  "type": "object",
+  "properties": {
+    "public_key": { "type": "string" }
+  },
+  "required": ["public_key"]
+}

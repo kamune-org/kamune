@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-cancel-start-server",
+  "title": "cancel_start_server params",
+  "description": "Cancels an in-flight server start.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-get-peer",
+  "title": "get_peer params",
+  "description": "Retrieves a single known peer.",
+  "type": "object",
+  "properties": {
+    "public_key": { "type": "string" }
+  },
+  "required": ["public_key"]
+}
