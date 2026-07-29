@@ -31,12 +31,30 @@ type p2pToken struct {
 	cancel     context.CancelFunc `json:"-"`
 }
 
-func (d *Daemon) GenerateP2PToken(brokerAddr, peerPubB64 string) (string, error) {
-	if d.brokerClient == nil {
-		return "", errors.New("broker client is not initialized")
+func (d *Daemon) getOrCreateBrokerClient() (*BrokerClient, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.brokerClient != nil {
+		return d.brokerClient, nil
 	}
+	client, err := NewBrokerClient()
+	if err != nil {
+		return nil, err
+	}
+	d.brokerClient = client
+	return client, nil
+}
+
+func (d *Daemon) GenerateP2PToken(
+	brokerAddr string,
+	peerPubB64 string,
+) (string, error) {
 	if brokerAddr == "" {
 		return "", errors.New("broker address is required")
+	}
+	broker, err := d.getOrCreateBrokerClient()
+	if err != nil {
+		return "", fmt.Errorf("broker client: %w", err)
 	}
 
 	staticToken, err := d.deriveP2PToken(peerPubB64)
@@ -49,51 +67,60 @@ func (d *Daemon) GenerateP2PToken(brokerAddr, peerPubB64 string) (string, error)
 		expectedToken = hex.EncodeToString(staticToken)
 	}
 	d.mu.RLock()
-	var existing *p2pToken
+	var existingToken string
 	for i := range d.p2pTokens {
-		t := &d.p2pTokens[i]
+		t := d.p2pTokens[i]
 		if t.brokerAddr != brokerAddr {
 			continue
 		}
 		if staticToken != nil && t.PeerPubB64 == peerPubB64 {
-			existing = t
+			existingToken = t.Token
 			break
 		}
 		if staticToken == nil && t.Mode != "static" {
-			existing = t
+			existingToken = t.Token
 			break
 		}
 	}
 	d.mu.RUnlock()
-	if existing != nil {
+	if existingToken != "" {
 		if err := d.refreshBrokerRegistration(
-			brokerAddr, existing.Token, staticToken,
+			broker, brokerAddr, existingToken,
 		); err != nil {
 			d.addLogEntry("WARN",
 				"Failed to refresh existing p2p token: "+err.Error())
 		} else {
 			d.mu.Lock()
-			existing.ExpiresAt = time.Now().Add(p2pTokenRefreshInterval)
+			for i := range d.p2pTokens {
+				if d.p2pTokens[i].Token == existingToken {
+					d.p2pTokens[i].ExpiresAt = time.Now().Add(
+						p2pTokenRefreshInterval,
+					)
+					break
+				}
+			}
 			snapshot := d.p2pTokensSnapshot()
 			d.mu.Unlock()
 			d.emit(EvtP2PTokens, "", MapA{"tokens": snapshot})
 			d.addLogEntry("INFO",
-				"Refreshed p2p token lifetime: "+existing.Token)
+				"Refreshed p2p token lifetime: "+existingToken)
 		}
-		return existing.Token, nil
+		return existingToken, nil
 	}
 
-	client, err := d.brokerClient.Client(brokerAddr)
+	client, err := broker.Client(brokerAddr)
 	if err != nil {
 		return "", fmt.Errorf("broker client: %w", err)
 	}
 
-	claimIP, claimPort, err := client.Echo(context.Background())
+	echoCtx, echoCancel := context.WithTimeout(d.ctx, 5*time.Second)
+	claimIP, claimPort, err := client.Echo(echoCtx)
+	echoCancel()
 	if err != nil {
 		return "", fmt.Errorf("broker echo: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(d.ctx)
 	token, err := client.Register(ctx, staticToken, claimIP, claimPort)
 	if err != nil {
 		cancel()
@@ -133,13 +160,16 @@ func (d *Daemon) GenerateP2PToken(brokerAddr, peerPubB64 string) (string, error)
 }
 
 func (d *Daemon) refreshBrokerRegistration(
-	brokerAddr, hexToken string, staticToken []byte,
+	broker *BrokerClient,
+	brokerAddr, hexToken string,
 ) error {
-	client, err := d.brokerClient.Client(brokerAddr)
+	client, err := broker.Client(brokerAddr)
 	if err != nil {
 		return fmt.Errorf("broker client: %w", err)
 	}
-	claimIP, claimPort, err := client.Echo(context.Background())
+	ctx, cancel := context.WithTimeout(d.ctx, 5*time.Second)
+	defer cancel()
+	claimIP, claimPort, err := client.Echo(ctx)
 	if err != nil {
 		return fmt.Errorf("broker echo: %w", err)
 	}
@@ -147,8 +177,6 @@ func (d *Daemon) refreshBrokerRegistration(
 	if err != nil {
 		return fmt.Errorf("decode token: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	if _, err := client.Register(ctx, tokenBytes, claimIP, claimPort); err != nil {
 		return fmt.Errorf("broker register: %w", err)
 	}
@@ -285,7 +313,15 @@ func (d *Daemon) runP2PRefresh(pt p2pToken) {
 }
 
 func (d *Daemon) refreshP2PToken(pt p2pToken) bool {
-	client, err := d.brokerClient.Client(pt.brokerAddr)
+	d.mu.RLock()
+	broker := d.brokerClient
+	d.mu.RUnlock()
+	if broker == nil {
+		d.addLogEntry("ERROR",
+			"p2p token refresh: broker client is not initialized")
+		return false
+	}
+	client, err := broker.Client(pt.brokerAddr)
 	if err != nil {
 		d.addLogEntry("ERROR",
 			"p2p token refresh: broker client: "+err.Error())
@@ -339,6 +375,27 @@ func (d *Daemon) removeP2PTokenByValue(token string) {
 	d.mu.Unlock()
 	pt.cancel()
 	d.emit(EvtP2PTokens, "", MapA{"tokens": snapshot})
+}
+
+func (d *Daemon) stopP2PResources() {
+	d.mu.Lock()
+	listener := d.p2pListener
+	d.p2pListener = nil
+	tokens := d.p2pTokens
+	d.p2pTokens = nil
+	d.mu.Unlock()
+
+	if listener != nil {
+		_ = listener.Close()
+	}
+	for _, token := range tokens {
+		if token.cancel != nil {
+			token.cancel()
+		}
+	}
+	if listener != nil || len(tokens) > 0 {
+		d.emit(EvtP2PTokens, "", MapA{"tokens": []p2pToken{}})
+	}
 }
 
 func decodePeerPubKey(publicKeyB64 string) ([]byte, error) {

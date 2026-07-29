@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,9 +31,26 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		return
 	}
 
-	d.setStatus(StatusConnecting, "Starting server...")
-
 	d.mu.Lock()
+	if d.server != nil {
+		d.mu.Unlock()
+		d.emitError(cmd.ID, "server_already_running", "server is already running")
+		return
+	}
+	if d.startCancel != nil {
+		d.mu.Unlock()
+		d.emitError(
+			cmd.ID,
+			"server_start_in_progress",
+			"server start is already in progress",
+		)
+		return
+	}
+	ctx, cancel := context.WithCancel(d.ctx)
+	done := make(chan struct{})
+	d.startCtx = ctx
+	d.startCancel = cancel
+	d.startDone = done
 	d.serverAddr = params.Addr
 	d.serverTransport = params.Transport
 	d.serverRelayAddr = params.RelayAddr
@@ -45,22 +61,28 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	d.serverDirectPeerAddr = params.DirectPeerAddr
 	d.mu.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	d.mu.Lock()
-	if d.startCancel != nil {
-		d.startCancel()
-	}
-	d.startCtx = ctx
-	d.startCancel = cancel
-	d.mu.Unlock()
+	d.setStatus(StatusConnecting, "Starting server...")
+	d.wg.Go(func() {
+		d.startServer(ctx, done, cmd, params)
+	})
+}
 
-	cleanupStart := func() {
+func (d *Daemon) startServer(
+	ctx context.Context,
+	startDone chan struct{},
+	cmd Command,
+	params StartServerParams,
+) {
+	defer close(startDone)
+	defer func() {
 		d.mu.Lock()
-		d.startCancel = nil
-		d.startCtx = nil
+		if d.startCtx == ctx {
+			d.startCancel = nil
+			d.startCtx = nil
+			d.startDone = nil
+		}
 		d.mu.Unlock()
-	}
-	defer cleanupStart()
+	}()
 
 	store := d.store()
 	if store == nil {
@@ -69,8 +91,11 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		return
 	}
 
+	d.mu.RLock()
+	incognito := d.incognito
+	d.mu.RUnlock()
 	name := params.Name
-	if name == "" || d.incognito {
+	if name == "" || incognito {
 		pubKey, err := store.PublicKey()
 		if err != nil {
 			d.setStatus(StatusError, "Failed to get identity")
@@ -83,7 +108,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	d.mu.Lock()
 	d.myName = name
 	d.mu.Unlock()
-	if !d.incognito {
+	if !incognito {
 		_ = store.SetSettings("daemon", "local_name", name)
 	}
 
@@ -93,25 +118,15 @@ func (d *Daemon) handleStartServer(cmd Command) {
 
 	switch params.Transport {
 	case "relay":
-		d.mu.RLock()
-		cancelled := d.startCancel == nil
-		d.mu.RUnlock()
-		if cancelled {
-			d.setStatus(StatusDisconnected, "Cancelled")
-			d.emit(EvtServerStartCancel, "", MapS{})
+		if ctx.Err() != nil {
 			return
 		}
 		ml := newMultiListener()
 		listener, token, ttl, sessionTTL, err := listenRelayTracked(
-			context.Background(), d, params.RelayAddr, params.Password, false, nil,
+			ctx, d, params.RelayAddr, params.Password, false, nil,
 		)
 		if err != nil {
-			d.mu.RLock()
-			cancelled := d.startCancel == nil
-			d.mu.RUnlock()
-			if cancelled {
-				d.setStatus(StatusDisconnected, "Cancelled")
-				d.emit(EvtServerStartCancel, "", MapS{})
+			if ctx.Err() != nil {
 				return
 			}
 			d.setStatus(StatusError, "Failed to connect to relay")
@@ -120,6 +135,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 			return
 		}
 		if err := ml.Add(listener); err != nil {
+			listener.Close()
 			d.emitError(cmd.ID, "listener_failed", fmt.Sprintf("add listener: %v", err))
 			return
 		}
@@ -138,49 +154,64 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		}}
 		d.mu.Unlock()
 		d.wg.Go(func() {
-			d.relayReconnectLoop(context.Background(), ml)
+			d.relayReconnectLoop(d.ctx, ml)
 		})
 	case "p2p":
-		d.mu.Lock()
-		if d.brokerClient == nil {
-			bc, err := NewBrokerClient()
-			if err != nil {
-				d.mu.Unlock()
-				d.setStatus(StatusError, "Failed to create broker client")
-				d.emitError(cmd.ID, "broker_client_failed", fmt.Sprintf("broker client: %v", err))
-				return
-			}
-			d.brokerClient = bc
-		}
-		d.mu.Unlock()
-
-		tokenHex, err := d.GenerateP2PToken(
-			params.BrokerAddr, params.PeerPubB64,
-		)
+		broker, err := d.getOrCreateBrokerClient()
 		if err != nil {
-			d.setStatus(StatusError, "Failed to create p2p token")
-			d.emitError(cmd.ID, "p2p_token_failed", fmt.Sprintf("p2p token: %v", err))
+			d.setStatus(StatusError, "Failed to create broker client")
+			d.emitError(
+				cmd.ID,
+				"broker_client_failed",
+				fmt.Sprintf("broker client: %v", err),
+			)
 			return
 		}
-
-		tokenBytes, err := hex.DecodeString(tokenHex)
+		tokenBytes, err := d.deriveP2PToken(params.PeerPubB64)
 		if err != nil {
-			d.setStatus(StatusError, "Failed to decode p2p token")
-			d.emitError(cmd.ID, "token_decode_failed", fmt.Sprintf("decode token: %v", err))
+			d.setStatus(StatusError, "Failed to derive p2p token")
+			d.emitError(
+				cmd.ID,
+				"p2p_token_failed",
+				fmt.Sprintf("derive p2p token: %v", err),
+			)
 			return
 		}
 		pl, err := newP2PListener(
-			d.brokerClient, params.BrokerAddr, tokenBytes, params.Addr,
+			broker, params.BrokerAddr, tokenBytes, params.Addr,
 		)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to create p2p listener")
 			d.emitError(cmd.ID, "p2p_listener_failed", fmt.Sprintf("p2p listener: %v", err))
 			return
 		}
-		opts = append(opts, kamune.ServeWithUDP())
+		if ctx.Err() != nil {
+			pl.Close()
+			return
+		}
+		opts = append(opts, kamune.ServeWithListener(pl))
+		params.Addr = pl.Addr().String()
+		mode := "random"
+		if len(tokenBytes) > 0 {
+			mode = "static"
+		}
+		tokenCtx, tokenCancel := context.WithCancel(d.ctx)
+		pt := p2pToken{
+			Token:      pl.Token(),
+			Mode:       mode,
+			PeerPubB64: params.PeerPubB64,
+			TTL:        p2pTokenRefreshInterval,
+			ExpiresAt:  time.Now().Add(p2pTokenRefreshInterval),
+			brokerAddr: params.BrokerAddr,
+			ctx:        tokenCtx,
+			cancel:     tokenCancel,
+		}
 		d.mu.Lock()
 		d.p2pListener = pl
+		d.p2pTokens = append(d.p2pTokens, pt)
+		p2pSnapshot := d.p2pTokensSnapshot()
 		d.mu.Unlock()
+		d.emit(EvtP2PTokens, "", MapA{"tokens": p2pSnapshot})
 	case "direct-p2p":
 		pl, err := newDirectP2PListener(
 			params.Addr, params.DirectPeerAddr,
@@ -192,6 +223,9 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		}
 		opts = append(opts, kamune.ServeWithListener(pl))
 		params.Addr = pl.Addr().String()
+		d.mu.Lock()
+		d.p2pListener = pl
+		d.mu.Unlock()
 	case "udp":
 		opts = append(opts, kamune.ServeWithUDP())
 	default:
@@ -200,9 +234,17 @@ func (d *Daemon) handleStartServer(cmd Command) {
 
 	srv, err := kamune.NewServer(params.Addr, d.serverHandler, store, d.getVerifier(), opts...)
 	if err != nil {
+		d.stopP2PResources()
+		d.stopRelayResources()
 		d.setStatus(StatusError, "Failed to create server")
 		d.addLogEntry("ERROR", "Failed to create server: "+err.Error())
 		d.emitError(cmd.ID, "create_server_failed", fmt.Sprintf("create server: %v", err))
+		return
+	}
+	if ctx.Err() != nil {
+		_ = srv.Close()
+		d.stopP2PResources()
+		d.stopRelayResources()
 		return
 	}
 
@@ -232,11 +274,9 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		if err := srv.ListenAndServe(); err != nil {
 			d.addLogEntry("ERROR", "Server stopped: "+err.Error())
 		}
+		d.stopP2PResources()
+		d.stopRelayResources()
 		d.mu.Lock()
-		d.relayTokens = nil
-		d.relayAddr = ""
-		d.relayPassword = ""
-		d.relayListeners = nil
 		d.serverBrokerAddr = ""
 		d.serverPeerPubB64 = ""
 		d.serverDirectPeerAddr = ""
@@ -292,27 +332,33 @@ func (d *Daemon) handleStopServer(cmd Command) {
 
 	var sessions []*liveSession
 	var serverDone chan struct{}
+	var startDone chan struct{}
+	var startCancel context.CancelFunc
+	var server *kamune.Server
 
 	d.mu.Lock()
-	if d.relayListeners != nil {
-		d.relayListeners.Close()
-		d.relayListeners = nil
-	}
-	if d.server != nil {
-		d.server.Close()
-		d.server = nil
-	}
+	startCancel = d.startCancel
+	startDone = d.startDone
+	server = d.server
+	d.server = nil
 	sessions = append([]*liveSession(nil), mapValues(d.sessions)...)
 	d.sessions = make(map[string]*liveSession)
-	d.relayTokens = nil
-	d.relayAddr = ""
-	d.relayPassword = ""
 	serverDone = d.serverDone
 	d.serverDone = nil
 	d.mu.Unlock()
 
+	if startCancel != nil {
+		startCancel()
+	}
+	d.stopRelayResources()
+	d.stopP2PResources()
+	if server != nil {
+		_ = server.Close()
+	}
 	for _, s := range sessions {
-		s.Transport.Close()
+		if transport := s.stop(); transport != nil {
+			_ = transport.Close()
+		}
 	}
 	for _, s := range sessions {
 		waitOrTimeout(s.ReceiveDone, "session receive: "+s.ID)
@@ -320,6 +366,9 @@ func (d *Daemon) handleStopServer(cmd Command) {
 
 	if serverDone != nil {
 		waitOrTimeout(serverDone, "ListenAndServe")
+	}
+	if startDone != nil {
+		waitOrTimeout(startDone, "server start")
 	}
 
 	d.emit(EvtServerStopped, "", MapA{"running": false})
@@ -357,13 +406,18 @@ func (d *Daemon) handleRestartServer(cmd Command) {
 
 // handleCancelStartServer cancels an in-flight server start.
 func (d *Daemon) handleCancelStartServer(cmd Command) {
-	d.mu.Lock()
-	if d.startCancel != nil {
-		d.startCancel()
-		d.startCancel = nil
-		d.startCtx = nil
+	d.mu.RLock()
+	cancel := d.startCancel
+	d.mu.RUnlock()
+	if cancel == nil {
+		d.emitError(
+			cmd.ID,
+			"server_start_not_in_progress",
+			"server start is not in progress",
+		)
+		return
 	}
-	d.mu.Unlock()
+	cancel()
 	d.setStatus(StatusDisconnected, "Cancelled")
 	d.addLogEntry("INFO", "Server start cancelled by user")
 	d.emit(EvtServerStartCancel, "", MapS{})
@@ -426,6 +480,29 @@ func (d *Daemon) handleDial(cmd Command) {
 		return
 	}
 
+	d.mu.Lock()
+	d.dialOps++
+	d.mu.Unlock()
+	d.wg.Go(func() {
+		defer func() {
+			d.mu.Lock()
+			d.dialOps--
+			d.mu.Unlock()
+		}()
+		defer func() {
+			if msg := recover(); msg != nil {
+				d.emitError(
+					cmd.ID,
+					"goroutine_panic",
+					fmt.Sprintf("goroutine panic: %v", msg),
+				)
+			}
+		}()
+		d.dial(d.ctx, cmd, params)
+	})
+}
+
+func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	d.setStatus(StatusConnecting, "Connecting to "+params.Addr+"...")
 
 	store := d.store()
@@ -436,8 +513,11 @@ func (d *Daemon) handleDial(cmd Command) {
 
 	var opts []kamune.DialOption
 
+	d.mu.RLock()
+	incognito := d.incognito
+	d.mu.RUnlock()
 	name := params.Name
-	if name == "" || d.incognito {
+	if name == "" || incognito {
 		pubKey, err := store.PublicKey()
 		if err != nil {
 			d.emitError(cmd.ID, "identity_unavailable", fmt.Sprintf("getting identity: %v", err))
@@ -449,7 +529,7 @@ func (d *Daemon) handleDial(cmd Command) {
 	d.mu.Lock()
 	d.myName = name
 	d.mu.Unlock()
-	if !d.incognito {
+	if !incognito {
 		_ = store.SetSettings("daemon", "local_name", name)
 	}
 
@@ -459,7 +539,7 @@ func (d *Daemon) handleDial(cmd Command) {
 	switch params.Transport {
 	case "relay":
 		fn, err := dialRelayFuncWithSessionTTL(
-			params.RelayAddr, params.Token, params.Password, false, &sessionTTL,
+			ctx, params.RelayAddr, params.Token, params.Password, false, &sessionTTL,
 		)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to prepare relay dial")
@@ -470,29 +550,24 @@ func (d *Daemon) handleDial(cmd Command) {
 		opts = append(opts, kamune.DialWithFunc(fn))
 		params.Addr = params.RelayAddr
 	case "p2p":
-		if d.brokerClient == nil {
-			d.mu.Lock()
-			if d.brokerClient == nil {
-				bc, err := NewBrokerClient()
-				if err != nil {
-					d.mu.Unlock()
-					d.emitError(cmd.ID, "broker_client_failed", fmt.Sprintf("broker client: %v", err))
-					return
-				}
-				d.brokerClient = bc
-			}
-			d.mu.Unlock()
+		broker, err := d.getOrCreateBrokerClient()
+		if err != nil {
+			d.emitError(
+				cmd.ID,
+				"broker_client_failed",
+				fmt.Sprintf("broker client: %v", err),
+			)
+			return
 		}
-		punchConn, payload, err := d.brokerClient.WaitMatch(
-			context.Background(), params.BrokerAddr,
-			[]byte(params.P2PToken),
+		punchConn, payload, err := broker.WaitMatch(
+			ctx, params.BrokerAddr, []byte(params.P2PToken),
 		)
 		if err != nil {
 			d.emitError(cmd.ID, "p2p_match_failed", fmt.Sprintf("wait match: %v", err))
 			return
 		}
-		conn, err := d.brokerClient.HolePunch(
-			context.Background(), punchConn,
+		conn, err := broker.HolePunch(
+			ctx, punchConn,
 			payload.IP, payload.Port, DefaultHolePunchTimeout,
 		)
 		if err != nil {
@@ -523,94 +598,101 @@ func (d *Daemon) handleDial(cmd Command) {
 		opts = append(opts, kamune.DialWithTCP())
 	}
 
-	d.wg.Go(func() {
-		defer func() {
-			if msg := recover(); msg != nil {
-				d.emitError(cmd.ID, "goroutine_panic", fmt.Sprintf("goroutine panic: %v", msg))
-			}
-		}()
+	dialer, err := kamune.NewDialer(params.Addr, store, d.getVerifier(), opts...)
+	if err != nil {
+		d.setStatus(StatusError, "Failed to create dialer")
+		d.addLogEntry("ERROR", "Failed to create dialer: "+err.Error())
+		d.emitError(
+			cmd.ID,
+			"create_dialer_failed",
+			fmt.Sprintf("create dialer: %v", err),
+		)
+		return
+	}
 
-		dialer, err := kamune.NewDialer(params.Addr, store, d.getVerifier(), opts...)
-		if err != nil {
-			d.setStatus(StatusError, "Failed to create dialer")
-			d.addLogEntry("ERROR", "Failed to create dialer: "+err.Error())
-			d.emitError(cmd.ID, "create_dialer_failed", fmt.Sprintf("create dialer: %v", err))
-			return
+	t, err := dialer.Dial()
+	if err != nil {
+		d.setStatus(StatusError, "Connection failed")
+		d.addLogEntry("ERROR", "Dial failed: "+err.Error())
+		d.emitError(cmd.ID, "dial_failed", fmt.Sprintf("dial: %v", err))
+		return
+	}
+
+	if ctx.Err() != nil {
+		t.Close()
+		return
+	}
+
+	sessionID := t.SessionID()
+	peer := t.RemotePeer()
+
+	session := &liveSession{
+		ID:               sessionID,
+		PeerName:         peer.Name,
+		RemoteVersion:    peer.AppVersion,
+		RemoteAddr:       params.Addr,
+		Cause:            "dial",
+		Transport:        t,
+		Messages:         make([]MessageInfo, 0),
+		LastActivity:     time.Now(),
+		ReceiveDone:      make(chan struct{}),
+		IsServer:         false,
+		TransportType:    params.Transport,
+		SessionTTL:       sessionTTL,
+		SessionStartedAt: time.Now(),
+		pongCh:           make(chan []byte, 1),
+		keepAliveDone:    make(chan struct{}),
+	}
+
+	var sessionStore *storage.Storage
+	if s := d.store(); s != nil && !incognito {
+		sessionStore = s
+		if err := sessionStore.CreateSession(
+			sessionID, peer.PublicKey,
+		); err != nil {
+			d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
+		d.deriveAndStoreRelayTokens(t, sessionID)
+	}
 
-		t, err := dialer.Dial()
-		if err != nil {
-			d.setStatus(StatusError, "Connection failed")
-			d.addLogEntry("ERROR", "Dial failed: "+err.Error())
-			d.emitError(cmd.ID, "dial_failed", fmt.Sprintf("dial: %v", err))
-			return
-		}
+	// Store dial params for transparent resumption on involuntary
+	// disconnect.
+	reconnectCtx, reconnectCancel := context.WithCancel(d.ctx)
+	session.mu.Lock()
+	session.reconnectCtx = reconnectCtx
+	session.reconnectCancel = reconnectCancel
+	session.reconnectFn = d.makeReconnectFn(
+		reconnectCtx, &params, sessionStore, opts,
+	)
+	session.mu.Unlock()
 
-		if d.ctx.Err() != nil {
-			t.Close()
-			return
-		}
+	d.loadChatHistory(session)
 
-		sessionID := t.SessionID()
-		peer := t.RemotePeer()
+	if msg, mismatch := checkMinorMismatch(
+		kamune.AppVersion, peer.AppVersion,
+	); mismatch {
+		d.addLogEntry("WARN", msg)
+		d.emit(EvtVersionWarning, "", MapA{
+			"session_id": sessionID, "message": msg,
+		})
+	}
 
-		session := &liveSession{
-			ID:               sessionID,
-			PeerName:         peer.Name,
-			RemoteVersion:    peer.AppVersion,
-			RemoteAddr:       params.Addr,
-			Cause:            "dial",
-			Transport:        t,
-			Messages:         make([]MessageInfo, 0),
-			LastActivity:     time.Now(),
-			ReceiveDone:      make(chan struct{}),
-			IsServer:         false,
-			TransportType:    params.Transport,
-			SessionTTL:       sessionTTL,
-			SessionStartedAt: time.Now(),
-			pongCh:           make(chan []byte, 1),
-			keepAliveDone:    make(chan struct{}),
-		}
+	d.mu.Lock()
+	d.sessions[sessionID] = session
+	d.mu.Unlock()
 
-		var store *storage.Storage
-		if s := d.store(); s != nil && !d.incognito {
-			store = s
-			if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
-				d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
-			}
-			d.deriveAndStoreRelayTokens(t, sessionID)
-		}
+	info := d.sessionInfo(session)
+	d.emit(EvtSessionStarted, cmd.ID, info)
 
-		// Store dial params for transparent resumption on involuntary
-		// disconnect.
-		reconnectCtx, reconnectCancel := context.WithCancel(d.ctx)
-		session.reconnectCtx = reconnectCtx
-		session.reconnectCancel = reconnectCancel
-		session.reconnectFn = d.makeReconnectFn(sessionID, &params, store, opts)
+	d.setStatus(StatusConnected, "Connected to "+params.Addr)
+	d.addLogEntry("INFO", "Connected to "+params.Addr+" (session: "+sessionID+")")
 
-		d.loadChatHistory(session)
-
-		if msg, mismatch := checkMinorMismatch(kamune.AppVersion, peer.AppVersion); mismatch {
-			d.addLogEntry("WARN", msg)
-			d.emit(EvtVersionWarning, "", MapA{
-				"session_id": sessionID, "message": msg,
-			})
-		}
-
-		d.mu.Lock()
-		d.sessions[sessionID] = session
-		d.mu.Unlock()
-
-		info := d.sessionInfoLocked(session)
-		d.emit(EvtSessionStarted, cmd.ID, info)
-
-		d.setStatus(StatusConnected, "Connected to "+params.Addr)
-		d.addLogEntry("INFO", "Connected to "+params.Addr+" (session: "+sessionID+")")
-
-		go d.keepAliveLoop(session)
-		d.receiveMessages(session)
-		d.loadHistorySessions()
-	})
+	session.mu.Lock()
+	keepAliveDone := session.keepAliveDone
+	session.mu.Unlock()
+	go d.keepAliveLoop(session, keepAliveDone)
+	d.receiveMessages(session)
+	d.loadHistorySessions()
 }
 
 // serverHandler handles incoming server connections.
@@ -644,7 +726,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	}
 
 	var store *storage.Storage
-	if s := d.store(); s != nil && !d.incognito {
+	if s := d.store(); s != nil && !d.isIncognito() {
 		store = s
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
@@ -681,7 +763,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	d.sessions[sessionID] = session
 	d.mu.Unlock()
 
-	info := d.sessionInfoLocked(session)
+	info := d.sessionInfo(session)
 	d.emit(EvtSessionStarted, "", info)
 	d.addLogEntry("INFO", "New incoming connection: "+sessionID)
 
@@ -707,17 +789,33 @@ func (d *Daemon) handleCloseSession(cmd Command) {
 	session, ok := d.sessions[params.SessionID]
 	if !ok {
 		d.mu.Unlock()
-	d.emitError(
-		cmd.ID, "session_not_found", fmt.Sprintf("session not found: %s", params.SessionID),
-	)
+		d.emitError(
+			cmd.ID,
+			"session_not_found",
+			fmt.Sprintf("session not found: %s", params.SessionID),
+		)
 		return
 	}
 	delete(d.sessions, params.SessionID)
 	d.mu.Unlock()
 
-	if err := session.Transport.Close(); err != nil {
-		slog.Warn("error closing transport", slog.Any("error", err))
+	transport := session.stop()
+
+	if store := d.store(); store != nil {
+		if err := store.SetMeta(
+			params.SessionID,
+			storage.NewByteSlicesMeta(storage.ResumptionTokensKey, nil),
+		); err != nil {
+			d.addLogEntry("WARN", "Failed to clear resumption tokens: "+err.Error())
+		}
 	}
+
+	if transport != nil {
+		if err := transport.Close(); err != nil {
+			slog.Warn("error closing transport", slog.Any("error", err))
+		}
+	}
+	waitOrTimeout(session.ReceiveDone, "session receive: "+params.SessionID)
 
 	d.emit(EvtSessionClosed, "", d.sessionInfo(session))
 	d.emit(EvtResponse, cmd.ID, MapS{
@@ -729,11 +827,12 @@ func (d *Daemon) handleCloseSession(cmd Command) {
 // handleListSessions returns a list of active sessions.
 func (d *Daemon) handleListSessions(cmd Command) {
 	d.mu.RLock()
-	defer d.mu.RUnlock()
+	live := mapValues(d.sessions)
+	d.mu.RUnlock()
 
-	sessions := make([]SessionInfo, 0, len(d.sessions))
-	for _, s := range d.sessions {
-		sessions = append(sessions, d.sessionInfoLocked(s))
+	sessions := make([]SessionInfo, 0, len(live))
+	for _, s := range live {
+		sessions = append(sessions, d.sessionInfo(s))
 	}
 	d.emit(EvtResponse, cmd.ID, MapA{"sessions": sessions})
 }
@@ -746,14 +845,26 @@ func (d *Daemon) handleRenameSession(cmd Command) {
 		return
 	}
 
-	d.mu.Lock()
+	d.mu.RLock()
+	var session *liveSession
 	for _, s := range d.sessions {
 		if s.ID == params.SessionID {
-			s.PeerName = params.Name
+			session = s
 			break
 		}
 	}
-	d.mu.Unlock()
+	d.mu.RUnlock()
+	if session == nil {
+		d.emitError(
+			cmd.ID,
+			"session_not_found",
+			fmt.Sprintf("session not found: %s", params.SessionID),
+		)
+		return
+	}
+	session.mu.Lock()
+	session.PeerName = params.Name
+	session.mu.Unlock()
 
 	d.emit(EvtSessionUpdated, "", MapS{"session_id": params.SessionID})
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "ok"})
@@ -770,16 +881,13 @@ func (d *Daemon) handleGenerateP2PToken(cmd Command) {
 		return
 	}
 
-	if d.brokerClient == nil {
-		d.mu.Lock()
-		bc, err := NewBrokerClient()
-		if err != nil {
-			d.mu.Unlock()
-			d.emitError(cmd.ID, "broker_client_failed", fmt.Sprintf("broker client: %v", err))
-			return
-		}
-		d.brokerClient = bc
-		d.mu.Unlock()
+	if _, err := d.getOrCreateBrokerClient(); err != nil {
+		d.emitError(
+			cmd.ID,
+			"broker_client_failed",
+			fmt.Sprintf("broker client: %v", err),
+		)
+		return
 	}
 
 	tokenHex, err := d.GenerateP2PToken(params.BrokerAddr, params.PeerPubB64)
@@ -903,7 +1011,12 @@ func (d *Daemon) deriveAndStoreRelayTokensForPeers(peerPubB64 ...string) error {
 // makeReconnectFn returns a reconnect function that re-dials with resumption
 // tokens, trying stored ECDH tokens for relay connections (mirrors
 // cmd/bus/network.go:687-723).
-func (d *Daemon) makeReconnectFn(sessionID string, params *DialParams, store *storage.Storage, opts []kamune.DialOption) func(string) (*kamune.Transport, error) {
+func (d *Daemon) makeReconnectFn(
+	ctx context.Context,
+	params *DialParams,
+	store *storage.Storage,
+	opts []kamune.DialOption,
+) func(string) (*kamune.Transport, error) {
 	addr := params.Addr
 	relayAddr := params.RelayAddr
 	password := params.Password
@@ -915,9 +1028,9 @@ func (d *Daemon) makeReconnectFn(sessionID string, params *DialParams, store *st
 			if m, err := store.GetMeta(
 				sessionID, storage.RelayTokensKey,
 			); err == nil && m.Value() != nil {
-				if tokens := decodeTokenList(m.Value()); len(tokens) > 1 {
+				if tokens := decodeTokenList(m.Value()); len(tokens) > 0 {
 					fn, err := dialRelayFuncMultiToken(
-						relayAddr, password, false, tokens,
+						ctx, relayAddr, password, false, tokens,
 					)
 					if err == nil {
 						resumeOpts = append(
@@ -1075,7 +1188,7 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 	}
 
 	listener, token, ttl, sessionTTL, err := listenRelayTracked(
-		context.Background(), d, relayAddr, relayPassword, false, staticToken,
+		d.ctx, d, relayAddr, relayPassword, false, staticToken,
 	)
 	if err != nil {
 		d.emitError(cmd.ID, "relay_listen_failed", err.Error())
@@ -1201,7 +1314,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 		urlStr = fmt.Sprintf("%s://%s:%s", scheme, address, port)
 	case "relay":
 		listener, token, ttl, sessionTTL, err := listenRelayTracked(
-			context.Background(), d, relayAddr, relayPassword, false, nil,
+			d.ctx, d, relayAddr, relayPassword, false, nil,
 		)
 		if err != nil {
 			d.emitError(cmd.ID, "relay_token_failed", fmt.Sprintf("generate relay token: %v", err))
@@ -1259,7 +1372,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 
 // loadChatHistory pre-populates session.Messages from the store.
 func (d *Daemon) loadChatHistory(session *liveSession) {
-	if d.incognito {
+	if d.isIncognito() {
 		return
 	}
 	store := d.store()
@@ -1273,7 +1386,7 @@ func (d *Daemon) loadChatHistory(session *liveSession) {
 		return
 	}
 
-	d.mu.Lock()
+	session.mu.Lock()
 	session.Messages = make([]MessageInfo, 0, len(entries))
 	for _, e := range entries {
 		session.Messages = append(session.Messages, MessageInfo{
@@ -1285,7 +1398,7 @@ func (d *Daemon) loadChatHistory(session *liveSession) {
 			session.LastActivity = e.Timestamp
 		}
 	}
-	d.mu.Unlock()
+	session.mu.Unlock()
 }
 
 // removeSession removes a session from the map and returns the remaining
@@ -1299,12 +1412,12 @@ func (d *Daemon) removeSession(sessionID string) int {
 
 // sessionInfo returns a SessionInfo for a live session (caller does not hold lock).
 func (d *Daemon) sessionInfo(s *liveSession) SessionInfo {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return d.sessionInfoLocked(s)
 }
 
-// sessionInfoLocked returns a SessionInfo; caller must hold d.mu.
+// sessionInfoLocked returns a SessionInfo; caller must hold s.mu.
 func (d *Daemon) sessionInfoLocked(s *liveSession) SessionInfo {
 	return SessionInfo{
 		SessionID:        s.ID,
@@ -1411,6 +1524,19 @@ func waitOrTimeout[T any](ch <-chan T, label string) {
 	case <-ch:
 	case <-time.After(channelTimeout):
 		slog.Warn("Timeout waiting for " + label)
+	}
+}
+
+func (d *Daemon) stopRelayResources() {
+	d.mu.Lock()
+	listeners := d.relayListeners
+	d.relayListeners = nil
+	d.relayTokens = nil
+	d.relayAddr = ""
+	d.relayPassword = ""
+	d.mu.Unlock()
+	if listeners != nil {
+		_ = listeners.Close()
 	}
 }
 

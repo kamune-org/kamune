@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -21,6 +22,15 @@ import (
 )
 
 const keychainService = "kamune"
+
+var (
+	errPassphraseRequired = errors.New(
+		"KAMUNE_DB_PASSPHRASE not set and db_no_passphrase is false; use submit_passphrase to provide one",
+	)
+	errStorageBusy = errors.New(
+		"storage cannot be replaced while networking is active",
+	)
+)
 
 func keychainAccount(dbPath string) string {
 	if dbPath == "" {
@@ -43,6 +53,7 @@ type Daemon struct {
 	pubKey        []byte
 	myName        string
 	dbPath        string
+	pendingDBPath string
 	verifMode     VerificationMode
 	incognito     bool
 
@@ -50,13 +61,13 @@ type Daemon struct {
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
 
-	serverAddr          string
-	serverTransport     string
-	serverRelayAddr     string
-	serverName          string
-	serverPassword      string
-	serverBrokerAddr    string
-	serverPeerPubB64    string
+	serverAddr           string
+	serverTransport      string
+	serverRelayAddr      string
+	serverName           string
+	serverPassword       string
+	serverBrokerAddr     string
+	serverPeerPubB64     string
 	serverDirectPeerAddr string
 
 	relayAddr       string
@@ -66,11 +77,13 @@ type Daemon struct {
 	relayListeners  *multiListener
 
 	p2pTokens    []p2pToken
-	p2pListener  *p2pListener
+	p2pListener  kamune.Listener
 	brokerClient *BrokerClient
 
 	startCtx    context.Context
 	startCancel context.CancelFunc
+	startDone   chan struct{}
+	dialOps     int
 
 	status    ConnectionStatus
 	statusMsg string
@@ -90,7 +103,8 @@ type Daemon struct {
 
 	fingerprintFmt string
 
-	wg sync.WaitGroup
+	wg           sync.WaitGroup
+	shutdownOnce sync.Once
 }
 
 // NewDaemon creates a new daemon instance
@@ -179,6 +193,12 @@ func (d *Daemon) setStatus(status ConnectionStatus, msg string) {
 	})
 }
 
+func (d *Daemon) isIncognito() bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.incognito
+}
+
 // store returns the single shared storage instance, or nil if not open.
 func (d *Daemon) store() *storage.Storage {
 	d.storeMu.Lock()
@@ -189,12 +209,13 @@ func (d *Daemon) store() *storage.Storage {
 // closeStore closes the shared storage if open. Safe to call multiple times.
 func (d *Daemon) closeStore() {
 	d.storeMu.Lock()
-	defer d.storeMu.Unlock()
-	if d.db != nil {
-		if err := d.db.Close(); err != nil {
+	store := d.db
+	d.db = nil
+	d.storeMu.Unlock()
+	if store != nil {
+		if err := store.Close(); err != nil {
 			slog.Warn("error closing storage", slog.Any("error", err))
 		}
-		d.db = nil
 	}
 }
 
@@ -208,11 +229,37 @@ func (d *Daemon) requireStorage(cmdID ID) bool {
 	return true
 }
 
-// openStorage closes any existing storage and opens a new one at the given
-// path with the given passphrase mode. For passphrase mode, the passphrase
-// is read from KAMUNE_DB_PASSPHRASE.
+func (d *Daemon) storageBusy() bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.server != nil || d.startCancel != nil || d.dialOps > 0 ||
+		len(d.sessions) > 0
+}
+
+func (d *Daemon) installStore(store *storage.Storage, path string) {
+	d.storeMu.Lock()
+	old := d.db
+	d.db = store
+	d.storeMu.Unlock()
+
+	d.mu.Lock()
+	d.dbPath = path
+	d.pendingDBPath = ""
+	d.mu.Unlock()
+
+	if old != nil {
+		if err := old.Close(); err != nil {
+			slog.Warn("error closing replaced storage", slog.Any("error", err))
+		}
+	}
+}
+
+// openStorage opens storage at the given path and only replaces the current
+// store after the new store has opened successfully.
 func (d *Daemon) openStorage(params OpenStorageParams) error {
-	d.closeStore()
+	if d.storageBusy() {
+		return errStorageBusy
+	}
 
 	var opts []storage.StorageOption
 	if params.StoragePath != "" {
@@ -222,12 +269,13 @@ func (d *Daemon) openStorage(params OpenStorageParams) error {
 	if params.DBNoPassphrase {
 		opts = append(opts, storage.WithNoPassphrase())
 	} else {
+		d.mu.Lock()
+		d.pendingDBPath = params.StoragePath
+		d.mu.Unlock()
+
 		pass := os.Getenv("KAMUNE_DB_PASSPHRASE")
 		if pass == "" {
-			return fmt.Errorf(
-				"KAMUNE_DB_PASSPHRASE not set and db_no_passphrase is false; " +
-					"use submit_passphrase to provide one",
-			)
+			return errPassphraseRequired
 		}
 		d.passphrase.Store([]byte(pass))
 		opts = append(opts, storage.WithPassphraseHandler(func() ([]byte, error) {
@@ -241,14 +289,7 @@ func (d *Daemon) openStorage(params OpenStorageParams) error {
 		return err
 	}
 
-	d.storeMu.Lock()
-	d.db = store
-	d.storeMu.Unlock()
-
-	d.mu.Lock()
-	d.dbPath = params.StoragePath
-	d.mu.Unlock()
-
+	d.installStore(store, params.StoragePath)
 	return nil
 }
 
@@ -310,8 +351,8 @@ func (d *Daemon) Run() {
 		return
 	}
 
-	// stdin closed without a shutdown command — clean up
-	d.closeStore()
+	// stdin closed without a shutdown command — clean up all resources.
+	d.Shutdown()
 
 	if err := scanner.Err(); err != nil {
 		slog.Error("stdin scanner error", slog.Any("error", err))
@@ -442,6 +483,10 @@ func (d *Daemon) handleOpenStorage(cmd Command) {
 		return
 	}
 	if err := d.openStorage(params); err != nil {
+		if errors.Is(err, errStorageBusy) {
+			d.emitError(cmd.ID, "storage_busy", err.Error())
+			return
+		}
 		d.emitError(cmd.ID, "storage_open_failed", fmt.Sprintf("failed to open storage: %v", err))
 		return
 	}
@@ -463,7 +508,10 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	}
 
 	d.mu.RLock()
-	dbPath := d.dbPath
+	dbPath := d.pendingDBPath
+	if dbPath == "" {
+		dbPath = d.dbPath
+	}
 	d.mu.RUnlock()
 
 	if dbPath == "" {
@@ -471,7 +519,10 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 		return
 	}
 
-	d.closeStore()
+	if d.storageBusy() {
+		d.emitError(cmd.ID, "storage_busy", errStorageBusy.Error())
+		return
+	}
 	d.passphrase.Store([]byte(params.Passphrase))
 
 	store, err := storage.OpenStorage(
@@ -486,9 +537,7 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 		return
 	}
 
-	d.storeMu.Lock()
-	d.db = store
-	d.storeMu.Unlock()
+	d.installStore(store, dbPath)
 
 	d.loadIdentityAndHistory()
 
@@ -497,47 +546,57 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 
 // Shutdown gracefully shuts down the daemon
 func (d *Daemon) Shutdown() {
+	d.shutdownOnce.Do(d.shutdown)
+}
+
+func (d *Daemon) shutdown() {
 	d.cancel()
 
+	var sessions []*liveSession
+	var server *kamune.Server
+	var serverDone chan struct{}
+	var startCancel context.CancelFunc
+
 	d.mu.Lock()
+	startCancel = d.startCancel
+	server = d.server
+	d.server = nil
+	serverDone = d.serverDone
+	d.serverDone = nil
+	sessions = append(sessions, mapValues(d.sessions)...)
+	d.sessions = make(map[string]*liveSession)
+	d.mu.Unlock()
 
-	// Close relay listeners
-	if d.relayListeners != nil {
-		d.relayListeners.Close()
-		d.relayListeners = nil
+	if startCancel != nil {
+		startCancel()
 	}
-
-	// Close server listener first so ListenAndServe returns
-	if d.server != nil {
-		if err := d.server.Close(); err != nil {
+	d.stopRelayResources()
+	d.stopP2PResources()
+	if server != nil {
+		if err := server.Close(); err != nil {
 			slog.Warn("error closing server", slog.Any("error", err))
 		}
-		d.server = nil
 	}
 
-	// Close all sessions
-	for id, session := range d.sessions {
-		if err := session.Transport.Close(); err != nil {
-			slog.Warn(
-				"error closing session",
-				slog.String("session_id", id),
-				slog.Any("error", err),
-			)
+	for _, session := range sessions {
+		transport := session.stop()
+		if transport != nil {
+			if err := transport.Close(); err != nil {
+				slog.Warn(
+					"error closing session",
+					slog.String("session_id", session.ID),
+					slog.Any("error", err),
+				)
+			}
 		}
 	}
-	d.sessions = make(map[string]*liveSession)
 
-	if d.serverDone != nil {
-		done := d.serverDone
-		d.serverDone = nil
-		d.mu.Unlock()
+	if serverDone != nil {
 		select {
-		case <-done:
+		case <-serverDone:
 		case <-time.After(channelTimeout):
 			slog.Warn("Timeout waiting for ListenAndServe")
 		}
-	} else {
-		d.mu.Unlock()
 	}
 
 	d.wg.Wait()
@@ -691,7 +750,9 @@ func (d *Daemon) handleGetSessionInfo(cmd Command) {
 
 	for _, s := range d.sessions {
 		if s.ID == params.SessionID {
+			s.mu.Lock()
 			info := d.sessionInfoLocked(s)
+			s.mu.Unlock()
 			d.emit(EvtResponse, cmd.ID, MapA{
 				"type":           "live",
 				"session_id":     info.SessionID,

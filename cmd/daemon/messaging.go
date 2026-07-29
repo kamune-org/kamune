@@ -14,6 +14,53 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
+func (s *liveSession) snapshotTransport() *kamune.Transport {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Transport
+}
+
+func (s *liveSession) appendMessage(msg MessageInfo) {
+	s.mu.Lock()
+	s.Messages = append(s.Messages, msg)
+	s.LastActivity = time.Now()
+	s.mu.Unlock()
+}
+
+func (s *liveSession) deliverPong(data []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	select {
+	case s.pongCh <- data:
+	default:
+	}
+}
+
+func closeSignal(ch chan struct{}) {
+	if ch == nil {
+		return
+	}
+	select {
+	case <-ch:
+	default:
+		close(ch)
+	}
+}
+
+func (s *liveSession) stop() *kamune.Transport {
+	s.mu.Lock()
+	cancel := s.reconnectCancel
+	s.reconnectCancel = nil
+	s.reconnectFn = nil
+	closeSignal(s.keepAliveDone)
+	transport := s.Transport
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return transport
+}
+
 // handleSendMessage sends a message on an existing session and persists it
 // to the chat history (mirrors cmd/bus/messaging.go:13-62).
 func (d *Daemon) handleSendMessage(cmd Command) {
@@ -40,7 +87,8 @@ func (d *Daemon) handleSendMessage(cmd Command) {
 		return
 	}
 
-	metadata, err := session.Transport.Send(
+	transport := session.snapshotTransport()
+	metadata, err := transport.Send(
 		kamune.Bytes(data), kamune.RouteExchangeMessages,
 	)
 	if err != nil {
@@ -54,12 +102,9 @@ func (d *Daemon) handleSendMessage(cmd Command) {
 		IsLocal:   true,
 	}
 
-	d.mu.Lock()
-	session.Messages = append(session.Messages, msg)
-	session.LastActivity = time.Now()
-	d.mu.Unlock()
+	session.appendMessage(msg)
 
-	if store := d.store(); store != nil && !d.incognito {
+	if store := d.store(); store != nil && !d.isIncognito() {
 		store.AddChatEntry(
 			params.SessionID, data, metadata.Timestamp(), storage.SenderLocal,
 		)
@@ -82,16 +127,16 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 	defer close(session.ReceiveDone)
 
 	for {
+		transport := session.snapshotTransport()
 		b := kamune.Bytes(nil)
-		metadata, err := session.Transport.Receive(b)
+		metadata, err := transport.Receive(b)
 		if err != nil {
 			switch {
 			case errors.Is(err, kamune.ErrPeerDisconnected):
 				d.addLogEntry("INFO", "Peer disconnected: "+session.ID)
 			case errors.Is(err, kamune.ErrConnClosed):
 				d.addLogEntry("INFO", "Connection closed: "+session.ID)
-				if session.reconnectFn != nil &&
-					d.reconnectSession(session) {
+				if d.reconnectSession(session) {
 					continue
 				}
 			case errors.Is(err, kamune.ErrReceiveTimeout):
@@ -104,7 +149,7 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 
 		switch metadata.Route() {
 		case kamune.RoutePing:
-			if _, err := session.Transport.Send(
+			if _, err := transport.Send(
 				kamune.Bytes(b.GetValue()), kamune.RoutePong,
 			); err != nil {
 				slog.Warn("failed to send pong",
@@ -114,10 +159,7 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 			}
 			continue
 		case kamune.RoutePong:
-			select {
-			case session.pongCh <- b.GetValue():
-			default:
-			}
+			session.deliverPong(b.GetValue())
 			continue
 		}
 
@@ -128,12 +170,9 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 			IsLocal:   false,
 		}
 
-		d.mu.Lock()
-		session.Messages = append(session.Messages, msg)
-		session.LastActivity = time.Now()
-		d.mu.Unlock()
+		session.appendMessage(msg)
 
-		if store := d.store(); store != nil && !d.incognito {
+		if store := d.store(); store != nil && !d.isIncognito() {
 			store.AddChatEntry(
 				session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
 			)
@@ -156,7 +195,7 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 // handler. It persists received messages and handles ping/pong (mirrors
 // cmd/bus/messaging.go:82-133).
 func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
-	t := session.Transport
+	t := session.snapshotTransport()
 
 	for {
 		b := kamune.Bytes(nil)
@@ -187,10 +226,7 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
 			}
 			continue
 		case kamune.RoutePong:
-			select {
-			case session.pongCh <- b.GetValue():
-			default:
-			}
+			session.deliverPong(b.GetValue())
 			continue
 		}
 
@@ -201,12 +237,9 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
 			IsLocal:   false,
 		}
 
-		d.mu.Lock()
-		session.Messages = append(session.Messages, msg)
-		session.LastActivity = time.Now()
-		d.mu.Unlock()
+		session.appendMessage(msg)
 
-		if store := d.store(); store != nil && !d.incognito {
+		if store := d.store(); store != nil && !d.isIncognito() {
 			store.AddChatEntry(
 				session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
 			)
@@ -225,7 +258,10 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
 // keepAliveLoop sends periodic pings to detect dead connections. After 3
 // consecutive ping failures it closes the transport (mirrors
 // cmd/bus/messaging.go:160-189).
-func (d *Daemon) keepAliveLoop(session *liveSession) {
+func (d *Daemon) keepAliveLoop(
+	session *liveSession,
+	keepAliveDone <-chan struct{},
+) {
 	const pingTimeout = 10 * time.Second
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -233,20 +269,39 @@ func (d *Daemon) keepAliveLoop(session *liveSession) {
 		select {
 		case <-session.ReceiveDone:
 			return
-		case <-session.keepAliveDone:
+		case <-keepAliveDone:
 			return
 		case <-ticker.C:
-			if err := sendPing(session.Transport, session.pongCh, pingTimeout); err != nil {
+			session.mu.Lock()
+			transport := session.Transport
+			pongCh := session.pongCh
+			session.mu.Unlock()
+			if err := sendPing(transport, pongCh, pingTimeout); err != nil {
+				session.mu.Lock()
+				if session.Transport != transport {
+					session.mu.Unlock()
+					return
+				}
 				session.pingFailures++
+				failures := session.pingFailures
+				transport = session.Transport
+				peerName := session.PeerName
+				session.mu.Unlock()
 				d.addLogEntry("DEBUG", "Keepalive ping failed: "+err.Error())
-				if session.pingFailures >= 3 {
-					d.addLogEntry("WARN", "Peer unresponsive: "+session.PeerName)
-					_ = session.Transport.Close()
+				if failures >= 3 {
+					d.addLogEntry("WARN", "Peer unresponsive: "+peerName)
+					_ = transport.Close()
 					return
 				}
 			} else {
+				session.mu.Lock()
+				if session.Transport != transport {
+					session.mu.Unlock()
+					return
+				}
 				session.pingFailures = 0
 				session.lastPongAt = time.Now()
+				session.mu.Unlock()
 			}
 		}
 	}
@@ -255,18 +310,24 @@ func (d *Daemon) keepAliveLoop(session *liveSession) {
 // sendPing sends a RoutePing and waits for a matching RoutePong within
 // timeout. The token-based verification ensures the pong corresponds to
 // this specific ping (mirrors cmd/bus/messaging.go:194-217).
-func sendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duration) error {
+type pingTransport interface {
+	Send(kamune.Transferable, kamune.Route) (*kamune.Metadata, error)
+}
+
+func sendPing(
+	t pingTransport, pongCh <-chan []byte, timeout time.Duration,
+) error {
 	const pingDataSize = 8
 	tok := make([]byte, pingDataSize)
 	if _, err := rand.Read(tok); err != nil {
 		return err
 	}
-	if _, err := t.Send(kamune.Bytes(tok), kamune.RoutePing); err != nil {
-		return err
-	}
 	select {
 	case <-pongCh:
 	default:
+	}
+	if _, err := t.Send(kamune.Bytes(tok), kamune.RoutePing); err != nil {
+		return err
 	}
 	select {
 	case data := <-pongCh:
@@ -289,12 +350,20 @@ func (d *Daemon) reconnectSession(session *liveSession) bool {
 		maxDelay    = 30 * time.Second
 	)
 
+	session.mu.Lock()
+	reconnectCtx := session.reconnectCtx
+	reconnectFn := session.reconnectFn
+	session.mu.Unlock()
+	if reconnectCtx == nil || reconnectFn == nil {
+		return false
+	}
+
 	for attempt := range maxAttempts {
 		if attempt > 0 {
 			delay := time.Duration(min(int64(baseDelay)*int64(1<<(attempt-1)), int64(maxDelay)))
 			select {
 			case <-time.After(delay):
-			case <-session.reconnectCtx.Done():
+			case <-reconnectCtx.Done():
 				return false
 			}
 		}
@@ -307,23 +376,34 @@ func (d *Daemon) reconnectSession(session *liveSession) bool {
 			"max_attempts": maxAttempts,
 		})
 
-		t, err := session.reconnectFn(session.ID)
+		t, err := reconnectFn(session.ID)
 		if err != nil {
 			d.addLogEntry("WARN", "Reconnect failed: "+err.Error())
 			continue
 		}
 
-		d.mu.Lock()
+		if reconnectCtx.Err() != nil {
+			t.Close()
+			return false
+		}
+
+		session.mu.Lock()
+		if session.reconnectFn == nil {
+			session.mu.Unlock()
+			t.Close()
+			return false
+		}
 		session.Transport = t
 		session.pingFailures = 0
 		session.pongCh = make(chan []byte, 1)
-		close(session.keepAliveDone)
+		closeSignal(session.keepAliveDone)
 		session.keepAliveDone = make(chan struct{})
-		d.mu.Unlock()
+		keepAliveDone := session.keepAliveDone
+		session.mu.Unlock()
 
 		d.addLogEntry("INFO", "Reconnected session "+session.ID)
 		d.emit(EvtSessionReconnected, "", MapS{"session_id": session.ID})
-		go d.keepAliveLoop(session)
+		go d.keepAliveLoop(session, keepAliveDone)
 		return true
 	}
 

@@ -179,12 +179,16 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 }
 
 func dialRelayFunc(relayAddr, tokenHex, password string, insecureSkipVerify bool) (func(string) (kamune.Conn, error), error) {
-	return dialRelayFuncWithSessionTTL(relayAddr, tokenHex, password, insecureSkipVerify, nil)
+	return dialRelayFuncWithSessionTTL(
+		context.Background(), relayAddr, tokenHex, password,
+		insecureSkipVerify, nil,
+	)
 }
 
 // dialRelayFuncMultiToken returns a dial function that tries each of the given
 // relay tokens in order, returning the first successful connection.
 func dialRelayFuncMultiToken(
+	ctx context.Context,
 	relayAddr, password string,
 	insecureSkipVerify bool,
 	tokens [][]byte,
@@ -196,7 +200,6 @@ func dialRelayFuncMultiToken(
 		return nil, errors.New("at least one relay token is required")
 	}
 
-	ctx := context.Background()
 	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
 	if insecureOverride != nil {
 		insecureSkipVerify = *insecureOverride
@@ -232,7 +235,12 @@ func dialRelayFuncMultiToken(
 	}, nil
 }
 
-func dialRelayFuncWithSessionTTL(relayAddr, tokenHex, password string, insecureSkipVerify bool, sessionTTL *time.Duration) (func(string) (kamune.Conn, error), error) {
+func dialRelayFuncWithSessionTTL(
+	ctx context.Context,
+	relayAddr, tokenHex, password string,
+	insecureSkipVerify bool,
+	sessionTTL *time.Duration,
+) (func(string) (kamune.Conn, error), error) {
 	if strings.TrimSpace(relayAddr) == "" {
 		return nil, errors.New("relay server address is required")
 	}
@@ -245,7 +253,6 @@ func dialRelayFuncWithSessionTTL(relayAddr, tokenHex, password string, insecureS
 		return nil, fmt.Errorf("decode token: %w", err)
 	}
 
-	ctx := context.Background()
 	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
 	if insecureOverride != nil {
 		insecureSkipVerify = *insecureOverride

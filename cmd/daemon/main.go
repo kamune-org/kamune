@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/kamune-org/kamune"
@@ -92,29 +93,29 @@ type Evt string
 
 // Event types
 const (
-	EvtReady             Evt = "ready"
-	EvtServerStarted     Evt = "server_started"
-	EvtServerStopped     Evt = "server_stopped"
-	EvtServerRunning     Evt = "server_running"
-	EvtServerStartCancel Evt = "server_start_cancelled"
-	EvtSessionStarted    Evt = "session_started"
-	EvtSessionClosed     Evt = "session_closed"
-	EvtSessionUpdated    Evt = "session_updated"
-	EvtMessageReceived   Evt = "message_received"
-	EvtMessageSent       Evt = "message_sent"
-	EvtStatusChanged     Evt = "status_changed"
-	EvtFingerprintChange Evt = "fingerprint_changed"
-	EvtVersionWarning    Evt = "version_warning"
-	EvtRelayToken        Evt = "relay_token"
-	EvtRelayTokens       Evt = "relay_tokens"
-	EvtP2PTokens         Evt = "p2p_tokens"
-	EvtVerifyPeer        Evt = "verify_peer"
-	EvtHistoryUpdated    Evt = "history_updated"
-	EvtHistoryLoaded     Evt = "history_loaded"
-	EvtLocalNameChanged  Evt = "local_name_changed"
-	EvtError             Evt = "error"
-	EvtResponse          Evt = "response"
-	EvtLogEntry          Evt = "log_entry"
+	EvtReady               Evt = "ready"
+	EvtServerStarted       Evt = "server_started"
+	EvtServerStopped       Evt = "server_stopped"
+	EvtServerRunning       Evt = "server_running"
+	EvtServerStartCancel   Evt = "server_start_cancelled"
+	EvtSessionStarted      Evt = "session_started"
+	EvtSessionClosed       Evt = "session_closed"
+	EvtSessionUpdated      Evt = "session_updated"
+	EvtMessageReceived     Evt = "message_received"
+	EvtMessageSent         Evt = "message_sent"
+	EvtStatusChanged       Evt = "status_changed"
+	EvtFingerprintChange   Evt = "fingerprint_changed"
+	EvtVersionWarning      Evt = "version_warning"
+	EvtRelayToken          Evt = "relay_token"
+	EvtRelayTokens         Evt = "relay_tokens"
+	EvtP2PTokens           Evt = "p2p_tokens"
+	EvtVerifyPeer          Evt = "verify_peer"
+	EvtHistoryUpdated      Evt = "history_updated"
+	EvtHistoryLoaded       Evt = "history_loaded"
+	EvtLocalNameChanged    Evt = "local_name_changed"
+	EvtError               Evt = "error"
+	EvtResponse            Evt = "response"
+	EvtLogEntry            Evt = "log_entry"
 	EvtSessionReconnecting Evt = "session_reconnecting"
 	EvtSessionReconnected  Evt = "session_reconnected"
 )
@@ -242,6 +243,7 @@ type relayToken struct {
 // liveSession wraps a kamune.Transport with metadata. Mirrors bus.liveSession
 // (cmd/bus/app.go:147-167).
 type liveSession struct {
+	mu               sync.Mutex
 	ID               string
 	PeerName         string
 	RemoteVersion    string

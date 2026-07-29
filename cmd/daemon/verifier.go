@@ -79,7 +79,7 @@ func (d *Daemon) createStrictVerifier() kamune.RemoteVerifier {
 
 		d.setStatus(prevStatus, prevMsg)
 
-		if !known && !d.incognito {
+		if !known && !d.isIncognito() {
 			peer.FirstSeen = time.Now()
 			if err := store.StorePeer(peer); err != nil {
 				d.addLogEntry("WARN", "Failed to save peer: "+err.Error())
@@ -136,7 +136,7 @@ func (d *Daemon) createQuickVerifier() kamune.RemoteVerifier {
 
 		d.setStatus(prevStatus, prevMsg)
 
-		if !d.incognito {
+		if !d.isIncognito() {
 			peer.FirstSeen = time.Now()
 			if err := store.StorePeer(peer); err != nil {
 				d.addLogEntry("WARN", "Failed to save peer: "+err.Error())
@@ -151,7 +151,8 @@ func (d *Daemon) createAutoAcceptVerifier() kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
 		key := peer.PublicKey
 
-		if _, err := store.FindPeer(key); err != nil && !d.incognito {
+		if _, err := store.FindPeer(key); err != nil &&
+			!d.isIncognito() {
 			peer.FirstSeen = time.Now()
 			if err := store.StorePeer(peer); err != nil {
 				d.addLogEntry("WARN", "Failed to save peer: "+err.Error())

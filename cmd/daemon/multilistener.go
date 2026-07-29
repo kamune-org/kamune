@@ -13,6 +13,7 @@ type multiListener struct {
 	connCh    chan kamune.Conn
 	done      chan struct{}
 	wg        sync.WaitGroup
+	closed    bool
 }
 
 func newMultiListener() *multiListener {
@@ -23,17 +24,14 @@ func newMultiListener() *multiListener {
 }
 
 func (m *multiListener) Add(l kamune.Listener) error {
-	select {
-	case <-m.done:
-		return net.ErrClosed
-	default:
-	}
-
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return net.ErrClosed
+	}
 	m.listeners = append(m.listeners, l)
-	m.mu.Unlock()
-
 	m.wg.Add(1)
+	m.mu.Unlock()
 	go func() {
 		defer m.wg.Done()
 		for {
@@ -62,19 +60,19 @@ func (m *multiListener) Accept() (kamune.Conn, error) {
 }
 
 func (m *multiListener) Close() error {
-	select {
-	case <-m.done:
-		return net.ErrClosed
-	default:
-		close(m.done)
-	}
-
 	m.mu.Lock()
-	for _, l := range m.listeners {
-		l.Close()
+	if m.closed {
+		m.mu.Unlock()
+		return net.ErrClosed
 	}
+	m.closed = true
+	close(m.done)
+	listeners := append([]kamune.Listener(nil), m.listeners...)
 	m.mu.Unlock()
 
+	for _, l := range listeners {
+		_ = l.Close()
+	}
 	m.wg.Wait()
 	return nil
 }
