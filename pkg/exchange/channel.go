@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 )
 
@@ -28,6 +29,7 @@ type Channel struct {
 	conn      ReadWriter
 	sender    *hpke.Sender
 	recipient *hpke.Recipient
+	writeMu   sync.Mutex
 }
 
 func newChannel(
@@ -54,6 +56,9 @@ func (ch *Channel) ReadBytes() ([]byte, error) {
 }
 
 func (ch *Channel) WriteBytes(data []byte) error {
+	ch.writeMu.Lock()
+	defer ch.writeMu.Unlock()
+
 	encrypted, err := ch.sender.Seal(nil, data)
 	if err != nil {
 		return fmt.Errorf("encrypting: %w", err)
