@@ -46,8 +46,7 @@ func (d *Daemon) getOrCreateBrokerClient() (*BrokerClient, error) {
 }
 
 func (d *Daemon) GenerateP2PToken(
-	brokerAddr string,
-	peerPubB64 string,
+	brokerAddr, peerPubB64 string,
 ) (string, error) {
 	if brokerAddr == "" {
 		return "", errors.New("broker address is required")
@@ -317,8 +316,7 @@ func (d *Daemon) refreshP2PToken(pt p2pToken) bool {
 	broker := d.brokerClient
 	d.mu.RUnlock()
 	if broker == nil {
-		d.addLogEntry("ERROR",
-			"p2p token refresh: broker client is not initialized")
+		d.addLogEntry("ERROR", "p2p token refresh: broker client is not initialized")
 		return false
 	}
 	client, err := broker.Client(pt.brokerAddr)

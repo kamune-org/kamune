@@ -180,8 +180,7 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 
 func dialRelayFunc(relayAddr, tokenHex, password string, insecureSkipVerify bool) (func(string) (kamune.Conn, error), error) {
 	return dialRelayFuncWithSessionTTL(
-		context.Background(), relayAddr, tokenHex, password,
-		insecureSkipVerify, nil,
+		context.Background(), relayAddr, tokenHex, password, insecureSkipVerify, nil,
 	)
 }
 
