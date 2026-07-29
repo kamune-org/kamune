@@ -33,12 +33,12 @@ type Transport struct {
 	encoder        *enigma.Enigma
 	decoder        *enigma.Enigma
 	mu             *sync.Mutex
-	sendMu         sync.Mutex
 	remotePeer     *storage.Peer
 	sessionID      string
 	resumptionRoot []byte
 	recvSequence   uint64
 	sendSequence   uint64
+	sendMu         sync.Mutex
 }
 
 func newTransport(

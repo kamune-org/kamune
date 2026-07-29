@@ -31,7 +31,7 @@ func (c *framedConn) WriteBytes(data []byte) error {
 	if err := binary.Write(c.Conn, binary.BigEndian, uint32(len(data))); err != nil {
 		return err
 	}
-	_, err := c.Conn.Write(data)
+	_, err := c.Write(data)
 	return err
 }
 

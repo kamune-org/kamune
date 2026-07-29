@@ -7,6 +7,7 @@ __debug*
 binaries
 dist
 
-cmd/tui
 cmd/bus
 cmd/daemon
+cmd/relay
+cmd/tui
