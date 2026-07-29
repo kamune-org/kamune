@@ -32,8 +32,11 @@ func (a *App) SendMessage(sessionID string, text string) error {
 	if session == nil {
 		return errors.New("session not found: " + sessionID)
 	}
+	session.mu.Lock()
+	transport := session.Transport
+	session.mu.Unlock()
 
-	metadata, err := session.Transport.Send(
+	metadata, err := transport.Send(
 		kamune.Bytes([]byte(text)),
 		kamune.RouteExchangeMessages,
 	)
@@ -53,9 +56,12 @@ func (a *App) SendMessage(sessionID string, text string) error {
 	a.mu.Unlock()
 
 	if store := a.store(); store != nil && !a.incognito {
-		store.AddChatEntry(
+		if err := store.AddChatEntry(
 			sessionID, []byte(text), metadata.Timestamp(), storage.SenderLocal,
-		)
+		); err != nil {
+			a.addLogEntry("WARN", "Failed to save sent message: "+err.Error())
+			runtime.EventsEmit(a.ctx, "history-save-failed", sessionID)
+		}
 	}
 
 	runtime.EventsEmit(a.ctx, "message-sent", sessionID, msg)
@@ -73,7 +79,10 @@ func (a *App) receiveMessages(session *liveSession) {
 
 	for {
 		b := kamune.Bytes(nil)
-		metadata, err := session.Transport.Receive(b)
+		session.mu.Lock()
+		transport := session.Transport
+		session.mu.Unlock()
+		metadata, err := transport.Receive(b)
 		if err != nil {
 			switch {
 			case errors.Is(err, kamune.ErrPeerDisconnected):
@@ -95,7 +104,7 @@ func (a *App) receiveMessages(session *liveSession) {
 		// Handle protocol-level routes before treating as chat.
 		switch metadata.Route() {
 		case kamune.RoutePing:
-			if _, err := session.Transport.Send(
+			if _, err := transport.Send(
 				kamune.Bytes(b.GetValue()), kamune.RoutePong,
 			); err != nil {
 				a.addLogEntry("WARN", "Failed to send pong: "+err.Error())
@@ -123,9 +132,12 @@ func (a *App) receiveMessages(session *liveSession) {
 		a.mu.Unlock()
 
 		if store := a.store(); store != nil && !a.incognito {
-			store.AddChatEntry(
+			if err := store.AddChatEntry(
 				session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
-			)
+			); err != nil {
+				a.addLogEntry("WARN", "Failed to save received message: "+err.Error())
+				runtime.EventsEmit(a.ctx, "history-save-failed", session.ID)
+			}
 		}
 
 		if !isActive {
@@ -141,7 +153,10 @@ func (a *App) receiveMessages(session *liveSession) {
 		a.addLogEntry("DEBUG", "Received message | session_id="+session.ID+" msg_id="+metadata.ID())
 	}
 
-	sessionsRemaining := a.removeSession(session.ID)
+	sessionsRemaining, removed := a.removeSession(session.ID)
+	if !removed {
+		return
+	}
 
 	if store := a.store(); store != nil {
 		a.loadHistorySessions(store)
@@ -168,20 +183,30 @@ func (a *App) keepAliveLoop(session *liveSession) {
 		case <-session.keepAliveDone:
 			return
 		case <-ticker.C:
+			session.mu.Lock()
+			transport := session.Transport
+			pongCh := session.pongCh
+			failures := session.pingFailures
+			session.mu.Unlock()
 			a.addLogEntry("DEBUG", "keepalive: pinging peer | session_id="+session.ID+" failures="+
-				strconv.Itoa(session.pingFailures))
-			if err := sendPing(session.Transport, session.pongCh, pingTimeout); err != nil {
+				strconv.Itoa(failures))
+			if err := sendPing(transport, pongCh, pingTimeout); err != nil {
+				session.mu.Lock()
 				session.pingFailures++
+				failures = session.pingFailures
+				session.mu.Unlock()
 				a.addLogEntry("DEBUG", "keepalive: ping failed | session_id="+session.ID+" error="+err.Error()+
-					" failures="+strconv.Itoa(session.pingFailures))
-				if session.pingFailures >= 3 {
+					" failures="+strconv.Itoa(failures))
+				if failures >= 3 {
 					a.addLogEntry("WARN", "Peer unresponsive: "+session.PeerName)
-					_ = session.Transport.Close()
+					_ = transport.Close()
 					return
 				}
 			} else {
+				session.mu.Lock()
 				session.pingFailures = 0
 				session.lastPongAt = time.Now()
+				session.mu.Unlock()
 				a.addLogEntry("DEBUG", "keepalive: pong received | session_id="+session.ID)
 			}
 		}
@@ -248,13 +273,13 @@ func (a *App) reconnectSession(session *liveSession) bool {
 			continue
 		}
 
-		a.mu.Lock()
+		session.mu.Lock()
 		session.Transport = t
 		session.pingFailures = 0
 		session.pongCh = make(chan []byte, 1)
 		close(session.keepAliveDone)
 		session.keepAliveDone = make(chan struct{})
-		a.mu.Unlock()
+		session.mu.Unlock()
 
 		a.addLogEntry("INFO", "Reconnected session "+session.ID)
 		runtime.EventsEmit(a.ctx, "session-reconnected", session.ID)

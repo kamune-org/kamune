@@ -154,6 +154,7 @@ type LogEntryInfo struct {
 }
 
 type liveSession struct {
+	mu               sync.Mutex
 	ID               string
 	PeerName         string
 	RemoteVersion    string

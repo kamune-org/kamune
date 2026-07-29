@@ -34,6 +34,14 @@ func (a *App) StartServer(
 	}
 	a.mu.Unlock()
 
+	started := false
+	cancelled := false
+	defer func() {
+		if !started && !cancelled {
+			a.setStatus(StatusError, "Failed to start server")
+		}
+	}()
+
 	a.setStatus(StatusConnecting, "Starting server...")
 
 	a.mu.Lock()
@@ -99,9 +107,10 @@ func (a *App) StartServer(
 	switch transport {
 	case "relay":
 		a.mu.RLock()
-		cancelled := a.startCancel == nil
+		wasCancelled := a.startCancel == nil
 		a.mu.RUnlock()
-		if cancelled {
+		if wasCancelled {
+			cancelled = true
 			a.setStatus(StatusDisconnected, "Cancelled")
 			a.addLogEntry("INFO", "Server start cancelled")
 			return "", "", fmt.Errorf("cancelled")
@@ -115,9 +124,10 @@ func (a *App) StartServer(
 		listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, password, false, relayStaticToken)
 		if err != nil {
 			a.mu.RLock()
-			cancelled := a.startCancel == nil
+			wasCancelled := a.startCancel == nil
 			a.mu.RUnlock()
-			if cancelled {
+			if wasCancelled {
+				cancelled = true
 				a.setStatus(StatusDisconnected, "Cancelled")
 				a.addLogEntry("INFO", "Server start cancelled")
 				return "", "", fmt.Errorf("cancelled")
@@ -266,6 +276,7 @@ func (a *App) StartServer(
 			a.addLogEntry("ERROR", "Server stopped: "+err.Error())
 		}
 		a.mu.Lock()
+		stopLabel := a.serverTransportType
 		a.relayTokens = nil
 		a.relayAddr = ""
 		a.relayPassword = ""
@@ -289,7 +300,6 @@ func (a *App) StartServer(
 			pt.cancel()
 		}
 		a.emitEvent("p2p-tokens", []p2pToken{})
-		stopLabel := a.serverTransportType
 		runtime.EventsEmit(a.ctx, "server-running", false, stopLabel)
 		a.setStatus(StatusDisconnected, "Server stopped")
 		a.addLogEntry("INFO", "Server stopped")
@@ -316,6 +326,7 @@ func (a *App) StartServer(
 		a.addLogEntry("INFO", "Relay token: "+firstToken)
 	}
 
+	started = true
 	return emoji, firstToken, nil
 }
 
@@ -501,6 +512,13 @@ func (a *App) ConnectToServer(
 	brokerAddr, peerPubB64, p2pToken string,
 	useP2P bool, useBroker bool,
 ) (ConnectResult, error) {
+	connected := false
+	defer func() {
+		if !connected {
+			a.setStatus(StatusError, "Connection failed")
+		}
+	}()
+
 	a.setStatus(StatusConnecting, "Connecting to "+addr+"...")
 
 	store := a.store()
@@ -751,6 +769,7 @@ func (a *App) ConnectToServer(
 	go a.receiveMessages(session)
 	go a.keepAliveLoop(session)
 
+	connected = true
 	return ConnectResult{SessionID: sessionID}, nil
 }
 
@@ -821,7 +840,10 @@ func (a *App) DisconnectSession(sessionID string) error {
 		session.reconnectCancel()
 	}
 
-	session.Transport.Close()
+	session.mu.Lock()
+	transport := session.Transport
+	session.mu.Unlock()
+	transport.Close()
 	waitOrTimeout(session.ReceiveDone, "DisconnectSession: "+sessionID)
 
 	if store := a.store(); store != nil {
@@ -870,6 +892,11 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		}
 		a.deriveAndStoreRelayTokens(t, sessionID)
 	}
+
+	// TODO(h.yazdani): A Transport does not retain which relay listener accepted
+	// it. With multiple consumed relay tokens, this fallback can associate a
+	// session with the wrong token. Preserve optional connection metadata through
+	// the core server handshake, then use the exact accepting relay token here.
 
 	// Link the session ID to the consumed relay token so the
 	// reconnect loop can look up stored tokens from BoltDB.
@@ -972,16 +999,16 @@ func (a *App) loadChatHistory(session *liveSession) {
 	a.mu.Unlock()
 }
 
-func (a *App) removeSession(sessionID string) int {
+func (a *App) removeSession(sessionID string) (int, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for i, s := range a.sessions {
 		if s.ID == sessionID {
 			a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)
-			break
+			return len(a.sessions), true
 		}
 	}
-	return len(a.sessions)
+	return len(a.sessions), false
 }
 
 func (a *App) GetShareInfo() (*ShareInfo, error) {
