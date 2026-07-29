@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"time"
 
@@ -21,7 +22,8 @@ type Config struct {
 }
 
 type Server struct {
-	Password string `toml:"password"`
+	Password       string   `toml:"password"`
+	TrustedProxies []string `toml:"trusted_proxies"`
 }
 
 type Diagnose struct {
@@ -76,6 +78,12 @@ type RateLimit struct {
 	MaxEntries int           `toml:"max_entries"`
 }
 
+const (
+	defaultRateLimitWindow     = time.Minute
+	defaultRateLimitQuota      = uint64(20)
+	defaultRateLimitMaxEntries = 100_000
+)
+
 func (rl RateLimit) IsEnabled() bool {
 	return !rl.Disabled
 }
@@ -86,6 +94,11 @@ func (rl RateLimit) IsEnabled() bool {
 // max_message_size) and restrictive about values that would silently
 // degrade behavior (token_ttl, max_concurrent_sessions).
 func (c Config) Validate() error {
+	for _, cidr := range c.Server.TrustedProxies {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return fmt.Errorf("server.trusted_proxies contains invalid CIDR %q", cidr)
+		}
+	}
 	if c.Session.MaxConcurrentSessions <= 0 {
 		return fmt.Errorf(
 			"session.max_concurrent_sessions must be > 0, got %d",
@@ -109,6 +122,30 @@ func (c Config) Validate() error {
 			"session.max_message_size must be >= 0 (0 = no limit), got %d",
 			c.Session.MaxMessageSize,
 		)
+	}
+	if c.RateLimit.IsEnabled() {
+		if c.RateLimit.TimeWindow <= 0 {
+			return fmt.Errorf(
+				"rate_limit.time_window must be > 0, got %s",
+				c.RateLimit.TimeWindow,
+			)
+		}
+		if c.RateLimit.Quota == 0 {
+			return fmt.Errorf("rate_limit.quota must be > 0")
+		}
+		maxInt := uint64(^uint(0) >> 1)
+		if c.RateLimit.Quota > maxInt {
+			return fmt.Errorf(
+				"rate_limit.quota exceeds platform int maximum: %d",
+				c.RateLimit.Quota,
+			)
+		}
+		if c.RateLimit.MaxEntries < 0 {
+			return fmt.Errorf(
+				"rate_limit.max_entries must be >= 0, got %d",
+				c.RateLimit.MaxEntries,
+			)
+		}
 	}
 	// Cert file paths must both be set or both be empty. Both-empty with
 	// tls.enabled = true triggers an in-memory self-signed cert at runtime.
@@ -159,7 +196,13 @@ func New(path string) (Config, error) {
 		data = []byte(raw)
 	}
 
-	var cfg Config
+	cfg := Config{
+		RateLimit: RateLimit{
+			TimeWindow: defaultRateLimitWindow,
+			Quota:      defaultRateLimitQuota,
+			MaxEntries: defaultRateLimitMaxEntries,
+		},
+	}
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("unmarshal: %w", err)
 	}

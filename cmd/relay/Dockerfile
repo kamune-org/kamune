@@ -2,8 +2,8 @@
 #   docker build -f cmd/relay/Dockerfile -t kamune-relay .
 #
 # Default config is included; the container runs with no args or env vars.
-# Override by mounting a config at /etc/kamune/relay.toml or setting the
-# KAMUNE_RELAY_CONFIG env var.
+# Override it by mounting a config at /etc/relay.toml. To use
+# KAMUNE_RELAY_CONFIG instead, replace the entrypoint so relay runs without -c.
 
 FROM golang:1.26-alpine AS builder
 

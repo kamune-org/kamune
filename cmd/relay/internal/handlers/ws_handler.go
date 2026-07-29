@@ -29,7 +29,7 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		conn.SetReadLimit(int64(maxSize))
 	}
 
-	remoteAddr := clientIP(r)
+	remoteAddr := clientIP(r, h.trustedProxies)
 
 	if rl := h.service.Hub().RateLimiter(); rl != nil && !rl.Allow(remoteAddr) {
 		slog.Warn("rate limit exceeded", slog.String("remote", remoteAddr))

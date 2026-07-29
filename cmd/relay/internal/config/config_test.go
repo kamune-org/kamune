@@ -58,6 +58,15 @@ func TestConfig_Validate_OK(t *testing.T) {
 	}
 }
 
+func TestConfig_Validate_RejectsInvalidTrustedProxy(t *testing.T) {
+	a := require.New(t)
+	cfg := validConfig()
+	cfg.Server.TrustedProxies = []string{"not-a-cidr"}
+	err := cfg.Validate()
+	a.Error(err)
+	a.Contains(err.Error(), "trusted_proxies")
+}
+
 func TestConfig_Validate_RejectsZeroMaxConns(t *testing.T) {
 	cfg := validConfig()
 	cfg.Session.MaxConcurrentSessions = 0
@@ -279,6 +288,61 @@ func TestConfig_Validate_RateLimit_DisabledFalseExplicitOn(t *testing.T) {
 	a.True(cfg.RateLimit.IsEnabled(), "disabled = false explicit should have IsEnabled() == true")
 }
 
+func TestConfig_Validate_RateLimitRejectsInvalidValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		message string
+	}{
+		{
+			name: "zero window",
+			mutate: func(cfg *Config) {
+				cfg.RateLimit.TimeWindow = 0
+			},
+			message: "time_window",
+		},
+		{
+			name: "zero quota",
+			mutate: func(cfg *Config) {
+				cfg.RateLimit.Quota = 0
+			},
+			message: "quota",
+		},
+		{
+			name: "negative max entries",
+			mutate: func(cfg *Config) {
+				cfg.RateLimit.MaxEntries = -1
+			},
+			message: "max_entries",
+		},
+		{
+			name: "quota overflow",
+			mutate: func(cfg *Config) {
+				cfg.RateLimit.Quota = ^uint64(0)
+			},
+			message: "platform int",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			cfg := validConfig()
+			tc.mutate(&cfg)
+			err := cfg.Validate()
+			a.Error(err)
+			a.Contains(err.Error(), tc.message)
+		})
+	}
+}
+
+func TestConfig_Validate_RateLimitDisabledIgnoresValues(t *testing.T) {
+	a := require.New(t)
+	cfg := validConfig()
+	cfg.RateLimit = RateLimit{Disabled: true, MaxEntries: -1}
+	a.NoError(cfg.Validate())
+}
+
 func TestConfig_Validate_RejectsNoServersEnabled(t *testing.T) {
 	a := require.New(t)
 	cfg := validConfig()
@@ -315,6 +379,9 @@ max_concurrent_sessions = 500
 	a.Equal(10*time.Minute, cfg.Session.TokenTTL)
 	a.Equal(time.Hour, cfg.Session.SessionTTL)
 	a.Equal(500, cfg.Session.MaxConcurrentSessions)
+	a.Equal(defaultRateLimitWindow, cfg.RateLimit.TimeWindow)
+	a.Equal(defaultRateLimitQuota, cfg.RateLimit.Quota)
+	a.Equal(defaultRateLimitMaxEntries, cfg.RateLimit.MaxEntries)
 }
 
 func TestNew_EnvVarEmpty(t *testing.T) {

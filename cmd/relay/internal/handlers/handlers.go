@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
@@ -9,17 +10,17 @@ import (
 )
 
 type Handler struct {
-	service *services.Service
+	service        *services.Service
+	trustedProxies []*net.IPNet
 }
 
-func New(service *services.Service, _ config.Config) *Handler {
-	return &Handler{service: service}
-}
-
-// WebSocketHandlerNoMiddleware returns the WebSocket handler without middleware
-// wrapping, so that http.Hijacker is preserved for the WebSocket upgrade.
-func WebSocketHandlerNoMiddleware(service *services.Service) http.HandlerFunc {
-	return (&Handler{service: service}).WebSocketHandler
+func New(service *services.Service, cfg config.Config) *Handler {
+	trustedProxies := make([]*net.IPNet, 0, len(cfg.Server.TrustedProxies))
+	for _, cidr := range cfg.Server.TrustedProxies {
+		_, block, _ := net.ParseCIDR(cidr)
+		trustedProxies = append(trustedProxies, block)
+	}
+	return &Handler{service: service, trustedProxies: trustedProxies}
 }
 
 func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
@@ -33,5 +34,6 @@ func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) EchoIPHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"ip": clientIP(r)})
+	ip := clientIP(r, h.trustedProxies)
+	json.NewEncoder(w).Encode(map[string]string{"ip": ip})
 }

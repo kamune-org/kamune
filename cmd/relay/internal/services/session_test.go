@@ -202,7 +202,7 @@ func TestSessionManager_Join_RejectsExpired(t *testing.T) {
 	a := require.New(t)
 	sm := newTestSessionManager(10*time.Millisecond, 0, 10)
 
-	listener, _, cleanup := pipeChans(t)
+	listener, listenerRemote, cleanup := pipeChans(t)
 	defer cleanup()
 	defer listener.Close()
 
@@ -215,6 +215,32 @@ func TestSessionManager_Join_RejectsExpired(t *testing.T) {
 	defer cleanup2()
 	defer dialer.Close()
 	a.ErrorIs(sm.Join(token, dialer), ErrSessionExpired)
+	_, err = listenerRemote.ReadBytes()
+	a.Error(err, "expired listener remained open")
+}
+
+func TestSessionManager_Join_PairedSessionIgnoresTokenExpiry(t *testing.T) {
+	a := require.New(t)
+	sm := newTestSessionManager(10*time.Millisecond, 0, 10)
+
+	listener, _, cleanup := pipeChans(t)
+	defer cleanup()
+	dialer, _, cleanup2 := pipeChans(t)
+	defer cleanup2()
+	replay, _, cleanup3 := pipeChans(t)
+	defer cleanup3()
+
+	token, err := sm.Create(listener)
+	a.NoError(err, "Create")
+	a.NoError(sm.Join(token, dialer), "first Join")
+
+	time.Sleep(20 * time.Millisecond)
+
+	a.ErrorIs(sm.Join(token, replay), ErrTokenConsumed)
+	a.Equal(1, sm.Len(), "paired session was deleted after token expiry")
+	recipient, err := sm.Recipient(token, listener)
+	a.NoError(err)
+	a.Equal(dialer, recipient)
 }
 
 func TestSessionManager_Recipient_DirectionAware(t *testing.T) {

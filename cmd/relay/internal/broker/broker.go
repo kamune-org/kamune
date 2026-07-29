@@ -84,7 +84,12 @@ func (b *Broker) Run(ctx context.Context) error {
 			return nil
 		default:
 		}
-		_ = b.conn.SetReadDeadline(b.now().Add(readDeadline))
+		if err := b.conn.SetReadDeadline(b.now().Add(readDeadline)); err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			return fmt.Errorf("set udp read deadline: %w", err)
+		}
 		n, src, err := b.conn.ReadFromUDP(buf)
 		if err != nil {
 			var ne net.Error
@@ -92,8 +97,10 @@ func (b *Broker) Run(ctx context.Context) error {
 				b.purgeExpired()
 				continue
 			}
-			// Socket closed (Close called) or other fatal error.
-			return nil
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			return fmt.Errorf("read udp packet: %w", err)
 		}
 		b.dispatch(buf[:n], src)
 	}

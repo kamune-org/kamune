@@ -41,7 +41,38 @@ func Run(cfgPath string) error {
 
 	h := handlers.New(srvc, cfg)
 
-	errCh := make(chan error, 5)
+	// Prepare fallible shared resources before launching any listener. This
+	// keeps startup atomic: a bad later certificate or broker address cannot
+	// leave an earlier HTTP or TCP listener running.
+	var tlsCfg *tls.Config
+	if cfg.TLS.Enabled {
+		tlsCfg, err = loadTLSConfig(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if err != nil {
+			return fmt.Errorf("load tls config: %w", err)
+		}
+	}
+
+	var wssCfg *tls.Config
+	if cfg.WSS.Enabled {
+		wssCfg, err = loadTLSConfig(cfg.WSS.CertFile, cfg.WSS.KeyFile)
+		if err != nil {
+			return fmt.Errorf("load wss config: %w", err)
+		}
+	}
+
+	var br *broker.Broker
+	if cfg.Broker.Enabled {
+		var allow broker.AllowFunc
+		if rl := srvc.Hub().RateLimiter(); rl != nil {
+			allow = rl.Allow
+		}
+		br, err = broker.New(cfg.Broker, allow)
+		if err != nil {
+			return fmt.Errorf("new broker: %w", err)
+		}
+	}
+
+	errCh := make(chan error, 6)
 	var wg sync.WaitGroup
 	var httpServers []*http.Server
 
@@ -73,7 +104,7 @@ func Run(cfgPath string) error {
 	var wsMux *http.ServeMux
 	if cfg.WS.Enabled || cfg.WSS.Enabled {
 		wsMux = http.NewServeMux()
-		wsMux.HandleFunc("/ws", handlers.WebSocketHandlerNoMiddleware(srvc))
+		wsMux.HandleFunc("/ws", h.WebSocketHandler)
 	}
 	if cfg.WS.Enabled {
 		wsServer := &http.Server{
@@ -107,10 +138,6 @@ func Run(cfgPath string) error {
 
 	// 4. Raw TLS server (kamune-over-TLS).
 	if cfg.TLS.Enabled {
-		tlsCfg, err := loadTLSConfig(cfg.TLS.CertFile, cfg.TLS.KeyFile)
-		if err != nil {
-			return fmt.Errorf("load tls config: %w", err)
-		}
 		wg.Go(func() {
 			if err := handlers.ServeTLS(
 				ctx, srvc.Hub(), cfg.TLS.Address, tlsCfg,
@@ -122,10 +149,6 @@ func Run(cfgPath string) error {
 
 	// 5. WSS server (WebSocket over TLS).
 	if cfg.WSS.Enabled {
-		wssCfg, err := loadTLSConfig(cfg.WSS.CertFile, cfg.WSS.KeyFile)
-		if err != nil {
-			return fmt.Errorf("load wss config: %w", err)
-		}
 		wssServer := &http.Server{
 			Addr:         cfg.WSS.Address,
 			Handler:      wsMux, // shared with [ws] when both are enabled
@@ -146,16 +169,7 @@ func Run(cfgPath string) error {
 	}
 
 	// 6. Broker (UDP signaling).
-	var br *broker.Broker
-	if cfg.Broker.Enabled {
-		var allow broker.AllowFunc
-		if rl := srvc.Hub().RateLimiter(); rl != nil {
-			allow = rl.Allow
-		}
-		br, err = broker.New(cfg.Broker, allow)
-		if err != nil {
-			return fmt.Errorf("new broker: %w", err)
-		}
+	if br != nil {
 		wg.Go(func() {
 			slog.Info(
 				"starting broker",
@@ -169,6 +183,7 @@ func Run(cfgPath string) error {
 
 	exitCh := make(chan os.Signal, 1)
 	signal.Notify(exitCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(exitCh)
 
 	// shutdown is the canonical teardown sequence used by both the
 	// signal path and the startup-error path. It cancels the context

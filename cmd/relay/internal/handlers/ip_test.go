@@ -127,58 +127,67 @@ func newRequest(headers map[string]string, remoteAddr string) *http.Request {
 	return r
 }
 
+var testTrustedProxies = func() []*net.IPNet {
+	var ranges []*net.IPNet
+	for _, cidr := range []string{"10.0.0.0/8", "::1/128"} {
+		_, block, _ := net.ParseCIDR(cidr)
+		ranges = append(ranges, block)
+	}
+	return ranges
+}()
+
 func TestClientIP_XRealIP(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(map[string]string{"X-Real-Ip": "93.184.216.34"}, "10.0.0.1:12345")
-	a.Equal("93.184.216.34", clientIP(r))
+	a.Equal("93.184.216.34", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_XRealIPWithPort(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(map[string]string{"X-Real-Ip": "93.184.216.34:8080"}, "10.0.0.1:12345")
-	a.Equal("93.184.216.34", clientIP(r))
+	a.Equal("93.184.216.34", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_TrueClientIP(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(map[string]string{"True-Client-IP": "1.2.3.4"}, "10.0.0.1:12345")
-	a.Equal("1.2.3.4", clientIP(r))
+	a.Equal("1.2.3.4", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_CFConnectingIP(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(map[string]string{"CF-Connecting-IP": "104.16.0.1"}, "10.0.0.1:12345")
-	a.Equal("104.16.0.1", clientIP(r))
+	a.Equal("104.16.0.1", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_FlyClientIP(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(map[string]string{"Fly-Client-IP": "5.6.7.8"}, "10.0.0.1:12345")
-	a.Equal("5.6.7.8", clientIP(r))
+	a.Equal("5.6.7.8", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_FastlyClientIP(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(map[string]string{"Fastly-Client-IP": "9.10.11.12"}, "10.0.0.1:12345")
-	a.Equal("9.10.11.12", clientIP(r))
+	a.Equal("9.10.11.12", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_XForwardedFor(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(map[string]string{"X-Forwarded-For": "203.0.113.50, 10.0.0.1"}, "10.0.0.1:12345")
-	a.Equal("203.0.113.50", clientIP(r))
+	a.Equal("203.0.113.50", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_FallbackToRemoteAddr(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(nil, "198.51.100.1:54321")
-	a.Equal("198.51.100.1", clientIP(r))
+	a.Equal("198.51.100.1", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_FallbackToRemoteAddrNoPort(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(nil, "198.51.100.1")
-	a.Equal("198.51.100.1", clientIP(r))
+	a.Equal("198.51.100.1", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_HeaderPriority_XRealIPOverXFF(t *testing.T) {
@@ -188,7 +197,7 @@ func TestClientIP_HeaderPriority_XRealIPOverXFF(t *testing.T) {
 		"X-Real-Ip":       "1.1.1.1",
 		"X-Forwarded-For": "2.2.2.2",
 	}, "10.0.0.1:12345")
-	a.Equal("1.1.1.1", clientIP(r))
+	a.Equal("1.1.1.1", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_HeaderPriority_TrueClientIPOverCF(t *testing.T) {
@@ -197,7 +206,7 @@ func TestClientIP_HeaderPriority_TrueClientIPOverCF(t *testing.T) {
 		"True-Client-IP":   "3.3.3.3",
 		"CF-Connecting-IP": "4.4.4.4",
 	}, "10.0.0.1:12345")
-	a.Equal("3.3.3.3", clientIP(r))
+	a.Equal("3.3.3.3", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_XFFSkipsPrivateReturnsPublic(t *testing.T) {
@@ -205,7 +214,7 @@ func TestClientIP_XFFSkipsPrivateReturnsPublic(t *testing.T) {
 	r := newRequest(map[string]string{
 		"X-Forwarded-For": "192.168.1.1, 10.0.0.5, 8.8.8.8",
 	}, "10.0.0.1:12345")
-	a.Equal("8.8.8.8", clientIP(r))
+	a.Equal("8.8.8.8", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_InvalidXRealIPFallsThrough(t *testing.T) {
@@ -215,19 +224,19 @@ func TestClientIP_InvalidXRealIPFallsThrough(t *testing.T) {
 		"X-Real-Ip":       "not-a-valid-ip",
 		"X-Forwarded-For": "4.4.4.4",
 	}, "10.0.0.1:12345")
-	a.Equal("4.4.4.4", clientIP(r))
+	a.Equal("4.4.4.4", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_IPv6RemoteAddr(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(nil, "[2001:db8::1]:12345")
-	a.Equal("2001:db8::1", clientIP(r))
+	a.Equal("2001:db8::1", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_IPv6XRealIP(t *testing.T) {
 	a := require.New(t)
 	r := newRequest(map[string]string{"X-Real-Ip": "2001:db8::1"}, "[::1]:12345")
-	a.Equal("2001:db8::1", clientIP(r))
+	a.Equal("2001:db8::1", clientIP(r, testTrustedProxies))
 }
 
 func TestClientIP_AllHeadersEmpty(t *testing.T) {
@@ -240,7 +249,24 @@ func TestClientIP_AllHeadersEmpty(t *testing.T) {
 		"Fastly-Client-IP": "",
 		"X-Forwarded-For":  "",
 	}, "192.0.2.1:9999")
-	a.Equal("192.0.2.1", clientIP(r))
+	a.Equal("192.0.2.1", clientIP(r, testTrustedProxies))
+}
+
+func TestClientIP_UntrustedPeerCannotSpoofHeader(t *testing.T) {
+	a := require.New(t)
+	r := newRequest(
+		map[string]string{"X-Real-Ip": "203.0.113.50"},
+		"198.51.100.1:12345",
+	)
+	a.Equal("198.51.100.1", clientIP(r, testTrustedProxies))
+}
+
+func TestClientIP_XForwardedForStopsAtFirstUntrustedHop(t *testing.T) {
+	a := require.New(t)
+	r := newRequest(map[string]string{
+		"X-Forwarded-For": "192.0.2.9, 203.0.113.8, 10.0.0.2",
+	}, "10.0.0.1:12345")
+	a.Equal("203.0.113.8", clientIP(r, testTrustedProxies))
 }
 
 // ---------------------------------------------------------------------------

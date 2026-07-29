@@ -1,31 +1,31 @@
 # Kamune Relay
 
 A stateless, blind session switch for the kamune secure messaging library.
-The relay forwards encrypted traffic between two kamune peers without
-being able to read it; it never sees plaintext, identity, or session
-content. Transports: WebSocket, raw TCP, and TLS-wrapped variants of
-both. Optional pre-shared key (PSK) authentication on registration.
+The relay forwards encrypted traffic between two kamune peers without being able
+to read it; it never sees plaintext, identity, or session content. Transports:
+WebSocket, raw TCP, and TLS-wrapped variants of both. Optional pre-shared key
+(PSK) authentication on registration.
 
-**Protocol details** — see [`docs/SPEC.md`](../../docs/SPEC.md) (cipher
-suite, exchange, handshake, message framing).
+**Protocol details** — see [`docs/SPEC.md`](../../docs/SPEC.md) (cipher suite,
+exchange, handshake, message framing).
 
 ## Quick start
 
 ```bash
-go run .                              # uses assets/config.toml
+go run . -c assets/config.toml
 ```
 
 Or build and run:
 
 ```bash
 go build -o relay .
-./relay
+./relay -c assets/config.toml
 ```
 
-The default config enables diagnose on `127.0.0.1:9090`, plain WebSocket on
-`127.0.0.1:8888`, raw TCP on `127.0.0.1:8889`, kamune-over-TLS on
-`127.0.0.1:8890`, and WSS on `127.0.0.1:8443`. Edit `assets/config.toml` to
-change.
+The default config enables raw TCP on `0.0.0.0:8889`, kamune-over-TLS on
+`0.0.0.0:8890`, WSS on `0.0.0.0:8891`, and the UDP broker on
+`0.0.0.0:4788`. Diagnose and plain WebSocket listeners are disabled. Edit
+`assets/config.toml` to change these defaults.
 
 ## Configuration
 
@@ -33,18 +33,26 @@ Sections in `assets/config.toml`:
 
 | Section      | Fields                                                                                         | Notes                                                             |
 | ------------ | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `server`     | `password`                                                                                     | Relay-wide PSK.                                                   |
+| `server`     | `password`, `trusted_proxies`                                                                  | Relay-wide PSK and proxy CIDRs.                                   |
 | `diagnose`   | `enabled`, `address`                                                                           | Plain HTTP, always serves `/health` when enabled. Admin audience. |
 | `ws`         | `enabled`, `address`                                                                           | Plain WebSocket, always serves `/ws`. Peer audience.              |
 | `tcp`        | `enabled`, `address`                                                                           | Raw kamune-over-TCP. Peer audience.                               |
 | `tls`        | `enabled`, `address`, `cert_file`, `key_file`                                                  | Raw kamune-over-TLS.                                              |
 | `wss`        | `enabled`, `address`, `cert_file`, `key_file`                                                  | WebSocket over TLS, always serves `/ws`. Peer audience.           |
-| `broker`     | `enabled`, `address`, `registration_ttl`                                                       | UDP signaling (STUN-like IP echo + signal intro). Off by default. |
+| `broker`     | `enabled`, `address`, `registration_ttl`                                                       | UDP signaling (STUN-like IP echo + signal intro). On by default.  |
 | `session`    | `token_ttl`, `session_ttl`, `handshake_timeout`, `max_concurrent_sessions`, `max_message_size` |                                                                   |
 | `rate_limit` | `disabled`, `time_window`, `quota`, `max_entries`                                              | Rate limit is **on** out of the box.                              |
 
-At least one of `diagnose`, `ws`, `tcp`, `tls`, `wss`, or `broker` must
-be enabled. The relay exits with status 1 otherwise.
+At least one of `diagnose`, `ws`, `tcp`, `tls`, `wss`, or `broker` must be
+enabled. The relay exits with status 1 otherwise.
+
+Forwarded client-IP headers are ignored unless the connection's immediate peer
+matches a CIDR in `server.trusted_proxies`. Leave the list empty when the relay
+is directly exposed. When deploying behind a reverse proxy, list only the proxy
+networks that overwrite forwarded headers.
+
+If `[rate_limit]` is omitted, it defaults to 20 requests per minute and 100,000
+tracked client IPs. Set `disabled = true` to turn it off.
 
 ### Listener matrix
 
@@ -53,9 +61,9 @@ be enabled. The relay exits with status 1 otherwise.
 | ✓    | ✗     | ✗     | ✗     | ✗          | ws:8888                     |
 | ✓    | ✓     | ✗     | ✗     | ✗          | ws:8888, tcp:8889           |
 | ✓    | ✓     | ✓     | ✗     | ✗          | ws:8888, tcp:8889, tls:8890 |
-| ✓    | ✓     | ✗     | ✓     | ✗          | ws:8888, tcp:8889, wss:8443 |
+| ✓    | ✓     | ✗     | ✓     | ✗          | ws:8888, tcp:8889, wss:8891 |
 | ✓    | ✓     | ✓     | ✓     | ✓          | all 5                       |
-| ✗    | ✓     | ✗     | ✓     | ✗          | tcp:8889, wss:8443          |
+| ✗    | ✓     | ✗     | ✓     | ✗          | tcp:8889, wss:8891          |
 | ✗    | ✗     | ✗     | ✗     | ✗          | error: "no server enabled"  |
 
 ## TLS / Certificates
@@ -104,15 +112,14 @@ cert_file = "assets/cert/server.crt"
 key_file  = "assets/cert/server.key"
 ```
 
-The relay **hard-errors on startup** if the configured cert is missing
-or invalid — it never auto-generates or overwrites files at runtime.
+The relay **hard-errors on startup** if the configured cert is missing or
+invalid — it never auto-generates or overwrites files at runtime.
 
 ### 3. Production cert
 
-Replace the self-signed cert with one from a real CA (Let's Encrypt,
-internal CA, etc.). Format must be PEM-encoded. The key file must be
-`0600` and readable by the relay process. Same hard-error behavior as
-mode 2.
+Replace the self-signed cert with one from a real CA (Let's Encrypt, internal
+CA, etc.). Format must be PEM-encoded. The key file must be `0600` and readable
+by the relay process. Same hard-error behavior as mode 2.
 
 ## Cross-Transport Sessions
 
@@ -140,7 +147,7 @@ public keys beyond what peers explicitly share.
 ## Build
 
 ```bash
-make run                              # go run .
+make run                              # go run . -c assets/config.toml
 make test                             # go test -v ./...
 bash scripts/build.sh                 # cross-platform release binaries
 ```
@@ -155,8 +162,8 @@ bash scripts/build.sh                 # cross-platform release binaries
 go test -v ./...
 ```
 
-Tests use real implementations, interfaces, and standard `testing.T` —
-no mocks. Assertions use `testify` (`assert` and `require`).
+Tests use real implementations, interfaces, and standard `testing.T` — no mocks.
+Assertions use `testify` (`assert` and `require`).
 
 ## Related
 

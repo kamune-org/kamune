@@ -1,6 +1,7 @@
 # Shared relay-wide settings.
 [server]
 password = ""
+trusted_proxies = []            # CIDRs allowed to supply client IP headers
 
 [session]
 token_ttl = "10m"

@@ -63,7 +63,15 @@ func singleHeader(r *http.Request, name string) string {
 	return validateIP(r.Header.Get(name))
 }
 
-func clientIP(r *http.Request) string {
+func clientIP(r *http.Request, trustedProxies []*net.IPNet) string {
+	remoteIP := validateIP(r.RemoteAddr)
+	if remoteIP == "" {
+		remoteIP = extractIP(r.RemoteAddr)
+	}
+	if !ipInRanges(net.ParseIP(remoteIP), trustedProxies) {
+		return remoteIP
+	}
+
 	for _, header := range []string{
 		"X-Real-Ip",
 		"True-Client-IP",
@@ -76,15 +84,39 @@ func clientIP(r *http.Request) string {
 		}
 	}
 
-	if ip := ParseForwardedIP(r.Header.Get("X-Forwarded-For")); ip != "" {
+	if ip := forwardedClientIP(
+		r.Header.Get("X-Forwarded-For"), trustedProxies,
+	); ip != "" {
 		return ip
 	}
 
-	ip := validateIP(r.RemoteAddr)
-	if ip != "" {
-		return ip
+	return remoteIP
+}
+
+func forwardedClientIP(header string, trustedProxies []*net.IPNet) string {
+	parts := strings.Split(header, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		ip := validateIP(parts[i])
+		if ip == "" {
+			continue
+		}
+		if !ipInRanges(net.ParseIP(ip), trustedProxies) {
+			return ip
+		}
 	}
-	return extractIP(r.RemoteAddr)
+	return ""
+}
+
+func ipInRanges(ip net.IP, ranges []*net.IPNet) bool {
+	if ip == nil {
+		return false
+	}
+	for _, block := range ranges {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func ParseForwardedIP(header string) string {

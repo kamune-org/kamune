@@ -106,27 +106,34 @@ func (sm *SessionManager) CreateWith(
 
 func (sm *SessionManager) Join(token []byte, dialer *exchange.Channel) error {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
 	key := fmt.Sprintf("%x", token)
 	sess, ok := sm.sessions[key]
 	if !ok {
+		sm.mu.Unlock()
 		return ErrTokenNotFound
+	}
+
+	if sess.dialer != nil {
+		sm.mu.Unlock()
+		return ErrTokenConsumed
 	}
 
 	if time.Now().After(sess.expiry) {
 		delete(sm.sessions, key)
+		listener := sess.listener
+		sm.mu.Unlock()
+		if err := listener.Close(); err != nil {
+			slog.Debug("session: close expired listener", slog.Any("error", err))
+		}
 		return ErrSessionExpired
-	}
-
-	if sess.dialer != nil {
-		return ErrTokenConsumed
 	}
 
 	sess.dialer = dialer
 	if sm.sessionTTL > 0 {
 		sess.sessionExpiry = time.Now().Add(sm.sessionTTL)
 	}
+	sm.mu.Unlock()
 	return nil
 }
 

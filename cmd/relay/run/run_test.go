@@ -6,7 +6,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -98,6 +100,47 @@ func TestLoadTLSConfig_DoesNotOverwriteOnFailure(t *testing.T) {
 	gotKey, err := os.ReadFile(keyPath)
 	r.NoError(err)
 	r.Equal(originalKey, gotKey, "key file must remain untouched on load failure")
+}
+
+func TestRun_PreflightFailureDoesNotStartEarlierListener(t *testing.T) {
+	a := require.New(t)
+	reservation, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	address := reservation.Addr().String()
+	a.NoError(reservation.Close())
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "relay.toml")
+	cfg := fmt.Sprintf(`
+[diagnose]
+enabled = true
+address = %q
+
+[tls]
+enabled = true
+address = "127.0.0.1:0"
+cert_file = %q
+key_file = %q
+
+[session]
+token_ttl = "1m"
+max_concurrent_sessions = 10
+
+[rate_limit]
+disabled = true
+`, address, filepath.Join(dir, "missing.crt"), filepath.Join(dir, "missing.key"))
+	a.NoError(os.WriteFile(cfgPath, []byte(cfg), 0600))
+
+	err = Run(cfgPath)
+	a.Error(err)
+	a.Contains(err.Error(), "load tls config")
+
+	time.Sleep(50 * time.Millisecond)
+	listener, err := net.Listen("tcp", address)
+	a.NoError(err, "diagnose listener leaked after preflight failure")
+	if listener != nil {
+		a.NoError(listener.Close())
+	}
 }
 
 // writeSelfSignedPEM writes a self-signed cert+key pair to disk using

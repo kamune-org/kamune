@@ -37,6 +37,28 @@ func newTestBroker(t *testing.T, ttl time.Duration) *Broker {
 	return b
 }
 
+func TestRun_CloseIsCleanShutdown(t *testing.T) {
+	a := require.New(t)
+	b, err := New(config.Broker{
+		Enabled: true,
+		Address: "127.0.0.1:0",
+	}, nil)
+	a.NoError(err)
+
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- b.Run(context.Background())
+	}()
+
+	a.NoError(b.Close())
+	select {
+	case err := <-runErr:
+		a.NoError(err)
+	case <-time.After(time.Second):
+		a.FailNow("broker Run did not return after Close")
+	}
+}
+
 // newTestClient returns a UDP socket bound to 127.0.0.1:0, suitable for sending
 // packets to the broker and reading the response.
 func newTestClient(t *testing.T) *net.UDPConn {
