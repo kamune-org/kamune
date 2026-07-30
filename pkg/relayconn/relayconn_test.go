@@ -4,13 +4,17 @@ import (
 	"context"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune"
@@ -437,6 +441,60 @@ func TestRelayConnDeadline(t *testing.T) {
 
 	rc.SetDeadline(time.Now().Add(-time.Second))
 	_, err = rc.ReadBytes()
+	a.ErrorIs(err, os.ErrDeadlineExceeded)
+}
+
+func TestRelayConnWriteDeadline(t *testing.T) {
+	a := require.New(t)
+	c, s := net.Pipe()
+	defer c.Close()
+	defer s.Close()
+
+	serverOK := make(chan error, 1)
+	go func() {
+		_, err := exchange.Accept(newTCPAdapter(s))
+		serverOK <- err
+	}()
+	clientCh, err := exchange.Initiate(newTCPAdapter(c))
+	a.NoError(err)
+	defer clientCh.Close()
+	a.NoError(<-serverOK)
+
+	var mu sync.Mutex
+	rc := newRelayConn(t.Context(), clientCh, &mu)
+	a.NoError(rc.SetDeadline(time.Now().Add(-time.Second)))
+
+	err = rc.WriteBytes([]byte("blocked"))
+	a.ErrorIs(err, os.ErrDeadlineExceeded)
+}
+
+func TestWebSocketAdapterWriteDeadline(t *testing.T) {
+	a := require.New(t)
+	accepted := make(chan *websocket.Conn, 1)
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			conn, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				return
+			}
+			accepted <- conn
+			<-release
+		},
+	))
+	defer server.Close()
+	defer close(release)
+
+	url := "ws" + strings.TrimPrefix(server.URL, "http")
+	client, _, err := websocket.Dial(t.Context(), url, nil)
+	a.NoError(err)
+	defer client.CloseNow()
+	serverConn := <-accepted
+	defer serverConn.CloseNow()
+
+	adapter := &wsAdapter{conn: client, ctx: t.Context()}
+	a.NoError(adapter.SetWriteDeadline(time.Now().Add(-time.Second)))
+	err = adapter.WriteBytes([]byte("blocked"))
 	a.ErrorIs(err, os.ErrDeadlineExceeded)
 }
 

@@ -104,6 +104,9 @@ func (rc *RelayConn) WriteBytes(data []byte) error {
 }
 
 func (rc *RelayConn) SetDeadline(t time.Time) error {
+	if err := rc.channel.SetWriteDeadline(t); err != nil {
+		return err
+	}
 	rc.deadlineMu.Lock()
 	rc.deadline = t
 	rc.deadlineMu.Unlock()

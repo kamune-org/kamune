@@ -3,7 +3,10 @@ package relayconn
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -30,6 +33,9 @@ func (a *tcpAdapter) Close() error               { return a.f.Close() }
 func (a *tcpAdapter) SetDeadline(t time.Time) error {
 	return a.f.SetDeadline(t)
 }
+func (a *tcpAdapter) SetWriteDeadline(t time.Time) error {
+	return a.f.SetWriteDeadline(t)
+}
 
 // tlsAdapter wraps a *tls.Conn with the relay's length-prefixed framing.
 type tlsAdapter struct {
@@ -46,13 +52,18 @@ func (a *tlsAdapter) Close() error               { return a.f.Close() }
 func (a *tlsAdapter) SetDeadline(t time.Time) error {
 	return a.f.SetDeadline(t)
 }
+func (a *tlsAdapter) SetWriteDeadline(t time.Time) error {
+	return a.f.SetWriteDeadline(t)
+}
 
 // wsAdapter wraps a WebSocket connection as an exchange.ReadWriter.
 // It carries a context so the listener's lifecycle (Stop/Close) can
 // cancel in-flight reads and writes.
 type wsAdapter struct {
-	conn *websocket.Conn
-	ctx  context.Context
+	writeDeadline time.Time
+	ctx           context.Context
+	conn          *websocket.Conn
+	deadlineMu    sync.Mutex
 }
 
 func (w *wsAdapter) ReadBytes() ([]byte, error) {
@@ -61,11 +72,37 @@ func (w *wsAdapter) ReadBytes() ([]byte, error) {
 }
 
 func (w *wsAdapter) WriteBytes(data []byte) error {
-	return w.conn.Write(w.ctx, websocket.MessageBinary, data)
+	w.deadlineMu.Lock()
+	deadline := w.writeDeadline
+	w.deadlineMu.Unlock()
+
+	ctx := w.ctx
+	if !deadline.IsZero() {
+		if !deadline.After(time.Now()) {
+			return os.ErrDeadlineExceeded
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	err := w.conn.Write(ctx, websocket.MessageBinary, data)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return os.ErrDeadlineExceeded
+	}
+	return err
 }
 
 func (w *wsAdapter) Close() error {
 	return w.conn.Close(websocket.StatusNormalClosure, "closed")
 }
 
-func (w *wsAdapter) SetDeadline(time.Time) error { return nil }
+func (w *wsAdapter) SetDeadline(t time.Time) error {
+	return w.SetWriteDeadline(t)
+}
+
+func (w *wsAdapter) SetWriteDeadline(t time.Time) error {
+	w.deadlineMu.Lock()
+	w.writeDeadline = t
+	w.deadlineMu.Unlock()
+	return nil
+}

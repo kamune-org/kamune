@@ -94,3 +94,11 @@ func (f *Framing) SetDeadline(t time.Time) error {
 	}
 	return nil
 }
+
+// SetWriteDeadline forwards to the underlying conn if supported.
+func (f *Framing) SetWriteDeadline(t time.Time) error {
+	if d, ok := f.rw.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		return d.SetWriteDeadline(t)
+	}
+	return nil
+}

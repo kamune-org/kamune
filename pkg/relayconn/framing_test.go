@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -157,6 +158,29 @@ func TestFraming_SetDeadline_NoOp(t *testing.T) {
 
 	f := NewFraming(rwc, 0)
 	a.NoError(f.SetDeadline(time.Time{}))
+}
+
+func TestFraming_SetWriteDeadline_Delegates(t *testing.T) {
+	a := require.New(t)
+	c, s := net.Pipe()
+	defer c.Close()
+	defer s.Close()
+
+	f := NewFraming(c, 0)
+	a.NoError(f.SetWriteDeadline(time.Now().Add(-time.Second)))
+	err := f.WriteBytes([]byte("blocked"))
+	a.ErrorIs(err, os.ErrDeadlineExceeded)
+}
+
+func TestFraming_SetWriteDeadline_NoOp(t *testing.T) {
+	a := require.New(t)
+	rwc := struct {
+		io.ReadWriter
+		io.Closer
+	}{}
+
+	f := NewFraming(rwc, 0)
+	a.NoError(f.SetWriteDeadline(time.Time{}))
 }
 
 type partialReadWriteCloser struct {
