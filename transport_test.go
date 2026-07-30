@@ -1,15 +1,88 @@
 package kamune
 
 import (
+	"io"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
+	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
 )
+
+type queuedConn struct {
+	frames [][]byte
+}
+
+func (c *queuedConn) ReadBytes() ([]byte, error) {
+	if len(c.frames) == 0 {
+		return nil, io.EOF
+	}
+	frame := c.frames[0]
+	c.frames = c.frames[1:]
+	return frame, nil
+}
+
+func (*queuedConn) WriteBytes([]byte) error     { return nil }
+func (*queuedConn) SetDeadline(time.Time) error { return nil }
+func (*queuedConn) Close() error                { return nil }
+
+func incomingTransport(
+	t *testing.T, route Route, sequence uint64, message Transferable,
+) *Transport {
+	t.Helper()
+	a := require.New(t)
+
+	att, err := attest.New()
+	a.NoError(err)
+	serde := newSignedSerde(att.MarshalPublicKey(), att)
+	cipher, err := enigma.NewEnigma(
+		[]byte("transport test secret"),
+		[]byte("transport salt"),
+		[]byte("transport info"),
+	)
+	a.NoError(err)
+	payload, _, err := serde.serialize(message, route, sequence)
+	a.NoError(err)
+
+	conn := &queuedConn{frames: [][]byte{cipher.Encrypt(payload)}}
+	return newTransport(conn, serde, "test-session", cipher, cipher)
+}
+
+func TestTransportReceiveValidatesSequenceBeforeClose(t *testing.T) {
+	a := require.New(t)
+	transport := incomingTransport(t, RouteCloseTransport, 2, Bytes(nil))
+
+	_, err := transport.Receive(Bytes(nil))
+	a.ErrorIs(err, ErrOutOfSync)
+	a.Equal(uint64(0), transport.recvSequence)
+}
+
+func TestTransportReceiveAdvancesSequenceForClose(t *testing.T) {
+	a := require.New(t)
+	transport := incomingTransport(t, RouteCloseTransport, 1, Bytes(nil))
+
+	_, err := transport.Receive(Bytes(nil))
+	a.ErrorIs(err, ErrPeerDisconnected)
+	a.Equal(uint64(1), transport.recvSequence)
+}
+
+func TestTransportReceiveRejectsInvalidRouteBeforeMutatingMessage(
+	t *testing.T,
+) {
+	a := require.New(t)
+	transport := incomingTransport(t, RouteInvalid, 1, Bytes([]byte("replacement")))
+	dst := Bytes([]byte("original"))
+
+	_, err := transport.Receive(dst)
+	a.ErrorIs(err, ErrInvalidRoute)
+	a.Equal([]byte("original"), dst.GetValue())
+	a.Equal(uint64(1), transport.recvSequence)
+}
 
 // TestTransport_PadToBucket asserts that serialize produces payloads
 // that land on a bucket boundary and never exceed frameTargetSize.

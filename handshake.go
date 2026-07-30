@@ -309,6 +309,12 @@ func validateHandshakeFields(salt []byte, sessionKey string) error {
 	if l := len(sessionKey); l != sessionIDLength/2 && l != sessionIDLength {
 		return fmt.Errorf("invalid session key length: got %d", l)
 	}
+	for i := range len(sessionKey) {
+		c := sessionKey[i]
+		if (c < 'A' || c > 'Z') && (c < '2' || c > '7') {
+			return fmt.Errorf("invalid session key character at byte %d", i)
+		}
+	}
 	return nil
 }
 

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/binary"
 	"os"
 	"testing"
 	"time"
@@ -399,6 +400,69 @@ func TestAddChatEntryToCreatedSession(t *testing.T) {
 	a.NoError(err)
 	a.Len(entries, 1)
 	a.Equal([]byte("hello"), entries[0].Data)
+}
+
+func TestGetChatHistorySupportsLegacyAndMalformedEntries(t *testing.T) {
+	a := require.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	legacyTime := time.Unix(0, 100)
+	versionedTime := time.Unix(0, 200)
+	a.NoError(storage.engine.Command(func(b Namespace) error {
+		chat := b.Ensure([]byte("sessions")).
+			Ensure([]byte("mixed")).
+			Ensure([]byte("chat"))
+
+		legacyKey := chatKey(legacyTime, SenderLocal, 1)
+		if err := chat.PutEncrypted(legacyKey, []byte("legacy")); err != nil {
+			return err
+		}
+
+		versionedValue := append([]byte{}, valueMagic...)
+		var timestamp [8]byte
+		binary.BigEndian.PutUint64(
+			timestamp[:],
+			uint64(versionedTime.UnixNano()),
+		)
+		versionedValue = append(versionedValue, timestamp[:]...)
+		versionedValue = append(versionedValue, []byte("versioned")...)
+		if err := chat.PutEncrypted(
+			chatKey(time.Unix(0, 300), SenderPeer, 2), versionedValue,
+		); err != nil {
+			return err
+		}
+
+		truncated := append([]byte{}, valueMagic...)
+		truncated = append(truncated, 1, 2)
+		return chat.PutEncrypted(
+			chatKey(time.Unix(0, 400), SenderPeer, 3),
+			truncated,
+		)
+	}))
+
+	entries, err := storage.GetChatHistory("mixed")
+	a.NoError(err)
+	a.Equal([]ChatEntry{
+		{
+			Timestamp: legacyTime,
+			Data:      []byte("legacy"),
+			Sender:    SenderLocal,
+		},
+		{
+			Timestamp: versionedTime,
+			Data:      []byte("versioned"),
+			Sender:    SenderPeer,
+		},
+	}, entries)
+}
+
+func chatKey(timestamp time.Time, sender Sender, suffix uint32) []byte {
+	key := make([]byte, 14)
+	binary.BigEndian.PutUint64(key[:8], uint64(timestamp.UnixNano()))
+	binary.BigEndian.PutUint16(key[8:10], uint16(sender))
+	binary.BigEndian.PutUint32(key[10:], suffix)
+	return key
 }
 
 // ---------------------------------------------------------------------------

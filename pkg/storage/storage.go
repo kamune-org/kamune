@@ -207,9 +207,10 @@ func sessionMeta(b engine.Namespace, sessionID string) engine.Namespace {
 //   - 2 bytes: sender ID (big-endian; 0 means local user, 1 means remote user)
 //   - 4 bytes: random suffix to avoid collision
 //
-// The sender's original timestamp is extracted from the value envelope (5-byte
-// magic + 8-byte timestamp + payload). Results are sorted by timestamp then
-// sender.
+// Versioned entries use the sender's original timestamp from the value envelope
+// (5-byte magic + 8-byte timestamp + payload). Legacy entries store only the
+// payload and use the local receive timestamp from the key. Malformed versioned
+// entries are skipped. Results are sorted by timestamp then sender.
 func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	var entries []ChatEntry
 	err := s.engine.Query(func(b engine.Namespace) error {
@@ -220,12 +221,22 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 			}
 			sender := Sender(binary.BigEndian.Uint16(key[8:]))
 
-			ts := time.Unix(0, int64(binary.BigEndian.Uint64(value[5:13])))
-			data := value[13:]
+			ts := time.Unix(0, int64(binary.BigEndian.Uint64(key[:8])))
+			data := value
+			if bytes.HasPrefix(value, valueMagic) {
+				if len(value) < len(valueMagic)+8 {
+					continue
+				}
+				offset := len(valueMagic)
+				ts = time.Unix(
+					0, int64(binary.BigEndian.Uint64(value[offset:offset+8])),
+				)
+				data = value[offset+8:]
+			}
 
 			entries = append(entries, ChatEntry{
 				Timestamp: ts,
-				Data:      data,
+				Data:      bytes.Clone(data),
 				Sender:    sender,
 			})
 		}

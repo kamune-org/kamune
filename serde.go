@@ -69,9 +69,21 @@ func (s *signedSerde) serialize(
 func (s *signedSerde) deserialize(
 	payload []byte, dst Transferable,
 ) (*Metadata, error) {
+	metadata, msg, err := s.verify(payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := proto.Unmarshal(msg, dst); err != nil {
+		return nil, fmt.Errorf("unmarshalling message: %w", err)
+	}
+
+	return metadata, nil
+}
+
+func (s *signedSerde) verify(payload []byte) (*Metadata, []byte, error) {
 	var st pb.SignedTransport
 	if err := proto.Unmarshal(payload, &st); err != nil {
-		return nil, fmt.Errorf("unmarshalling data: %w", err)
+		return nil, nil, fmt.Errorf("unmarshalling data: %w", err)
 	}
 
 	msg := st.GetData()
@@ -79,18 +91,15 @@ func (s *signedSerde) deserialize(
 	if ok := s.attest.Verify(
 		s.remote, signingInput(metadataBytes, msg), st.Signature,
 	); !ok {
-		return nil, ErrInvalidSignature
+		return nil, nil, ErrInvalidSignature
 	}
 
 	var md pb.Metadata
 	if err := proto.Unmarshal(metadataBytes, &md); err != nil {
-		return nil, fmt.Errorf("unmarshalling metadata: %w", err)
-	}
-	if err := proto.Unmarshal(msg, dst); err != nil {
-		return nil, fmt.Errorf("unmarshalling message: %w", err)
+		return nil, nil, fmt.Errorf("unmarshalling metadata: %w", err)
 	}
 
-	return &Metadata{&md}, nil
+	return &Metadata{&md}, msg, nil
 }
 
 // signingInput constructs the domain-separated signing input per RFC002 §5.1:

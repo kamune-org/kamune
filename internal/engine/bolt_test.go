@@ -2,8 +2,10 @@ package engine
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -520,6 +522,54 @@ func TestRotateDataKey_SurvivesRestart(t *testing.T) {
 		val, err := b.Sub([]byte(PeersNamespace)).GetEncrypted([]byte("pk1"))
 		a.NoError(err)
 		a.Equal([]byte("peer-data"), val)
+		return nil
+	}))
+}
+
+func TestRotateDataKey_ConcurrentAccess(t *testing.T) {
+	a := require.New(t)
+	db := newTestBoltStore(t)
+	pass := []byte("test-pass")
+
+	const writeCount = 100
+	errCh := make(chan error, writeCount+10)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+
+	wg.Go(func() {
+		<-start
+		for i := range writeCount {
+			key := fmt.Appendf(nil, "key-%03d", i)
+			value := fmt.Appendf(nil, "value-%03d", i)
+			errCh <- db.Command(func(b Namespace) error {
+				return b.Sub([]byte(DefaultNamespace)).
+					PutEncrypted(key, value)
+			})
+		}
+	})
+	wg.Go(func() {
+		<-start
+		for range 5 {
+			errCh <- db.RotateDataKey(pass, pass)
+		}
+	})
+
+	close(start)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		a.NoError(err)
+	}
+
+	a.NoError(db.Query(func(b Namespace) error {
+		ns := b.Sub([]byte(DefaultNamespace))
+		for i := range writeCount {
+			key := fmt.Appendf(nil, "key-%03d", i)
+			want := fmt.Appendf(nil, "value-%03d", i)
+			got, err := ns.GetEncrypted(key)
+			a.NoError(err)
+			a.Equal(want, got)
+		}
 		return nil
 	}))
 }

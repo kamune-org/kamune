@@ -143,6 +143,12 @@ func (s *Server) serve(cn Conn) (err error) {
 		}
 	}()
 
+	if err := cn.SetDeadline(
+		time.Now().Add(s.handshakeOpts.timeout),
+	); err != nil {
+		return fmt.Errorf("setting handshake deadline: %w", err)
+	}
+
 	// Step 0: Exchange HPKE keys to derive an encrypted connection for the
 	// handshake
 	ec, err := exchange.Accept(cn)
@@ -185,10 +191,6 @@ func (s *Server) serve(cn Conn) (err error) {
 func (s *Server) handleNewConnection(
 	cn Conn, ec *exchange.Channel, st *pb.SignedTransport,
 ) error {
-	// Bound the handshake to avoid indefinite blocking.
-	_ = cn.SetDeadline(time.Now().Add(s.handshakeOpts.timeout))
-	defer func() { _ = cn.SetDeadline(time.Time{}) }()
-
 	peer, remoteVersion, err := receiveIntroduction(st)
 	if err != nil {
 		return fmt.Errorf("receiving introduction: %w", err)
@@ -211,6 +213,9 @@ func (s *Server) handleNewConnection(
 	t, err := acceptHandshake(ec, serde, s.handshakeOpts)
 	if err != nil {
 		return fmt.Errorf("accepting handshake: %w", err)
+	}
+	if err := cn.SetDeadline(time.Time{}); err != nil {
+		return fmt.Errorf("clearing handshake deadline: %w", err)
 	}
 
 	// Since from now on all communications are encrypted via the newly ciphers
@@ -238,9 +243,6 @@ func (s *Server) handleNewConnection(
 func (s *Server) handleResume(
 	cn Conn, ec *exchange.Channel, st *pb.SignedTransport,
 ) error {
-	_ = cn.SetDeadline(time.Now().Add(s.handshakeOpts.timeout))
-	defer func() { _ = cn.SetDeadline(time.Time{}) }()
-
 	// Parse the ResumeRequest.
 	var req pb.ResumeRequest
 	if err := proto.Unmarshal(st.GetData(), &req); err != nil {
@@ -304,6 +306,9 @@ func (s *Server) handleResume(
 	t, err := acceptHandshake(ec, serde, opts)
 	if err != nil {
 		return fmt.Errorf("accepting handshake after resume: %w", err)
+	}
+	if err := cn.SetDeadline(time.Time{}); err != nil {
+		return fmt.Errorf("clearing handshake deadline: %w", err)
 	}
 
 	t.conn = cn

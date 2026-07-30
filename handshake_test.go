@@ -104,6 +104,38 @@ func BenchmarkValidateHandshakeFields_OK(b *testing.B) {
 	}
 }
 
+func TestValidateHandshakeFields(t *testing.T) {
+	tests := []struct {
+		name       string
+		sessionKey string
+		saltSize   int
+		wantErr    bool
+	}{
+		{"prefix", "ABCDEFGHIJKL", handshakeSaltSize, false},
+		{"full", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[:sessionIDLength], handshakeSaltSize, false},
+		{"short salt", "ABCDEFGHIJKL", handshakeSaltSize - 1, true},
+		{"short key", "ABCDEFGHIJK", handshakeSaltSize, true},
+		{"lowercase", "ABCDEFGHIJKa", handshakeSaltSize, true},
+		{"punctuation", "ABCDEFGHIJK!", handshakeSaltSize, true},
+		{"invalid digit", "ABCDEFGHIJK0", handshakeSaltSize, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			err := validateHandshakeFields(
+				make([]byte, tt.saltSize),
+				tt.sessionKey,
+			)
+			if tt.wantErr {
+				a.Error(err)
+			} else {
+				a.NoError(err)
+			}
+		})
+	}
+}
+
 func BenchmarkValidateHandshakeFields_BadSalt(b *testing.B) {
 	salt := make([]byte, handshakeSaltSize-1)
 	sessionKey := bytes.Repeat([]byte{'A'}, sessionIDLength/2)

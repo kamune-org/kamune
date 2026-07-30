@@ -84,6 +84,13 @@ func (ch *Channel) SetDeadline(t time.Time) error {
 	return nil
 }
 
+func (ch *Channel) SetWriteDeadline(t time.Time) error {
+	if d, ok := ch.conn.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		return d.SetWriteDeadline(t)
+	}
+	return nil
+}
+
 func Initiate(c ReadWriter) (*Channel, error) {
 	kem := hpkeKEM()
 	kdf := hpkeKDF()

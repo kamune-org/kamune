@@ -10,6 +10,8 @@ import (
 	"os"
 	"sync"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -76,18 +78,9 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 		return nil, fmt.Errorf("decrypting payload: %w", err)
 	}
 
-	metadata, err := t.serde.deserialize(decrypted, dst)
+	metadata, message, err := t.serde.verify(decrypted)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing: %w", err)
-	}
-
-	// Check for protocol-level routes before sequence validation.
-	switch metadata.Route() {
-	case RouteCloseTransport:
-		return nil, ErrPeerDisconnected
-	case RoutePing:
-		// Ping is handled externally by the application; return
-		// metadata for the caller to respond with a pong.
 	}
 
 	// Validate per-message sequence number to detect duplicates, missing, or
@@ -110,6 +103,17 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 	}
 	t.recvSequence = seq
 	t.mu.Unlock()
+
+	route := metadata.Route()
+	if !route.IsValid() {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
+	}
+	if route == RouteCloseTransport {
+		return nil, ErrPeerDisconnected
+	}
+	if err := proto.Unmarshal(message, dst); err != nil {
+		return nil, fmt.Errorf("deserializing message: %w", err)
+	}
 
 	return metadata, nil
 }

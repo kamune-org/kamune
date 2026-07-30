@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -23,6 +24,7 @@ const (
 type BoltStore struct {
 	db     *bolt.DB
 	cipher *enigma.Enigma
+	mu     sync.RWMutex
 }
 
 // NewBoltDB creates a new BoltStore at the given path, encrypting values with
@@ -84,16 +86,25 @@ func NewBoltDB(
 }
 
 func (s *BoltStore) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	return s.db.Close()
 }
 
 func (s *BoltStore) Query(f func(b Namespace) error) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return s.db.View(func(tx *bolt.Tx) error {
 		return f(newRootNamespace(tx, s.cipher))
 	})
 }
 
 func (s *BoltStore) Command(f func(b Namespace) error) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return s.db.Update(func(tx *bolt.Tx) error {
 		return f(newRootNamespace(tx, s.cipher))
 	})
@@ -218,6 +229,9 @@ func navigateBucket(tx *bolt.Tx, path []byte) *bolt.Bucket {
 // RotatePassphrase re-wraps the data encryption key with a new passphrase. Only
 // the key-wrapping metadata changes; encrypted data is untouched.
 func (s *BoltStore) RotatePassphrase(old, new []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// Decrypt the DEK secret using the old passphrase.
 	_, meta, err := extractCipher(s.db, old)
 	if err != nil {
@@ -288,6 +302,9 @@ func (s *BoltStore) RotatePassphrase(old, new []byte) error {
 // encrypted values across every namespace. This is expensive but atomic per
 // bolt.Update transaction.
 func (s *BoltStore) RotateDataKey(old, new []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// Verify we can decrypt with the old passphrase.
 	oldCipher, _, err := extractCipher(s.db, old)
 	if err != nil {
