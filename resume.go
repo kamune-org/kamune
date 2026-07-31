@@ -63,7 +63,12 @@ func receiveResumeAccept(
 	if err != nil {
 		return false, "", fmt.Errorf("reading resume accept: %w", err)
 	}
+	return parseResumeAccept(st, remote)
+}
 
+func parseResumeAccept(
+	st *pb.SignedTransport, remote []byte,
+) (accepted bool, reason string, err error) {
 	r, err := routeFromST(st)
 	if err != nil {
 		return false, "", fmt.Errorf("extracting route: %w", err)

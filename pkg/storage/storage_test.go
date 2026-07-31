@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"encoding/binary"
 	"os"
 	"testing"
@@ -463,6 +464,98 @@ func chatKey(timestamp time.Time, sender Sender, suffix uint32) []byte {
 	binary.BigEndian.PutUint16(key[8:10], uint16(sender))
 	binary.BigEndian.PutUint32(key[10:], suffix)
 	return key
+}
+
+func FuzzDecodeChatEntry(f *testing.F) {
+	legacyKey := chatKey(time.Unix(0, 100), SenderLocal, 1)
+	versionedKey := chatKey(time.Unix(0, 200), SenderPeer, 2)
+	versionedValue := append([]byte{}, valueMagic...)
+	var timestamp [8]byte
+	binary.BigEndian.PutUint64(timestamp[:], 300)
+	versionedValue = append(versionedValue, timestamp[:]...)
+	versionedValue = append(versionedValue, []byte("versioned")...)
+
+	f.Add([]byte{}, []byte{})
+	f.Add(legacyKey, []byte("legacy"))
+	f.Add(versionedKey, versionedValue)
+	f.Add(versionedKey, append([]byte{}, valueMagic...))
+
+	f.Fuzz(func(t *testing.T, key, value []byte) {
+		if len(key) > 1024 || len(value) > 64*1024 {
+			t.Skip()
+		}
+		a := require.New(t)
+		entry, ok := decodeChatEntry(key, value)
+		switch {
+		case len(key) < 14:
+			a.False(ok)
+		case bytes.HasPrefix(value, valueMagic) &&
+			len(value) < len(valueMagic)+8:
+			a.False(ok)
+		default:
+			a.True(ok)
+			a.Equal(Sender(binary.BigEndian.Uint16(key[8:10])), entry.Sender)
+
+			wantTimestamp := int64(binary.BigEndian.Uint64(key[:8]))
+			wantData := value
+			if bytes.HasPrefix(value, valueMagic) {
+				offset := len(valueMagic)
+				wantTimestamp = int64(binary.BigEndian.Uint64(value[offset : offset+8]))
+				wantData = value[offset+8:]
+			}
+			wantData = bytes.Clone(wantData)
+			a.Equal(time.Unix(0, wantTimestamp), entry.Timestamp)
+			a.Equal(wantData, entry.Data)
+
+			if len(value) > 0 {
+				value[len(value)-1] ^= 0xff
+				a.Equal(wantData, entry.Data)
+			}
+		}
+	})
+}
+
+func FuzzPackedListCodec(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte{0, 0, 0})
+	f.Add([]byte{0, 0, 0, 0})
+	f.Add(serializeList([][]byte{make([]byte, ElemSize)}))
+	f.Add(serializeList([][]byte{make([]byte, ElemSize), bytes.Repeat([]byte{0xff}, ElemSize)}))
+	f.Add([]byte{0, 0, 0, 1})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 64*1024 {
+			t.Skip()
+		}
+		a := require.New(t)
+
+		decoded, err := deserializeList(data)
+		if len(data) < 4 {
+			a.NoError(err)
+			a.Nil(decoded)
+		} else {
+			count := uint64(binary.BigEndian.Uint32(data[:4]))
+			expected := uint64(4) + count*uint64(ElemSize)
+			if expected != uint64(len(data)) {
+				a.ErrorIs(err, ErrNotFound)
+				a.Nil(decoded)
+			} else {
+				a.NoError(err)
+				a.Len(decoded, int(count))
+				a.Equal(data, serializeList(decoded))
+			}
+		}
+
+		payloadSize := len(data) - len(data)%ElemSize
+		items := make([][]byte, 0, payloadSize/ElemSize)
+		for offset := 0; offset < payloadSize; offset += ElemSize {
+			items = append(items, data[offset:offset+ElemSize])
+		}
+		encoded := serializeList(items)
+		roundTrip, err := deserializeList(encoded)
+		a.NoError(err)
+		a.Equal(items, roundTrip)
+	})
 }
 
 // ---------------------------------------------------------------------------

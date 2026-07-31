@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"bytes"
 	"io"
 	"math"
 	"testing"
@@ -82,6 +83,68 @@ func TestTransportReceiveRejectsInvalidRouteBeforeMutatingMessage(
 	a.ErrorIs(err, ErrInvalidRoute)
 	a.Equal([]byte("original"), dst.GetValue())
 	a.Equal(uint64(1), transport.recvSequence)
+}
+
+func FuzzTransportReceiveEnvelope(f *testing.F) {
+	att, err := attest.New()
+	if err != nil {
+		f.Fatal(err)
+	}
+	serde := newSignedSerde(att.MarshalPublicKey(), att)
+	cipher, err := enigma.NewEnigma(
+		[]byte("transport fuzz secret"),
+		[]byte("transport fuzz salt"),
+		[]byte("transport fuzz info"),
+	)
+	if err != nil {
+		f.Fatal(err)
+	}
+
+	f.Add(int32(RouteExchangeMessages), uint64(1), []byte("message"))
+	f.Add(int32(RouteCloseTransport), uint64(1), []byte{})
+	f.Add(int32(RouteInvalid), uint64(1), []byte("invalid route"))
+	f.Add(int32(RoutePing), uint64(1), []byte{})
+	f.Add(int32(RoutePing), uint64(2), []byte("wrong sequence"))
+	f.Add(int32(RouteSessionData+1), uint64(1), []byte("unknown route"))
+
+	f.Fuzz(func(t *testing.T, routeValue int32, sequence uint64, data []byte) {
+		if len(data) > 4*1024 {
+			t.Skip()
+		}
+		a := require.New(t)
+		route := Route(routeValue)
+		payload, _, err := serde.serialize(Bytes(data), route, sequence)
+		a.NoError(err)
+
+		conn := &queuedConn{frames: [][]byte{cipher.Encrypt(payload)}}
+		transport := newTransport(conn, serde, "fuzz-session", cipher, cipher)
+		original := []byte("original")
+		dst := Bytes(bytes.Clone(original))
+
+		metadata, receiveErr := transport.Receive(dst)
+		switch {
+		case sequence != 1:
+			a.ErrorIs(receiveErr, ErrOutOfSync)
+			a.Nil(metadata)
+			a.Equal(uint64(0), transport.recvSequence)
+			a.Equal(original, dst.GetValue())
+		case !route.IsValid():
+			a.ErrorIs(receiveErr, ErrInvalidRoute)
+			a.Nil(metadata)
+			a.Equal(uint64(1), transport.recvSequence)
+			a.Equal(original, dst.GetValue())
+		case route == RouteCloseTransport:
+			a.ErrorIs(receiveErr, ErrPeerDisconnected)
+			a.Nil(metadata)
+			a.Equal(uint64(1), transport.recvSequence)
+			a.Equal(original, dst.GetValue())
+		default:
+			a.NoError(receiveErr)
+			a.NotNil(metadata)
+			a.Equal(uint64(1), transport.recvSequence)
+			a.True(bytes.Equal(data, dst.GetValue()))
+		}
+	})
 }
 
 // TestTransport_PadToBucket asserts that serialize produces payloads

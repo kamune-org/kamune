@@ -108,19 +108,10 @@ func Initiate(c ReadWriter) (*Channel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading merged message: %w", err)
 	}
-	if len(merged) < 2 {
-		return nil, fmt.Errorf("truncated exchange: %d bytes", len(merged))
+	remoteEnc, remotePublicBytes, err := parseMergedExchange(merged)
+	if err != nil {
+		return nil, err
 	}
-	encLen := binary.BigEndian.Uint16(merged[:2])
-	if int(encLen) > len(merged)-2 {
-		return nil, fmt.Errorf(
-			"truncated ciphertext: declared %d, total %d",
-			encLen,
-			len(merged),
-		)
-	}
-	remoteEnc := merged[2 : 2+encLen]
-	remotePublicBytes := merged[2+encLen:]
 
 	recipient, err := hpke.NewRecipient(remoteEnc, privateKey, kdf, aead, nil)
 	if err != nil {
@@ -139,6 +130,21 @@ func Initiate(c ReadWriter) (*Channel, error) {
 	}
 
 	return newChannel(c, sender, recipient), nil
+}
+
+func parseMergedExchange(merged []byte) ([]byte, []byte, error) {
+	if len(merged) < 2 {
+		return nil, nil, fmt.Errorf("truncated exchange: %d bytes", len(merged))
+	}
+	encLen := binary.BigEndian.Uint16(merged[:2])
+	if int(encLen) > len(merged)-2 {
+		return nil, nil, fmt.Errorf(
+			"truncated ciphertext: declared %d, total %d", encLen, len(merged),
+		)
+	}
+	remoteEnc := merged[2 : 2+encLen]
+	remotePublicBytes := merged[2+encLen:]
+	return remoteEnc, remotePublicBytes, nil
 }
 
 func Accept(c ReadWriter) (*Channel, error) {

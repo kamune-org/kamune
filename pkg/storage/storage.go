@@ -216,29 +216,10 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	err := s.engine.Query(func(b engine.Namespace) error {
 		chat := sessionChat(b, sessionID)
 		for key, value := range chat.IterateEncrypted() {
-			if len(key) < 14 {
-				continue
+			entry, ok := decodeChatEntry(key, value)
+			if ok {
+				entries = append(entries, entry)
 			}
-			sender := Sender(binary.BigEndian.Uint16(key[8:]))
-
-			ts := time.Unix(0, int64(binary.BigEndian.Uint64(key[:8])))
-			data := value
-			if bytes.HasPrefix(value, valueMagic) {
-				if len(value) < len(valueMagic)+8 {
-					continue
-				}
-				offset := len(valueMagic)
-				ts = time.Unix(
-					0, int64(binary.BigEndian.Uint64(value[offset:offset+8])),
-				)
-				data = value[offset+8:]
-			}
-
-			entries = append(entries, ChatEntry{
-				Timestamp: ts,
-				Data:      bytes.Clone(data),
-				Sender:    sender,
-			})
 		}
 
 		return nil
@@ -255,6 +236,30 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	})
 
 	return entries, nil
+}
+
+func decodeChatEntry(key, value []byte) (ChatEntry, bool) {
+	if len(key) < 14 {
+		return ChatEntry{}, false
+	}
+
+	entry := ChatEntry{
+		Timestamp: time.Unix(0, int64(binary.BigEndian.Uint64(key[:8]))),
+		Data:      value,
+		Sender:    Sender(binary.BigEndian.Uint16(key[8:])),
+	}
+	if bytes.HasPrefix(value, valueMagic) {
+		if len(value) < len(valueMagic)+8 {
+			return ChatEntry{}, false
+		}
+		offset := len(valueMagic)
+		entry.Timestamp = time.Unix(
+			0, int64(binary.BigEndian.Uint64(value[offset:offset+8])),
+		)
+		entry.Data = value[offset+8:]
+	}
+	entry.Data = bytes.Clone(entry.Data)
+	return entry, true
 }
 
 // ListSessions returns a list of session IDs stored under the sessions namespace.

@@ -1,6 +1,7 @@
 package exchange
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -89,4 +90,39 @@ func TestChannel_ConcurrentWrites(t *testing.T) {
 		a.NoError(err)
 	}
 	a.Len(received, messageCount)
+}
+
+func FuzzParseMergedExchange(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte{0})
+	f.Add([]byte{0, 0})
+	f.Add([]byte{0, 1, 'e', 'p'})
+	f.Add([]byte{0, 2, 'e'})
+	f.Add([]byte{0xff, 0xff})
+
+	f.Fuzz(func(t *testing.T, merged []byte) {
+		if len(merged) > 64*1024 {
+			t.Skip()
+		}
+		a := require.New(t)
+		enc, publicKey, err := parseMergedExchange(merged)
+		if len(merged) < 2 {
+			a.Error(err)
+			a.Nil(enc)
+			a.Nil(publicKey)
+			return
+		}
+
+		encLen := int(binary.BigEndian.Uint16(merged[:2]))
+		if encLen > len(merged)-2 {
+			a.Error(err)
+			a.Nil(enc)
+			a.Nil(publicKey)
+			return
+		}
+
+		a.NoError(err)
+		a.True(bytes.Equal(merged[2:2+encLen], enc))
+		a.True(bytes.Equal(merged[2+encLen:], publicKey))
+	})
 }
