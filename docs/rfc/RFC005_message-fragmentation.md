@@ -1,350 +1,247 @@
-# RFC: Message Fragmentation
+# RFC: Consent-Based File Transfer
 
-**Status:** Draft — Second Revision
+**Status:** Draft — Third Revision
 
 **Target:** Kamune Protocol Specification v0.7.0
 
-**Relates to:** §4 (Wire Format), §5 (Routes), §9 (Transport Layer),
-§13 (Constants and Limits), §14 (Error Conditions)
+**Relates to:** §4 (Wire Format), §5 (Routes), §6.2 (Introduction),
+§9 (Transport Layer), §13 (Constants and Limits), §14 (Error Conditions)
 
 ---
 
 ## 1. Summary
 
-The current protocol limits a single user message to `maxTransportSize`
-(~60 KiB), the largest payload that fits inside one length-prefixed wire frame
-after protocol overhead. This is sufficient for text but blocks multimedia and
-larger structured payloads. This RFC proposes transparent message fragmentation:
-the transport layer automatically splits an oversized message into multiple
-frames and reassembles them on receipt, with no API changes for callers.
+Kamune frames are limited to `maxTransportSize` (~60 KiB). This RFC adds a
+consent-based protocol for transferring files larger than one frame without
+changing the semantics of `Transport.Send` or `Transport.Receive`.
+
+A sender first transmits a small offer containing the file's metadata and
+SHA-512 digest. The receiver explicitly accepts or declines the offer. Only an
+accepted offer permits the sender to stream signed and encrypted chunks. The
+receiver streams chunks to application-owned storage and reports completion
+only after it verifies the declared size and digest.
+
+This RFC deliberately does not add transparent fragmentation for arbitrary
+application messages. A large message remains too large unless it is sent as a
+file transfer defined by this RFC.
 
 ## 2. Current Behavior
 
-Per §4.1, every message is transmitted as a single length-prefixed frame:
+Per §4.1, a single wire frame has a two-byte length prefix and cannot carry
+more than 65,535 bytes. `signedSerde.serialize()` rejects a serialized message
+larger than `maxTransportSize`; `Conn.WriteBytes()` rejects an encrypted frame
+that exceeds the wire maximum.
 
-```
-+------------------+--------------------+
-| Length (2 bytes)  | Payload (N bytes) |
-+------------------+--------------------+
-```
+`RouteSessionData` is the existing extension route. It currently carries the
+generic `SessionData` protobuf message. There is no file offer, transfer
+approval, chunking, or whole-file integrity protocol.
 
-The wire-format ceiling is 65,535 bytes (`math.MaxUint16`). The protocol
-further limits user messages to `maxTransportSize` = 61,439 bytes (§13), the
-wire maximum minus `reservedProtocolOverhead` (signature, metadata, padding,
-AEAD tag).
+## 3. Requirements
 
-Messages exceeding `maxTransportSize` are rejected at two enforcement points:
+- R1: File transfer control messages and chunks MUST use `RouteSessionData`.
+  No new transport route is introduced.
+- R2: A sender MUST send a `FileOffer` before it sends any `FileChunk` for a
+  transfer.
+- R3: A receiver MUST explicitly accept an offer before it retains or writes a
+  chunk for that transfer. The default policy is to accept no offers.
+- R4: Every control message and chunk MUST remain an ordinary signed,
+  encrypted, sequence-validated transport message.
+- R5: The sender MUST provide the exact file size and SHA-512 digest in the
+  offer. The receiver MUST verify both before reporting success.
+- R6: The protocol MUST stream accepted chunks to application-owned storage;
+  it MUST NOT require reassembling a complete file in memory.
+- R7: A receiver MUST apply the size limit supplied when it accepts an offer.
+  It MUST reject a chunk that would exceed the offered or accepted size.
+- R8: Chunks MUST be ordered and indexed from zero. Duplicate, missing, late,
+  malformed, or out-of-order chunks MUST fail the transfer.
+- R9: The protocol MUST support cancellation and bounded offer and idle
+  transfer timeouts. It MUST NOT support resumption after reconnect in v1.
+- R10: Terminal transfers MUST ignore duplicate or late control messages and
+  chunks.
+- R11: The relay MUST require no changes; it forwards the standard encrypted
+  frames opaquely.
+- R12: The protocol change is wire-incompatible. Implementations MUST bump the
+  pre-1.0 minor version so compatible and incompatible peers cannot establish a
+  session together.
 
-1. **Protocol level** — `signedSerde.serialize()` compares the serialized
-   message length against `maxTransportSize` and returns `ErrMessageTooLarge`
-   if it exceeds the limit.
-2. **Wire level** — `Conn.WriteBytes()` compares the encrypted payload against
-   `math.MaxUint16` and returns `ErrMessageTooLarge` if it would overflow the
-   2-byte length prefix.
+## 4. Wire Protocol
 
-The model is strictly one logical message = one wire frame. There is no
-infrastructure for splitting a message across frames or reassembling fragments
-on receipt.
+### 4.1 Transfer envelope
 
-## 3. Problem Statement
-
-The 60 KiB limit is a hard ceiling on individual messages. Application-layer
-workloads that routinely produce larger payloads — image transfers, file
-sharing, structured data exports, voice/video fragments — are blocked at the
-protocol level. Requiring applications to implement their own chunking, session
-management, and reassembly duplicates effort across every client and introduces
-incompatible, application-specific conventions that the protocol cannot reason
-about (e.g. no per-fragment integrity, no sequence-number discipline).
-
-The limit exists because a single wire frame cannot express payloads larger than
-65,535 bytes (the 2-byte length prefix). The natural solution is to transmit a
-large message as a sequence of smaller frames that the receiver reassembles into
-the original message.
-
-## 4. Requirements
-
-### 4.1 Functional requirements
-
-- R1: A `RouteExchangeMessages` or `RouteSessionData` message whose serialized
-  size exceeds `maxTransportSize` MUST be automatically split into multiple
-  fragments by the transport layer. Callers MUST NOT need to implement any
-  chunking logic.
-- R2: The receiver MUST transparently reassemble fragments into the original
-  message. `Transport.Receive()` MUST return the complete reassembled message
-  to the caller, not individual fragments.
-- R3: Each fragment MUST be a self-contained `SignedTransport` envelope,
-  independently signed and encrypted, with its own `Metadata` (ID, timestamp,
-  sequence number). This preserves per-frame integrity and is consistent with
-  the existing signing scheme (§8.1).
-- R4: The original message's route (e.g. `RouteExchangeMessages`) MUST be
-  preserved and returned to the caller in the reassembled message metadata.
-- R5: Fragmentation MUST be bounded. A maximum fragment count per message MUST
-  be enforced to prevent memory exhaustion from adversarial or malformed
-  traffic.
-- R6: Incomplete fragment groups MUST be discarded after a bounded timeout to
-  free reassembly state.
-- R7: Fragmentation MUST be limited to `RouteExchangeMessages` and
-  `RouteSessionData`. Oversized messages on every other route MUST continue to
-  return `ErrMessageTooLarge`.
-- R8: Every fragment MUST undergo the existing authentication and sequence
-  validation before fragment-specific processing. Each consumes one normal
-  transport sequence number, whether accepted or discarded.
-- R9: A reassembled message MUST retain the ID, timestamp, and sequence number
-  from fragment zero, with its route replaced by the original route.
-- R10: The receiver MUST support a `FragmentHandler` callback that is invoked
-  when the first fragment of a new group arrives. The callback receives the
-  announce info (message ID, total fragment count, total byte size, original
-  route) and returns a boolean indicating acceptance. If the callback returns
-  `false`, all fragments for that group are silently discarded and `Receive()`
-  continues reading the next frame. If the callback is nil, all fragments are
-  accepted (backward-compatible default).
-- R11: A `MaxReceiveSize` field on `Transport` MUST provide a hard cap on
-  reassembled message size. Fragmented messages whose total byte size exceeds
-  this value are discarded before the `FragmentHandler` is called. The default
-  is `maxTransportSize`, meaning no fragmented messages are accepted unless the
-  caller explicitly raises this value.
-- R12: Invalid, rejected, oversize, duplicate, and late fragments MUST be
-  silently discarded after authentication and sequence validation. `Receive()`
-  MUST continue reading until it can return a complete message or an existing
-  transport error.
-
-### 4.2 Non-functional requirements
-
-- R13: The relay (`§9.3`) MUST require no changes. Each fragment is a standard
-  `SignedTransport` and is forwarded opaquely.
-- R14: Non-fragmented messages (size ≤ `maxTransportSize`) MUST NOT be affected
-  — no additional overhead, no path change, no API change.
-- R15: This is a wire-incompatible change: peers that do not understand the new
-  fragment route MUST NOT be mixed with peers that do. The change MUST be
-  accompanied by a spec version bump.
-
-### 4.3 Non-goals
-
-- This RFC does not define retransmission or reliability for individual
-  fragments. The underlying transport (TCP, §9.1) provides reliable delivery.
-  Fragment loss at this layer is treated as a session-level timeout, not a
-  per-fragment NACK.
-- This RFC does not address flow control or back-pressure for large messages.
-  The sender transmits all fragments without waiting for receiver
-  acknowledgement.
-
-## 5. Proposed Design
-
-### 5.1 Fragment envelope
-
-A new protobuf message wraps each chunk of the original serialized message:
+`RouteSessionData` carries a protobuf `TransferEnvelope` with exactly one of
+the following payloads:
 
 ```protobuf
-message Fragment {
-  bytes  MessageID  = 1;  // Groups fragments of the same logical message
-  uint32 Index      = 2;  // 0-based fragment index
-  uint32 Total      = 3;  // Total number of fragments in this message
-  Route  Route      = 4;  // Original route from the sender
-  bytes  Data       = 5;  // Chunk of the original serialized message
-  uint32 TotalBytes = 6;  // Size of the original serialized message
+message TransferEnvelope {
+  oneof Payload {
+    FileOffer    Offer    = 1;
+    FileDecision Decision = 2;
+    FileChunk    Chunk    = 3;
+    FileCancel   Cancel   = 4;
+    FileComplete Complete = 5;
+  }
+}
+
+message FileOffer {
+  bytes  TransferID = 1; // exactly 32 cryptographically random bytes
+  string Name       = 2; // display name only; never a filesystem path
+  string MediaType  = 3; // optional media type
+  uint64 Size       = 4; // exact number of file bytes
+  bytes  SHA512     = 5; // exactly 64 bytes
+}
+
+message FileDecision {
+  bytes TransferID = 1;
+  bool  Accept     = 2;
+}
+
+message FileChunk {
+  bytes  TransferID = 1;
+  uint64 Index      = 2;
+  bytes  Data       = 3;
+}
+
+message FileCancel {
+  bytes TransferID = 1;
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    REASON_CANCELLED = 1;
+    REASON_REJECTED = 2;
+    REASON_TIMEOUT = 3;
+    REASON_SIZE_MISMATCH = 4;
+    REASON_HASH_MISMATCH = 5;
+    REASON_IO_FAILURE = 6;
+    REASON_PROTOCOL_ERROR = 7;
+  }
+  Reason Reason = 2;
+}
+
+message FileComplete {
+  bytes TransferID = 1;
 }
 ```
 
-- `MessageID` is a random identifier (`rand.Text()`) generated once per logical
-  message. It is unguessable and unique, and disambiguates interleaved
-  fragments from concurrent large messages.
-- `Index` is 0-based. Fragments are ordered: `Index` 0 contains the first
-  chunk of the serialized message, `Index` `Total-1` contains the last.
-- `Total` is the total fragment count. Every fragment in the same group carries
-  the same `Total` value.
-- `TotalBytes` is the exact byte length of the original serialized message.
-  Every fragment in the group carries the same value. It is used for receiver
-  admission, bounded reassembly allocation, and final length validation.
-- `Route` is the caller's original route (e.g. `RouteExchangeMessages`). The
-  `SignedTransport.Metadata.Route` for every fragment is set to
-  `RouteFragment`; the original route is preserved inside the signed `Data`
-  field and recovered after reassembly.
-- `Data` is a prefix of the original serialized message: fragment `i` carries
-  bytes `[i * chunkSize, (i+1) * chunkSize)` of the original payload.
+`TransferID` identifies one transfer for the lifetime of its transport. An
+implementation MUST generate it from a cryptographically secure random source.
+It MUST reject a transfer ID that is not exactly 32 bytes.
 
-### 5.2 New route
+`Name` is descriptive metadata. The protocol neither interprets it as a path
+nor selects a receive destination from it.
 
-```
-RouteFragment = 14
-```
+### 4.2 Chunk size
 
-`RouteFragment` is a transport-internal route. It is never passed to the
-application layer; `Transport.Receive()` handles it internally and returns the
-reassembled message with the original route.
+`FileChunk` MUST be small enough that its complete protobuf encoding fits in
+`maxTransportSize`, including the `TransferEnvelope` encoding. Implementations
+MUST derive the usable data length from the encoded envelope and MUST NOT rely
+on a fixed overhead estimate.
 
-### 5.3 Fragment size
+Each `FileChunk.Data` MUST be non-empty. The sender emits consecutive indexes
+starting at zero. The last chunk may be smaller than preceding chunks; no
+zero-length final chunk is permitted.
 
-Each chunk is sized so that its encoded `Fragment` and the `BytesValue` wrapper
-passed to `signedSerde.serialize()` are at most `maxTransportSize`. The sender
-MUST account for the complete envelope, including `MessageID`, `Total`, and
-`TotalBytes`; it MUST NOT rely on a fixed framing-overhead estimate.
+## 5. Transfer Flow
 
-The last fragment may carry fewer bytes than the full chunk size. If the
-original message's serialized length is exactly divisible by the chunk size, the
-last fragment carries a full chunk (i.e. there is no zero-length final fragment).
+### 5.1 Offer and decision
 
-### 5.4 Send path
+1. The sender determines the complete file size and SHA-512 digest before
+   creating an offer.
+2. It sends `FileOffer` and starts the offer timeout.
+3. The receiver validates the offer fields and exposes its metadata to the
+   application. It does not allocate file storage or accept chunks yet.
+4. The application either declines or accepts the offer, supplying an
+   application-owned writer and an explicit maximum size for this offer.
+5. A decline sends `FileDecision{Accept: false}`. The sender MUST send no
+   chunks and both peers mark the transfer terminal.
+6. An acceptance sends `FileDecision{Accept: true}`. The sender may then begin
+   streaming chunks.
 
-When `Transport.Send()` is called:
+The receiver MUST reject an offer whose size exceeds the maximum passed to its
+accept operation. A zero-value receiver policy accepts no offer.
 
-1. The application message is serialized to bytes (`Data`).
-2. If `len(Data) ≤ maxTransportSize`: send as a single frame via the existing
-   path (no change).
-3. If `len(Data) > maxTransportSize` and `route` is not
-   `RouteExchangeMessages` or `RouteSessionData`, return `ErrMessageTooLarge`.
-4. Otherwise:
-   a. Generate a random `MessageID`.
-   b. Compute `Total = ceil(len(Data) / chunkSize)`.
-   c. For each chunk index `i` from `0` to `Total-1`:
-   - Extract the `i`-th chunk from `Data`.
-   - Build `Fragment{MessageID, Index: i, Total, Route: originalRoute,
-     Data: chunk, TotalBytes: len(Data)}`.
-   - Wrap the `Fragment` in `kamune.Bytes()`.
-   - Call `signedSerde.serialize(fragment, RouteFragment, seq)` to produce a
-     signed, padded, encrypted `SignedTransport`.
-   - Write the frame to the connection.
-   - Increment the send counter.
-     d. Return metadata derived from fragment zero, with route = original route.
+### 5.2 Streaming and completion
 
-### 5.5 Receive path
+1. After receiving an accepting decision, the sender reads its source in order,
+   emits indexed chunks, and maintains a running SHA-512 digest and byte count.
+2. The receiver accepts only the next expected index for an active, accepted
+   transfer. It writes the chunk to the supplied writer and updates its own
+   running digest and byte count.
+3. The sender sends `FileComplete` only after it has emitted exactly the
+   offered size and verified its source digest against the offered SHA-512.
+4. The receiver accepts completion only when it has received exactly the
+   offered size, verified the SHA-512 digest, and observed no protocol error.
+5. On successful verification, the receiver reports completion to the
+   application and marks the transfer terminal.
 
-When `Transport.Receive()` reads a frame:
+The caller owns the writer and its lifecycle. Callers requiring atomic delivery
+MUST write to staging storage and promote it only after successful completion.
 
-1. Decrypt and deserialize the `SignedTransport` as usual.
-2. Authenticate and validate its sequence number using the existing transport
-   rules. Every fragment advances the expected sequence number before any
-   fragment-specific decision is made.
-3. If `metadata.Route() == RouteFragment`:
-   a. Decode the `Fragment` from `Data`.
-   b. Validate that `MessageID` is non-empty, `Index < Total`, `Total` is in
-   `2..maxFragmentCount`, `TotalBytes > maxTransportSize`,
-   `TotalBytes ≤ MaxReceiveSize`, and `Route` is either
-   `RouteExchangeMessages` or `RouteSessionData`. Discard an invalid fragment
-   and continue reading.
-   c. **First fragment (`Index == 0`)**: this is the announce. If
-   `FragmentHandler` is set, call it with the announce info. If it returns
-   `false`, discard the fragment and continue reading. Otherwise, create a
-   reassembly entry and retain fragment zero's metadata.
-   d. **Subsequent fragments (`Index > 0`)**: look up the reassembly entry by
-   `MessageID`. If no entry exists, discard the fragment silently. Require its
-   `Total`, `TotalBytes`, and original `Route` to match the entry; otherwise
-   discard the fragment.
-   e. Reject a duplicate `Index`; otherwise add the fragment to the entry.
-   f. When all fragments have arrived, concatenate their `Data` fields in index
-   order and require the result length to equal `TotalBytes`. On success, remove
-   the entry, decode the original bytes into the caller's destination, and
-   return the metadata retained from fragment zero with the original route.
-   g. On any discarded or incomplete fragment, continue reading without
-   returning to the caller.
-4. If the route is not `RouteFragment`: process normally (existing path).
+### 5.3 Cancellation and expiry
 
-### 5.6 Reassembly state
+Either peer MAY send `FileCancel` for an active transfer. On cancellation,
+timeout, disconnect, writer failure, hash mismatch, size mismatch, or protocol
+error, the local peer marks the transfer terminal and reports the reason to its
+application. It SHOULD send `FileCancel` when the transport remains usable.
 
-Per pending (incomplete) message, the receiver maintains:
+The offer timeout and idle-transfer timeout are both 30 seconds. A transfer is
+not resumable: a disconnect terminates it, and a new connection requires a new
+offer and transfer ID.
 
-- `MessageID`: the fragment group identifier.
-- `Total`: expected fragment count.
-- `TotalBytes`: expected byte length after reassembly.
-- `Route`: original route (from the first fragment received).
-- `Metadata`: fragment zero's metadata, used for successful delivery.
-- `Fragments`: a map of `Index → Data` for received chunks.
-- `Received`: count of distinct chunks received so far.
-- `FirstSeen`: timestamp of the first fragment in this group.
+## 6. Receiver and Library Model
 
-The reassembly buffer is bounded by `maxPendingFragments` (default: 16). If a
-new `MessageID` arrives and the buffer is full, the oldest incomplete entry is
-discarded silently to make room.
+The core library provides a `TransferManager` that exclusively owns the
+transport receive loop while it is active. It decodes `TransferEnvelope`
+messages, exposes typed incoming offers and transfer events, and forwards
+authenticated non-transfer frames through a generic inbound-message stream.
 
-Entries are discarded when:
+The manager offers explicit operations to accept or decline a transfer. Its
+accept operation takes an `io.Writer` and a per-offer size limit. It does not
+perform filesystem path handling, choose a destination, or automatically accept
+offers.
 
-- All `Total` fragments have arrived (successful reassembly).
-- The time since `FirstSeen` exceeds `fragmentReassemblyTimeout` (default: 30
-  seconds).
-
-Rejected groups never create an entry. Their later fragments are discarded
-because no matching entry exists.
-
-### 5.7 Constants
-
-| Constant                    | Value | Description                                                                   |
-| --------------------------- | ----- | ----------------------------------------------------------------------------- |
-| `maxFragmentCount`          | 256   | Maximum fragments per logical message. Caps max message at ~15 MiB.           |
-| `fragmentReassemblyTimeout` | 30 s  | Time to wait for all fragments before discarding. Matches `handshakeTimeout`. |
-| `maxPendingFragments`       | 16    | Maximum concurrent incomplete fragment groups in the reassembly buffer.       |
-
-### 5.8 Transport configuration
-
-Two new fields on `Transport` control fragment reception:
-
-```go
-type FragmentHandler func(announce *FragmentAnnounce) bool
-
-type FragmentAnnounce struct {
-    MessageID  []byte
-    Total      uint32
-    TotalBytes uint32
-    Route      Route
-}
-
-type Transport struct {
-    // ...
-    FragmentHandler FragmentHandler  // called on first fragment of a new group
-    MaxReceiveSize  uint32           // hard cap on reassembled message size
-}
-```
-
-- `FragmentHandler` is a callback invoked when the first fragment (`Index == 0`)
-  of a new group arrives. It receives a `FragmentAnnounce` containing the
-  message ID, total fragment count, total byte size, and original route. If it
-  returns `false`, the group is rejected: fragment 0 is discarded, and all
-  subsequent fragments for that `MessageID` are silently dropped on arrival. If
-  nil, all groups are accepted (backward-compatible default).
-
-- `MaxReceiveSize` is a hard cap on the declared `TotalBytes` of a reassembled
-  message. The group is discarded before `FragmentHandler` is called when its
-  declared size exceeds this value. The default is `maxTransportSize`, meaning
-  no fragmented messages are accepted unless the caller explicitly raises this
-  value.
-
-To receive fragmented messages, the caller MUST set `MaxReceiveSize` above
-`maxTransportSize`. A nil `FragmentHandler` accepts every otherwise valid
-group; a configured handler selectively admits groups after the size check.
-
-## 6. Security Considerations
-
-- Each fragment is independently signed (§8.1) and encrypted (§8.4). An
-  attacker without the session key cannot inject, modify, or replay individual
-  fragments — the same guarantees that apply to non-fragmented messages apply
-  to each fragment.
-- The `MessageID` is a random, unguessable identifier. An attacker cannot
-  inject a fragment into an existing fragment group without knowing this ID.
-- `MaxReceiveSize`, `maxFragmentCount` (256), and `maxPendingFragments` (16)
-  bound reassembly memory. The receiver validates the declared total before
-  allocating state and verifies the final concatenated length before delivery.
-- The `fragmentReassemblyTimeout` prevents indefinite accumulation of partial
-  state from stalled or adversarial traffic.
-- Padding is applied per-fragment, preserving the traffic-analysis resistance
-  of the existing bucketed-padding scheme (§12.7). A small final fragment is
-  padded to at least the smallest bucket (512 bytes).
-- This change is a hard protocol cut: peers that do not understand
-  `RouteFragment` will reject fragment frames as unexpected routes. Both sides
-  of a session MUST run a compatible version. The version-bump requirement (R9)
-  enforces this via the existing pre-1.0 compatibility rules (§6.2).
+The manager retains only bounded control state: active offers, active transfer
+metadata, expected chunk indexes, byte counts, and hash state. File contents
+are streamed to the caller's writer and are not retained by the manager.
 
 ## 7. Error Conditions
 
-### 7.1 Updated §14 Error Table (proposed additions)
+| Condition                                          | Action                                                   |
+| -------------------------------------------------- | -------------------------------------------------------- |
+| Invalid offer or envelope                          | Reject or cancel the transfer; do not create file state. |
+| Chunk before acceptance                            | Cancel the transfer; do not write the chunk.             |
+| Unknown, duplicate, missing, or out-of-order chunk | Cancel the transfer.                                     |
+| Chunk exceeds accepted or offered size             | Cancel the transfer.                                     |
+| Writer failure                                     | Cancel the transfer and report the local error.          |
+| `FileComplete` with incorrect size or SHA-512      | Cancel the transfer; never report success.               |
+| Offer or idle-transfer timeout                     | Mark terminal and report timeout.                        |
+| Disconnect                                         | Mark every active transfer terminal; no resumption.      |
+| Late message for a terminal transfer               | Ignore it.                                               |
 
-| Condition                                | Fatal? | Action                                           |
-| ---------------------------------------- | ------ | ------------------------------------------------ |
-| Invalid or mismatched fragment fields    | No     | Discard fragment; continue reading.              |
-| Rejected or oversize fragment group      | No     | Discard fragment; continue reading.              |
-| Duplicate or late fragment               | No     | Discard fragment; continue reading.              |
-| Reassembly buffer full (new `MessageID`) | No     | Discard oldest incomplete entry; add new entry.  |
-| Reassembly timeout (missing fragments)   | No     | Discard incomplete entry; continue reading.      |
-| Successful reassembly                    | —      | Deliver reassembled message and its metadata.    |
+Transfer failures are scoped to the transfer. Authentication, decryption, and
+transport sequence failures retain their existing session-level behavior.
 
-All fragment-level errors are non-fatal to the session. A missing or malformed
-fragment discards that fragment (or its group state on timeout) but does not
-terminate the connection. Fragment timeout is not surfaced as a new error: a
-later `Receive()` simply observes that the incomplete group has been removed.
+## 8. Security Considerations
+
+- Transport encryption and signatures protect every offer, decision, chunk,
+  cancellation, and completion message. SHA-512 additionally verifies that the
+  complete received object matches the sender's declared content.
+- Explicit acceptance prevents a peer from forcing file storage allocation or
+  writes before the receiver's application consents.
+- A receiver validates fixed-size IDs and digests, exact byte totals, indexes,
+  and its explicit accepted-size limit before completing a transfer.
+- Random transfer IDs prevent accidental cross-transfer association. They are
+  not relied on as an authorization mechanism; authenticated session transport
+  provides that protection.
+- Display names are untrusted metadata. Implementations MUST NOT treat them as
+  paths or permit them to control destination selection.
+- Active offer and transfer counts MUST be bounded by the implementation. The
+  protocol stores only control state in memory; file bytes are streamed.
+- The existing pre-1.0 minor-version check prevents a peer that does not
+  understand `TransferEnvelope` from establishing a session with one that does.
+
+## 9. Non-Goals
+
+- Transparent fragmentation of arbitrary `Transport.Send` messages.
+- Transfer resumption after a reconnect.
+- Automatic file destination selection, persistence, cleanup, or atomic rename.
+- Daemon events, bus UI, progress display, and application-specific storage
+  policy.
