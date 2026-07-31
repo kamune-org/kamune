@@ -183,6 +183,52 @@ func TestFraming_SetWriteDeadline_NoOp(t *testing.T) {
 	a.NoError(f.SetWriteDeadline(time.Time{}))
 }
 
+func FuzzFramingReadBytes(f *testing.F) {
+	f.Add([]byte{}, uint16(0))
+	f.Add([]byte{0}, uint16(0))
+	f.Add([]byte{0, 0}, uint16(0))
+	f.Add([]byte{0, 3, 'a', 'b', 'c'}, uint16(0))
+	f.Add([]byte{0, 3, 'a', 'b'}, uint16(0))
+	f.Add([]byte{0, 3, 'a', 'b', 'c'}, uint16(2))
+
+	f.Fuzz(func(t *testing.T, wire []byte, maxSize uint16) {
+		if len(wire) > math.MaxUint16+2 {
+			t.Skip()
+		}
+		a := require.New(t)
+		rwc := &bufferReadWriteCloser{}
+		_, err := rwc.Write(wire)
+		a.NoError(err)
+		framing := NewFraming(rwc, int(maxSize))
+
+		got, readErr := framing.ReadBytes()
+		if len(wire) < 2 {
+			a.Error(readErr)
+			a.Nil(got)
+			return
+		}
+
+		declared := int(binary.BigEndian.Uint16(wire[:2]))
+		switch {
+		case maxSize > 0 && declared > int(maxSize):
+			a.Error(readErr)
+			a.Nil(got)
+		case len(wire)-2 < declared:
+			a.Error(readErr)
+			a.Nil(got)
+		default:
+			a.NoError(readErr)
+			a.Equal(wire[2:2+declared], got)
+		}
+	})
+}
+
+type bufferReadWriteCloser struct {
+	bytes.Buffer
+}
+
+func (*bufferReadWriteCloser) Close() error { return nil }
+
 type partialReadWriteCloser struct {
 	bytes.Buffer
 	maxWrite int
