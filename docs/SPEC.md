@@ -723,10 +723,10 @@ the `Transport`:
 6. The sequence number is validated: it MUST equal the last received
    sequence + 1.
    - If the sequence is **less than** expected, the message is a duplicate and
-     MUST be rejected.
+     the session MUST be closed.
    - If the sequence is **greater than** expected, messages have been lost and
-     an out-of-sync condition MUST be surfaced.
-7. The receive counter is updated.
+     the session MUST be closed.
+7. After successful sequence validation, the receive counter is updated.
 8. The inner message is deserialized into the expected type.
 9. The route and metadata are returned to the application layer.
 
@@ -1067,8 +1067,8 @@ counters:
 | Condition                    | Action                                                                    |
 | ---------------------------- | ------------------------------------------------------------------------- |
 | `seq == receive counter + 1` | Accept; update the receive counter.                                       |
-| `seq < receive counter + 1`  | Reject as **duplicate**. An out-of-sync condition is surfaced.            |
-| `seq > receive counter + 1`  | Reject as **gap/missing messages**. An out-of-sync condition is surfaced. |
+| `seq < receive counter + 1`  | Reject as **duplicate**. Close the session and surface an out-of-sync error. |
+| `seq > receive counter + 1`  | Reject as **gap/missing messages**. Close the session and surface an out-of-sync error. |
 
 Sequence numbers provide ordering guarantees and replay protection within a
 session.
@@ -1144,7 +1144,8 @@ Where:
 
 - **`ReadBytes`**: Reads a single length-prefixed frame. Reads the 2-byte
   big-endian length prefix, then exactly that many payload bytes. Returns the
-  payload, or an error if the read fails or the frame is truncated.
+  payload, or an error if the read fails or the frame is truncated. Successful
+  reads MUST be reliable, in wire order, and free of duplicate frames.
 - **`WriteBytes`**: Writes a single length-prefixed frame. Prepends a 2-byte
   big-endian length prefix and writes the full payload atomically (retrying on
   partial writes). Returns an error if the write fails.
@@ -1155,8 +1156,9 @@ Where:
 
 The contract is the only requirement the protocol imposes. A conforming
 implementation MUST serialize its outbound session messages so that their wire
-order is the same as their sequence-number order. Sending and receiving may
-otherwise proceed concurrently.
+order is the same as their sequence-number order. It MUST deliver inbound
+frames reliably and in that wire order, without duplicates. Sending and
+receiving may otherwise proceed concurrently.
 
 An implementation may additionally expose the underlying connection object (for
 example, a `net.Conn` in environments that provide one) for callers that need
@@ -1421,7 +1423,7 @@ action is normative.
 | A signature on a received message fails verification.                                                                     | Surfaced as a signature error; the connection is terminated.               |
 | A challenge echo does not match the original challenge, or the remote-verifier callback rejects the peer.                 | Surfaced as a verification error; the connection is terminated.            |
 | A user message exceeds the user-message cap (~60 KiB), or its encoded frame would exceed the wire-format maximum.         | Surfaced as a message-too-large error; the message is not sent.            |
-| A received sequence number does not equal the expected value (duplicate or gap).                                          | Surfaced as an out-of-sync error; the connection is terminated.            |
+| A received sequence number does not equal the expected value (duplicate or gap).                                          | Surface an out-of-sync error, close the connection, and discard session state. |
 | A received route does not match the route expected for the current protocol phase.                                        | Surfaced as an unexpected-route error; the connection is terminated.       |
 | A received message uses `ROUTE_INVALID` (0) or any unrecognized route value.                                              | Surfaced as an invalid-route error; the message is rejected.               |
 | The remote peer's application version is incompatible with the local version (major mismatch, or pre-1.0 minor mismatch). | Surfaced as a version-mismatch error; the connection is terminated.        |
