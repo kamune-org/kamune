@@ -2,6 +2,23 @@
 test:
 	go test ./... -v
 
+FUZZ_TIME ?= 10s
+
+.PHONY: fuzz
+fuzz:
+	go test . -run '^$$' -fuzz '^FuzzTransportReceiveEnvelope$$' \
+		-fuzztime $(FUZZ_TIME)
+	go test . -run '^$$' -fuzz '^FuzzPreAuthEnvelopeValidation$$' \
+		-fuzztime $(FUZZ_TIME)
+	go test ./pkg/exchange -run '^$$' -fuzz '^FuzzParseMergedExchange$$' \
+		-fuzztime $(FUZZ_TIME)
+	go test ./pkg/relayconn -run '^$$' -fuzz '^FuzzFramingReadBytes$$' \
+		-fuzztime $(FUZZ_TIME)
+	go test ./pkg/storage -run '^$$' -fuzz '^FuzzDecodeChatEntry$$' \
+		-fuzztime $(FUZZ_TIME)
+	go test ./pkg/storage -run '^$$' -fuzz '^FuzzPackedListCodec$$' \
+		-fuzztime $(FUZZ_TIME)
+
 .PHONY: bench
 bench:
 	go test ./... -bench .
