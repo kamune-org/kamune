@@ -90,6 +90,10 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 	expected := t.recvSequence + 1
 	if seq != expected {
 		t.mu.Unlock()
+		// A duplicate or gap violates the ordered, reliable Conn contract. The
+		// session cannot safely continue because a missing frame may have
+		// carried stateful protocol or application data.
+		_ = t.conn.Close()
 		if seq < expected {
 			return nil, fmt.Errorf(
 				"%w: duplicate message seq %d, expected %d",

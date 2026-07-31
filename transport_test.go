@@ -16,6 +16,7 @@ import (
 )
 
 type queuedConn struct {
+	closed bool
 	frames [][]byte
 }
 
@@ -30,7 +31,10 @@ func (c *queuedConn) ReadBytes() ([]byte, error) {
 
 func (*queuedConn) WriteBytes([]byte) error     { return nil }
 func (*queuedConn) SetDeadline(time.Time) error { return nil }
-func (*queuedConn) Close() error                { return nil }
+func (c *queuedConn) Close() error {
+	c.closed = true
+	return nil
+}
 
 func incomingTransport(
 	t *testing.T, route Route, sequence uint64, message Transferable,
@@ -61,6 +65,7 @@ func TestTransportReceiveValidatesSequenceBeforeClose(t *testing.T) {
 	_, err := transport.Receive(Bytes(nil))
 	a.ErrorIs(err, ErrOutOfSync)
 	a.Equal(uint64(0), transport.recvSequence)
+	a.True(transport.conn.(*queuedConn).closed)
 }
 
 func TestTransportReceiveAdvancesSequenceForClose(t *testing.T) {
@@ -128,6 +133,7 @@ func FuzzTransportReceiveEnvelope(f *testing.F) {
 			a.Nil(metadata)
 			a.Equal(uint64(0), transport.recvSequence)
 			a.Equal(original, dst.GetValue())
+			a.True(conn.closed)
 		case !route.IsValid():
 			a.ErrorIs(receiveErr, ErrInvalidRoute)
 			a.Nil(metadata)
