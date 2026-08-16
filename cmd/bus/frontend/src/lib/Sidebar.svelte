@@ -1,5 +1,4 @@
 <script>
-  import { createEventDispatcher } from 'svelte'
   import {
     sessions, historySessions, activeSessionId, fingerprint,
     status, sidebarTab, dbPath, myName, relayTokens, p2pTokens, toast, peers,
@@ -37,20 +36,59 @@
     return p ? (p.name || p.fingerprintEmoji || pubB64.slice(0, 8)) : pubB64.slice(0, 8)
   }
 
-  const dispatch = createEventDispatcher()
-  export let serverActive = false
-  export let runningServerTransport = ''
-  export let serverLoading = false
-  export let connectLoading = false
-  export let serverBrokerAddr = ''
+  /**
+   * @typedef {Object} Props
+   * @property {boolean} [serverActive]
+   * @property {string} [runningServerTransport]
+   * @property {boolean} [serverLoading]
+   * @property {boolean} [connectLoading]
+   * @property {string} [serverBrokerAddr]
+   * @property {() => void} [onStartServer]
+   * @property {() => void} [onStopServer]
+   * @property {() => void} [onCancel]
+   * @property {() => void} [onConnect]
+   * @property {() => void} [onRefreshHistory]
+   * @property {(id: string) => void} [onSelectSession]
+   * @property {(id: string) => void} [onSelectHistory]
+   * @property {(id: string) => void} [onDisconnect]
+   * @property {(id: string) => void} [onShowInfo]
+   * @property {(id: string) => void} [onRename]
+   * @property {(id: string) => void} [onRenameHistory]
+   * @property {(id: string) => void} [onDeleteHistory]
+   * @property {() => void} [onChangeDBPath]
+   * @property {() => void} [onRenamed]
+   */
 
-  let copied = false
-  let tokensExpanded = true
-  let editingName = false
-  let editName = ''
-  let ctxMenu = null
-  let rtMode = 'random'
-  let rtSelectedPeer = ''
+  /** @type {Props} */
+  let {
+    serverActive = false,
+    runningServerTransport = '',
+    serverLoading = false,
+    connectLoading = false,
+    serverBrokerAddr = '',
+    onStartServer,
+    onStopServer,
+    onCancel,
+    onConnect,
+    onRefreshHistory,
+    onSelectSession,
+    onSelectHistory,
+    onDisconnect,
+    onShowInfo,
+    onRename,
+    onRenameHistory,
+    onDeleteHistory,
+    onChangeDBPath,
+    onRenamed,
+  } = $props();
+
+  let copied = $state(false)
+  let tokensExpanded = $state(true)
+  let editingName = $state(false)
+  let editName = $state('')
+  let ctxMenu = $state(null)
+  let rtMode = $state('random')
+  let rtSelectedPeer = $state('')
 
   function openCtx(e, id, isHistory, name) {
     e.preventDefault()
@@ -61,8 +99,8 @@
     ctxMenu = null
   }
 
-  let editingSessionId = null
-  let editSessionName = ''
+  let editingSessionId = $state(null)
+  let editSessionName = $state('')
   let editingIsHistory = false
 
   function startRename(id, name, isHistory) {
@@ -80,7 +118,7 @@
         } else {
           await RenameSession(editingSessionId, trimmed)
         }
-        dispatch('renamed')
+        onRenamed?.()
       } catch (e) {
         console.error('Rename error:', e)
       }
@@ -173,12 +211,12 @@
           type="text"
           bind:value={editName}
           maxlength="32"
-          on:blur={saveName}
-          on:keydown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') cancelEdit() }}
+          onblur={saveName}
+          onkeydown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') cancelEdit() }}
           use:focusInput
         >
       {:else if $myName}
-        <span class="brand-name" on:click={startEdit} on:keydown={(e) => e.key === 'Enter' && startEdit()} tabindex="0" role="button">{ $myName }</span>
+        <span class="brand-name" onclick={startEdit} onkeydown={(e) => e.key === 'Enter' && startEdit()} tabindex="0" role="button">{ $myName }</span>
       {/if}
     </div>
   </div>
@@ -187,7 +225,7 @@
     <button
       class="tab-btn"
       class:active={$sidebarTab === 'sessions'}
-      on:click={() => toggleTab('sessions')}
+      onclick={() => toggleTab('sessions')}
     >
       <svg class="tab-icon" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
         <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6z" />
@@ -201,7 +239,7 @@
     <button
       class="tab-btn"
       class:active={$sidebarTab === 'peers'}
-      on:click={() => toggleTab('peers')}
+      onclick={() => toggleTab('peers')}
     >
       <svg class="tab-icon" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
         <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
@@ -214,7 +252,7 @@
     <button
       class="tab-btn"
       class:active={$sidebarTab === 'history'}
-      on:click={() => toggleTab('history')}
+      onclick={() => toggleTab('history')}
     >
       <svg class="tab-icon" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
@@ -232,14 +270,14 @@
     {:else if $sidebarTab === 'sessions'}
       <div class="sidebar-actions">
         {#if serverLoading || connectLoading}
-          <button class="action-btn action-danger" on:click={() => dispatch('cancel')}>
+          <button class="action-btn action-danger" onclick={() => onCancel?.()}>
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
               <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
             </svg>
             Cancel
           </button>
         {:else}
-          <button class="action-btn" class:action-primary={!serverActive} class:action-danger={serverActive} on:click={() => dispatch(serverActive ? 'stopServer' : 'startServer')}>
+          <button class="action-btn" class:action-primary={!serverActive} class:action-danger={serverActive} onclick={() => (serverActive ? onStopServer?.() : onStartServer?.())}>
             {#if serverActive}
               <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
                 <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" />
@@ -252,7 +290,7 @@
               Start Server
             {/if}
           </button>
-          <button class="action-btn action-secondary" on:click={() => dispatch('connect')}>
+          <button class="action-btn action-secondary" onclick={() => onConnect?.()}>
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
               <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
               <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
@@ -264,7 +302,7 @@
 
       {#if $relayTokens.length > 0 || (serverActive && runningServerTransport === 'relay')}
         <div class="relay-tokens-section">
-          <div class="rt-header" on:click={() => tokensExpanded = !tokensExpanded} on:keydown={(e) => { if (e.key === 'Enter') tokensExpanded = !tokensExpanded }} role="button" tabindex="0">
+          <div class="rt-header" onclick={() => tokensExpanded = !tokensExpanded} onkeydown={(e) => { if (e.key === 'Enter') tokensExpanded = !tokensExpanded }} role="button" tabindex="0">
             <svg class="rt-chevron" class:collapsed={!tokensExpanded} viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
               <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
             </svg>
@@ -277,12 +315,12 @@
                 <button
                   class="rt-mode-btn"
                   class:active={rtMode === 'random'}
-                  on:click={() => { rtMode = 'random'; rtSelectedPeer = '' }}
+                  onclick={() => { rtMode = 'random'; rtSelectedPeer = '' }}
                 >random</button>
                 <button
                   class="rt-mode-btn"
                   class:active={rtMode === 'static'}
-                  on:click={() => { rtMode = 'static' }}
+                  onclick={() => { rtMode = 'static' }}
                 >static</button>
               </div>
               {#if rtMode === 'static'}
@@ -296,7 +334,7 @@
               <button
                 class="rt-gen-btn"
                 disabled={rtMode === 'static' && !rtSelectedPeer}
-                on:click={async () => {
+                onclick={async () => {
                   try {
                     const peerArg = rtMode === 'static' ? rtSelectedPeer : ''
                     const token = await GenerateRelayToken(peerArg)
@@ -320,7 +358,7 @@
                 {@const sessionTTL = formatSessionTTL(rt)}
                 <div class="rt-item" class:consumed={rt.consumed}>
                   <span class="rt-dot" class:filled={rt.consumed}></span>
-                  <span class="rt-item-token" role="button" tabindex="0" title={rt.token} on:click={() => handleCopyToken(rt.token)} on:keydown={(e) => { if (e.key === 'Enter') handleCopyToken(rt.token) }}>{truncateToken(rt.token)}</span>
+                  <span class="rt-item-token" role="button" tabindex="0" title={rt.token} onclick={() => handleCopyToken(rt.token)} onkeydown={(e) => { if (e.key === 'Enter') handleCopyToken(rt.token) }}>{truncateToken(rt.token)}</span>
                   <span class="rt-mode-badge" class:rt-mode-static={rt.mode === 'static'}>
                     {rt.mode || 'random'}
                   </span>
@@ -333,13 +371,13 @@
                   {#if sessionTTL}
                     <span class="rt-session-ttl">session {sessionTTL}</span>
                   {/if}
-                  <button class="rt-rm-btn" title="Remove token" on:click|stopPropagation={async () => {
+                  <button class="rt-rm-btn" title="Remove token" onclick={(e) => { e.stopPropagation(); (async () => {
                     try {
                       await RemoveRelayToken(rt.token)
                     } catch (e) {
                       console.error('Remove token failed:', e)
                     }
-                  }}>
+                  })() }}>
                     <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
                       <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
                     </svg>
@@ -377,9 +415,9 @@
               class:active={$activeSessionId === session.id}
               role="button"
               tabindex="0"
-              on:click={() => dispatch('selectSession', session.id)}
-              on:keydown={(e) => handleItemKeydown(e, () => dispatch('selectSession', session.id))}
-               on:contextmenu|preventDefault={(e) => openCtx(e, session.id, false, session.peerName)}
+              onclick={() => onSelectSession?.(session.id)}
+              onkeydown={(e) => handleItemKeydown(e, () => onSelectSession?.(session.id))}
+               oncontextmenu={(e) => { e.preventDefault(); openCtx(e, session.id, false, session.peerName) }}
             >
               <div class="session-indicator"></div>
               <div class="session-avatar">
@@ -394,8 +432,8 @@
                     type="text"
                     bind:value={editSessionName}
                     use:focusInput
-                    on:blur={saveRename}
-                    on:keydown|stopPropagation={(e) => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') cancelRename() }}
+                    onblur={saveRename}
+                    onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') cancelRename() }}
                   />
                 {:else}
                   <div class="session-name">{session.peerName}</div>
@@ -418,7 +456,7 @@
       </div>
     {:else}
       <div class="sidebar-actions">
-        <button class="action-btn action-secondary" on:click={() => dispatch('refreshHistory')}>
+        <button class="action-btn action-secondary" onclick={() => onRefreshHistory?.()}>
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
             <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
           </svg>
@@ -444,9 +482,9 @@
               class:active={$activeSessionId === hs.id}
               role="button"
               tabindex="0"
-              on:click={() => dispatch('selectHistory', hs.id)}
-              on:keydown={(e) => handleItemKeydown(e, () => dispatch('selectHistory', hs.id))}
-               on:contextmenu|preventDefault={(e) => openCtx(e, hs.id, true, hs.name || hs.id.slice(0, 16))}
+              onclick={() => onSelectHistory?.(hs.id)}
+              onkeydown={(e) => handleItemKeydown(e, () => onSelectHistory?.(hs.id))}
+               oncontextmenu={(e) => { e.preventDefault(); openCtx(e, hs.id, true, hs.name || hs.id.slice(0, 16)) }}
             >
               <div class="session-indicator"></div>
               <div class="session-avatar history">
@@ -461,8 +499,8 @@
                     type="text"
                     bind:value={editSessionName}
                     use:focusInput
-                    on:blur={saveRename}
-                    on:keydown|stopPropagation={(e) => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') cancelRename() }}
+                    onblur={saveRename}
+                    onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') cancelRename() }}
                   />
                 {:else}
                   <div class="session-name">{hs.name || hs.id.slice(0, 16)}</div>
@@ -483,29 +521,29 @@
   </div>
 
   {#if ctxMenu}
-    <div class="ctx-overlay" on:click={closeCtx} on:contextmenu|preventDefault={closeCtx}></div>
+    <div class="ctx-overlay" onclick={closeCtx} oncontextmenu={(e) => { e.preventDefault(); closeCtx() }}></div>
     <div class="ctx-menu" style="left: {ctxMenu.x}px; top: {ctxMenu.y}px;">
       {#if ctxMenu.isHistory}
-        <button class="ctx-item" on:click={() => { startRename(ctxMenu.id, ctxMenu.name, true); closeCtx() }}>
+        <button class="ctx-item" onclick={() => { startRename(ctxMenu.id, ctxMenu.name, true); closeCtx() }}>
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
           Rename
         </button>
-        <button class="ctx-item ctx-danger" on:click={() => { dispatch('deleteHistory', ctxMenu.id); closeCtx() }}>
+        <button class="ctx-item ctx-danger" onclick={() => { onDeleteHistory?.(ctxMenu.id); closeCtx() }}>
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
           Delete
         </button>
       {:else}
-        <button class="ctx-item" on:click={() => { startRename(ctxMenu.id, ctxMenu.name, false); closeCtx() }}>
+        <button class="ctx-item" onclick={() => { startRename(ctxMenu.id, ctxMenu.name, false); closeCtx() }}>
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
           Rename
         </button>
-        <button class="ctx-item ctx-danger" on:click={() => { dispatch('disconnect', ctxMenu.id); closeCtx() }}>
+        <button class="ctx-item ctx-danger" onclick={() => { onDisconnect?.(ctxMenu.id); closeCtx() }}>
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 2a1 1 0 011 1v6a1 1 0 11-2 0V3a1 1 0 011-1z" clip-rule="evenodd" /><path fill-rule="evenodd" d="M4.903 4.903a1 1 0 01.085 1.413A6 6 0 1015.012 6.32a1 1 0 111.328-1.498 8 8 0 11-13.35 5.178 8 8 0 012.412-5.912 1 1 0 011.413-.085z" clip-rule="evenodd" /></svg>
           Disconnect
         </button>
       {/if}
       <div class="ctx-divider"></div>
-      <button class="ctx-item" on:click={() => { dispatch('showInfo', ctxMenu.id); closeCtx() }}>
+      <button class="ctx-item" onclick={() => { onShowInfo?.(ctxMenu.id); closeCtx() }}>
         <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
         Session Info
       </button>
@@ -513,7 +551,7 @@
   {/if}
 
   <div class="sidebar-footer">
-    <div class="fingerprint-card" class:clickable={!!$fingerprint.emoji} role="button" tabindex="0" on:click={copyFingerprint} on:keydown={(e) => handleItemKeydown(e, copyFingerprint)} title={$fingerprint.emoji ? 'Click to copy fingerprint' : ''}>
+    <div class="fingerprint-card" class:clickable={!!$fingerprint.emoji} role="button" tabindex="0" onclick={copyFingerprint} onkeydown={(e) => handleItemKeydown(e, copyFingerprint)} title={$fingerprint.emoji ? 'Click to copy fingerprint' : ''}>
       <div class="fp-header">
         <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
           <path fill-rule="evenodd" d="M6.625 2.655A9 9 0 0119 11a1 1 0 11-2 0 7 7 0 00-9.625-6.492 1 1 0 11-.75-1.853zM4.662 4.959A1 1 0 014.75 6.37 6.97 6.97 0 003 11a1 1 0 11-2 0 8.97 8.97 0 012.25-5.953 1 1 0 011.412-.088z" clip-rule="evenodd" />
@@ -537,7 +575,7 @@
         </div>
       {/if}
     </div>
-    <div class="db-card" role="button" tabindex="0" on:click={() => dispatch('changeDBPath')} on:keydown={(e) => handleItemKeydown(e, () => dispatch('changeDBPath'))} title="Click to change database path">
+    <div class="db-card" role="button" tabindex="0" onclick={() => onChangeDBPath?.()} onkeydown={(e) => handleItemKeydown(e, () => onChangeDBPath?.())} title="Click to change database path">
       <div class="db-header">
         <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
           <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z" />

@@ -166,6 +166,28 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class ServerStatusInfo {
+	    running: boolean;
+	    transport: string;
+	    addr: string;
+	    relayAddr: string;
+	    name: string;
+	    startedAt?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServerStatusInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	        this.transport = source["transport"];
+	        this.addr = source["addr"];
+	        this.relayAddr = source["relayAddr"];
+	        this.name = source["name"];
+	        this.startedAt = source["startedAt"];
+	    }
+	}
 	export class SessionInfo {
 	    id: string;
 	    peerName: string;

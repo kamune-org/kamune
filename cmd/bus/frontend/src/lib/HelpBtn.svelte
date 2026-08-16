@@ -1,7 +1,13 @@
 <script>
-  export let text = ''
-  let btnEl
-  let tipStyle = ''
+  /**
+   * @typedef {Object} Props
+   * @property {string} [text]
+   */
+
+  /** @type {Props} */
+  let { text = '' } = $props();
+  let btnEl = $state()
+  let tipStyle = $state('')
 
   function show() {
     if (!btnEl) return
@@ -11,7 +17,7 @@
   }
 </script>
 
-<span class="help-btn" bind:this={btnEl} on:mouseenter={show} tabindex="0">
+<span class="help-btn" bind:this={btnEl} onmouseenter={show} tabindex="0">
   ?
   <span class="help-tooltip" style={tipStyle}>{text}</span>
 </span>

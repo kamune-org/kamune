@@ -79,8 +79,8 @@
     import HelpBtn from "./lib/HelpBtn.svelte";
     import { contextHints } from "./lib/hints.js";
 
-    let serverActive = false;
-    let runningServerTransport = "";
+    let serverActive = $state(false);
+    let runningServerTransport = $state("");
 
     const SIDEBAR_MIN_WIDTH = 240;
     const SIDEBAR_MAX_WIDTH = 500;
@@ -118,10 +118,10 @@
 
     applySidebarWidth(loadSidebarWidth());
 
-    function handleSidebarResize(e) {
-        const w = clampSidebarWidth(e.detail);
-        applySidebarWidth(w);
-        saveSidebarWidth(w);
+    function handleSidebarResize(w) {
+        const cw = clampSidebarWidth(w);
+        applySidebarWidth(cw);
+        saveSidebarWidth(cw);
     }
 
     const TRANSPORTS = ["tcp", "udp", "relay"];
@@ -154,40 +154,40 @@
         "transportType",
     ];
 
-    let connectServerAddr = "";
-    let connectServerAddr2 = "";
-    let serverTransport = "tcp";
-    let connectTransport = "tcp";
-    let serverRelayAddr = "";
-    let serverRelayScheme = "tcp";
-    let serverRelayPassword = "";
-    let serverRelayInsecure = false;
-    let connectRelayAddr = "";
-    let connectRelayScheme = "tcp";
-    let connectRelayPassword = "";
-    let connectPeerKey = "";
-    let connectRelayToken = "";
-    let connectRelayInsecure = false;
-    let serverUseP2P = false;
-    let serverUseBroker = false;
-    let serverBrokerAddr = "";
-    let serverDirectPeerAddr = "";
-    let serverSelectedPeer = ""; // publicKeyBase64 of selected peer or "" (random)
-    let connectUseP2P = false;
-    let connectUseBroker = false;
-    let connectBrokerAddr = "";
-    let connectP2PMode = "peer"; // "peer" | "token"
-    let connectSelectedPeer = ""; // publicKeyBase64 of selected peer or ""
-    let connectP2PToken = ""; // shared token (used when mode === "token")
-    let serverError = "";
-    let connectError = "";
+    let connectServerAddr = $state("");
+    let connectServerAddr2 = $state("");
+    let serverTransport = $state("tcp");
+    let connectTransport = $state("tcp");
+    let serverRelayAddr = $state("");
+    let serverRelayScheme = $state("tcp");
+    let serverRelayPassword = $state("");
+    let serverRelayInsecure = $state(false);
+    let connectRelayAddr = $state("");
+    let connectRelayScheme = $state("tcp");
+    let connectRelayPassword = $state("");
+    let connectPeerKey = $state("");
+    let connectRelayToken = $state("");
+    let connectRelayInsecure = $state(false);
+    let serverUseP2P = $state(false);
+    let serverUseBroker = $state(false);
+    let serverBrokerAddr = $state("");
+    let serverDirectPeerAddr = $state("");
+    let serverSelectedPeer = $state(""); // publicKeyBase64 of selected peer or "" (random)
+    let connectUseP2P = $state(false);
+    let connectUseBroker = $state(false);
+    let connectBrokerAddr = $state("");
+    let connectP2PMode = $state("peer"); // "peer" | "token"
+    let connectSelectedPeer = $state(""); // publicKeyBase64 of selected peer or ""
+    let connectP2PToken = $state(""); // shared token (used when mode === "token")
+    let serverError = $state("");
+    let connectError = $state("");
 
-    let serverLoading = false;
-    let connectLoading = false;
-    let showPassphraseDialog = true;
-    let passphraseDismissable = false;
-    let p2pFallbackOpen = false;
-    let p2pFallbackContext = null;
+    let serverLoading = $state(false);
+    let connectLoading = $state(false);
+    let showPassphraseDialog = $state(true);
+    let passphraseDismissable = $state(false);
+    let p2pFallbackOpen = $state(false);
+    let p2pFallbackContext = $state(null);
 
     onMount(() => {
         // 1) Cleanup stale handlers — sync, before any async work
@@ -856,13 +856,13 @@
     }
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="app-layout">
     {#if showPassphraseDialog}
         <PassphraseDialog
             dismissable={passphraseDismissable}
-            on:close={async () => {
+            onClose={async () => {
                 showPassphraseDialog = false;
                 const p = await GetDBPath();
                 dbPath.set(p);
@@ -873,7 +873,7 @@
     {#if $verificationDialog}
         <VerifyDialog
             data={$verificationDialog}
-            on:close={() => verificationDialog.set(null)}
+            onClose={() => verificationDialog.set(null)}
         />
     {/if}
 
@@ -881,13 +881,13 @@
     {#if $dialogs.showServer}
         <div
             class="dialog-overlay"
-            on:click={closeAllDialogs}
-            on:keydown={handleOverlayKeydown}
+            onclick={closeAllDialogs}
+            onkeydown={handleOverlayKeydown}
         >
             <div
                 class="dialog"
-                on:click|stopPropagation
-                on:keydown={noopPropagationKeydown}
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={noopPropagationKeydown}
             >
                 <div class="dialog-header">
                     <div class="dialog-icon">
@@ -914,7 +914,7 @@
                                 <button
                                     class="pill-btn pill-btn-help"
                                     class:pill-active={serverTransport === t}
-                                    on:click={() => {
+                                    onclick={() => {
                                         serverTransport = t;
                                         serverError = "";
                                         if (t !== "udp") {
@@ -1013,7 +1013,7 @@
                                     <button
                                         class="scheme-btn"
                                         class:active={serverRelayScheme === s}
-                                        on:click={() => {
+                                        onclick={() => {
                                             serverRelayScheme = s;
                                             serverError = "";
                                         }}>{s}</button
@@ -1064,11 +1064,11 @@
                 <div class="dialog-actions">
                     <button
                         class="dialog-btn dialog-btn-secondary"
-                        on:click={closeAllDialogs}>Cancel</button
+                        onclick={closeAllDialogs}>Cancel</button
                     >
                     <button
                         class="dialog-btn dialog-btn-primary"
-                        on:click={handleStartServer}
+                        onclick={handleStartServer}
                         disabled={serverLoading}
                     >
                         {serverLoading ? "Starting…" : "Start Server"}
@@ -1081,13 +1081,13 @@
     {#if $dialogs.showConnect}
         <div
             class="dialog-overlay"
-            on:click={closeAllDialogs}
-            on:keydown={handleOverlayKeydown}
+            onclick={closeAllDialogs}
+            onkeydown={handleOverlayKeydown}
         >
             <div
                 class="dialog"
-                on:click|stopPropagation
-                on:keydown={noopPropagationKeydown}
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={noopPropagationKeydown}
             >
                 <div class="dialog-header">
                     <div class="dialog-icon">
@@ -1115,7 +1115,7 @@
                                 <button
                                     class="pill-btn pill-btn-help"
                                     class:pill-active={connectTransport === t}
-                                    on:click={() => {
+                                    onclick={() => {
                                         connectTransport = t;
                                         connectError = "";
                                         if (t !== "udp") {
@@ -1172,7 +1172,7 @@
                                                 class="pill-btn"
                                                 class:pill-active={connectP2PMode ===
                                                     "peer"}
-                                                on:click={() => {
+                                                onclick={() => {
                                                     connectP2PMode = "peer";
                                                     connectP2PToken = "";
                                                 }}>Known peer</button
@@ -1182,7 +1182,7 @@
                                                 class="pill-btn"
                                                 class:pill-active={connectP2PMode ===
                                                     "token"}
-                                                on:click={() => {
+                                                onclick={() => {
                                                     connectP2PMode = "token";
                                                     connectSelectedPeer = "";
                                                 }}>Shared token</button
@@ -1239,7 +1239,7 @@
                                     <button
                                         class="scheme-btn"
                                         class:active={connectRelayScheme === s}
-                                        on:click={() => {
+                                        onclick={() => {
                                             connectRelayScheme = s;
                                             connectError = "";
                                         }}>{s}</button
@@ -1290,11 +1290,11 @@
                 <div class="dialog-actions">
                     <button
                         class="dialog-btn dialog-btn-secondary"
-                        on:click={closeAllDialogs}>Cancel</button
+                        onclick={closeAllDialogs}>Cancel</button
                     >
                     <button
                         class="dialog-btn dialog-btn-primary"
-                        on:click={handleConnect}
+                        onclick={handleConnect}
                         disabled={connectLoading}
                     >
                         {connectLoading ? "Connecting…" : "Connect"}
@@ -1307,13 +1307,13 @@
     {#if $dialogs.showSessionInfo}
         <div
             class="dialog-overlay"
-            on:click={closeAllDialogs}
-            on:keydown={handleOverlayKeydown}
+            onclick={closeAllDialogs}
+            onkeydown={handleOverlayKeydown}
         >
             <div
                 class="dialog"
-                on:click|stopPropagation
-                on:keydown={noopPropagationKeydown}
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={noopPropagationKeydown}
             >
                 <div class="dialog-header">
                     <div class="dialog-icon">
@@ -1360,7 +1360,7 @@
                 <div class="dialog-actions">
                     <button
                         class="dialog-btn dialog-btn-primary"
-                        on:click={closeAllDialogs}>Close</button
+                        onclick={closeAllDialogs}>Close</button
                     >
                 </div>
             </div>
@@ -1371,8 +1371,8 @@
         <RenameDialog
             sessionId={$dialogs.showRename}
             isHistory={$dialogs.showRenameType === "history"}
-            on:close={closeAllDialogs}
-            on:renamed={async () => {
+            onClose={closeAllDialogs}
+            onRenamed={async () => {
                 await loadSessions();
                 await loadHistory();
                 closeAllDialogs();
@@ -1383,13 +1383,13 @@
     {#if $dialogs.showDelete}
         <div
             class="dialog-overlay"
-            on:click={closeAllDialogs}
-            on:keydown={handleOverlayKeydown}
+            onclick={closeAllDialogs}
+            onkeydown={handleOverlayKeydown}
         >
             <div
                 class="dialog dialog-danger"
-                on:click|stopPropagation
-                on:keydown={noopPropagationKeydown}
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={noopPropagationKeydown}
             >
                 <div class="dialog-header">
                     <div class="dialog-icon dialog-icon-danger">
@@ -1417,11 +1417,11 @@
                 <div class="dialog-actions">
                     <button
                         class="dialog-btn dialog-btn-secondary"
-                        on:click={closeAllDialogs}>Cancel</button
+                        onclick={closeAllDialogs}>Cancel</button
                     >
                     <button
                         class="dialog-btn dialog-btn-danger"
-                        on:click={async () => {
+                        onclick={async () => {
                             await DeleteHistorySession($dialogs.showDelete);
                             await loadHistory();
                             closeAllDialogs();
@@ -1435,13 +1435,13 @@
     {#if $dialogs.showIncognitoConfirm}
         <div
             class="dialog-overlay"
-            on:click={closeAllDialogs}
-            on:keydown={handleOverlayKeydown}
+            onclick={closeAllDialogs}
+            onkeydown={handleOverlayKeydown}
         >
             <div
                 class="dialog"
-                on:click|stopPropagation
-                on:keydown={noopPropagationKeydown}
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={noopPropagationKeydown}
             >
                 <div class="dialog-header">
                     <div class="dialog-icon">
@@ -1476,11 +1476,11 @@
                 <div class="dialog-actions">
                     <button
                         class="dialog-btn dialog-btn-secondary"
-                        on:click={closeAllDialogs}>Cancel</button
+                        onclick={closeAllDialogs}>Cancel</button
                     >
                     <button
                         class="dialog-btn dialog-btn-primary"
-                        on:click={async () => {
+                        onclick={async () => {
                             closeAllDialogs();
                             await SetIncognito(true);
                             UpdateIncognitoMenu(true);
@@ -1494,13 +1494,13 @@
     {#if $dialogs.showShortcuts}
         <div
             class="dialog-overlay"
-            on:click={closeAllDialogs}
-            on:keydown={handleOverlayKeydown}
+            onclick={closeAllDialogs}
+            onkeydown={handleOverlayKeydown}
         >
             <div
                 class="dialog dialog-wide"
-                on:click|stopPropagation
-                on:keydown={noopPropagationKeydown}
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={noopPropagationKeydown}
             >
                 <div class="dialog-header">
                     <div class="dialog-icon">
@@ -1557,7 +1557,7 @@
                 <div class="dialog-actions">
                     <button
                         class="dialog-btn dialog-btn-primary"
-                        on:click={closeAllDialogs}>Close</button
+                        onclick={closeAllDialogs}>Close</button
                     >
                 </div>
             </div>
@@ -1567,9 +1567,9 @@
     {#if $shareDialog}
         <ShareDialog
             data={$shareDialog}
-            on:close={() => shareDialog.set(null)}
-            on:toast={(e) => {
-                toast.set(e.detail);
+            onClose={() => shareDialog.set(null)}
+            onToast={(msg) => {
+                toast.set(msg);
                 setTimeout(() => toast.set(null), 2000);
             }}
         />
@@ -1577,8 +1577,8 @@
 
     {#if $dialogs.showImport}
         <ImportDialog
-            on:import={(e) => {
-                const { transport, host, scheme, token, insecure } = e.detail;
+            onImport={(e) => {
+                const { transport, host, scheme, token, insecure } = e;
                 connectTransport = transport;
                 if (transport === "relay") {
                     connectRelayAddr = host;
@@ -1595,7 +1595,7 @@
                     showConnect: true,
                 }));
             }}
-            on:close={() =>
+            onClose={() =>
                 dialogs.update((d) => ({ ...d, showImport: false }))}
         />
     {/if}
@@ -1622,50 +1622,50 @@
             {serverLoading}
             {connectLoading}
             serverBrokerAddr={serverBrokerAddr}
-            on:startServer={() => {
+            onStartServer={() => {
                 dialogs.update((d) => ({ ...d, showServer: true }));
             }}
-            on:stopServer={handleStopServer}
-            on:cancel={handleCancel}
-            on:connect={() => {
+            onStopServer={handleStopServer}
+            onCancel={handleCancel}
+            onConnect={() => {
                 dialogs.update((d) => ({ ...d, showConnect: true }));
             }}
-            on:refreshHistory={handleRefreshHistory}
-            on:selectSession={(e) => {
-                handleSelectTab(e.detail);
+            onRefreshHistory={handleRefreshHistory}
+            onSelectSession={(id) => {
+                handleSelectTab(id);
             }}
-            on:selectHistory={async (e) => {
-                handleSelectTab(e.detail);
-                await handleLoadHistoryMessages(e.detail);
+            onSelectHistory={async (id) => {
+                handleSelectTab(id);
+                await handleLoadHistoryMessages(id);
                 sidebarTab.set("history");
             }}
-            on:disconnect={async (e) => {
-                await handleDisconnect(e.detail);
+            onDisconnect={async (id) => {
+                await handleDisconnect(id);
             }}
-            on:showInfo={async (e) => {
+            onShowInfo={async (id) => {
                 const { GetSessionInfo } =
                     await import("../wailsjs/go/main/App.js");
-                const info = await GetSessionInfo(e.detail);
+                const info = await GetSessionInfo(id);
                 dialogs.update((d) => ({ ...d, showSessionInfo: info }));
             }}
-            on:rename={(e) => {
+            onRename={(id) => {
                 dialogs.update((d) => ({
                     ...d,
-                    showRename: e.detail,
+                    showRename: id,
                     showRenameType: "live",
                 }));
             }}
-            on:renameHistory={(e) => {
+            onRenameHistory={(id) => {
                 dialogs.update((d) => ({
                     ...d,
-                    showRename: e.detail,
+                    showRename: id,
                     showRenameType: "history",
                 }));
             }}
-            on:deleteHistory={(e) => {
-                dialogs.update((d) => ({ ...d, showDelete: e.detail }));
+            onDeleteHistory={(id) => {
+                dialogs.update((d) => ({ ...d, showDelete: id }));
             }}
-            on:changeDBPath={() => {
+            onChangeDBPath={() => {
                 showPassphraseDialog = true;
                 passphraseDismissable = true;
             }}
@@ -1675,27 +1675,27 @@
             minWidth={SIDEBAR_MIN_WIDTH}
             maxWidth={SIDEBAR_MAX_WIDTH}
             defaultWidth={SIDEBAR_DEFAULT_WIDTH}
-            on:resize={handleSidebarResize}
+            onResize={handleSidebarResize}
         />
 
         <div class="main-content">
             <ChatPanel
-                on:sendMessage={(e) =>
-                    handleSendMessage(e.detail.sessionId, e.detail.text)}
-                on:disconnect={(e) => handleDisconnect(e.detail)}
-                on:loadHistory={async (e) =>
-                    await handleLoadHistoryMessages(e.detail)}
-                on:showInfo={async (e) => {
+                onSendMessage={(e) =>
+                    handleSendMessage(e.sessionId, e.text)}
+                onDisconnect={async (id) => {
+                    await handleDisconnect(id);
+                }}
+                onShowInfo={async (id) => {
                     const { GetSessionInfo } =
                         await import("../wailsjs/go/main/App.js");
-                    const info = await GetSessionInfo(e.detail);
+                    const info = await GetSessionInfo(id);
                     dialogs.update((d) => ({ ...d, showSessionInfo: info }));
                 }}
-                on:deleteHistory={(e) => {
-                    dialogs.update((d) => ({ ...d, showDelete: e.detail }));
+                onDeleteHistory={(id) => {
+                    dialogs.update((d) => ({ ...d, showDelete: id }));
                 }}
-                on:closePanel={() => activeSessionId.set(null)}
-                on:renamed={async () => {
+                onClosePanel={() => activeSessionId.set(null)}
+                onRenamed={async () => {
                     await loadSessions();
                     await loadHistory();
                 }}
@@ -1708,8 +1708,8 @@
     </div>
 
     <StatusBar
-        on:toggleLogs={() => logPanelOpen.update((v) => !v)}
-        on:showShortcuts={() =>
+        onToggleLogs={() => logPanelOpen.update((v) => !v)}
+        onShowShortcuts={() =>
             dialogs.update((d) => ({ ...d, showShortcuts: true }))}
     />
 </div>
@@ -1721,17 +1721,20 @@
         class:toast-warning={$toast.type === "warning"}
         class:toast-token={$toast.type === "token"}
         class:toast-info={$toast.type === "info"}
-        on:click={() => toast.set(null)}
+        onclick={() => toast.set(null)}
     >
         <span class="toast-msg">{$toast.message}</span>
         {#if $toast.token}
             <button
                 class="toast-copy"
-                on:click|stopPropagation={async () => {
-                    const { CopyToClipboard } =
-                        await import("../wailsjs/go/main/App.js");
-                    await CopyToClipboard($toast.token);
-                    toast.set(null);
+                onclick={(e) => {
+                    e.stopPropagation();
+                    (async () => {
+                        const { CopyToClipboard } =
+                            await import("../wailsjs/go/main/App.js");
+                        await CopyToClipboard($toast.token);
+                        toast.set(null);
+                    })();
                 }}>Copy</button
             >
         {/if}

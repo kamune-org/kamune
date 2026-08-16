@@ -1,20 +1,26 @@
 <script>
-  import { onMount, createEventDispatcher } from 'svelte'
+  import { onMount } from 'svelte'
   import {
     SubmitPassphrase, HasKeychainPassphrase, GetDBPath,
     SetDBPath, OpenFileDialog,
   } from '../../wailsjs/go/main/App.js'
 
-  export let dismissable = false
-  const dispatch = createEventDispatcher()
+  /**
+   * @typedef {Object} Props
+   * @property {boolean} [dismissable]
+   * @property {() => void} [onClose]
+   */
 
-  let passphrase = ''
-  let showPass = false
-  let saveToKeychain = false
-  let loading = false
-  let error = ''
-  let hasKeychain = false
-  let dbPath = ''
+  /** @type {Props} */
+  let { dismissable = false, onClose } = $props();
+
+  let passphrase = $state('')
+  let showPass = $state(false)
+  let saveToKeychain = $state(false)
+  let loading = $state(false)
+  let error = $state('')
+  let hasKeychain = $state(false)
+  let dbPath = $state('')
 
   onMount(async () => {
     hasKeychain = await HasKeychainPassphrase()
@@ -57,13 +63,13 @@
     if (e.key === 'Enter') {
       submit()
     } else if (e.key === 'Escape' && dismissable) {
-      dispatch('close')
+      onClose?.()
     }
   }
 </script>
 
-<div class="overlay" on:click={dismissable ? () => dispatch('close') : undefined} on:keydown={dismissable ? (e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation() } : undefined}>
-  <div class="dialog" on:click|stopPropagation on:keydown={handleKeydown}>
+<div class="overlay" onclick={dismissable ? () => onClose?.() : undefined} onkeydown={dismissable ? (e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation() } : undefined}>
+  <div class="dialog" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown}>
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
@@ -87,7 +93,7 @@
           placeholder="Path to database"
           disabled={loading}
         />
-        <button class="path-browse-btn" on:click={browsePath} disabled={loading} title="Browse for file">
+        <button class="path-browse-btn" onclick={browsePath} disabled={loading} title="Browse for file">
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
             <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
           </svg>
@@ -98,14 +104,14 @@
         <input
           type={showPass ? 'text' : 'password'}
           value={passphrase}
-          on:input={(e) => passphrase = e.target.value}
+          oninput={(e) => passphrase = e.target.value}
           placeholder="Enter passphrase"
           class="pass-input"
           disabled={loading}
         />
         <button
           class="toggle-vis"
-          on:click={() => showPass = !showPass}
+          onclick={() => showPass = !showPass}
           tabindex="-1"
           title={showPass ? 'Hide' : 'Show'}
         >
@@ -139,10 +145,10 @@
     </div>
 
     <div class="dialog-actions">
-      <button class="dialog-btn dialog-btn-ghost" on:click={skipPassphrase} disabled={loading}>
+      <button class="dialog-btn dialog-btn-ghost" onclick={skipPassphrase} disabled={loading}>
         Use without password
       </button>
-      <button class="dialog-btn dialog-btn-primary" on:click={submit} disabled={loading}>
+      <button class="dialog-btn dialog-btn-primary" onclick={submit} disabled={loading}>
         {loading ? 'Unlocking…' : 'Unlock'}
       </button>
     </div>

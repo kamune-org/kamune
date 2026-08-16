@@ -2,10 +2,10 @@
   import { AddPeer } from '../../wailsjs/go/main/App.js'
   import { dialogs } from './stores.js'
 
-  let publicKeyB64 = ''
-  let name = ''
-  let error = ''
-  let saving = false
+  let publicKeyB64 = $state('')
+  let name = $state('')
+  let error = $state('')
+  let saving = $state(false)
 
   function close() {
     publicKeyB64 = ''
@@ -18,10 +18,10 @@
   // Ed25519 public keys in SPKI form are 44 bytes. Raw URL-safe
   // base64 of 44 bytes = 59 chars (no padding). The bus accepts
   // only that one format.
-  $: cleanKey = publicKeyB64.replace(/\s+/g, '')
-  $: keyLength = cleanKey.length
-  $: isValidB64 = /^[A-Za-z0-9_-]+$/.test(cleanKey)
-  $: keyLooksOk = isValidB64 && keyLength === 59
+  let cleanKey = $derived(publicKeyB64.replace(/\s+/g, ''))
+  let keyLength = $derived(cleanKey.length)
+  let isValidB64 = $derived(/^[A-Za-z0-9_-]+$/.test(cleanKey))
+  let keyLooksOk = $derived(isValidB64 && keyLength === 59)
 
   async function handleSave() {
     if (saving) return
@@ -49,8 +49,8 @@
   }
 </script>
 
-<div class="overlay" on:click={close}>
-  <div class="dialog" on:click|stopPropagation>
+<div class="overlay" onclick={close}>
+  <div class="dialog" onclick={(e) => e.stopPropagation()}>
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
@@ -70,7 +70,7 @@
         autocomplete="off"
         autocapitalize="off"
         autocorrect="off"
-        on:keydown={(e) => { if (e.key === 'Enter') handleSave() }}
+        onkeydown={(e) => { if (e.key === 'Enter') handleSave() }}
       />
       <p class="field-hint">{keyLength} chars</p>
 
@@ -81,7 +81,7 @@
         placeholder="Defaults to fingerprint pseudonym"
         class="dialog-input"
         maxlength="32"
-        on:keydown={(e) => { if (e.key === 'Enter') handleSave() }}
+        onkeydown={(e) => { if (e.key === 'Enter') handleSave() }}
       />
 
       {#if error}
@@ -89,8 +89,8 @@
       {/if}
     </div>
     <div class="dialog-actions">
-      <button class="dialog-btn dialog-btn-secondary" on:click={close} disabled={saving}>Cancel</button>
-      <button class="dialog-btn dialog-btn-primary" on:click={handleSave} disabled={saving || !keyLooksOk}>
+      <button class="dialog-btn dialog-btn-secondary" onclick={close} disabled={saving}>Cancel</button>
+      <button class="dialog-btn dialog-btn-primary" onclick={handleSave} disabled={saving || !keyLooksOk}>
         {saving ? 'Saving…' : 'Save'}
       </button>
     </div>

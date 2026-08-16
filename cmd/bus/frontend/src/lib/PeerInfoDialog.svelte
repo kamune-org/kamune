@@ -6,15 +6,15 @@
   } from '../../wailsjs/go/main/App.js'
   import { dialogs, toast } from './stores.js'
 
-  let peer = null
-  let name = ''
-  let originalName = ''
-  let loading = true
-  let saving = false
-  let removing = false
-  let confirmingRemove = false
-  let error = ''
-  let copiedField = null
+  let peer = $state(null)
+  let name = $state('')
+  let originalName = $state('')
+  let loading = $state(true)
+  let saving = $state(false)
+  let removing = $state(false)
+  let confirmingRemove = $state(false)
+  let error = $state('')
+  let copiedField = $state(null)
   let copyResetTimer = null
 
   function close() {
@@ -111,11 +111,11 @@
     }
   })
 
-  $: dirty = peer && name.trim() !== originalName
+  let dirty = $derived(peer && name.trim() !== originalName)
 </script>
 
-<div class="overlay" on:click={close}>
-  <div class="dialog" on:click|stopPropagation>
+<div class="overlay" onclick={close}>
+  <div class="dialog" onclick={(e) => e.stopPropagation()}>
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
@@ -138,13 +138,13 @@
           placeholder="Peer name"
           class="dialog-input"
           maxlength="32"
-          on:keydown={(e) => { if (e.key === 'Enter') handleSave() }}
+          onkeydown={(e) => { if (e.key === 'Enter') handleSave() }}
         />
 
         <label class="field-label">Public Key</label>
         <div class="copy-row">
           <code class="mono-block" title={peer.publicKeyBase64}>{peer.publicKeyBase64}</code>
-          <button class="copy-btn" type="button" on:click={() => copy(peer.publicKeyBase64, 'pk')}>
+          <button class="copy-btn" type="button" onclick={() => copy(peer.publicKeyBase64, 'pk')}>
             {copiedField === 'pk' ? 'Copied' : 'Copy'}
           </button>
         </div>
@@ -152,7 +152,7 @@
         <label class="field-label">Fingerprint</label>
         <div class="copy-row">
           <span class="plain-block emoji">{peer.fingerprintEmoji}</span>
-          <button class="copy-btn" type="button" on:click={() => copy(peer.fingerprintEmoji, 'fp')}>
+          <button class="copy-btn" type="button" onclick={() => copy(peer.fingerprintEmoji, 'fp')}>
             {copiedField === 'fp' ? 'Copied' : 'Copy'}
           </button>
         </div>
@@ -178,11 +178,11 @@
       {#if confirmingRemove}
         <span class="confirm-text">Remove <strong>{peer?.name}</strong>?</span>
         <div class="spacer"></div>
-        <button class="dialog-btn dialog-btn-secondary" type="button" on:click={cancelConfirmRemove} disabled={removing}>Cancel</button>
+        <button class="dialog-btn dialog-btn-secondary" type="button" onclick={cancelConfirmRemove} disabled={removing}>Cancel</button>
         <button
           class="dialog-btn dialog-btn-danger dialog-btn-danger-solid"
           type="button"
-          on:click={performRemove}
+          onclick={performRemove}
           disabled={removing}
         >
           {removing ? 'Removing…' : 'Remove'}
@@ -191,17 +191,17 @@
         <button
           class="dialog-btn dialog-btn-danger"
           type="button"
-          on:click={startConfirmRemove}
+          onclick={startConfirmRemove}
           disabled={!peer || removing || saving}
         >
           Remove
         </button>
         <div class="spacer"></div>
-        <button class="dialog-btn dialog-btn-secondary" type="button" on:click={close} disabled={saving}>Cancel</button>
+        <button class="dialog-btn dialog-btn-secondary" type="button" onclick={close} disabled={saving}>Cancel</button>
         <button
           class="dialog-btn dialog-btn-primary"
           type="button"
-          on:click={handleSave}
+          onclick={handleSave}
           disabled={!peer || !dirty || saving}
         >
           {saving ? 'Saving…' : 'Save'}

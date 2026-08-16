@@ -1,11 +1,16 @@
 <script>
-  import { createEventDispatcher, onMount } from 'svelte'
+  import { onMount } from 'svelte'
 
-  export let minWidth = 240
-  export let maxWidth = 500
-  export let defaultWidth = 320
+  /**
+   * @typedef {Object} Props
+   * @property {number} [minWidth]
+   * @property {number} [maxWidth]
+   * @property {number} [defaultWidth]
+   * @property {(width: number) => void} [onResize]
+   */
 
-  const dispatch = createEventDispatcher()
+  /** @type {Props} */
+  let { minWidth = 240, maxWidth = 500, defaultWidth = 320, onResize } = $props();
 
   let dragging = false
   let startX = 0
@@ -37,7 +42,7 @@
   function onPointerMove(e) {
     if (!dragging) return
     const next = clamp(startWidth + (e.clientX - startX))
-    dispatch('resize', next)
+    onResize?.(next)
   }
 
   function onPointerUp(e) {
@@ -48,7 +53,7 @@
   }
 
   function onDblClick() {
-    dispatch('resize', defaultWidth)
+    onResize?.(defaultWidth)
   }
 
   function onKeydown(e) {
@@ -60,7 +65,7 @@
     else if (e.key === 'End') next = maxWidth
     if (next !== null) {
       e.preventDefault()
-      dispatch('resize', next)
+      onResize?.(next)
     }
   }
 
@@ -69,7 +74,7 @@
   })
 </script>
 
-<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   class="resizer"
   role="separator"
@@ -79,12 +84,12 @@
   aria-valuemax={maxWidth}
   aria-valuenow={currentWidth()}
   tabindex="0"
-  on:pointerdown={onPointerDown}
-  on:pointermove={onPointerMove}
-  on:pointerup={onPointerUp}
-  on:pointercancel={onPointerUp}
-  on:dblclick={onDblClick}
-  on:keydown={onKeydown}
+  onpointerdown={onPointerDown}
+  onpointermove={onPointerMove}
+  onpointerup={onPointerUp}
+  onpointercancel={onPointerUp}
+  ondblclick={onDblClick}
+  onkeydown={onKeydown}
 ></div>
 
 <style>

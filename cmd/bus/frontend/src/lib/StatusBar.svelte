@@ -1,23 +1,24 @@
 <script>
-  import { createEventDispatcher } from 'svelte'
   import { status, appVersion, libraryVersion, logPanelOpen, verificationMode, incognito, theme } from './stores.js'
   import { SetTheme } from '../../wailsjs/go/main/App.js'
 
-  const dispatch = createEventDispatcher()
+  let { onToggleLogs, onShowShortcuts } = $props()
 
   const modeLabels = ['Strict', 'Quick', 'Auto-Accept']
 
-  let isDark = document.documentElement.classList.contains('dark')
+  let isDark = $state(document.documentElement.classList.contains('dark'))
 
-  $: if ($theme) {
-    isDark = $theme === 'dark'
-  }
+  $effect(() => {
+    if ($theme) {
+      isDark = $theme === 'dark'
+    }
+  });
 
   function toggleTheme() {
     SetTheme(isDark ? 'light' : 'dark')
   }
 
-  $: indicatorText = $status.message || 'Not connected'
+  let indicatorText = $derived($status.message || 'Not connected')
 </script>
 
 <div class="statusbar">
@@ -44,7 +45,7 @@
         Incognito
       </span>
     {/if}
-    <button class="status-btn theme-btn" title="Toggle theme" on:click={toggleTheme}>
+    <button class="status-btn theme-btn" title="Toggle theme" onclick={toggleTheme}>
       {#if isDark}
         <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13">
           <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd" />
@@ -58,14 +59,14 @@
     <button
       class="status-btn logs-btn"
       class:active={$logPanelOpen}
-      on:click={() => dispatch('toggleLogs')}
+      onclick={() => onToggleLogs?.()}
     >
       <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
         <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd" />
       </svg>
       Logs
     </button>
-    <button class="status-btn shortcuts-btn" title="Keyboard shortcuts" on:click={() => dispatch('showShortcuts')}>
+    <button class="status-btn shortcuts-btn" title="Keyboard shortcuts" onclick={() => onShowShortcuts?.()}>
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
         <rect x="2" y="4" width="16" height="12" rx="1.5" />
         <line x1="6" y1="8" x2="6" y2="8" stroke-width="2.5" />

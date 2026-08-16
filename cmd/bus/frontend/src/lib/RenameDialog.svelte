@@ -1,14 +1,20 @@
 <script>
-  import { createEventDispatcher } from 'svelte'
   import {
     RenameSession, RenameHistorySession,
   } from '../../wailsjs/go/main/App.js'
 
-  export let sessionId = ''
-  export let isHistory = false
+  /**
+   * @typedef {Object} Props
+   * @property {string} [sessionId]
+   * @property {boolean} [isHistory]
+   * @property {() => void} [onRenamed]
+   * @property {() => void} [onClose]
+   */
 
-  const dispatch = createEventDispatcher()
-  let name = ''
+  /** @type {Props} */
+  let { sessionId = '', isHistory = false, onRenamed, onClose } = $props();
+
+  let name = $state('')
 
   async function handleRename() {
     if (!name.trim()) return
@@ -18,15 +24,15 @@
       } else {
         await RenameSession(sessionId, name.trim())
       }
-      dispatch('renamed')
+      onRenamed?.()
     } catch (e) {
       console.error('Rename error:', e)
     }
   }
 </script>
 
-<div class="overlay" on:click={() => dispatch('close')}>
-  <div class="dialog" on:click|stopPropagation>
+<div class="overlay" onclick={() => onClose?.()}>
+  <div class="dialog" onclick={(e) => e.stopPropagation()}>
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
@@ -42,12 +48,12 @@
         bind:value={name}
         placeholder="Enter new name..."
         class="dialog-input"
-        on:keydown={(e) => { if (e.key === 'Enter') handleRename() }}
+        onkeydown={(e) => { if (e.key === 'Enter') handleRename() }}
       />
     </div>
     <div class="dialog-actions">
-      <button class="dialog-btn dialog-btn-secondary" on:click={() => dispatch('close')}>Cancel</button>
-      <button class="dialog-btn dialog-btn-primary" on:click={handleRename}>Rename</button>
+      <button class="dialog-btn dialog-btn-secondary" onclick={() => onClose?.()}>Cancel</button>
+      <button class="dialog-btn dialog-btn-primary" onclick={handleRename}>Rename</button>
     </div>
   </div>
 </div>

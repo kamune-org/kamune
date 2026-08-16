@@ -1,14 +1,11 @@
 <script>
-  import { createEventDispatcher } from 'svelte'
   import { toCanvas } from 'qrcode'
 
-  export let data
+  let { data = $bindable(), onClose, onToast } = $props();
 
-  const dispatch = createEventDispatcher()
-
-  let address = data.address || ''
-  let url = data.url
-  let qrCanvas
+  let address = $state(data.address || '')
+  let url = $state(data.url)
+  let qrCanvas = $state()
 
   function buildURL() {
     if (data.transport === 'relay') {
@@ -35,7 +32,9 @@
     })
   }
 
-  $: if (data && qrCanvas) redrawQR()
+  $effect(() => {
+    if (data && qrCanvas) redrawQR()
+  });
 
   async function handleRefresh() {
     const { GetShareInfo } = await import('../../wailsjs/go/main/App.js')
@@ -53,9 +52,9 @@
     const { CopyToClipboard } = await import('../../wailsjs/go/main/App.js')
     try {
       await CopyToClipboard(url)
-      dispatch('toast', { message: 'Copied!', type: 'info' })
+      onToast?.({ message: 'Copied!', type: 'info' })
     } catch (e) {
-      dispatch('toast', { message: 'Copy failed', type: 'error' })
+      onToast?.({ message: 'Copy failed', type: 'error' })
     }
   }
 
@@ -239,8 +238,8 @@
   }
 </script>
 
-<div class="dialog-overlay" on:click={() => dispatch('close')}>
-  <div class="dialog dialog-share" on:click|stopPropagation>
+<div class="dialog-overlay" onclick={() => onClose?.()}>
+  <div class="dialog dialog-share" onclick={(e) => e.stopPropagation()}>
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
@@ -248,7 +247,7 @@
         </svg>
       </div>
       <h3>Share Connection</h3>
-      <button class="close-btn" on:click={() => dispatch('close')}>✕</button>
+      <button class="close-btn" onclick={() => onClose?.()}>✕</button>
     </div>
 
     <div class="dialog-body share-body">
@@ -284,7 +283,7 @@
               <span class="detail-value">Required</span>
             </div>
           {/if}
-          <button class="refresh-token-btn" on:click={handleRefresh}>Regenerate Token</button>
+          <button class="refresh-token-btn" onclick={handleRefresh}>Regenerate Token</button>
         </div>
       {:else}
         <div class="direct-details">
@@ -301,8 +300,8 @@
     </div>
 
     <div class="dialog-actions share-actions">
-      <button class="dialog-btn dialog-btn-secondary" on:click={handleSavePNG}>Save Card as PNG</button>
-      <button class="dialog-btn dialog-btn-primary" on:click={handleCopyURL}>Copy URL</button>
+      <button class="dialog-btn dialog-btn-secondary" onclick={handleSavePNG}>Save Card as PNG</button>
+      <button class="dialog-btn dialog-btn-primary" onclick={handleCopyURL}>Copy URL</button>
     </div>
   </div>
 </div>

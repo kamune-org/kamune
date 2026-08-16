@@ -118,6 +118,10 @@ export function GetServerRunning() {
   return window['go']['main']['App']['GetServerRunning']();
 }
 
+export function GetServerStatus() {
+  return window['go']['main']['App']['GetServerStatus']();
+}
+
 export function GetServerTransport() {
   return window['go']['main']['App']['GetServerTransport']();
 }

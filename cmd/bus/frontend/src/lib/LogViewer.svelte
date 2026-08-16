@@ -1,5 +1,4 @@
 <script>
-  import { afterUpdate } from 'svelte'
   import { logEntries, filteredLogEntries, logLevel, toast } from './stores.js'
   import {
     ClearLogs,
@@ -7,12 +6,13 @@
     SetLogLevel,
   } from '../../wailsjs/go/main/App.js'
 
-  let autoScroll = true
-  let listEl
+  let autoScroll = $state(true)
+  let listEl = $state()
 
   const levels = ['DEBUG', 'INFO', 'WARN', 'ERROR']
 
-  afterUpdate(() => {
+  $effect(() => {
+    $filteredLogEntries.length
     if (autoScroll && listEl) {
       listEl.scrollTop = listEl.scrollHeight
     }
@@ -63,7 +63,7 @@
             class="log-level-btn"
             class:active={$logLevel === lvl}
             style="color: {levelColor(lvl)}"
-            on:click={() => setLevel(lvl)}
+            onclick={() => setLevel(lvl)}
           >{lvl}</button>
         {/each}
       </div>
@@ -71,13 +71,13 @@
         <input type="checkbox" bind:checked={autoScroll} />
         Auto
       </label>
-      <button class="log-btn" on:click={clearLogs}>
+      <button class="log-btn" onclick={clearLogs}>
         <svg viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
           <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
         </svg>
         Clear
       </button>
-      <button class="log-btn" on:click={exportLogs}>
+      <button class="log-btn" onclick={exportLogs}>
         <svg viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
           <path d="M10 1a1 1 0 011 1v9.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V2a1 1 0 011-1z"/>
           <path d="M2 17a1 1 0 011 1h14a1 1 0 011-1H2z" opacity=".5"/>

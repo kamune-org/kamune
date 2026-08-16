@@ -60,6 +60,8 @@ export function GetServerBrokerAddr():Promise<string>;
 
 export function GetServerRunning():Promise<boolean>;
 
+export function GetServerStatus():Promise<main.ServerStatusInfo>;
+
 export function GetServerTransport():Promise<string>;
 
 export function GetSessionInfo(arg1:string):Promise<Record<string, any>>;

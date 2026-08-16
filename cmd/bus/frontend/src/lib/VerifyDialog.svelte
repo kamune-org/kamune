@@ -1,23 +1,21 @@
 <script>
-  import { createEventDispatcher } from 'svelte'
   import { VerifyResponse } from '../../wailsjs/go/main/App.js'
 
-  export let data
-  const dispatch = createEventDispatcher()
+  let { data, onClose } = $props();
 
   async function accept() {
     await VerifyResponse(data.requestID, true)
-    dispatch('close')
+    onClose?.()
   }
 
   async function reject() {
     await VerifyResponse(data.requestID, false)
-    dispatch('close')
+    onClose?.()
   }
 </script>
 
-<div class="overlay" on:click={reject}>
-  <div class="dialog" on:click|stopPropagation>
+<div class="overlay" onclick={reject}>
+  <div class="dialog" onclick={(e) => e.stopPropagation()}>
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
@@ -58,7 +56,7 @@
         <div class="verify-section-title">Hex Fingerprint</div>
         <div class="verify-hex-row">
           <input type="text" readonly value={data.hex} class="verify-hex-input" />
-          <button class="verify-copy-btn" on:click={async () => {
+          <button class="verify-copy-btn" onclick={async () => {
             try {
               const { CopyToClipboard } = await import('../../wailsjs/go/main/App.js')
               await CopyToClipboard(data.hex)
@@ -84,8 +82,8 @@
     </div>
 
     <div class="dialog-actions">
-      <button class="dialog-btn dialog-btn-secondary" on:click={reject}>Reject</button>
-      <button class="dialog-btn dialog-btn-primary" on:click={accept}>Accept</button>
+      <button class="dialog-btn dialog-btn-secondary" onclick={reject}>Reject</button>
+      <button class="dialog-btn dialog-btn-primary" onclick={accept}>Accept</button>
     </div>
   </div>
 </div>

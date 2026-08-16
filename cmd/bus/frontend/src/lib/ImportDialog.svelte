@@ -1,15 +1,14 @@
 <script>
-  import { createEventDispatcher } from 'svelte'
   import jsQR from 'jsqr'
 
-  const dispatch = createEventDispatcher()
+  let { onImport, onClose } = $props();
 
-  let importURL = ''
-  let error = ''
-  let scanMode = 'idle'
-  let videoEl
-  let canvasEl
-  let fileInput
+  let importURL = $state('')
+  let error = $state('')
+  let scanMode = $state('idle')
+  let videoEl = $state()
+  let canvasEl = $state()
+  let fileInput = $state()
   let stream = null
   let animationId = null
 
@@ -19,7 +18,7 @@
       const transport = url.protocol.slice(0, -1)
       if (!transport) throw new Error('Unknown transport')
       stopCamera()
-      dispatch('import', {
+      onImport?.({
         transport,
         host: url.host,
         scheme: url.searchParams.get('scheme') || '',
@@ -104,12 +103,12 @@
 
   function handleClose() {
     stopCamera()
-    dispatch('close')
+    onClose?.()
   }
 </script>
 
-<div class="dialog-overlay" on:click={handleClose}>
-  <div class="dialog dialog-narrow" on:click|stopPropagation>
+<div class="dialog-overlay" onclick={handleClose}>
+  <div class="dialog dialog-narrow" onclick={(e) => e.stopPropagation()}>
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
@@ -117,7 +116,7 @@
         </svg>
       </div>
       <h3>Import URL</h3>
-      <button class="close-btn" on:click={handleClose}>✕</button>
+      <button class="close-btn" onclick={handleClose}>✕</button>
     </div>
 
     {#if scanMode === 'camera'}
@@ -128,7 +127,7 @@
       <div class="dialog-actions">
         <button
           class="dialog-btn dialog-btn-secondary"
-          on:click={stopCamera}>Cancel Scan</button
+          onclick={stopCamera}>Cancel Scan</button
         >
       </div>
     {:else}
@@ -141,7 +140,7 @@
           />
           <button
             class="dialog-btn dialog-btn-primary import-btn"
-            on:click={handlePaste}>Import</button
+            onclick={handlePaste}>Import</button
           >
         </div>
 
@@ -151,10 +150,10 @@
           type="file"
           accept="image/*"
           bind:this={fileInput}
-          on:change={handleFileSelect}
+          onchange={handleFileSelect}
           hidden
         />
-        <button class="import-action" on:click={() => fileInput.click()}>
+        <button class="import-action" onclick={() => fileInput.click()}>
           <svg
             viewBox="0 0 20 20"
             fill="currentColor"
@@ -169,7 +168,7 @@
           </svg>
           Select QR Image
         </button>
-        <button class="import-action" on:click={startCamera}>
+        <button class="import-action" onclick={startCamera}>
           <svg
             viewBox="0 0 20 20"
             fill="currentColor"
@@ -192,7 +191,7 @@
       <div class="dialog-actions">
         <button
           class="dialog-btn dialog-btn-secondary"
-          on:click={handleClose}>Cancel</button
+          onclick={handleClose}>Cancel</button
         >
       </div>
     {/if}

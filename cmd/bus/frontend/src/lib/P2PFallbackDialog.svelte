@@ -1,13 +1,19 @@
 <script>
     import { ConnectToServer } from "../../wailsjs/go/main/App.js";
 
-    export let open = false;
-    export let context = null;
-    export let onClose = () => {};
+    /**
+     * @typedef {Object} Props
+     * @property {boolean} [open]
+     * @property {any} [context]
+     * @property {any} [onClose]
+     */
 
-    let useRelayAddr = "";
-    let useRelayToken = "";
-    let loading = false;
+    /** @type {Props} */
+    let { open = $bindable(false), context = null, onClose = () => {} } = $props();
+
+    let useRelayAddr = $state("");
+    let useRelayToken = $state("");
+    let loading = $state(false);
 
     async function retryP2P() {
         if (!context) return;
@@ -84,15 +90,15 @@
 </script>
 
 {#if open}
-    <div class="dialog-overlay" on:click={close}>
-        <div class="dialog" on:click|stopPropagation>
+    <div class="dialog-overlay" onclick={close}>
+        <div class="dialog" onclick={(e) => e.stopPropagation()}>
             <h2>P2P hole-punch failed</h2>
             <p class="message">
                 The direct connection could not be established. You can retry,
                 fall back to a relay, or cancel.
             </p>
             <div class="actions">
-                <button class="primary" on:click={retryP2P} disabled={loading}>
+                <button class="primary" onclick={retryP2P} disabled={loading}>
                     Retry P2P
                 </button>
                 <div class="relay-fallback">
@@ -110,11 +116,11 @@
                             disabled={loading}
                         />
                     </div>
-                    <button on:click={useRelay} disabled={loading || !useRelayAddr.trim()}>
+                    <button onclick={useRelay} disabled={loading || !useRelayAddr.trim()}>
                         Use relay
                     </button>
                 </div>
-                <button on:click={close} disabled={loading}>Cancel</button>
+                <button onclick={close} disabled={loading}>Cancel</button>
             </div>
         </div>
     </div>

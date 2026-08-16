@@ -1,22 +1,33 @@
 <script>
-  import { createEventDispatcher, tick } from 'svelte'
+  import { tick } from 'svelte'
 
-  export let value = ''
-  export let peers = []
-  export let placeholder = 'Select a peer'
-  export let compact = false
+  /**
+   * @typedef {Object} Props
+   * @property {string} [value]
+   * @property {any} [peers]
+   * @property {string} [placeholder]
+   * @property {boolean} [compact]
+   * @property {(peer: any) => void} [onChange]
+   */
 
-  const dispatch = createEventDispatcher()
+  /** @type {Props} */
+  let {
+    value = $bindable(''),
+    peers = [],
+    placeholder = 'Select a peer',
+    compact = false,
+    onChange,
+  } = $props();
 
-  let open = false
-  let search = ''
-  let searchInput
-  let rootEl
-  let highlightedIdx = 0
+  let open = $state(false)
+  let search = $state('')
+  let searchInput = $state()
+  let rootEl = $state()
+  let highlightedIdx = $state(0)
 
-  $: selected = peers.find((p) => p.publicKeyBase64 === value) || null
+  let selected = $derived(peers.find((p) => p.publicKeyBase64 === value) || null)
 
-  $: filtered = (() => {
+  let filtered = $derived((() => {
     if (!search.trim()) return peers
     const q = search.trim().toLowerCase()
     return peers.filter((p) => {
@@ -25,11 +36,13 @@
       if ((p.publicKeyBase64 || '').toLowerCase().includes(q)) return true
       return false
     })
-  })()
+  })())
 
-  $: if (open) {
-    highlightedIdx = 0
-  }
+  $effect(() => {
+    if (open) {
+      highlightedIdx = 0
+    }
+  });
 
   async function toggleDropdown() {
     if (open) {
@@ -50,13 +63,13 @@
 
   function pick(peer) {
     value = peer.publicKeyBase64
-    dispatch('change', peer)
+    onChange?.(peer)
     closeDropdown()
   }
 
   function clearSelection() {
     value = ''
-    dispatch('change', null)
+    onChange?.(null)
     closeDropdown()
   }
 
@@ -91,14 +104,14 @@
   }
 </script>
 
-<svelte:window on:click={onWindowClick} />
+<svelte:window onclick={onWindowClick} />
 
 <div
   class="peer-select"
   class:open
   class:compact
   bind:this={rootEl}
-  on:keydown={onKeydown}
+  onkeydown={onKeydown}
   role="combobox"
   aria-expanded={open}
   aria-haspopup="listbox"
@@ -108,7 +121,7 @@
     type="button"
     class="trigger"
     class:placeholder={!selected}
-    on:click={toggleDropdown}
+    onclick={toggleDropdown}
   >
     {#if selected}
       <span class="name">{selected.name || 'Unnamed peer'}</span>
@@ -153,14 +166,14 @@
           type="button"
           class="close-btn"
           title="Close"
-          on:click={closeDropdown}
+          onclick={closeDropdown}
         >×</button>
         {#if value}
           <button
             type="button"
             class="clear-btn"
             title="Clear selection"
-            on:click={clearSelection}
+            onclick={clearSelection}
           >⊘</button>
         {/if}
       </div>
@@ -175,8 +188,8 @@
               class="item"
               class:highlighted={i === highlightedIdx}
               class:selected={p.publicKeyBase64 === value}
-              on:click={() => pick(p)}
-              on:mouseenter={() => (highlightedIdx = i)}
+              onclick={() => pick(p)}
+              onmouseenter={() => (highlightedIdx = i)}
             >
               <span class="name">{p.name || 'Unnamed peer'}</span>
               <span class="emoji">{p.fingerprintEmoji}</span>

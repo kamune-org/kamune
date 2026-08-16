@@ -23,7 +23,7 @@
 
 <div class="peers-panel">
   <div class="peers-actions">
-    <button class="action-btn action-primary" on:click={() => dialogs.update((d) => ({ ...d, showAddPeer: true }))}>
+    <button class="action-btn action-primary" onclick={() => dialogs.update((d) => ({ ...d, showAddPeer: true }))}>
       <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
         <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
       </svg>
@@ -48,8 +48,8 @@
           class="peer-item"
           role="button"
           tabindex="0"
-          on:click={() => handleSelect(peer.publicKeyBase64)}
-          on:keydown={(e) => {
+          onclick={() => handleSelect(peer.publicKeyBase64)}
+          onkeydown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               handleSelect(peer.publicKeyBase64)

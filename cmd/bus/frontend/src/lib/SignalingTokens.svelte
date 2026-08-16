@@ -5,12 +5,18 @@
   import { p2pTokens, peers, toast } from './stores.js'
   import PeerSelect from './PeerSelect.svelte'
 
-  export let brokerAddr = ''
-  export let locked = false
-  let expanded = true
-  let generating = false
-  let mode = 'random' // 'random' or 'static'
-  let selectedPeer = ''
+  /**
+   * @typedef {Object} Props
+   * @property {string} [brokerAddr]
+   * @property {boolean} [locked]
+   */
+
+  /** @type {Props} */
+  let { brokerAddr = $bindable(''), locked = false } = $props();
+  let expanded = $state(true)
+  let generating = $state(false)
+  let mode = $state('random') // 'random' or 'static'
+  let selectedPeer = $state('')
 
   async function handleGenerate() {
     if (generating) return
@@ -82,8 +88,8 @@
 </script>
 
 <div class="signaling-tokens-section">
-  <div class="st-header" on:click={() => expanded = !expanded}
-       on:keydown={(e) => { if (e.key === 'Enter') expanded = !expanded }}
+  <div class="st-header" onclick={() => expanded = !expanded}
+       onkeydown={(e) => { if (e.key === 'Enter') expanded = !expanded }}
        role="button" tabindex="0">
     <svg class="st-chevron" class:collapsed={!expanded} viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
       <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -101,7 +107,7 @@
           placeholder="broker host:port"
           bind:value={brokerAddr}
           disabled={locked}
-          on:keydown={(e) => { if (e.key === 'Enter') handleGenerate() }}
+          onkeydown={(e) => { if (e.key === 'Enter') handleGenerate() }}
         />
       </div>
 
@@ -109,12 +115,12 @@
         <button
           class="st-mode-btn"
           class:active={mode === 'random'}
-          on:click={() => { mode = 'random'; selectedPeer = '' }}
+          onclick={() => { mode = 'random'; selectedPeer = '' }}
         >random</button>
         <button
           class="st-mode-btn"
           class:active={mode === 'static'}
-          on:click={() => { mode = 'static' }}
+          onclick={() => { mode = 'static' }}
         >static</button>
       </div>
 
@@ -128,7 +134,7 @@
 
       <button
         class="st-gen-btn"
-        on:click={handleGenerate}
+        onclick={handleGenerate}
         disabled={generating || (mode === 'static' && !selectedPeer)}
       >
         <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
@@ -148,8 +154,8 @@
               <div class="st-item-main">
                 <span class="st-item-token" role="button" tabindex="0"
                       title={pt.token}
-                      on:click={() => handleCopyToken(pt.token)}
-                      on:keydown={(e) => { if (e.key === 'Enter') handleCopyToken(pt.token) }}>
+                      onclick={() => handleCopyToken(pt.token)}
+                      onkeydown={(e) => { if (e.key === 'Enter') handleCopyToken(pt.token) }}>
                   {truncateToken(pt.token)}
                 </span>
                 <span class="st-item-meta">
@@ -164,7 +170,11 @@
               {#if expiry}
                 <span class="st-expiry" class:expired={expiry === 'expired'}>{expiry}</span>
               {/if}
-              <button class="st-rm-btn" title="Remove token" on:click|stopPropagation={() => handleRemove(pt.token)}>
+              <button
+                  class="st-rm-btn"
+                  title="Remove token"
+                  onclick={(e) => { e.stopPropagation(); handleRemove(pt.token) }}
+                >
                 <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
                   <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
                 </svg>
