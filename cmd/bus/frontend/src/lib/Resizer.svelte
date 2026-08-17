@@ -1,22 +1,23 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte'
 
-  /**
-   * @typedef {Object} Props
-   * @property {number} [minWidth]
-   * @property {number} [maxWidth]
-   * @property {number} [defaultWidth]
-   * @property {(width: number) => void} [onResize]
-   */
-
-  /** @type {Props} */
-  let { minWidth = 240, maxWidth = 500, defaultWidth = 320, onResize } = $props();
+  let {
+    minWidth = 240,
+    maxWidth = 500,
+    defaultWidth = 320,
+    onResize,
+  }: {
+    minWidth?: number
+    maxWidth?: number
+    defaultWidth?: number
+    onResize?: (width: number) => void
+  } = $props()
 
   let dragging = false
   let startX = 0
   let startWidth = 0
 
-  function clamp(w) {
+  function clamp(w: number) {
     if (w < minWidth) return minWidth
     if (w > maxWidth) return maxWidth
     return w
@@ -30,25 +31,27 @@
     return Number.isFinite(n) ? n : defaultWidth
   }
 
-  function onPointerDown(e) {
+  function onPointerDown(e: PointerEvent) {
     if (e.button !== undefined && e.button !== 0) return
     dragging = true
     startX = e.clientX
     startWidth = currentWidth()
-    e.currentTarget.setPointerCapture?.(e.pointerId)
+    const target = e.currentTarget as HTMLElement | null
+    target?.setPointerCapture?.(e.pointerId)
     document.body.classList.add('is-resizing')
   }
 
-  function onPointerMove(e) {
+  function onPointerMove(e: PointerEvent) {
     if (!dragging) return
     const next = clamp(startWidth + (e.clientX - startX))
     onResize?.(next)
   }
 
-  function onPointerUp(e) {
+  function onPointerUp(e: PointerEvent) {
     if (!dragging) return
     dragging = false
-    e.currentTarget.releasePointerCapture?.(e.pointerId)
+    const target = e.currentTarget as HTMLElement | null
+    target?.releasePointerCapture?.(e.pointerId)
     document.body.classList.remove('is-resizing')
   }
 
@@ -56,9 +59,9 @@
     onResize?.(defaultWidth)
   }
 
-  function onKeydown(e) {
+  function onKeydown(e: KeyboardEvent) {
     const w = currentWidth()
-    let next = null
+    let next: number | null = null
     if (e.key === 'ArrowLeft') next = clamp(w - 16)
     else if (e.key === 'ArrowRight') next = clamp(w + 16)
     else if (e.key === 'Home') next = minWidth
@@ -82,7 +85,7 @@
   aria-label="Resize sidebar (drag or use arrow keys)"
   aria-valuemin={minWidth}
   aria-valuemax={maxWidth}
-  aria-valuenow={currentWidth()}
+  aria-valuenow={240}
   tabindex="0"
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}

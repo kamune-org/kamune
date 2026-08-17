@@ -1,8 +1,22 @@
-<script>
-  import { status, appVersion, libraryVersion, logPanelOpen, verificationMode, incognito, theme } from './stores.js'
+<script lang="ts">
+  import {
+    status,
+    appVersion,
+    libraryVersion,
+    logPanelOpen,
+    verificationMode,
+    incognito,
+    theme,
+  } from './stores'
   import { SetTheme } from '../../wailsjs/go/main/App.js'
 
-  let { onToggleLogs, onShowShortcuts } = $props()
+  let {
+    onToggleLogs,
+    onShowShortcuts,
+  }: {
+    onToggleLogs?: () => void
+    onShowShortcuts?: () => void
+  } = $props()
 
   const modeLabels = ['Strict', 'Quick', 'Auto-Accept']
 

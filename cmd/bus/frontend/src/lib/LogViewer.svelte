@@ -1,5 +1,5 @@
 <script>
-  import { logEntries, filteredLogEntries, logLevel, toast } from './stores.js'
+  import { logEntries, filteredLogEntries, logLevel, toast } from './stores'
   import {
     ClearLogs,
     ExportLogsToFile,

@@ -2,7 +2,7 @@
   import {
     GenerateP2PToken, RemoveP2PToken, CopyToClipboard,
   } from '../../wailsjs/go/main/App.js'
-  import { p2pTokens, peers, toast } from './stores.js'
+  import { p2pTokens, peers, toast } from './stores'
   import PeerSelect from './PeerSelect.svelte'
 
   /**

@@ -4,7 +4,7 @@
   import {
     GetPeer, RenamePeer, DeletePeer, CopyToClipboard,
   } from '../../wailsjs/go/main/App.js'
-  import { dialogs, toast } from './stores.js'
+  import { dialogs, toast } from './stores'
 
   let peer = $state(null)
   let name = $state('')

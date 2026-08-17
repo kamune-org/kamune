@@ -1,6 +1,6 @@
 <script>
-  import { peers } from './stores.js'
-  import { dialogs } from './stores.js'
+  import { peers } from './stores'
+  import { dialogs } from './stores'
 
   function timeAgo(t) {
     if (!t) return ''

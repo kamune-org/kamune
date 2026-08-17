@@ -1,12 +1,6 @@
-<script>
-  /**
-   * @typedef {Object} Props
-   * @property {string} [text]
-   */
-
-  /** @type {Props} */
-  let { text = '' } = $props();
-  let btnEl = $state()
+<script lang="ts">
+  let { text = '' }: { text?: string } = $props();
+  let btnEl = $state<HTMLElement>();
   let tipStyle = $state('')
 
   function show() {

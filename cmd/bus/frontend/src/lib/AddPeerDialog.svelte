@@ -1,6 +1,6 @@
 <script>
   import { AddPeer } from '../../wailsjs/go/main/App.js'
-  import { dialogs } from './stores.js'
+  import { dialogs } from './stores'
 
   let publicKeyB64 = $state('')
   let name = $state('')

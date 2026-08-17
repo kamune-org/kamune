@@ -59,8 +59,8 @@
         relayTokens,
         p2pTokens,
         peers,
-    } from "./lib/stores.js";
-    import { K, isMac } from "./lib/keyboard.js";
+    } from "./lib/stores";
+    import { K, isMac } from "./lib/keyboard";
 
     import Sidebar from "./lib/Sidebar.svelte";
     import ChatPanel from "./lib/ChatPanel.svelte";
@@ -77,7 +77,7 @@
     import PeerSelect from "./lib/PeerSelect.svelte";
     import Resizer from "./lib/Resizer.svelte";
     import HelpBtn from "./lib/HelpBtn.svelte";
-    import { contextHints } from "./lib/hints.js";
+    import { contextHints } from "./lib/hints";
 
     let serverActive = $state(false);
     let runningServerTransport = $state("");

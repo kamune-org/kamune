@@ -2,10 +2,10 @@
   import {
     sessions, historySessions, activeSessionId, sessionMessages, sidebarTab, showWelcome,
     versionWarnings,
-  } from './stores.js'
+  } from './stores'
   import { CopyToClipboard, RenameSession, RenameHistorySession } from '../../wailsjs/go/main/App.js'
-  import { K } from './keyboard.js'
-  import { welcomeTips } from './hints.js'
+  import { K } from './keyboard'
+  import { welcomeTips } from './hints'
 
   let { onSendMessage, onDisconnect, onSelectHistory, onShowInfo, onDeleteHistory, onClosePanel, onRenamed } = $props()
 
