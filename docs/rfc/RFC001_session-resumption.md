@@ -56,16 +56,14 @@ resumptionRoot = HKDF-SHA512(sharedSecret, sessionID, "kamune/resumption-root/v1
 ```
 
 The root is stored internally by the Transport and is never exposed to the
-application. The application derives all tokens at once via:
-
-```go
-tokens := transport.DeriveResumptionTokens()  // returns N [][]byte
-```
+application. After Challenge Exchange succeeds, the implementation derives
+the token set and persists it in session metadata. Applications do not call
+a public derive API.
 
 Each element is a 32-byte HKDF-SHA512 output:
 
 ```
-token_n = HKDF-SHA512(resumptionRoot, nil, "kamune/resumption/token/" || uint32_be(n))
+token_n = HKDF-SHA512(resumptionRoot, nil, "kamune/resumption/token/v1/" || uint32_be(n))
 ```
 
 Where `N` is the token count (default: 20). Both sides compute the same `N`
@@ -210,9 +208,10 @@ one.
 ## 9. Storage and Persistence (Application)
 
 New per-session stored state, encrypted under the DEK like all other sensitive
-entities (§11.2). The core library provides `pkg/storage` primitives
-(`CreateSession`, `StoreResumptionTokens`, `GetSession`, `MarkTokenUsed`) that
-the application layer calls to persist and consume tokens.
+entities (§11.2). After Challenge Exchange, core writes unused tokens and
+`establishedAt` with `PutSessionResumption`. The initiator consumes a token
+with `PopList`; the responder consumes a presented token with
+`RemoveListItem`.
 
 | Field           | Type         | Notes                                   |
 | --------------- | ------------ | --------------------------------------- |
@@ -289,9 +288,9 @@ application layer (cmd/bus, cmd/tui, cmd/daemon).
 - **Routes and wire format.** `ROUTE_RESUME_REQUEST` (11) and
   `ROUTE_RESUME_ACCEPT` (12) in the protobuf Route enum, with corresponding
   `ResumeRequest` and `ResumeAccept` messages in `model.proto`.
-- **Token storage API.** `pkg/storage` provides `StoreResumptionTokens`,
-  `GetSession`, `MarkTokenUsed`, and `CreateSession` to persist and consume
-  tokens alongside the peer's public key and `establishedAt` timestamp.
+- **Token persistence.** After Challenge Exchange, core writes the token
+  set through `PutSessionResumption`. Tokens are consumed with `PopList`
+  (initiator) and `RemoveListItem` (responder).
 - **Responder validation.** `Server.handleResume` performs the full §6.1
   validation: session lookup, signature verification, window check, and token
   consumption/rejection.
