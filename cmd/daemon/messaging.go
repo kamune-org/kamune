@@ -187,8 +187,7 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 		d.addLogEntry("DEBUG", "Received message from "+session.ID)
 	}
 
-	d.removeSession(session.ID)
-	d.setStatusIfEmpty(StatusDisconnected, "Not connected")
+	d.finishSession(session)
 }
 
 // receiveMessagesBlocking is the blocking receive loop used by the server

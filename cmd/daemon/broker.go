@@ -266,8 +266,17 @@ func sendNATKick(ctx context.Context, conn *net.UDPConn, peerAddr *net.UDPAddr) 
 
 func (b *BrokerClient) HolePunch(
 	ctx context.Context, punchConn *net.UDPConn,
-	peerIP net.IP, peerPort uint16, _ time.Duration,
+	peerIP net.IP, peerPort uint16, timeout time.Duration,
 ) (*kcp.UDPSession, error) {
+	if timeout <= 0 {
+		timeout = DefaultHolePunchTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrHolePunchFailed, err)
+	}
+
 	peerAddr := &net.UDPAddr{IP: peerIP, Port: int(peerPort)}
 
 	punchCtx, punchCancel := context.WithCancel(ctx)
@@ -275,7 +284,9 @@ func (b *BrokerClient) HolePunch(
 	go sendNATKick(punchCtx, punchConn, peerAddr)
 
 	var convid uint32
-	binary.Read(rand.Reader, binary.LittleEndian, &convid)
+	if err := binary.Read(rand.Reader, binary.LittleEndian, &convid); err != nil {
+		return nil, fmt.Errorf("convid: %w", err)
+	}
 	sess, err := kcp.NewConn4(convid, peerAddr, nil, 0, 0, true, punchConn)
 	if err != nil {
 		return nil, fmt.Errorf("kcp session: %w", err)

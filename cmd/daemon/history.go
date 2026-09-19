@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -51,7 +50,9 @@ func (d *Daemon) loadIdentityAndHistory() {
 	}
 
 	if modeStr, err := store.GetSettings("daemon", "verification_mode"); err == nil && modeStr != "" {
-		if mode, err := strconv.Atoi(modeStr); err == nil {
+		if mode, err := strconv.Atoi(modeStr); err == nil &&
+			mode >= int(VerificationModeStrict) &&
+			mode <= int(VerificationModeAutoAccept) {
 			d.mu.Lock()
 			d.verifMode = VerificationMode(mode)
 			d.mu.Unlock()
@@ -65,8 +66,17 @@ func (d *Daemon) loadIdentityAndHistory() {
 	}
 
 	if fmtStr, fmtErr := store.GetSettings("daemon", "fingerprint_format"); fmtErr == nil && fmtStr != "" {
+		if validFingerprintFormat(fmtStr) {
+			d.mu.Lock()
+			d.fingerprintFmt = fmtStr
+			d.mu.Unlock()
+		}
+	}
+
+	if levelStr, err := store.GetSettings("daemon", "log_level"); err == nil &&
+		levelStr != "" && applySlogLevel(levelStr) {
 		d.mu.Lock()
-		d.fingerprintFmt = fmtStr
+		d.logLevel = strings.ToUpper(levelStr)
 		d.mu.Unlock()
 	}
 
@@ -87,6 +97,12 @@ func (d *Daemon) loadHistorySessions() {
 	}
 
 	d.mu.Lock()
+	loaded := make(map[string]bool, len(d.histSessions))
+	for _, hs := range d.histSessions {
+		if hs.Loaded {
+			loaded[hs.ID] = true
+		}
+	}
 	d.histSessions = make([]*historySession, 0, len(summaries))
 	for _, s := range summaries {
 		d.histSessions = append(d.histSessions, &historySession{
@@ -95,6 +111,7 @@ func (d *Daemon) loadHistorySessions() {
 			MessageCount: s.MessageCount,
 			FirstMessage: s.FirstMessage,
 			LastMessage:  s.LastMessage,
+			Loaded:       loaded[s.ID],
 		})
 	}
 	d.mu.Unlock()
@@ -181,13 +198,23 @@ func (d *Daemon) handleLoadHistory(cmd Command) {
 	}
 
 	d.mu.Lock()
+	var found bool
 	for _, hs := range d.histSessions {
 		if hs.ID == params.SessionID {
 			hs.Loaded = true
+			found = true
 			break
 		}
 	}
 	d.mu.Unlock()
+	if !found {
+		d.emitError(
+			cmd.ID,
+			"history_not_found",
+			fmt.Sprintf("history session not found: %s", params.SessionID),
+		)
+		return
+	}
 
 	d.emit(EvtHistoryLoaded, "", MapS{"session_id": params.SessionID})
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "loaded"})
@@ -290,7 +317,7 @@ func (d *Daemon) handleListPeers(cmd Command) {
 			AppVersion: p.AppVersion,
 			FirstSeen:  p.FirstSeen,
 			LastSeen:   p.LastSeen,
-			PublicKey:  base64.StdEncoding.EncodeToString(p.PublicKey),
+			PublicKey:  fingerprint.Base64(p.PublicKey),
 		}
 	}
 	d.emit(EvtResponse, cmd.ID, MapA{"peers": infos})
@@ -310,9 +337,9 @@ func (d *Daemon) handleDeletePeer(cmd Command) {
 		return
 	}
 
-	pubKey, err := base64.StdEncoding.DecodeString(params.PublicKey)
+	pubKey, err := decodePeerPubKey(params.PublicKey)
 	if err != nil {
-		d.emitError(cmd.ID, "invalid_peer_key", fmt.Sprintf("invalid base64 public_key: %v", err))
+		d.emitError(cmd.ID, "invalid_peer_key", err.Error())
 		return
 	}
 
@@ -330,21 +357,33 @@ func (d *Daemon) handleDeletePeer(cmd Command) {
 func (d *Daemon) handleGetFingerprint(cmd Command) {
 	d.mu.RLock()
 	pubKey := d.pubKey
+	format := d.fingerprintFmt
 	d.mu.RUnlock()
 
 	if len(pubKey) == 0 {
 		d.emit(EvtResponse, cmd.ID, MapA{
 			"emoji": "", "b64": "", "hex": "", "sum": "",
+			"format": format, "display": "",
 		})
 		return
 	}
 
 	emoji := strings.Join(fingerprint.Emoji(pubKey), " • ")
+	b64 := fingerprint.Base64(pubKey)
+	hexFP := fingerprint.Hex(pubKey)
+	sum := fingerprint.Sum(pubKey)
+	display := hexFP
+	switch format {
+	case "emoji":
+		display = emoji
+	case "b64":
+		display = b64
+	case "sum":
+		display = sum
+	}
 	d.emit(EvtResponse, cmd.ID, MapA{
-		"emoji": emoji,
-		"b64":   fingerprint.Base64(pubKey),
-		"hex":   fingerprint.Hex(pubKey),
-		"sum":   fingerprint.Sum(pubKey),
+		"emoji": emoji, "b64": b64, "hex": hexFP, "sum": sum,
+		"format": format, "display": display,
 	})
 }
 

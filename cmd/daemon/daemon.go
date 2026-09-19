@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -34,9 +35,68 @@ var (
 
 func keychainAccount(dbPath string) string {
 	if dbPath == "" {
+		return "db-passphrase:default"
+	}
+	return "db-passphrase:" + dbPath
+}
+
+func keychainAccountLegacy(dbPath string) string {
+	if dbPath == "" {
 		return "default"
 	}
 	return filepath.Base(dbPath)
+}
+
+func keychainGet(dbPath string) (string, error) {
+	secret, err := keyring.Get(keychainService, keychainAccount(dbPath))
+	if err == nil {
+		return secret, nil
+	}
+	return keyring.Get(keychainService, keychainAccountLegacy(dbPath))
+}
+
+func keychainDelete(dbPath string) error {
+	err := keyring.Delete(keychainService, keychainAccount(dbPath))
+	legacyErr := keyring.Delete(
+		keychainService, keychainAccountLegacy(dbPath),
+	)
+	if err == nil || legacyErr == nil {
+		return nil
+	}
+	return err
+}
+
+func parseLogLevel(level string) (slog.Level, bool) {
+	switch strings.ToUpper(level) {
+	case "DEBUG":
+		return slog.LevelDebug, true
+	case "INFO":
+		return slog.LevelInfo, true
+	case "WARN", "WARNING":
+		return slog.LevelWarn, true
+	case "ERROR":
+		return slog.LevelError, true
+	default:
+		return 0, false
+	}
+}
+
+func applySlogLevel(level string) bool {
+	lvl, ok := parseLogLevel(level)
+	if !ok {
+		return false
+	}
+	daemonLogLevel.Set(lvl)
+	return true
+}
+
+func validFingerprintFormat(format string) bool {
+	switch format {
+	case "hex", "emoji", "b64", "sum":
+		return true
+	default:
+		return false
+	}
 }
 
 // Daemon manages the kamune server and client connections
@@ -290,6 +350,20 @@ func (d *Daemon) openStorage(params OpenStorageParams) error {
 	}
 
 	d.installStore(store, params.StoragePath)
+	if !params.DBNoPassphrase {
+		if p, ok := d.passphrase.Load().([]byte); ok && len(p) > 0 {
+			if err := keyring.Set(
+				keychainService,
+				keychainAccount(params.StoragePath),
+				string(p),
+			); err != nil {
+				slog.Warn(
+					"failed to store passphrase in keychain",
+					slog.Any("error", err),
+				)
+			}
+		}
+	}
 	return nil
 }
 
@@ -465,7 +539,7 @@ func (d *Daemon) handleCommand(cmd Command) {
 	case CmdSetFingerprintFormat:
 		d.handleSetFingerprintFormat(cmd)
 	case CmdShutdown:
-		d.Shutdown()
+		d.handleShutdown(cmd)
 	default:
 		d.emitError(cmd.ID, "unknown_command", fmt.Sprintf("unknown command: %s", cmd.CMD))
 	}
@@ -538,6 +612,11 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	}
 
 	d.installStore(store, dbPath)
+	if err := keyring.Set(
+		keychainService, keychainAccount(dbPath), params.Passphrase,
+	); err != nil {
+		d.addLogEntry("WARN", "Failed to store passphrase in keychain: "+err.Error())
+	}
 
 	d.loadIdentityAndHistory()
 
@@ -546,10 +625,14 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 
 // Shutdown gracefully shuts down the daemon
 func (d *Daemon) Shutdown() {
-	d.shutdownOnce.Do(d.shutdown)
+	d.handleShutdown(Command{})
 }
 
-func (d *Daemon) shutdown() {
+func (d *Daemon) handleShutdown(cmd Command) {
+	d.shutdownOnce.Do(func() { d.shutdown(cmd.ID) })
+}
+
+func (d *Daemon) shutdown(cmdID ID) {
 	d.cancel()
 
 	var sessions []*liveSession
@@ -603,7 +686,7 @@ func (d *Daemon) shutdown() {
 
 	d.closeStore()
 
-	d.emit(EvtResponse, "", MapS{"status": "shutdown"})
+	d.emit(EvtResponse, cmdID, MapS{"status": "shutdown"})
 
 	// Close stdin so the scanner loop in Run exits
 	os.Stdin.Close()
@@ -694,8 +777,8 @@ func (d *Daemon) handleRenamePeer(cmd Command) {
 		return
 	}
 
-	d.addLogEntry("INFO", "Renamed peer to "+params.Name)
-	d.emit(EvtResponse, cmd.ID, MapS{"status": "renamed", "name": params.Name})
+	d.addLogEntry("INFO", "Renamed peer to "+name)
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "renamed", "name": name})
 }
 
 // handleGetPeer returns a single known peer by base64 public key (mirrors
@@ -746,44 +829,51 @@ func (d *Daemon) handleGetSessionInfo(cmd Command) {
 	}
 
 	d.mu.RLock()
-	defer d.mu.RUnlock()
-
+	var live *liveSession
 	for _, s := range d.sessions {
 		if s.ID == params.SessionID {
-			s.mu.Lock()
-			info := d.sessionInfoLocked(s)
-			s.mu.Unlock()
-			d.emit(EvtResponse, cmd.ID, MapA{
-				"type":           "live",
-				"session_id":     info.SessionID,
-				"peer_name":      info.PeerName,
-				"is_server":      info.IsServer,
-				"msg_count":      info.MsgCount,
-				"last_activity":  info.LastActivity,
-				"transport_type": info.TransportType,
-				"remote_version": info.RemoteVersion,
-				"cause":          info.Cause,
-				"session_ttl_ns": info.SessionTTL,
-				"started_at":     info.SessionStartedAt,
-				"remote_addr":    info.RemoteAddr,
-			})
-			return
+			live = s
+			break
 		}
 	}
+	var hist *historySession
+	if live == nil {
+		for _, hs := range d.histSessions {
+			if hs.ID == params.SessionID {
+				hist = hs
+				break
+			}
+		}
+	}
+	d.mu.RUnlock()
 
-	for _, hs := range d.histSessions {
-		if hs.ID == params.SessionID {
-			d.emit(EvtResponse, cmd.ID, MapA{
-				"type":          "history",
-				"session_id":    hs.ID,
-				"name":          hs.Name,
-				"msg_count":     hs.MessageCount,
-				"first_message": hs.FirstMessage,
-				"last_message":  hs.LastMessage,
-				"loaded":        hs.Loaded,
-			})
+	if live != nil {
+		payload, err := json.Marshal(d.sessionInfo(live))
+		if err != nil {
+			d.emitError(cmd.ID, "marshal_failed", err.Error())
 			return
 		}
+		var data MapA
+		if err := json.Unmarshal(payload, &data); err != nil {
+			d.emitError(cmd.ID, "marshal_failed", err.Error())
+			return
+		}
+		data["type"] = "live"
+		d.emit(EvtResponse, cmd.ID, data)
+		return
+	}
+
+	if hist != nil {
+		d.emit(EvtResponse, cmd.ID, MapA{
+			"type":          "history",
+			"session_id":    hist.ID,
+			"name":          hist.Name,
+			"msg_count":     hist.MessageCount,
+			"first_message": hist.FirstMessage,
+			"last_message":  hist.LastMessage,
+			"loaded":        hist.Loaded,
+		})
+		return
 	}
 
 	d.emitError(cmd.ID, "session_not_found", fmt.Sprintf("session not found: %s", params.SessionID))
@@ -867,16 +957,22 @@ func (d *Daemon) handleSetLogLevel(cmd Command) {
 		return
 	}
 
+	level := strings.ToUpper(params.Level)
+	if !applySlogLevel(level) {
+		d.emitError(cmd.ID, "invalid_log_level", fmt.Sprintf("invalid level: %s", params.Level))
+		return
+	}
+
 	d.mu.Lock()
-	d.logLevel = params.Level
+	d.logLevel = level
 	d.mu.Unlock()
 
 	if store := d.store(); store != nil {
-		_ = store.SetSettings("daemon", "log_level", params.Level)
+		_ = store.SetSettings("daemon", "log_level", level)
 	}
 
-	d.addLogEntry("INFO", "Log level set to: "+params.Level)
-	d.emit(EvtResponse, cmd.ID, MapS{"status": "set", "level": params.Level})
+	d.addLogEntry("INFO", "Log level set to: "+level)
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "set", "level": level})
 }
 
 // --- P3: Keychain ---
@@ -888,7 +984,7 @@ func (d *Daemon) handleHasKeychainPassphrase(cmd Command) {
 	path := d.dbPath
 	d.mu.RUnlock()
 
-	_, err := keyring.Get(keychainService, keychainAccount(path))
+	_, err := keychainGet(path)
 	d.emit(EvtResponse, cmd.ID, MapA{"has_passphrase": err == nil})
 }
 
@@ -899,7 +995,7 @@ func (d *Daemon) handleClearKeychainPassphrase(cmd Command) {
 	path := d.dbPath
 	d.mu.RUnlock()
 
-	if err := keyring.Delete(keychainService, keychainAccount(path)); err != nil {
+	if err := keychainDelete(path); err != nil {
 		d.emitError(cmd.ID, "keychain_clear_failed", fmt.Sprintf("failed to clear keychain: %v", err))
 		return
 	}
@@ -926,6 +1022,15 @@ func (d *Daemon) handleSetFingerprintFormat(cmd Command) {
 	var params SetFingerprintFormatParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
 		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	if !validFingerprintFormat(params.Format) {
+		d.emitError(
+			cmd.ID,
+			"invalid_fingerprint_format",
+			fmt.Sprintf("invalid format: %s", params.Format),
+		)
 		return
 	}
 

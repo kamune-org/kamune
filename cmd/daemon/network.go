@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -256,11 +257,34 @@ func (d *Daemon) startServer(
 
 	done := make(chan struct{})
 	d.mu.Lock()
+	if ctx.Err() != nil {
+		d.mu.Unlock()
+		_ = srv.Close()
+		d.stopP2PResources()
+		d.stopRelayResources()
+		return
+	}
 	d.pubKey = pubKey
 	d.server = srv
 	d.serverDone = done
 	serverTransport := params.Transport
 	d.mu.Unlock()
+
+	if ctx.Err() != nil {
+		d.mu.Lock()
+		same := d.server == srv
+		if same {
+			d.server = nil
+			d.serverDone = nil
+		}
+		d.mu.Unlock()
+		if same {
+			_ = srv.Close()
+			d.stopP2PResources()
+			d.stopRelayResources()
+		}
+		return
+	}
 
 	d.emit(EvtFingerprintChange, "", MapA{
 		"emoji": emoji, "b64": b64, "hex": hexFP, "sum": sum,
@@ -327,6 +351,14 @@ func (d *Daemon) startServer(
 // handleStopServer closes the running server and all sessions, without
 // exiting the daemon.
 func (d *Daemon) handleStopServer(cmd Command) {
+	d.stopServer()
+	d.emit(EvtServerStopped, "", MapA{"running": false})
+	if cmd.ID != "" {
+		d.emit(EvtResponse, cmd.ID, MapS{"status": "stopped"})
+	}
+}
+
+func (d *Daemon) stopServer() {
 	d.setStatus(StatusDisconnected, "Stopping server...")
 	d.addLogEntry("INFO", "Stopping server...")
 
@@ -370,9 +402,6 @@ func (d *Daemon) handleStopServer(cmd Command) {
 	if startDone != nil {
 		waitOrTimeout(startDone, "server start")
 	}
-
-	d.emit(EvtServerStopped, "", MapA{"running": false})
-	d.emit(EvtResponse, cmd.ID, MapS{"status": "stopped"})
 }
 
 // handleRestartServer stops the server and starts it again with the last used
@@ -392,7 +421,8 @@ func (d *Daemon) handleRestartServer(cmd Command) {
 
 	d.addLogEntry("INFO", "Restarting server to apply settings change")
 
-	d.handleStopServer(Command{ID: cmd.ID})
+	d.stopServer()
+	d.emit(EvtServerStopped, "", MapA{"running": false})
 	d.handleStartServer(Command{
 		ID: cmd.ID,
 		Params: mustJSON(StartServerParams{
@@ -408,6 +438,7 @@ func (d *Daemon) handleRestartServer(cmd Command) {
 func (d *Daemon) handleCancelStartServer(cmd Command) {
 	d.mu.RLock()
 	cancel := d.startCancel
+	startDone := d.startDone
 	d.mu.RUnlock()
 	if cancel == nil {
 		d.emitError(
@@ -418,6 +449,29 @@ func (d *Daemon) handleCancelStartServer(cmd Command) {
 		return
 	}
 	cancel()
+	if startDone != nil {
+		waitOrTimeout(startDone, "server start cancel")
+	}
+	d.mu.RLock()
+	running := d.server != nil
+	stillStarting := d.startCancel != nil
+	d.mu.RUnlock()
+	if stillStarting {
+		d.emitError(
+			cmd.ID,
+			"cancel_timeout",
+			"timed out waiting for server start to abort",
+		)
+		return
+	}
+	if running {
+		d.emitError(
+			cmd.ID,
+			"server_already_started",
+			"server start completed before cancel",
+		)
+		return
+	}
 	d.setStatus(StatusDisconnected, "Cancelled")
 	d.addLogEntry("INFO", "Server start cancelled by user")
 	d.emit(EvtServerStartCancel, "", MapS{})
@@ -559,8 +613,17 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 			)
 			return
 		}
+		tokenBytes, err := hex.DecodeString(params.P2PToken)
+		if err != nil {
+			d.emitError(
+				cmd.ID,
+				"invalid_p2p_token",
+				fmt.Sprintf("decode p2p token: %v", err),
+			)
+			return
+		}
 		punchConn, payload, err := broker.WaitMatch(
-			ctx, params.BrokerAddr, []byte(params.P2PToken),
+			ctx, params.BrokerAddr, tokenBytes,
 		)
 		if err != nil {
 			d.emitError(cmd.ID, "p2p_match_failed", fmt.Sprintf("wait match: %v", err))
@@ -767,13 +830,14 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	d.emit(EvtSessionStarted, "", info)
 	d.addLogEntry("INFO", "New incoming connection: "+sessionID)
 
+	session.mu.Lock()
+	keepAliveDone := session.keepAliveDone
+	session.mu.Unlock()
+	go d.keepAliveLoop(session, keepAliveDone)
+
 	defer close(session.ReceiveDone)
 	d.receiveMessagesBlocking(session)
-
-	d.removeSession(sessionID)
-	d.setStatusIfEmpty(StatusDisconnected, "Not connected")
-	d.loadHistorySessions()
-	d.addLogEntry("INFO", "All sessions disconnected")
+	d.finishSession(session)
 	return nil
 }
 
@@ -822,6 +886,7 @@ func (d *Daemon) handleCloseSession(cmd Command) {
 		"status": "closed", "session_id": params.SessionID,
 	})
 	d.setStatusIfEmpty(StatusDisconnected, "Not connected")
+	d.loadHistorySessions()
 }
 
 // handleListSessions returns a list of active sessions.
@@ -1095,6 +1160,18 @@ func (d *Daemon) relayReconnectLoop(ctx context.Context, ml *multiListener) {
 
 		d.mu.RLock()
 		server := d.server
+		sessionID = ""
+		for i := len(d.relayTokens) - 1; i >= 0; i-- {
+			if d.relayTokens[i].sessionID != "" {
+				sessionID = d.relayTokens[i].sessionID
+				break
+			}
+			if tt, ok := d.relayTokens[i].listener.(*tokenTracker); ok &&
+				tt.sessionID != "" {
+				sessionID = tt.sessionID
+				break
+			}
+		}
 		d.mu.RUnlock()
 		if server == nil {
 			return
@@ -1198,12 +1275,13 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 	d.mu.Lock()
 	if d.relayListeners == nil {
 		d.mu.Unlock()
-		listener.Close()
+		_ = listener.Close()
 		d.emitError(cmd.ID, "server_stopped", "server stopped while generating token")
 		return
 	}
 	if err := d.relayListeners.Add(listener); err != nil {
 		d.mu.Unlock()
+		_ = listener.Close()
 		d.emitError(cmd.ID, "listener_failed", fmt.Sprintf("add listener: %v", err))
 		return
 	}
@@ -1281,6 +1359,8 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 	pubKey := d.pubKey
 	relayAddr := d.relayAddr
 	relayPassword := d.relayPassword
+	brokerAddr := d.serverBrokerAddr
+	p2pTokens := d.p2pTokensSnapshot()
 	d.mu.RUnlock()
 
 	emoji := strings.Join(fingerprint.Emoji(pubKey), " • ")
@@ -1354,6 +1434,16 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 		if relayPassword != "" {
 			urlStr += "&password=1"
 		}
+	case "p2p":
+		var token string
+		if len(p2pTokens) > 0 {
+			token = p2pTokens[0].Token
+		}
+		address = brokerAddr
+		urlStr = fmt.Sprintf("p2p://%s?token=%s", brokerAddr, token)
+	case "direct-p2p":
+		address = serverAddr
+		urlStr = "direct-p2p://" + serverAddr
 	default:
 		d.emitError(cmd.ID, "unknown_transport", fmt.Sprintf("unknown transport: %s", transport))
 		return
@@ -1403,11 +1493,25 @@ func (d *Daemon) loadChatHistory(session *liveSession) {
 
 // removeSession removes a session from the map and returns the remaining
 // session count.
-func (d *Daemon) removeSession(sessionID string) int {
+func (d *Daemon) removeSession(sessionID string) (int, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	_, ok := d.sessions[sessionID]
 	delete(d.sessions, sessionID)
-	return len(d.sessions)
+	return len(d.sessions), ok
+}
+
+func (d *Daemon) finishSession(session *liveSession) {
+	remaining, removed := d.removeSession(session.ID)
+	if !removed {
+		return
+	}
+	d.emit(EvtSessionClosed, "", d.sessionInfo(session))
+	if remaining == 0 {
+		d.setStatus(StatusDisconnected, "Not connected")
+		d.addLogEntry("INFO", "All sessions disconnected")
+	}
+	d.loadHistorySessions()
 }
 
 // sessionInfo returns a SessionInfo for a live session (caller does not hold lock).
@@ -1586,8 +1690,11 @@ type ver struct {
 }
 
 func parseVer(v string) (ver, bool) {
+	v = strings.TrimPrefix(v, "v")
+	v, _, _ = strings.Cut(v, "-")
+	v, _, _ = strings.Cut(v, "+")
 	parts := strings.SplitN(v, ".", 3)
-	if len(parts) != 3 {
+	if len(parts) < 2 {
 		return ver{}, false
 	}
 	maj, err1 := strconv.Atoi(parts[0])

@@ -182,6 +182,11 @@ func (d *Daemon) awaitVerification(reqID int64, result chan error) error {
 		d.addLogEntry("WARN",
 			fmt.Sprintf("Verification timed out for request: %d", reqID))
 		return fmt.Errorf("verification timed out after %v", verifTimeout)
+	case <-d.ctx.Done():
+		d.verifMu.Lock()
+		delete(d.verifRequests, reqID)
+		d.verifMu.Unlock()
+		return d.ctx.Err()
 	}
 }
 

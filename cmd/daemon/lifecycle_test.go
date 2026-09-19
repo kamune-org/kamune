@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -250,6 +251,69 @@ func TestOpenStorageRejectedWhileSessionIsActive(t *testing.T) {
 	})
 	a.ErrorIs(err, errStorageBusy)
 	a.Nil(d.store())
+}
+
+func TestFinishSessionEmitsSessionClosed(t *testing.T) {
+	a := require.New(t)
+	var buf bytes.Buffer
+	d := NewDaemon()
+	d.output = json.NewEncoder(&buf)
+	session := &liveSession{
+		ID: "s1", PeerName: "peer",
+		ReceiveDone: make(chan struct{}),
+	}
+	d.sessions[session.ID] = session
+
+	d.finishSession(session)
+
+	a.NotContains(d.sessions, session.ID)
+	a.Contains(buf.String(), `"session_closed"`)
+}
+
+func TestFinishSessionSkipsIfAlreadyRemoved(t *testing.T) {
+	a := require.New(t)
+	var buf bytes.Buffer
+	d := NewDaemon()
+	d.output = json.NewEncoder(&buf)
+	d.finishSession(&liveSession{ID: "missing"})
+	a.NotContains(buf.String(), "session_closed")
+}
+
+func TestParseVerAcceptsPrefixAndPrerelease(t *testing.T) {
+	a := require.New(t)
+	v, ok := parseVer("v1.2.3-dev")
+	a.True(ok)
+	a.Equal(1, v.major)
+	a.Equal(2, v.minor)
+	v, ok = parseVer("2.0")
+	a.True(ok)
+	a.Equal(2, v.major)
+	a.Equal(0, v.minor)
+}
+
+func TestKeychainAccountUsesFullPath(t *testing.T) {
+	a := require.New(t)
+	a.Equal("db-passphrase:/tmp/a.db", keychainAccount("/tmp/a.db"))
+	a.Equal("db-passphrase:default", keychainAccount(""))
+	a.Equal("a.db", keychainAccountLegacy("/tmp/a.db"))
+}
+
+func TestParseLogLevel(t *testing.T) {
+	a := require.New(t)
+	_, ok := parseLogLevel("debug")
+	a.True(ok)
+	_, ok = parseLogLevel("nope")
+	a.False(ok)
+}
+
+func TestSessionInfoZeroLastActivityOmitsField(t *testing.T) {
+	a := require.New(t)
+	b, err := json.Marshal(SessionInfo{SessionID: "x", PeerName: "p"})
+	a.NoError(err)
+	var m map[string]any
+	a.NoError(json.Unmarshal(b, &m))
+	_, ok := m["last_activity"]
+	a.False(ok)
 }
 
 func TestP2PDialDoesNotBlockCommandHandler(t *testing.T) {

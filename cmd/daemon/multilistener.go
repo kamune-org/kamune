@@ -74,5 +74,14 @@ func (m *multiListener) Close() error {
 		_ = l.Close()
 	}
 	m.wg.Wait()
-	return nil
+	for {
+		select {
+		case cn := <-m.connCh:
+			if cn != nil {
+				_ = cn.Close()
+			}
+		default:
+			return nil
+		}
+	}
 }

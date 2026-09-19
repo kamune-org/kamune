@@ -14,7 +14,10 @@ import (
 	"github.com/kamune-org/kamune"
 )
 
-var version = "dev"
+var (
+	version        = "dev"
+	daemonLogLevel slog.LevelVar
+)
 
 const (
 	maxScanTokenSize = 1024 * 1024 // 1MB
@@ -279,8 +282,9 @@ type historySession struct {
 
 func main() {
 	// Configure logging to stderr to keep stdout clean for JSON protocol
+	daemonLogLevel.Set(slog.LevelInfo)
 	handler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: &daemonLogLevel,
 	})
 	slog.SetDefault(slog.New(handler))
 
