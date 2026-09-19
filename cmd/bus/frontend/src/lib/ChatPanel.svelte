@@ -3,7 +3,7 @@
     sessions, historySessions, activeSessionId, sessionMessages, sidebarTab, showWelcome,
     versionWarnings,
   } from './stores'
-  import { CopyToClipboard, RenameSession, RenameHistorySession } from '../../wailsjs/go/main/App.js'
+  import { CopyToClipboard, RenameSession, RenameHistorySession } from './go.js'
   import { K } from './keyboard'
   import { welcomeTips } from './hints'
 

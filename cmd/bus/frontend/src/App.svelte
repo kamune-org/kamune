@@ -29,8 +29,9 @@
         GetIncognito,
         SetIncognito,
         UpdateIncognitoMenu,
-    } from "../wailsjs/go/main/App.js";
-    import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime.js";
+        GetTheme,
+    } from "./lib/go.js";
+    import { EventsOn, EventsOff } from "./lib/events.js";
 
     import {
         sessions,
@@ -221,6 +222,8 @@
         EventsOff("import-from-clipboard");
         EventsOff("peers-updated");
         EventsOff("p2p-tokens");
+        EventsOff("incognito-changed");
+        EventsOff("request-incognito-confirm");
 
         // 2) Register handlers — sync, before any async work
         EventsOn("status-changed", (data) => status.set(data));
@@ -342,7 +345,7 @@
         });
 
         EventsOn("show-share-card", async () => {
-            const { GetShareInfo } = await import("../wailsjs/go/main/App.js");
+            const { GetShareInfo } = await import("./lib/go.js");
             try {
                 const info = await GetShareInfo();
                 shareDialog.set(info);
@@ -440,6 +443,10 @@
             const existingLevel = await GetLogLevel();
             logLevel.set(existingLevel);
 
+            const t = await GetTheme();
+            theme.set(t);
+            document.documentElement.classList.toggle("dark", t === "dark");
+
             const ready = await GetStorageReady();
             showPassphraseDialog = !ready;
 
@@ -480,6 +487,10 @@
         EventsOff("show-import-url");
         EventsOff("import-from-clipboard");
         EventsOff("peers-updated");
+        EventsOff("incognito-changed");
+        EventsOff("request-incognito-confirm");
+        EventsOff("log-level-changed");
+        EventsOff("theme-changed");
     });
 
     async function loadSessions() {
@@ -740,13 +751,13 @@
 
     async function getSessionMessages(sessionId) {
         const { GetSessionMessages } =
-            await import("../wailsjs/go/main/App.js");
+            await import("./lib/go.js");
         return (await GetSessionMessages(sessionId)) || [];
     }
 
     async function handleLoadHistoryMessages(sessionId) {
         const { LoadHistoryMessages, GetHistoryMessages } =
-            await import("../wailsjs/go/main/App.js");
+            await import("./lib/go.js");
         await LoadHistoryMessages(sessionId);
         const msgs = (await GetHistoryMessages(sessionId)) || [];
         sessionMessages.update((m) => ({ ...m, [sessionId]: msgs }));
@@ -1644,7 +1655,7 @@
             }}
             onShowInfo={async (id) => {
                 const { GetSessionInfo } =
-                    await import("../wailsjs/go/main/App.js");
+                    await import("./lib/go.js");
                 const info = await GetSessionInfo(id);
                 dialogs.update((d) => ({ ...d, showSessionInfo: info }));
             }}
@@ -1687,7 +1698,7 @@
                 }}
                 onShowInfo={async (id) => {
                     const { GetSessionInfo } =
-                        await import("../wailsjs/go/main/App.js");
+                        await import("./lib/go.js");
                     const info = await GetSessionInfo(id);
                     dialogs.update((d) => ({ ...d, showSessionInfo: info }));
                 }}
@@ -1731,7 +1742,7 @@
                     e.stopPropagation();
                     (async () => {
                         const { CopyToClipboard } =
-                            await import("../wailsjs/go/main/App.js");
+                            await import("./lib/go.js");
                         await CopyToClipboard($toast.token);
                         toast.set(null);
                     })();

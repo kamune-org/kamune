@@ -10,7 +10,6 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/storage"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func (a *App) SendMessage(sessionID string, text string) error {
@@ -60,12 +59,12 @@ func (a *App) SendMessage(sessionID string, text string) error {
 			sessionID, []byte(text), metadata.Timestamp(), storage.SenderLocal,
 		); err != nil {
 			a.addLogEntry("WARN", "Failed to save sent message: "+err.Error())
-			runtime.EventsEmit(a.ctx, "history-save-failed", sessionID)
+			a.emitEvent("history-save-failed", sessionID)
 		}
 	}
 
-	runtime.EventsEmit(a.ctx, "message-sent", sessionID, msg)
-	runtime.EventsEmit(a.ctx, "session-updated", sessionID)
+	a.emitEvent("message-sent", sessionID, msg)
+	a.emitEvent("session-updated", sessionID)
 	a.addLogEntry("DEBUG", "Sent message | session_id="+sessionID+" msg_id="+metadata.ID())
 	return nil
 }
@@ -136,7 +135,7 @@ func (a *App) receiveMessages(session *liveSession) {
 				session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
 			); err != nil {
 				a.addLogEntry("WARN", "Failed to save received message: "+err.Error())
-				runtime.EventsEmit(a.ctx, "history-save-failed", session.ID)
+				a.emitEvent("history-save-failed", session.ID)
 			}
 		}
 
@@ -148,8 +147,8 @@ func (a *App) receiveMessages(session *liveSession) {
 			a.SendNotification("New Message", preview)
 		}
 
-		runtime.EventsEmit(a.ctx, "message-received", session.ID, msg)
-		runtime.EventsEmit(a.ctx, "session-updated", session.ID)
+		a.emitEvent("message-received", session.ID, msg)
+		a.emitEvent("session-updated", session.ID)
 		a.addLogEntry("DEBUG", "Received message | session_id="+session.ID+" msg_id="+metadata.ID())
 	}
 
@@ -162,7 +161,7 @@ func (a *App) receiveMessages(session *liveSession) {
 		a.loadHistorySessions(store)
 	}
 
-	runtime.EventsEmit(a.ctx, "session-closed", session.ID)
+	a.emitEvent("session-closed", session.ID)
 
 	if sessionsRemaining == 0 {
 		a.setStatus(StatusDisconnected, "Not connected")
@@ -265,7 +264,7 @@ func (a *App) reconnectSession(session *liveSession) bool {
 		a.addLogEntry(
 			"INFO", fmt.Sprintf("Reconnecting session %s (attempt %d/%d)", session.ID, attempt+1, maxAttempts),
 		)
-		runtime.EventsEmit(a.ctx, "session-reconnecting", session.ID, attempt+1, maxAttempts)
+		a.emitEvent("session-reconnecting", session.ID, attempt+1, maxAttempts)
 
 		t, err := session.reconnectFn(session.ID)
 		if err != nil {
@@ -282,7 +281,7 @@ func (a *App) reconnectSession(session *liveSession) bool {
 		session.mu.Unlock()
 
 		a.addLogEntry("INFO", "Reconnected session "+session.ID)
-		runtime.EventsEmit(a.ctx, "session-reconnected", session.ID)
+		a.emitEvent("session-reconnected", session.ID)
 		go a.keepAliveLoop(session)
 		return true
 	}

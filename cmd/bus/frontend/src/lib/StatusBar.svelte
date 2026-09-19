@@ -8,7 +8,7 @@
     incognito,
     theme,
   } from './stores'
-  import { SetTheme } from '../../wailsjs/go/main/App.js'
+  import { SetTheme } from './go.js'
 
   let {
     onToggleLogs,

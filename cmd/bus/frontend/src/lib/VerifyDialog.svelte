@@ -1,5 +1,5 @@
 <script>
-  import { VerifyResponse } from '../../wailsjs/go/main/App.js'
+  import { VerifyResponse } from './go.js'
 
   let { data, onClose } = $props();
 
@@ -58,7 +58,7 @@
           <input type="text" readonly value={data.hex} class="verify-hex-input" />
           <button class="verify-copy-btn" onclick={async () => {
             try {
-              const { CopyToClipboard } = await import('../../wailsjs/go/main/App.js')
+              const { CopyToClipboard } = await import('./go.js')
               await CopyToClipboard(data.hex)
             } catch(e) {}
           }}>

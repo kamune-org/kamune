@@ -3,7 +3,7 @@
     sessions, historySessions, activeSessionId, fingerprint,
     status, sidebarTab, dbPath, myName, relayTokens, p2pTokens, toast, peers,
   } from './stores'
-  import { CopyToClipboard, SetMyName, GenerateRelayToken, RemoveRelayToken, RenameSession, RenameHistorySession } from '../../wailsjs/go/main/App.js'
+  import { CopyToClipboard, SetMyName, GenerateRelayToken, RemoveRelayToken, RenameSession, RenameHistorySession } from './go.js'
   import PeersPanel from './PeersPanel.svelte'
   import SignalingTokens from './SignalingTokens.svelte'
   import PeerSelect from './PeerSelect.svelte'

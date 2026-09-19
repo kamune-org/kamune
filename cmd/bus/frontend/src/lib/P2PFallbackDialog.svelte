@@ -1,5 +1,5 @@
 <script>
-    import { ConnectToServer } from "../../wailsjs/go/main/App.js";
+    import { ConnectToServer } from "./go.js";
 
     /**
      * @typedef {Object} Props

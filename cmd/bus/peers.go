@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -188,20 +186,6 @@ func (a *App) refreshPeersCache() {
 	a.mu.Unlock()
 
 	a.emitEvent("peers-updated")
-}
-
-// emitEvent is a defensive wrapper around runtime.EventsEmit that
-// skips the call when the context is not a live Wails context
-// (e.g. inside unit tests). The Wails runtime panics on a non-Wails
-// context via log.Fatalf, which would terminate the test process.
-func (a *App) emitEvent(eventName string, data ...interface{}) {
-	if a.ctx == nil {
-		return
-	}
-	if a.ctx.Value("events") == nil {
-		return
-	}
-	runtime.EventsEmit(a.ctx, eventName, data...)
 }
 
 func peerToInfo(p *storage.Peer) PeerInfo {

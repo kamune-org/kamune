@@ -27,7 +27,7 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 - **Run relay**: `go run ./cmd/relay -c <path>`
 - **Build daemon**: `go build -o daemon ./cmd/daemon` (from root)
 - **Build chat TUI**: `go build -o tui .` in `cmd/tui/`
-- **Build bus GUI**: `wails build` in `cmd/bus/` (requires Wails CLI)
+- **Build bus GUI**: `wails3 build` in `cmd/bus/` (requires Wails v3 CLI)
 
 ## Commits
 

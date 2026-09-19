@@ -32,7 +32,7 @@ cmd/bus/
 │   │   ├── App.svelte        # Main app shell, dialogs, event wiring
 │   │   ├── main.js           # Svelte entry point
 │   │   └── lib/
-│   │       ├── stores.js     # Svelte writable/derived stores
+    │   │       ├── stores.ts     # Svelte writable/derived stores
 │   │       ├── ChatPanel.svelte  # Message display, input, info bar
 │   │       ├── Sidebar.svelte    # Sessions/History tabs, server controls
 │   │       ├── StatusBar.svelte  # Connection status, log toggle
@@ -42,7 +42,8 @@ cmd/bus/
 │   ├── vite.config.js
 │   └── package.json
 ├── build/            # Wails build assets (icons, darwin/windows bundles)
-├── wails.json        # Wails project config
+├── Taskfile.yml      # Wails v3 build tasks
+├── build/config.yml  # Wails v3 project config
 ├── go.mod
 └── go.sum
 ```
@@ -51,13 +52,13 @@ cmd/bus/
 
 - Go 1.26 or later
 - Node.js 18+ and npm
-- Wails v2 CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- Wails v3 CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.23`
 
 Platform-specific WebView dependencies (see [Wails docs](https://wails.io/docs/next/installation)):
 
 - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
 - **Windows**: WebView2 runtime (included in Windows 11)
-- **Linux**: `sudo apt install libgtk-3-dev libwebkit2gtk-4.0-dev`
+- **Linux**: `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev`
 
 ## Development
 
@@ -65,17 +66,18 @@ Platform-specific WebView dependencies (see [Wails docs](https://wails.io/docs/n
 
 ```bash
 cd cmd/bus
-wails dev
+wails3 dev
 ```
 
 ### Build
 
 ```bash
 cd cmd/bus
-wails build
+wails3 build
 ```
 
-The binary is output to `build/bin/`.
+The binary is output to `build/bin/`. On macOS, `wails3 package`
+produces `build/bin/bus.app`.
 
 ### Frontend only (dev server)
 
@@ -85,7 +87,7 @@ npm install
 npm run dev
 ```
 
-The Vite dev server runs on port 5173. Point Wails to it with `wails dev --frontenddevserverurl http://localhost:5173`.
+The Vite dev server runs on port 9245. Use `wails3 dev` from `cmd/bus`.
 
 ## Usage
 

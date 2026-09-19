@@ -8,7 +8,6 @@ import (
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func (a *App) getVerifier() kamune.RemoteVerifier {
@@ -57,7 +56,7 @@ func (a *App) createStrictVerifier() kamune.RemoteVerifier {
 		a.setStatus(StatusVerifying, "Verifying fingerprint of "+peer.Name+"...")
 		a.addLogEntry("INFO", "Verifying peer: "+peer.Name)
 
-		runtime.EventsEmit(a.ctx, "verify-peer", map[string]any{
+		a.emitEvent("verify-peer", map[string]any{
 			"requestID": reqID,
 			"peerID":    peer.Name,
 			"peerName":  peer.Name,
@@ -119,7 +118,7 @@ func (a *App) createQuickVerifier() kamune.RemoteVerifier {
 		a.setStatus(StatusVerifying, "Verifying fingerprint of "+peer.Name+"...")
 		a.addLogEntry("INFO", "Verifying peer: "+peer.Name)
 
-		runtime.EventsEmit(a.ctx, "verify-peer", map[string]any{
+		a.emitEvent("verify-peer", map[string]any{
 			"requestID": reqID,
 			"peerID":    peer.Name,
 			"peerName":  peer.Name,

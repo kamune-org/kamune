@@ -13,7 +13,6 @@ import (
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/relayconn"
 	"github.com/kamune-org/kamune/pkg/storage"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // hexDecodeString is a thin wrapper around encoding/hex that returns the
@@ -251,12 +250,12 @@ func (a *App) StartServer(
 	}
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
+	a.emitEvent("fingerprint-changed", emoji, b64, hex, sum)
 	serverLabel := transport
 	if transport == "udp" && useP2P {
 		serverLabel = "p2p"
 	}
-	runtime.EventsEmit(a.ctx, "server-running", true, serverLabel)
+	a.emitEvent("server-running", true, serverLabel)
 
 	// Auto-register a P2P token on the broker for broker-synced mode.
 	// When p2pListener is active it already registered, so skip.
@@ -300,7 +299,7 @@ func (a *App) StartServer(
 			pt.cancel()
 		}
 		a.emitEvent("p2p-tokens", []p2pToken{})
-		runtime.EventsEmit(a.ctx, "server-running", false, stopLabel)
+		a.emitEvent("server-running", false, stopLabel)
 		a.setStatus(StatusDisconnected, "Server stopped")
 		a.addLogEntry("INFO", "Server stopped")
 	}()
@@ -321,8 +320,8 @@ func (a *App) StartServer(
 
 	if firstToken != "" {
 		tokens := a.getRelayTokens()
-		runtime.EventsEmit(a.ctx, "relay-token", firstToken)
-		runtime.EventsEmit(a.ctx, "relay-tokens", tokens)
+		a.emitEvent("relay-token", firstToken)
+		a.emitEvent("relay-tokens", tokens)
 		a.addLogEntry("INFO", "Relay token: "+firstToken)
 	}
 
@@ -345,18 +344,7 @@ func (a *App) ConfirmStopServer() bool {
 	}
 	msg += "."
 
-	result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-		Title:         "Stop Server",
-		Message:       msg,
-		Type:          runtime.QuestionDialog,
-		Buttons:       []string{"Stop", "Cancel"},
-		DefaultButton: "Cancel",
-		CancelButton:  "Cancel",
-	})
-	if err != nil || result == "Cancel" || result == "" {
-		return false
-	}
-	return true
+	return a.confirm("Stop Server", msg, "Stop", "Cancel")
 }
 
 func (a *App) StopServer() error {
@@ -470,7 +458,7 @@ func (a *App) GenerateRelayToken(peerPubB64 string) (string, error) {
 	copy(tokens, a.relayTokens)
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "relay-tokens", tokens)
+	a.emitEvent("relay-tokens", tokens)
 	a.addLogEntry("INFO", "Generated relay token: "+token)
 	return token, nil
 }
@@ -496,7 +484,7 @@ func (a *App) RemoveRelayToken(token string) error {
 	rt.listener.Close()
 
 	tokens := a.getRelayTokens()
-	runtime.EventsEmit(a.ctx, "relay-tokens", tokens)
+	a.emitEvent("relay-tokens", tokens)
 	a.addLogEntry("INFO", "Removed relay token: "+token)
 	return nil
 }
@@ -546,10 +534,7 @@ func (a *App) ConnectToServer(
 			return ConnectResult{ErrorCode: "invalid_token"}, err
 		}
 
-		baseCtx := a.ctx
-		if baseCtx == nil {
-			baseCtx = context.Background()
-		}
+		baseCtx := a.lifeCtx()
 		matchCtx, matchCancel := context.WithTimeout(
 			baseCtx, 30*time.Second,
 		)
@@ -697,7 +682,7 @@ func (a *App) ConnectToServer(
 
 	// Store dial params for transparent resumption on involuntary
 	// disconnect.
-	reconnectCtx, reconnectCancel := context.WithCancel(a.ctx)
+	reconnectCtx, reconnectCancel := context.WithCancel(a.lifeCtx())
 	session.reconnectCtx = reconnectCtx
 	session.reconnectCancel = reconnectCancel
 	session.reconnectFn = func(sessionID string) (*kamune.Transport, error) {
@@ -742,7 +727,7 @@ func (a *App) ConnectToServer(
 
 	if msg, mismatch := checkMinorMismatch(kamune.AppVersion, peer.AppVersion); mismatch {
 		a.addLogEntry("WARN", msg)
-		runtime.EventsEmit(a.ctx, "version-warning", sessionID, msg)
+		a.emitEvent("version-warning", sessionID, msg)
 	}
 
 	a.mu.Lock()
@@ -760,8 +745,8 @@ func (a *App) ConnectToServer(
 		SessionTTL:       sessionTTL,
 		SessionStartedAt: time.Now(),
 	}
-	runtime.EventsEmit(a.ctx, "session-new", info)
-	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
+	a.emitEvent("session-new", info)
+	a.emitEvent("session-messages", session.ID, session.Messages)
 
 	a.setStatus(StatusConnected, "Connected to "+addr)
 	a.addLogEntry("INFO", "Connected | addr="+addr+" session_id="+sessionID)
@@ -850,7 +835,7 @@ func (a *App) DisconnectSession(sessionID string) error {
 		a.loadHistorySessions(store)
 	}
 
-	runtime.EventsEmit(a.ctx, "session-closed", sessionID)
+	a.emitEvent("session-closed", sessionID)
 	a.addLogEntry("INFO", "Disconnected session: "+sessionID)
 	return nil
 }
@@ -916,7 +901,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 
 	if msg, mismatch := checkMinorMismatch(kamune.AppVersion, peer.AppVersion); mismatch {
 		a.addLogEntry("WARN", msg)
-		runtime.EventsEmit(a.ctx, "version-warning", sessionID, msg)
+		a.emitEvent("version-warning", sessionID, msg)
 	}
 
 	a.mu.Lock()
@@ -934,8 +919,8 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		SessionTTL:       relaySessionTTL,
 		SessionStartedAt: time.Now(),
 	}
-	runtime.EventsEmit(a.ctx, "session-new", info)
-	runtime.EventsEmit(a.ctx, "session-messages", session.ID, session.Messages)
+	a.emitEvent("session-new", info)
+	a.emitEvent("session-messages", session.ID, session.Messages)
 	a.addLogEntry("INFO", "New incoming connection: "+sessionID)
 
 	go a.keepAliveLoop(session)
@@ -1071,7 +1056,7 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 		copy(tokens, a.relayTokens)
 		a.mu.Unlock()
 
-		runtime.EventsEmit(a.ctx, "relay-tokens", tokens)
+		a.emitEvent("relay-tokens", tokens)
 		a.addLogEntry("INFO", "Share card: generated relay token: "+token)
 
 		scheme, host, _ := parseRelayAddr(relayAddr)

@@ -37,7 +37,7 @@
   });
 
   async function handleRefresh() {
-    const { GetShareInfo } = await import('../../wailsjs/go/main/App.js')
+    const { GetShareInfo } = await import('./go.js')
     try {
       const info = await GetShareInfo()
       data = info
@@ -49,7 +49,7 @@
   }
 
   async function handleCopyURL() {
-    const { CopyToClipboard } = await import('../../wailsjs/go/main/App.js')
+    const { CopyToClipboard } = await import('./go.js')
     try {
       await CopyToClipboard(url)
       onToast?.({ message: 'Copied!', type: 'info' })
@@ -215,7 +215,7 @@
     const dataUrl = offscreen.toDataURL('image/png')
     document.body.removeChild(offscreen)
 
-    const { SaveCardPNG } = await import('../../wailsjs/go/main/App.js')
+    const { SaveCardPNG } = await import('./go.js')
     try {
       await SaveCardPNG(dataUrl)
     } catch (err) {

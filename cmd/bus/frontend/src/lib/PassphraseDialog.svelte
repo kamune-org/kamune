@@ -3,7 +3,7 @@
   import {
     SubmitPassphrase, HasKeychainPassphrase, GetDBPath,
     SetDBPath, OpenFileDialog,
-  } from '../../wailsjs/go/main/App.js'
+  } from './go.js'
 
   /**
    * @typedef {Object} Props

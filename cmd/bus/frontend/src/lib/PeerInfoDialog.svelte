@@ -3,7 +3,7 @@
   import { get } from 'svelte/store'
   import {
     GetPeer, RenamePeer, DeletePeer, CopyToClipboard,
-  } from '../../wailsjs/go/main/App.js'
+  } from './go.js'
   import { dialogs, toast } from './stores'
 
   let peer = $state(null)

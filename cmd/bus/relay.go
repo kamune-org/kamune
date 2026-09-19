@@ -13,8 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/relayconn"
 	"github.com/kamune-org/kamune/pkg/storage"
@@ -435,9 +433,7 @@ func (a *App) relayReconnectLoop(
 				"session", sessionID,
 				"pool_size", len(tokens),
 			)
-			runtime.EventsEmit(
-				a.ctx, "relay-pool-exhausted", sessionID,
-			)
+			a.emitEvent("relay-pool-exhausted", sessionID)
 			return
 		}
 	}

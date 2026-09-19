@@ -1,4 +1,12 @@
-build/bin
+.task
+bin
+/bus
+*.syso
 node_modules
 frontend/dist
-/bus
+frontend/bindings
+frontend/node_modules
+build/bin/
+build/darwin/icons.icns
+build/darwin/Assets.car
+build/windows/icon.ico

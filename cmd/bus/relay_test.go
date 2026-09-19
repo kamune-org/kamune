@@ -494,7 +494,7 @@ func TestMarkRelayTokenConsumed(t *testing.T) {
 	}
 
 	// Test the consumed-flag logic directly (markRelayTokenConsumed
-	// calls runtime.EventsEmit which requires a Wails lifecycle context).
+	// emits an event which is a no-op when a.wails is nil).
 	app.mu.Lock()
 	for i := range app.relayTokens {
 		if app.relayTokens[i].Token == "bbb" && !app.relayTokens[i].Consumed {

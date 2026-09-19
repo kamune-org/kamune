@@ -1,7 +1,7 @@
 <script>
   import {
     RenameSession, RenameHistorySession,
-  } from '../../wailsjs/go/main/App.js'
+  } from './go.js'
 
   /**
    * @typedef {Object} Props

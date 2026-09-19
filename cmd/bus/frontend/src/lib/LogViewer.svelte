@@ -4,7 +4,7 @@
     ClearLogs,
     ExportLogsToFile,
     SetLogLevel,
-  } from '../../wailsjs/go/main/App.js'
+  } from './go.js'
 
   let autoScroll = $state(true)
   let listEl = $state()

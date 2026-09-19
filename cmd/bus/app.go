@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,8 +19,7 @@ import (
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
-	"github.com/wailsapp/wails/v2/pkg/menu"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/zalando/go-keyring"
 )
 
@@ -227,8 +227,11 @@ type ShareRelayInfo struct {
 }
 
 type App struct {
-	ctx context.Context
-	mu  sync.RWMutex
+	ctx     context.Context
+	wails   *application.App
+	window  *application.WebviewWindow
+	appMenu *application.Menu
+	mu      sync.RWMutex
 
 	sessions            []*liveSession
 	histSessions        []*historySession
@@ -285,10 +288,10 @@ type App struct {
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
 
-	verifRadioItems []*menu.MenuItem
+	verifRadioItems []*application.MenuItem
 
 	incognito         bool
-	incognitoMenuItem *menu.MenuItem
+	incognitoMenuItem *application.MenuItem
 
 	peers []PeerInfo
 }
@@ -343,13 +346,15 @@ func (a *App) passphraseHandler() storage.PassphraseHandler {
 	}
 }
 
-func (a *App) startup(ctx context.Context) {
+func (a *App) ServiceStartup(
+	ctx context.Context, _ application.ServiceOptions,
+) error {
 	a.ctx = ctx
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		a.addLogEntry("ERROR", "Failed to get home dir: "+err.Error())
-		return
+		return nil
 	}
 
 	if envPath := os.Getenv("KAMUNE_DB_PATH"); envPath != "" {
@@ -373,7 +378,7 @@ func (a *App) startup(ctx context.Context) {
 			a.storeMu.Unlock()
 			a.addLogEntry("INFO", "Loaded empty passphrase from keychain — no password")
 			a.initFromStorage()
-			return
+			return nil
 		}
 
 		a.passphrase.Store([]byte(nil))
@@ -393,7 +398,7 @@ func (a *App) startup(ctx context.Context) {
 			a.storeMu.Unlock()
 			a.addLogEntry("INFO", "Loaded passphrase from keychain")
 			a.initFromStorage()
-			return
+			return nil
 		}
 
 		a.passphrase.Store([]byte(nil))
@@ -407,9 +412,10 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	a.addLogEntry("INFO", "Application started — awaiting passphrase")
+	return nil
 }
 
-func (a *App) shutdown(ctx context.Context) {
+func (a *App) ServiceShutdown() error {
 	a.addLogEntry("INFO", "Application shutting down")
 
 	var sessions []*liveSession
@@ -449,6 +455,82 @@ func (a *App) shutdown(ctx context.Context) {
 	a.storeMu.Unlock()
 
 	a.addLogEntry("INFO", "Shutdown complete")
+	return nil
+}
+
+func (a *App) emitEvent(eventName string, data ...any) {
+	if a.wails == nil {
+		return
+	}
+	a.wails.Event.Emit(eventName, data...)
+}
+
+func (a *App) updateMenu() {
+	if a.appMenu != nil {
+		a.appMenu.Update()
+	}
+}
+
+func (a *App) lifeCtx() context.Context {
+	if a.ctx != nil {
+		return a.ctx
+	}
+	return context.Background()
+}
+
+func (a *App) confirm(
+	title, message, action, cancel string,
+) bool {
+	if a.wails == nil {
+		return false
+	}
+	yesLabel, noLabel := action, cancel
+	if runtime.GOOS == "windows" {
+		yesLabel, noLabel = "Yes", "No"
+	}
+	done := make(chan bool, 1)
+	d := a.wails.Dialog.Question().
+		SetTitle(title).
+		SetMessage(message)
+	d.AddButton(yesLabel).OnClick(func() { done <- true })
+	no := d.AddButton(noLabel)
+	no.OnClick(func() { done <- false })
+	d.SetDefaultButton(no)
+	d.SetCancelButton(no)
+	d.Show()
+	return <-done
+}
+
+func (a *App) errorDialog(title, message string) {
+	if a.wails == nil {
+		return
+	}
+	a.wails.Dialog.Error().
+		SetTitle(title).
+		SetMessage(message).
+		Show()
+}
+
+func (a *App) saveFile(
+	title, filename string, filters [][2]string,
+) (string, error) {
+	if a.wails == nil {
+		return "", nil
+	}
+	opts := &application.SaveFileDialogOptions{
+		Title:                title,
+		Filename:             filename,
+		CanCreateDirectories: true,
+	}
+	d := a.wails.Dialog.SaveFileWithOptions(opts)
+	for _, f := range filters {
+		d.AddFilter(f[0], f[1])
+	}
+	path, err := d.PromptForSingleSelection()
+	if path == "" {
+		return "", nil
+	}
+	return path, err
 }
 
 func (a *App) addLogEntry(level, msg string) {
@@ -482,7 +564,7 @@ func (a *App) setStatus(status ConnectionStatus, msg string) {
 	a.statusMsg = msg
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "status-changed", StatusInfo{Status: status, Message: msg})
+	a.emitEvent("status-changed", StatusInfo{Status: status, Message: msg})
 }
 
 func (a *App) initFromStorage() {
@@ -492,8 +574,8 @@ func (a *App) initFromStorage() {
 		a.pubKey = nil
 		a.storageReady = true
 		a.mu.Unlock()
-		runtime.EventsEmit(a.ctx, "storage-ready")
-		runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "", "", "")
+		a.emitEvent("storage-ready")
+		a.emitEvent("fingerprint-changed", "", "", "", "")
 		return
 	}
 
@@ -524,7 +606,7 @@ func (a *App) initFromStorage() {
 			a.mu.Lock()
 			a.myName = name
 			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "local-name-changed", name)
+			a.emitEvent("local-name-changed", name)
 		}
 
 		modeStr, modeErr := store.GetSettings("bus", "verification_mode")
@@ -535,13 +617,13 @@ func (a *App) initFromStorage() {
 				a.mu.Unlock()
 
 				for _, item := range a.verifRadioItems {
-					item.Checked = false
+					item.SetChecked(false)
 				}
 				if mode >= 0 && mode < len(a.verifRadioItems) {
-					a.verifRadioItems[mode].Checked = true
+					a.verifRadioItems[mode].SetChecked(true)
 				}
-				runtime.MenuUpdateApplicationMenu(a.ctx)
-				runtime.EventsEmit(a.ctx, "verification-mode-changed", mode)
+				a.updateMenu()
+				a.emitEvent("verification-mode-changed", mode)
 			}
 		}
 
@@ -550,7 +632,7 @@ func (a *App) initFromStorage() {
 			a.mu.Lock()
 			a.incognito = true
 			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "incognito-changed", true)
+			a.emitEvent("incognito-changed", true)
 		}
 
 		logLevel, logLevelErr := store.GetSettings("bus", "log_level")
@@ -558,7 +640,7 @@ func (a *App) initFromStorage() {
 			a.mu.Lock()
 			a.logLevel = logLevel
 			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "log-level-changed", logLevel)
+			a.emitEvent("log-level-changed", logLevel)
 		}
 
 		theme, themeErr := store.GetSettings("bus", "theme")
@@ -566,19 +648,19 @@ func (a *App) initFromStorage() {
 			a.mu.Lock()
 			a.theme = theme
 			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "theme-changed", theme)
+			a.emitEvent("theme-changed", theme)
 		}
 
-		runtime.EventsEmit(a.ctx, "storage-ready")
-		runtime.EventsEmit(a.ctx, "fingerprint-changed", emoji, b64, hex, sum)
+		a.emitEvent("storage-ready")
+		a.emitEvent("fingerprint-changed", emoji, b64, hex, sum)
 		a.addLogEntry("INFO", "Loaded fingerprint from existing identity")
 	} else {
 		a.mu.Lock()
 		a.pubKey = nil
 		a.storageReady = true
 		a.mu.Unlock()
-		runtime.EventsEmit(a.ctx, "storage-ready")
-		runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "", "", "")
+		a.emitEvent("storage-ready")
+		a.emitEvent("fingerprint-changed", "", "", "", "")
 		a.addLogEntry("DEBUG", "No identity key found: "+err.Error())
 	}
 
@@ -606,7 +688,7 @@ func (a *App) loadHistorySessions(store *storage.Storage) {
 	}
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "history-updated")
+	a.emitEvent("history-updated")
 }
 
 // ---- Exported bindings ----
@@ -643,7 +725,7 @@ func (a *App) SetMyName(name string) error {
 	a.myName = name
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "local-name-changed", name)
+	a.emitEvent("local-name-changed", name)
 	return nil
 }
 
@@ -690,15 +772,20 @@ func (a *App) SetDBPath(path string) {
 	}
 	a.storeMu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "fingerprint-changed", "", "", "", "")
-	runtime.EventsEmit(a.ctx, "request-passphrase")
+	a.emitEvent("fingerprint-changed", "", "", "", "")
+	a.emitEvent("request-passphrase")
 	a.addLogEntry("INFO", "DB path changed to: "+path)
 }
 
 func (a *App) OpenFileDialog() string {
-	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select Database Directory",
-	})
+	if a.wails == nil {
+		return ""
+	}
+	dir, err := a.wails.Dialog.OpenFile().
+		SetTitle("Select Database Directory").
+		CanChooseDirectories(true).
+		CanChooseFiles(false).
+		PromptForSingleSelection()
 	if err != nil || dir == "" {
 		return ""
 	}
@@ -721,15 +808,15 @@ func (a *App) SetVerificationMode(mode int) bool {
 	a.mu.RUnlock()
 
 	if serverRunning {
-		result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-			Type:          runtime.QuestionDialog,
-			Title:         "Restart Server?",
-			Message:       "The verification mode change only applies to new client connections. To apply it to incoming server connections as well, the server must restart. This will disconnect all active sessions.",
-			Buttons:       []string{"Restart Server", "Cancel"},
-			DefaultButton: "Cancel",
-			CancelButton:  "Cancel",
-		})
-		if err != nil || result == "Cancel" {
+		if !a.confirm(
+			"Restart Server?",
+			"The verification mode change only applies to new "+
+				"client connections. To apply it to incoming server "+
+				"connections as well, the server must restart. This "+
+				"will disconnect all active sessions.",
+			"Restart Server",
+			"Cancel",
+		) {
 			return false
 		}
 	}
@@ -745,7 +832,7 @@ func (a *App) SetVerificationMode(mode int) bool {
 		_ = store.SetSettings("bus", "verification_mode", strconv.Itoa(mode))
 	}
 	a.addLogEntry("INFO", "Verification mode set to: "+verifModeName(VerificationMode(mode)))
-	runtime.EventsEmit(a.ctx, "verification-mode-changed", mode)
+	a.emitEvent("verification-mode-changed", mode)
 
 	if serverRunning {
 		if err := a.restartServer(); err != nil {
@@ -756,12 +843,12 @@ func (a *App) SetVerificationMode(mode int) bool {
 			if store := a.store(); store != nil {
 				_ = store.SetSettings("bus", "verification_mode", strconv.Itoa(int(oldMode)))
 			}
-			runtime.EventsEmit(a.ctx, "verification-mode-changed", int(oldMode))
-			runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-				Type:    runtime.ErrorDialog,
-				Title:   "Restart Failed",
-				Message: "Failed to restart server. The verification mode has been reverted.\n\nError: " + err.Error(),
-			})
+			a.emitEvent("verification-mode-changed", int(oldMode))
+			a.errorDialog(
+				"Restart Failed",
+				"Failed to restart server. The verification mode "+
+					"has been reverted.\n\nError: "+err.Error(),
+			)
 			return false
 		}
 	}
@@ -791,14 +878,14 @@ func (a *App) SetIncognito(on bool) bool {
 		_ = store.SetSettings("bus", "incognito", strconv.FormatBool(on))
 	}
 	a.addLogEntry("INFO", "Incognito mode: "+strconv.FormatBool(on))
-	runtime.EventsEmit(a.ctx, "incognito-changed", on)
+	a.emitEvent("incognito-changed", on)
 	return true
 }
 
 func (a *App) UpdateIncognitoMenu(on bool) {
 	if a.incognitoMenuItem != nil {
-		a.incognitoMenuItem.Checked = on
-		runtime.MenuUpdateApplicationMenu(a.ctx)
+		a.incognitoMenuItem.SetChecked(on)
+		a.updateMenu()
 	}
 }
 
@@ -824,7 +911,7 @@ func (a *App) SetTheme(theme string) {
 		_ = store.SetSettings("bus", "theme", theme)
 	}
 	a.addLogEntry("INFO", "Theme: "+theme)
-	runtime.EventsEmit(a.ctx, "theme-changed", theme)
+	a.emitEvent("theme-changed", theme)
 }
 
 func (a *App) markRelayTokenConsumed(token string) {
@@ -838,7 +925,7 @@ func (a *App) markRelayTokenConsumed(token string) {
 	tokens := make([]relayToken, len(a.relayTokens))
 	copy(tokens, a.relayTokens)
 	a.mu.Unlock()
-	runtime.EventsEmit(a.ctx, "relay-tokens", tokens)
+	a.emitEvent("relay-tokens", tokens)
 
 	// Discard consumed tokens after a brief grace period so the UI can
 	// show the consumed state briefly before it disappears.
@@ -862,7 +949,7 @@ func (a *App) markRelayTokenConsumed(token string) {
 		if s, ok := rt.listener.(interface{ Stop() }); ok {
 			s.Stop()
 		}
-		runtime.EventsEmit(a.ctx, "relay-tokens", a.getRelayTokens())
+		a.emitEvent("relay-tokens", a.getRelayTokens())
 		a.addLogEntry("INFO", "Discarded consumed relay token")
 	}()
 }
@@ -883,7 +970,7 @@ func (a *App) SetFingerprintFormat(fmt string) {
 	a.mu.Lock()
 	a.fingerprintFmt = fmt
 	a.mu.Unlock()
-	runtime.EventsEmit(a.ctx, "fingerprint-format-changed", fmt)
+	a.emitEvent("fingerprint-format-changed", fmt)
 	a.addLogEntry("DEBUG", "Fingerprint format set to: "+fmt)
 }
 
@@ -1116,14 +1203,17 @@ func (a *App) ExportLogsToFile() error {
 	copy(entries, a.logEntries)
 	a.logMu.RUnlock()
 
-	filePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "Export Logs",
-		DefaultFilename: fmt.Sprintf("kamune-logs-%s.txt", time.Now().Format("2006-01-02_150405")),
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Text Files", Pattern: "*.txt"},
-			{DisplayName: "All Files", Pattern: "*"},
+	filePath, err := a.saveFile(
+		"Export Logs",
+		fmt.Sprintf(
+			"kamune-logs-%s.txt",
+			time.Now().Format("2006-01-02_150405"),
+		),
+		[][2]string{
+			{"Text Files", "*.txt"},
+			{"All Files", "*"},
 		},
-	})
+	)
 	if err != nil {
 		return fmt.Errorf("save dialog: %w", err)
 	}
@@ -1166,11 +1256,17 @@ func (a *App) SetLogLevel(level string) {
 }
 
 func (a *App) CopyToClipboard(text string) error {
-	return runtime.ClipboardSetText(a.ctx, text)
+	if a.wails == nil {
+		return fmt.Errorf("clipboard unavailable")
+	}
+	if !a.wails.Clipboard.SetText(text) {
+		return fmt.Errorf("failed to set clipboard")
+	}
+	return nil
 }
 
 func (a *App) SendNotification(title, message string) {
-	runtime.EventsEmit(a.ctx, "notification", title, message)
+	a.emitEvent("notification", title, message)
 }
 
 func (a *App) SaveCardPNG(dataURL string) error {
@@ -1183,13 +1279,14 @@ func (a *App) SaveCardPNG(dataURL string) error {
 		return fmt.Errorf("decode base64: %w", err)
 	}
 
-	filePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "Save Connection Card",
-		DefaultFilename: fmt.Sprintf("kamune-connection-card-%s.png", time.Now().Format("2006-01-02_150405")),
-		Filters: []runtime.FileFilter{
-			{DisplayName: "PNG Images", Pattern: "*.png"},
-		},
-	})
+	filePath, err := a.saveFile(
+		"Save Connection Card",
+		fmt.Sprintf(
+			"kamune-connection-card-%s.png",
+			time.Now().Format("2006-01-02_150405"),
+		),
+		[][2]string{{"PNG Images", "*.png"}},
+	)
 	if err != nil {
 		return fmt.Errorf("save dialog: %w", err)
 	}
@@ -1204,12 +1301,10 @@ func (a *App) SaveCardPNG(dataURL string) error {
 }
 
 func (a *App) ToggleFullscreen() {
-	if runtime.WindowIsFullscreen(a.ctx) {
-		runtime.WindowUnfullscreen(a.ctx)
-	} else {
-		runtime.WindowFullscreen(a.ctx)
+	if a.window == nil {
+		return
 	}
-	runtime.EventsEmit(a.ctx, "fullscreen-changed", runtime.WindowIsFullscreen(a.ctx))
+	a.window.ToggleFullscreen()
 }
 
 func (a *App) SetActiveSession(sessionID string) {
@@ -1227,7 +1322,7 @@ func (a *App) RenameSession(sessionID string, name string) {
 		}
 	}
 	a.mu.Unlock()
-	runtime.EventsEmit(a.ctx, "session-updated")
+	a.emitEvent("session-updated")
 }
 
 func (a *App) RenameHistorySession(sessionID string, name string) {
@@ -1251,7 +1346,7 @@ func (a *App) RenameHistorySession(sessionID string, name string) {
 	}
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "history-updated")
+	a.emitEvent("history-updated")
 	a.addLogEntry("INFO", "Renamed history session: "+sessionID)
 }
 
@@ -1276,7 +1371,7 @@ func (a *App) DeleteHistorySession(sessionID string) {
 	}
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "history-updated")
+	a.emitEvent("history-updated")
 	a.addLogEntry("INFO", "Deleted history session: "+sessionID)
 }
 
@@ -1300,7 +1395,7 @@ func (a *App) LoadHistoryMessages(sessionID string) {
 	}
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "history-loaded", sessionID)
+	a.emitEvent("history-loaded", sessionID)
 }
 
 func (a *App) GetSessionInfo(sessionID string) map[string]interface{} {

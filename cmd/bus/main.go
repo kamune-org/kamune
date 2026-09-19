@@ -1,175 +1,176 @@
 package main
 
 import (
-	"context"
 	"embed"
 	"log/slog"
 	"os"
+	"runtime"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/menu"
-	"github.com/wailsapp/wails/v2/pkg/menu/keys"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/mac"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
-func buildMenu(app *App) *menu.Menu {
-	conn := menu.NewMenu()
+//go:embed build/appicon.png
+var appIcon []byte
 
-	// Verification Mode submenu
-	verifSub := menu.NewMenu()
-	strict := verifSub.AddRadio("Strict", false, keys.CmdOrCtrl("0"), nil)
-	quick := verifSub.AddRadio("Quick", true, keys.CmdOrCtrl("1"), nil)
-	auto := verifSub.AddRadio("Auto-Accept", false, keys.CmdOrCtrl("2"), nil)
+func buildMenu(app *App) *application.Menu {
+	menu := app.wails.NewMenu()
+	if runtime.GOOS == "darwin" {
+		menu.AddRole(application.AppMenu)
+	}
+	menu.AddRole(application.EditMenu)
 
-	radioItems := []*menu.MenuItem{strict, quick, auto}
+	conn := menu.AddSubmenu("Connection")
+	verifSub := conn.AddSubmenu("Verification Mode")
+	strict := verifSub.AddRadio("Strict", false).
+		SetAccelerator("CmdOrCtrl+0")
+	quick := verifSub.AddRadio("Quick", true).
+		SetAccelerator("CmdOrCtrl+1")
+	auto := verifSub.AddRadio("Auto-Accept", false).
+		SetAccelerator("CmdOrCtrl+2")
+
+	radioItems := []*application.MenuItem{strict, quick, auto}
 	app.verifRadioItems = radioItems
 
-	setVerifMode := func(ctx context.Context, mode int) {
+	setVerifMode := func(mode int) {
 		if !app.SetVerificationMode(mode) {
 			prev := app.GetVerificationMode()
 			for _, item := range radioItems {
-				item.Checked = false
+				item.SetChecked(false)
 			}
-			radioItems[prev].Checked = true
-			runtime.MenuUpdateApplicationMenu(ctx)
+			radioItems[prev].SetChecked(true)
+			menu.Update()
 			return
 		}
 		for _, item := range radioItems {
-			item.Checked = false
+			item.SetChecked(false)
 		}
-		radioItems[mode].Checked = true
-		runtime.MenuUpdateApplicationMenu(ctx)
+		radioItems[mode].SetChecked(true)
+		menu.Update()
 	}
 
-	strict.Click = func(_ *menu.CallbackData) { setVerifMode(app.ctx, 0) }
-	quick.Click = func(_ *menu.CallbackData) { setVerifMode(app.ctx, 1) }
-	auto.Click = func(_ *menu.CallbackData) { setVerifMode(app.ctx, 2) }
+	strict.OnClick(func(_ *application.Context) { setVerifMode(0) })
+	quick.OnClick(func(_ *application.Context) { setVerifMode(1) })
+	auto.OnClick(func(_ *application.Context) { setVerifMode(2) })
 
-	conn.Append(&menu.MenuItem{
-		Label:   "Verification Mode",
-		Type:    menu.SubmenuType,
-		SubMenu: verifSub,
-	})
-
-	incognitoItem := menu.Checkbox("Incognito Mode", false, nil, nil)
+	incognitoItem := conn.AddCheckbox("Incognito Mode", false)
 	app.incognitoMenuItem = incognitoItem
-	incognitoItem.Click = func(_ *menu.CallbackData) {
+	incognitoItem.OnClick(func(_ *application.Context) {
 		current := app.GetIncognito()
 		if current {
-			// Disabling — no confirmation needed
 			if app.SetIncognito(false) {
-				incognitoItem.Checked = false
-				runtime.MenuUpdateApplicationMenu(app.ctx)
+				incognitoItem.SetChecked(false)
+				menu.Update()
 			}
 			return
 		}
-		// Enabling — Wails auto-toggled to true, revert until confirmed
-		incognitoItem.Checked = false
-		runtime.MenuUpdateApplicationMenu(app.ctx)
-		runtime.EventsEmit(app.ctx, "request-incognito-confirm")
-	}
-	conn.Append(incognitoItem)
+		incognitoItem.SetChecked(false)
+		menu.Update()
+		app.emitEvent("request-incognito-confirm")
+	})
 
 	conn.AddSeparator()
+	conn.Add("Share Connection").
+		SetAccelerator("CmdOrCtrl+E").
+		OnClick(func(_ *application.Context) {
+			app.emitEvent("show-share-card")
+		})
+	conn.Add("Import Connection").
+		SetAccelerator("CmdOrCtrl+I").
+		OnClick(func(_ *application.Context) {
+			app.emitEvent("show-import-url")
+		})
+	conn.Add("Import from Clipboard").
+		SetAccelerator("CmdOrCtrl+Shift+I").
+		OnClick(func(_ *application.Context) {
+			text, ok := app.wails.Clipboard.Text()
+			if !ok || text == "" {
+				app.SendNotification(
+					"Clipboard",
+					"No connection URL found in clipboard",
+				)
+				return
+			}
+			app.emitEvent("import-from-clipboard", text)
+		})
 
-	conn.AddText("Share Connection", keys.CmdOrCtrl("e"), func(_ *menu.CallbackData) {
-		runtime.EventsEmit(app.ctx, "show-share-card")
-	})
+	view := menu.AddSubmenu("View")
+	view.Add("Toggle Full Screen").
+		SetAccelerator("F11").
+		OnClick(func(_ *application.Context) {
+			app.ToggleFullscreen()
+		})
 
-	conn.AddText("Import Connection", keys.CmdOrCtrl("i"), func(_ *menu.CallbackData) {
-		runtime.EventsEmit(app.ctx, "show-import-url")
-	})
-
-	conn.AddText("Import from Clipboard", keys.Combo("i", keys.CmdOrCtrlKey, keys.ShiftKey), func(_ *menu.CallbackData) {
-		text, err := runtime.ClipboardGetText(app.ctx)
-		if err != nil || text == "" {
-			app.SendNotification("Clipboard", "No connection URL found in clipboard")
-			return
-		}
-		runtime.EventsEmit(app.ctx, "import-from-clipboard", text)
-	})
-
-	view := menu.NewMenu()
-	view.AddText("Toggle Full Screen", keys.Key("f11"), func(_ *menu.CallbackData) {
-		app.ToggleFullscreen()
-	})
-
-	idMenu := menu.NewMenu()
-	idMenu.AddText("Copy as Hex", nil, func(_ *menu.CallbackData) {
+	idMenu := menu.AddSubmenu("Identity")
+	idMenu.Add("Copy as Hex").OnClick(func(_ *application.Context) {
 		fp := app.GetFingerprint()
 		if fp["hex"] == "" {
-			app.SendNotification("Identity", "No identity key — start a server first")
+			app.SendNotification(
+				"Identity",
+				"No identity key — start a server first",
+			)
 			return
 		}
 		_ = app.CopyToClipboard(fp["hex"])
-		runtime.EventsEmit(app.ctx, "toast", "Copied! (Hex)", "info")
+		app.emitEvent("toast", "Copied! (Hex)", "info")
 	})
-	idMenu.AddText("Copy as Sum", nil, func(_ *menu.CallbackData) {
+	idMenu.Add("Copy as Sum").OnClick(func(_ *application.Context) {
 		fp := app.GetFingerprint()
 		if fp["sum"] == "" {
-			app.SendNotification("Identity", "No identity key — start a server first")
+			app.SendNotification(
+				"Identity",
+				"No identity key — start a server first",
+			)
 			return
 		}
 		_ = app.CopyToClipboard(fp["sum"])
-		runtime.EventsEmit(app.ctx, "toast", "Copied! (Sum)", "info")
+		app.emitEvent("toast", "Copied! (Sum)", "info")
 	})
-	idMenu.AddText("Copy as Base64", nil, func(_ *menu.CallbackData) {
+	idMenu.Add("Copy as Base64").OnClick(func(_ *application.Context) {
 		fp := app.GetFingerprint()
 		if fp["b64"] == "" {
-			app.SendNotification("Identity", "No identity key — start a server first")
+			app.SendNotification(
+				"Identity",
+				"No identity key — start a server first",
+			)
 			return
 		}
 		_ = app.CopyToClipboard(fp["b64"])
-		runtime.EventsEmit(app.ctx, "toast", "Copied! (Base64)", "info")
+		app.emitEvent("toast", "Copied! (Base64)", "info")
 	})
 
 	idMenu.AddSeparator()
-	idMenu.AddText("Forget Saved Passphrase…", nil, func(_ *menu.CallbackData) {
-		answer, err := runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
-			Title:         "Clear Saved Passphrase",
-			Message:       "Remove the passphrase for the current database from your system keychain?\n\nThe passphrase will be requested again on next startup.",
-			Type:          runtime.QuestionDialog,
-			Buttons:       []string{"Clear", "Cancel"},
-			DefaultButton: "Cancel",
-			CancelButton:  "Cancel",
+	idMenu.Add("Forget Saved Passphrase…").
+		OnClick(func(_ *application.Context) {
+			if !app.confirm(
+				"Clear Saved Passphrase",
+				"Remove the passphrase for the current database from "+
+					"your system keychain?\n\nThe passphrase will be "+
+					"requested again on next startup.",
+				"Clear",
+				"Cancel",
+			) {
+				return
+			}
+			if err := app.ClearKeychainPassphrase(); err != nil {
+				app.SendNotification(
+					"Identity",
+					"No saved passphrase to forget.",
+				)
+			} else {
+				app.SendNotification(
+					"Identity",
+					"Saved passphrase removed from keychain.",
+				)
+			}
 		})
-		if err != nil || answer == "Cancel" || answer == "" {
-			return
-		}
-		if err := app.ClearKeychainPassphrase(); err != nil {
-			app.SendNotification("Identity", "No saved passphrase to forget.")
-		} else {
-			app.SendNotification("Identity", "Saved passphrase removed from keychain.")
-		}
-	})
 
-	m := menu.NewMenu()
-	m.Append(menu.AppMenu())
-	m.Append(menu.EditMenu())
-	m.Append(&menu.MenuItem{
-		Label:   "Connection",
-		Type:    menu.SubmenuType,
-		SubMenu: conn,
-	})
-	m.Append(&menu.MenuItem{
-		Label:   "View",
-		Type:    menu.SubmenuType,
-		SubMenu: view,
-	})
-	m.Append(&menu.MenuItem{
-		Label:   "Identity",
-		Type:    menu.SubmenuType,
-		SubMenu: idMenu,
-	})
-	m.Append(menu.WindowMenu())
-
-	return m
+	menu.AddRole(application.WindowMenu)
+	app.wails.Menu.Set(menu)
+	app.appMenu = menu
+	return menu
 }
 
 func main() {
@@ -178,31 +179,44 @@ func main() {
 	})
 	slog.SetDefault(slog.New(stderrHandler))
 
-	app := NewApp()
-
+	bus := NewApp()
 	slog.SetDefault(slog.New(&appLogHandler{
-		app:    app,
+		app:    bus,
 		stderr: stderrHandler,
 	}))
 
-	err := wails.Run(&options.App{
-		Title:     "Bus — Kamune Chat",
-		Width:     1050,
-		Height:    720,
-		MinWidth:  800,
-		MinHeight: 600,
-		Menu:      buildMenu(app),
-		Mac:       &mac.Options{},
-		AssetServer: &assetserver.Options{
-			Assets: assets,
+	wailsApp := application.New(application.Options{
+		Name:        "Bus",
+		Description: "Kamune Chat",
+		Icon:        appIcon,
+		Services: []application.Service{
+			application.NewService(bus),
 		},
-		BackgroundColour: &options.RGBA{R: 13, G: 16, B: 39, A: 255},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
-		Bind:             []any{app},
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(assets),
+		},
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
+	})
+	bus.wails = wailsApp
+	buildMenu(bus)
+
+	bus.window = wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:              "Bus — Kamune Chat",
+		Width:              1050,
+		Height:             720,
+		MinWidth:           800,
+		MinHeight:          600,
+		BackgroundColour:   application.NewRGB(13, 16, 39),
+		URL:                "/",
+		UseApplicationMenu: true,
+		Linux: application.LinuxWindow{
+			Icon: appIcon,
+		},
 	})
 
-	if err != nil {
+	if err := wailsApp.Run(); err != nil {
 		slog.Error("Application error", "error", err)
 	}
 }

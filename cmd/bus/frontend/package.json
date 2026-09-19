@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build:dev": "vite build --minify false --mode development",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
@@ -12,6 +13,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@wailsio/runtime": "^3.0.0-beta.23",
     "jsqr": "^1.4.0",
     "qrcode": "^1.5.3"
   },

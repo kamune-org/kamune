@@ -57,9 +57,9 @@ build_linux() {
 		"$DOCKER_IMAGE" \
 		/bin/sh -c "
 			cd frontend && npm install && cd .. && \
-			wails build -clean -platform linux/amd64 \
-				-ldflags '-s -w -X main.appVersion=$FULL_VERSION' \
-				-o '$output'
+			wails3 build GOOS=linux GOARCH=amd64 \
+				VERSION='$FULL_VERSION' \
+				OUTPUT='build/bin/$output'
 		"; then
 		echo "  FAILED: build for linux/amd64" >&2
 		return 1
@@ -68,12 +68,20 @@ build_linux() {
 
 build_native() {
 	local plat="$1" output="$2"
+	local os="${plat%%/*}"
+	local arch="${plat#*/}"
 	echo "==> Building $APP_NAME for $plat..."
 	if ! (
 		cd "$PROJECT_DIR"
-		wails build -clean -platform "$plat" \
-			-ldflags "-s -w -X main.appVersion=$FULL_VERSION" \
-			-o "$output"
+		if [ "$os" = "darwin" ]; then
+			wails3 build GOOS=darwin GOARCH="$arch" \
+				VERSION="$FULL_VERSION" &&
+			wails3 task darwin:create:app:bundle
+		else
+			wails3 build GOOS="$os" GOARCH="$arch" \
+				VERSION="$FULL_VERSION" \
+				OUTPUT="build/bin/$output"
+		fi
 	); then
 		echo "  FAILED: build for $plat" >&2
 		return 1
@@ -107,11 +115,12 @@ for plat in $PLATFORMS; do
 
 	# Move artifact from build/bin/ to DIST_PATH
 	src="$PROJECT_DIR/build/bin/$output"
-	if [ -f "$src" ]; then
+	app_src="$PROJECT_DIR/build/bin/$APP_NAME.app"
+	if [ "$os" = "darwin" ] && [ -d "$app_src" ]; then
+		rm -rf "$DIST_PATH/${output}.app"
+		cp -R "$app_src" "$DIST_PATH/${output}.app"
+	elif [ -f "$src" ]; then
 		mv "$src" "$DIST_PATH/"
-	elif [ -d "$PROJECT_DIR/build/bin/$APP_NAME.app" ]; then
-		cp -R "$PROJECT_DIR/build/bin/$APP_NAME.app" \
-			"$DIST_PATH/${output}.app"
 	else
 		echo "  WARNING: artifact not found (looked for $src and .app bundle)" >&2
 	fi

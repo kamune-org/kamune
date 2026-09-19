@@ -1,5 +1,15 @@
 import { derived, writable } from 'svelte/store'
-import type { main } from '../../wailsjs/go/models'
+import type {
+  HistorySessionInfo,
+  LogEntryInfo,
+  MessageInfo,
+  PeerInfo,
+  SessionInfo,
+  ShareInfo,
+  StatusInfo,
+  P2PToken,
+  RelayToken,
+} from './models'
 
 export type SidebarTab = 'sessions' | 'peers' | 'history'
 
@@ -28,7 +38,7 @@ export interface DialogsState {
   showServer: boolean
   showConnect: boolean
   showImport: boolean
-  showSessionInfo: main.SessionInfo | null
+  showSessionInfo: SessionInfo | null
   showRename: string | null
   showRenameType: 'live' | 'history' | null
   showDelete: string | null
@@ -38,10 +48,10 @@ export interface DialogsState {
   peerInfoFor: string | null
 }
 
-export const sessions = writable<main.SessionInfo[]>([])
-export const historySessions = writable<main.HistorySessionInfo[]>([])
-export const sessionMessages = writable<Record<string, main.MessageInfo[]>>({})
-export const status = writable<main.StatusInfo>({
+export const sessions = writable<SessionInfo[]>([])
+export const historySessions = writable<HistorySessionInfo[]>([])
+export const sessionMessages = writable<Record<string, MessageInfo[]>>({})
+export const status = writable<StatusInfo>({
   status: 'disconnected',
   message: 'Not connected',
 })
@@ -52,7 +62,7 @@ export const fingerprint = writable<FingerprintInfo>({
   sum: '',
 })
 export const dbPath = writable('')
-export const logEntries = writable<main.LogEntryInfo[]>([])
+export const logEntries = writable<LogEntryInfo[]>([])
 
 const levelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR']
 export const logLevel = writable('INFO')
@@ -76,7 +86,7 @@ export const sidebarTab = writable<SidebarTab>('sessions')
 export const logPanelOpen = writable(false)
 export const showWelcome = derived(sessions, ($sessions) => $sessions.length === 0)
 
-export const peers = writable<main.PeerInfo[]>([])
+export const peers = writable<PeerInfo[]>([])
 
 export const activeSession = derived(
   [sessions, activeSessionId],
@@ -88,11 +98,11 @@ export const activeSession = derived(
 
 export const toast = writable<ToastInfo | null>(null)
 export const relayToken = writable('')
-export const relayTokens = writable<main.relayToken[]>([])
-export const p2pTokens = writable<main.p2pToken[]>([])
+export const relayTokens = writable<RelayToken[]>([])
+export const p2pTokens = writable<P2PToken[]>([])
 
 export const verificationDialog = writable<VerificationRequest | null>(null)
-export const shareDialog = writable<main.ShareInfo | null>(null)
+export const shareDialog = writable<ShareInfo | null>(null)
 export const versionWarnings = writable<Record<string, string>>({})
 export const dialogs = writable<DialogsState>({
   showServer: false,

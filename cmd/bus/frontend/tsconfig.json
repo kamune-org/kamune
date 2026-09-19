@@ -11,6 +11,7 @@
     "forceConsistentCasingInFileNames": true,
     "useDefineForClassFields": true,
     "strict": true,
+    "allowJs": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "types": ["vite/client"]
@@ -19,7 +20,7 @@
     "src/**/*.ts",
     "src/**/*.d.ts",
     "src/**/*.svelte",
-    "wailsjs/**/*.ts",
-    "wailsjs/**/*.d.ts"
+    "bindings/**/*.ts",
+    "bindings/**/*.d.ts"
   ]
 }
