@@ -36,12 +36,17 @@ func peerKey(claim []byte) []byte {
 }
 
 func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
+	key := peerKey(claim)
 	var peer *Peer
 	err := s.engine.Query(func(b engine.Namespace) error {
 		var err error
-		peer, err = s.findPeer(b, peerKey(claim))
+		peer, err = s.findPeer(b, key)
 		return err
 	})
+	if errors.Is(err, ErrPeerExpired) {
+		s.removeExpiredPeer(key)
+		return nil, ErrPeerExpired
+	}
 	return peer, err
 }
 
@@ -58,17 +63,6 @@ func (s *Storage) findPeer(b engine.Namespace, key []byte) (*Peer, error) {
 	}
 
 	if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(s.clock.Now()) {
-		err = s.engine.Command(func(b engine.Namespace) error {
-			peers := b.Sub([]byte(engine.PeersNamespace))
-			return peers.Delete(key)
-		})
-		if err != nil {
-			slog.Warn(
-				"failed to remove expired peer",
-				slog.String("peer_name", p.GetName()),
-				slog.Any("error", err),
-			)
-		}
 		return nil, ErrPeerExpired
 	}
 
@@ -84,6 +78,16 @@ func (s *Storage) findPeer(b engine.Namespace, key []byte) (*Peer, error) {
 		LastSeen:   lastSeen,
 		AppVersion: p.AppVersion,
 	}, nil
+}
+
+func (s *Storage) removeExpiredPeer(key []byte) {
+	err := s.engine.Command(func(b engine.Namespace) error {
+		peers := b.Sub([]byte(engine.PeersNamespace))
+		return peers.Delete(key)
+	})
+	if err != nil {
+		slog.Warn("failed to remove expired peer", slog.Any("error", err))
+	}
 }
 
 func (s *Storage) StorePeer(peer *Peer) error {

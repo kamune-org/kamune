@@ -200,6 +200,15 @@ func sessionMeta(b engine.Namespace, sessionID string) engine.Namespace {
 		Sub([]byte("meta"))
 }
 
+// sessionMetaEnsure returns the meta sub-namespace, creating it if needed.
+func sessionMetaEnsure(
+	b engine.Namespace, sessionID string,
+) engine.Namespace {
+	sessions := b.Ensure([]byte(engine.SessionsNamespace))
+	session := sessions.Ensure([]byte(sessionID))
+	return session.Ensure([]byte("meta"))
+}
+
 // GetChatHistory returns decrypted chat entries stored under the chat
 // sub-namespace for the given session ID (sessions/<id>/chat/). Keys are
 // expected to be 14 bytes total, composed of:

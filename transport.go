@@ -36,11 +36,13 @@ type Transport struct {
 	decoder        *enigma.Enigma
 	mu             *sync.Mutex
 	remotePeer     *storage.Peer
+	storage        *storage.Storage
 	sessionID      string
 	resumptionRoot []byte
 	recvSequence   uint64
 	sendSequence   uint64
 	sendMu         sync.Mutex
+	established    bool
 }
 
 func newTransport(
@@ -112,7 +114,12 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 	if !route.IsValid() {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
 	}
+	if err := t.checkRoute(route); err != nil {
+		_ = t.conn.Close()
+		return nil, err
+	}
 	if route == RouteCloseTransport {
+		t.invalidateResumptionTokens()
 		return nil, ErrPeerDisconnected
 	}
 	if err := proto.Unmarshal(message, dst); err != nil {
@@ -126,6 +133,9 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 	if !route.IsValid() {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
+	}
+	if err := t.checkRoute(route); err != nil {
+		return nil, err
 	}
 
 	// Keep sequence allocation, serialization, and the frame write in the same
@@ -151,8 +161,59 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 // Close closes the transport connection. It sends a RouteCloseTransport frame
 // before closing (best-effort — if the send fails, it closes directly).
 func (t *Transport) Close() error {
-	_, _ = t.Send(Bytes(nil), RouteCloseTransport)
+	_, err := t.Send(Bytes(nil), RouteCloseTransport)
+	if err == nil {
+		t.invalidateResumptionTokens()
+	}
 	return t.conn.Close()
+}
+
+func (t *Transport) checkRoute(route Route) error {
+	ok := route.isChallengeRoute()
+	if t.established {
+		ok = route.isSessionRoute()
+	}
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrUnexpectedRoute, route)
+	}
+	return nil
+}
+
+func (t *Transport) invalidateResumptionTokens() {
+	if t.storage == nil || t.sessionID == "" {
+		return
+	}
+	err := t.storage.SetMeta(
+		t.sessionID,
+		storage.NewByteSlicesMeta(storage.ResumptionTokensKey, nil),
+	)
+	if err != nil {
+		slog.Error(
+			"invalidate resumption tokens", slog.Any("error", err),
+		)
+	}
+}
+
+func persistEstablishedSession(
+	store *storage.Storage, t *Transport, setEstablished bool,
+) {
+	t.storage = store
+	if store == nil {
+		return
+	}
+	var peerKey []byte
+	if t.remotePeer != nil {
+		peerKey = t.remotePeer.PublicKey
+	}
+	err := store.PutSessionResumption(
+		t.sessionID,
+		peerKey,
+		t.deriveResumptionTokens(),
+		setEstablished,
+	)
+	if err != nil {
+		slog.Error("persist resumption state", slog.Any("error", err))
+	}
 }
 
 // SessionID returns the unique identifier for this session.

@@ -222,9 +222,7 @@ func (s *Server) handleNewConnection(
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
 	t.remotePeer = peer
-	_ = s.storage.SetMeta(t.sessionID, storage.NewByteSlicesMeta(
-		storage.ResumptionTokensKey, t.deriveResumptionTokens(),
-	))
+	persistEstablishedSession(s.storage, t, true)
 
 	slog.Info(
 		"session established",
@@ -246,22 +244,22 @@ func (s *Server) handleResume(
 	// Parse the ResumeRequest.
 	var req pb.ResumeRequest
 	if err := proto.Unmarshal(st.GetData(), &req); err != nil {
-		return fmt.Errorf("deserializing resume request: %w", err)
+		return s.rejectResume(ec, "malformed request")
 	}
 
 	sessionID := req.GetSessionID()
 	token := req.GetToken()
+	if len(token) != resumptionTokenSize {
+		return s.rejectResume(ec, "token invalid")
+	}
 
 	peer, err := s.storage.GetPeer(sessionID)
 	if err != nil {
-		if err := sendResumeAccept(ec, s.attest, false); err != nil {
-			return fmt.Errorf("sending resume accept: %w", err)
-		}
-		return fmt.Errorf("resume rejected: unknown session")
+		return s.rejectResume(ec, "unknown session")
 	}
 	establishedAt, err := s.storage.GetEstablishedAt(sessionID)
 	if err != nil {
-		return fmt.Errorf("get session established_at: %w", err)
+		return s.rejectResume(ec, "unknown session")
 	}
 
 	// Verify the signature against the stored peer key.
@@ -270,28 +268,19 @@ func (s *Server) handleResume(
 		signingInput(st.GetMetadata(), st.GetData()),
 		st.GetSignature(),
 	) {
-		if err := sendResumeAccept(ec, s.attest, false); err != nil {
-			return fmt.Errorf("sending resume accept: %w", err)
-		}
-		return fmt.Errorf("resume rejected: invalid signature")
+		return s.rejectResume(ec, "invalid signature")
 	}
 
 	// Check the resumption window.
 	if s.clock.Now().Sub(establishedAt) > resumptionGracePeriod {
-		if err := sendResumeAccept(ec, s.attest, false); err != nil {
-			return fmt.Errorf("sending resume accept: %w", err)
-		}
-		return fmt.Errorf("resume rejected: session expired")
+		return s.rejectResume(ec, "session expired")
 	}
 
 	// Consume the single-use token only after authenticating the request and
 	// checking its session. A malformed request must not burn a valid token.
 	err = s.storage.RemoveListItem(sessionID, storage.ResumptionTokensKey, token)
 	if err != nil {
-		if err := sendResumeAccept(ec, s.attest, false); err != nil {
-			return fmt.Errorf("sending resume accept: %w", err)
-		}
-		return fmt.Errorf("resume rejected: token invalid")
+		return s.rejectResume(ec, "token invalid")
 	}
 
 	// Resume accepted — send accept and proceed to handshake.
@@ -313,9 +302,7 @@ func (s *Server) handleResume(
 
 	t.conn = cn
 	t.remotePeer = peer
-	_ = s.storage.SetMeta(t.sessionID, storage.NewByteSlicesMeta(
-		storage.ResumptionTokensKey, t.deriveResumptionTokens(),
-	))
+	persistEstablishedSession(s.storage, t, false)
 
 	slog.Info(
 		"session resumed",
@@ -328,6 +315,13 @@ func (s *Server) handleResume(
 	}
 
 	return nil
+}
+
+func (s *Server) rejectResume(ec *exchange.Channel, reason string) error {
+	if err := sendResumeAccept(ec, s.attest, false); err != nil {
+		return fmt.Errorf("sending resume accept: %w", err)
+	}
+	return fmt.Errorf("resume rejected: %s", reason)
 }
 
 // PublicKey returns the server's public key.

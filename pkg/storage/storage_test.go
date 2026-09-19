@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -730,4 +731,118 @@ func TestRemoveSessionToken_RejectsAlreadyRemovedToken(t *testing.T) {
 	// Second remove with same token fails.
 	err = storage.RemoveListItem("sess-used", ResumptionTokensKey, tok)
 	a.ErrorIs(err, ErrNotFound)
+}
+
+func TestSetMetaCreatesMissingSession(t *testing.T) {
+	a := require.New(t)
+	store, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	tok := makeToken(0x01, 32)
+	err := store.SetMeta(
+		"new-sess", NewByteSlicesMeta(ResumptionTokensKey, [][]byte{tok}),
+	)
+	a.NoError(err)
+	got, err := store.PopList("new-sess", ResumptionTokensKey)
+	a.NoError(err)
+	a.Equal(tok, got)
+}
+
+func TestPutSessionResumptionDoesNotResetEstablishedAt(t *testing.T) {
+	a := require.New(t)
+	store, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	att, err := attest.New()
+	a.NoError(err)
+	pub := att.MarshalPublicKey()
+	tok := makeToken(0x02, 32)
+	a.NoError(store.PutSessionResumption("sess-r", pub, [][]byte{tok}, true))
+	first, err := store.GetEstablishedAt("sess-r")
+	a.NoError(err)
+
+	time.Sleep(2 * time.Millisecond)
+	tok2 := makeToken(0x03, 32)
+	a.NoError(store.PutSessionResumption("sess-r", pub, [][]byte{tok2}, true))
+	again, err := store.GetEstablishedAt("sess-r")
+	a.NoError(err)
+	a.True(first.Equal(again))
+}
+
+func TestCreateSessionDoesNotResetEstablishedAt(t *testing.T) {
+	a := require.New(t)
+	store, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	att, err := attest.New()
+	a.NoError(err)
+	a.NoError(store.StorePeer(&Peer{
+		Name:      "alice",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+	a.NoError(store.CreateSession("sess-c", att.MarshalPublicKey()))
+	first, err := store.GetEstablishedAt("sess-c")
+	a.NoError(err)
+
+	time.Sleep(2 * time.Millisecond)
+	a.NoError(store.CreateSession("sess-c", att.MarshalPublicKey()))
+	again, err := store.GetEstablishedAt("sess-c")
+	a.NoError(err)
+	a.True(first.Equal(again))
+}
+
+func TestFindPeerExpiredDoesNotDeadlock(t *testing.T) {
+	a := require.New(t)
+	f, err := os.CreateTemp("", "kamune-storage-expired-*.db")
+	a.NoError(err)
+	a.NoError(f.Close())
+	defer func() { _ = os.Remove(f.Name()) }()
+
+	store, err := OpenStorage(
+		WithDBPath(f.Name()),
+		WithNoPassphrase(),
+		WithExpiryDuration(time.Hour),
+	)
+	a.NoError(err)
+	defer func() { _ = store.Close() }()
+
+	att, err := attest.New()
+	a.NoError(err)
+	a.NoError(store.StorePeer(&Peer{
+		Name:      "old",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now().Add(-48 * time.Hour),
+	}))
+
+	_, err = store.FindPeer(att.MarshalPublicKey())
+	a.ErrorIs(err, ErrPeerExpired)
+	_, err = store.FindPeer(att.MarshalPublicKey())
+	a.Error(err)
+	a.False(errors.Is(err, ErrPeerExpired))
+}
+
+func TestRemoveListItemUnequalLength(t *testing.T) {
+	a := require.New(t)
+	store, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	att, err := attest.New()
+	a.NoError(err)
+	a.NoError(store.StorePeer(&Peer{
+		Name:      "len",
+		PublicKey: att.MarshalPublicKey(),
+		FirstSeen: time.Now(),
+	}))
+	a.NoError(store.CreateSession("sess-len", att.MarshalPublicKey()))
+	tok := makeToken(0xAB, 32)
+	a.NoError(store.SetMeta(
+		"sess-len", NewByteSlicesMeta(ResumptionTokensKey, [][]byte{tok}),
+	))
+
+	err = store.RemoveListItem("sess-len", ResumptionTokensKey, []byte{1})
+	a.ErrorIs(err, ErrNotFound)
+	got, err := store.PopList("sess-len", ResumptionTokensKey)
+	a.NoError(err)
+	a.Equal(tok, got)
 }

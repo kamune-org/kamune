@@ -63,6 +63,20 @@ func (r Route) IsValid() bool {
 	return r > RouteInvalid && r <= RouteSessionData
 }
 
+func (r Route) isSessionRoute() bool {
+	switch r {
+	case RouteExchangeMessages, RouteCloseTransport,
+		RoutePing, RoutePong, RouteSessionData:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r Route) isChallengeRoute() bool {
+	return r == RouteSendChallenge || r == RouteVerifyChallenge
+}
+
 // ToProto converts the Route to its protobuf enum representation.
 func (r Route) ToProto() pb.Route {
 	switch r {

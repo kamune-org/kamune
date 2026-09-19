@@ -79,8 +79,13 @@ func requestHandshake(
 		)
 	}
 
-	// Validate untrusted responder-provided fields.
-	err = validateHandshakeFields(resp.GetSalt(), resp.GetSessionKey())
+	wantLen := sessionIDLength / 2
+	if opts.sessionID != "" {
+		wantLen = sessionIDLength
+	}
+	err = validateHandshakeFields(
+		resp.GetSalt(), resp.GetSessionKey(), wantLen,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("invalid remote handshake fields: %w", err)
 	}
@@ -132,6 +137,7 @@ func requestHandshake(
 	}
 
 	t.setResumptionRoot(secret)
+	t.established = true
 
 	return t, nil
 }
@@ -164,8 +170,13 @@ func acceptHandshake(
 		)
 	}
 
-	// Validate untrusted initiator-provided fields early.
-	err = validateHandshakeFields(req.GetSalt(), req.GetSessionKey())
+	wantLen := sessionIDLength / 2
+	if opts.sessionID != "" {
+		wantLen = sessionIDLength
+	}
+	err = validateHandshakeFields(
+		req.GetSalt(), req.GetSessionKey(), wantLen,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("invalid remote handshake fields: %w", err)
 	}
@@ -244,6 +255,7 @@ func acceptHandshake(
 	}
 
 	t.setResumptionRoot(secret)
+	t.established = true
 
 	return t, nil
 }
@@ -300,14 +312,19 @@ func acceptChallenge(t *Transport, expectedRoute Route) error {
 
 // validateHandshakeFields enforces strict size checks for untrusted handshake
 // inputs to prevent malformed session IDs, message bloat, and weird HPKE inputs.
-func validateHandshakeFields(salt []byte, sessionKey string) error {
+func validateHandshakeFields(
+	salt []byte, sessionKey string, wantLen int,
+) error {
 	if len(salt) != handshakeSaltSize {
 		return fmt.Errorf(
 			"invalid salt length: got %d, want %d", len(salt), handshakeSaltSize,
 		)
 	}
-	if l := len(sessionKey); l != sessionIDLength/2 && l != sessionIDLength {
-		return fmt.Errorf("invalid session key length: got %d", l)
+	if len(sessionKey) != wantLen {
+		return fmt.Errorf(
+			"invalid session key length: got %d, want %d",
+			len(sessionKey), wantLen,
+		)
 	}
 	for i := range len(sessionKey) {
 		c := sessionKey[i]
@@ -390,6 +407,8 @@ func deriveChallengeInfo(sessionID, direction string, hash [32]byte) []byte {
 // length.
 func randomBytes(l int) []byte {
 	buf := make([]byte, l)
-	_, _ = rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		panic("kamune: crypto/rand: " + err.Error())
+	}
 	return buf
 }

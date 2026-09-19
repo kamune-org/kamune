@@ -135,9 +135,7 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
 	t.remotePeer = peer
-	_ = d.storage.SetMeta(t.sessionID, storage.NewByteSlicesMeta(
-		storage.ResumptionTokensKey, t.deriveResumptionTokens(),
-	))
+	persistEstablishedSession(d.storage, t, true)
 
 	slog.Info(
 		"session established",
@@ -148,9 +146,8 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 	return t, nil
 }
 
-// attemptResume tries to resume a session. Returns the transport on success,
-// or an error if resumption failed (caller should fall back to cold
-// Introduction).
+// attemptResume tries to resume a session. On failure Dial returns the
+// error; the application may open a new connection and use Introduction.
 func (d *Dialer) attemptResume(
 	ec *exchange.Channel, cn Conn,
 ) (*Transport, error) {
@@ -188,9 +185,7 @@ func (d *Dialer) attemptResume(
 
 	t.conn = cn
 	t.remotePeer = peer
-	_ = d.storage.SetMeta(t.sessionID, storage.NewByteSlicesMeta(
-		storage.ResumptionTokensKey, t.deriveResumptionTokens(),
-	))
+	persistEstablishedSession(d.storage, t, false)
 
 	slog.Info("session resumed", slog.String("session_id", t.sessionID))
 

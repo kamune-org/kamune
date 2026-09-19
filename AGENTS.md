@@ -48,7 +48,8 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 
 - Core abstraction: `Server`, `Dialer`, `Transport`, `Conn` — bidirectional encrypted channels
 - Protocol flow: Exchange (HPKE) → Introduction → Handshake (ML-KEM-768) → Challenge → Communication
-- Session resumption: parallel path that skips the full handshake for reconnections
+- Session resumption: parallel path that skips Introduction for reconnections
+  (still performs Handshake and Challenge)
 - Cipher suite: `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X`
 - `pkg/` public packages: `attest`, `exchange`, `fingerprint`, `relayconn`, `storage`
 - `internal/` private packages: `box/pb`, `clock`, `enigma`, `store`

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"math"
+	"os"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 type queuedConn struct {
@@ -55,7 +57,9 @@ func incomingTransport(
 	a.NoError(err)
 
 	conn := &queuedConn{frames: [][]byte{cipher.Encrypt(payload)}}
-	return newTransport(conn, serde, "test-session", cipher, cipher)
+	tr := newTransport(conn, serde, "test-session", cipher, cipher)
+	tr.established = true
+	return tr
 }
 
 func TestTransportReceiveValidatesSequenceBeforeClose(t *testing.T) {
@@ -122,7 +126,10 @@ func FuzzTransportReceiveEnvelope(f *testing.F) {
 		a.NoError(err)
 
 		conn := &queuedConn{frames: [][]byte{cipher.Encrypt(payload)}}
-		transport := newTransport(conn, serde, "fuzz-session", cipher, cipher)
+		transport := newTransport(
+			conn, serde, "fuzz-session", cipher, cipher,
+		)
+		transport.established = true
 		original := []byte("original")
 		dst := Bytes(bytes.Clone(original))
 
@@ -139,6 +146,12 @@ func FuzzTransportReceiveEnvelope(f *testing.F) {
 			a.Nil(metadata)
 			a.Equal(uint64(1), transport.recvSequence)
 			a.Equal(original, dst.GetValue())
+		case !route.isSessionRoute():
+			a.ErrorIs(receiveErr, ErrUnexpectedRoute)
+			a.Nil(metadata)
+			a.Equal(uint64(1), transport.recvSequence)
+			a.Equal(original, dst.GetValue())
+			a.True(conn.closed)
 		case route == RouteCloseTransport:
 			a.ErrorIs(receiveErr, ErrPeerDisconnected)
 			a.Nil(metadata)
@@ -223,4 +236,95 @@ func TestTransport_EncryptFitsUint16(t *testing.T) {
 		frameTargetSize+encryptionOverhead, math.MaxUint16,
 		"last bucket + AEAD must fit math.MaxUint16",
 	)
+}
+
+func TestTransportReceiveRejectsHandshakeRoute(t *testing.T) {
+	a := require.New(t)
+	tr := incomingTransport(t, RouteIdentity, 1, Bytes(nil))
+
+	_, err := tr.Receive(Bytes(nil))
+	a.ErrorIs(err, ErrUnexpectedRoute)
+	a.True(tr.conn.(*queuedConn).closed)
+}
+
+func TestTransportSendRejectsHandshakeRoute(t *testing.T) {
+	a := require.New(t)
+	tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
+
+	_, err := tr.Send(Bytes(nil), RouteSendChallenge)
+	a.ErrorIs(err, ErrUnexpectedRoute)
+}
+
+func TestTransportChallengeRoutesBeforeEstablished(t *testing.T) {
+	a := require.New(t)
+	tr := incomingTransport(t, RouteSendChallenge, 1, Bytes([]byte("c")))
+	tr.established = false
+
+	_, err := tr.Receive(Bytes(nil))
+	a.NoError(err)
+
+	_, err = tr.Send(Bytes([]byte("c")), RouteVerifyChallenge)
+	a.NoError(err)
+
+	_, err = tr.Send(Bytes(nil), RouteExchangeMessages)
+	a.ErrorIs(err, ErrUnexpectedRoute)
+}
+
+func TestTransportSessionRoutesRejectedBeforeEstablished(t *testing.T) {
+	a := require.New(t)
+	tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
+	tr.established = false
+
+	_, err := tr.Receive(Bytes(nil))
+	a.ErrorIs(err, ErrUnexpectedRoute)
+	a.True(tr.conn.(*queuedConn).closed)
+}
+
+func TestTransportCloseClearsResumptionTokens(t *testing.T) {
+	a := require.New(t)
+	store := newTransportTestStorage(t)
+	tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
+	tr.storage = store
+	tok := bytes.Repeat([]byte{0x11}, 32)
+	a.NoError(store.PutSessionResumption(
+		tr.sessionID, nil, [][]byte{tok}, false,
+	))
+
+	a.NoError(tr.Close())
+	_, err := store.PopList(tr.sessionID, storage.ResumptionTokensKey)
+	a.ErrorIs(err, storage.ErrNotFound)
+}
+
+func TestTransportReceiveCloseClearsResumptionTokens(t *testing.T) {
+	a := require.New(t)
+	store := newTransportTestStorage(t)
+	tr := incomingTransport(t, RouteCloseTransport, 1, Bytes(nil))
+	tr.storage = store
+	tok := bytes.Repeat([]byte{0x22}, 32)
+	a.NoError(store.PutSessionResumption(
+		tr.sessionID, nil, [][]byte{tok}, false,
+	))
+
+	_, err := tr.Receive(Bytes(nil))
+	a.ErrorIs(err, ErrPeerDisconnected)
+	_, err = store.PopList(tr.sessionID, storage.ResumptionTokensKey)
+	a.ErrorIs(err, storage.ErrNotFound)
+}
+
+func newTransportTestStorage(t *testing.T) *storage.Storage {
+	t.Helper()
+	a := require.New(t)
+	f, err := os.CreateTemp("", "kamune-transport-*.db")
+	a.NoError(err)
+	a.NoError(f.Close())
+	store, err := storage.OpenStorage(
+		storage.WithDBPath(f.Name()),
+		storage.WithNoPassphrase(),
+	)
+	a.NoError(err)
+	t.Cleanup(func() {
+		_ = store.Close()
+		_ = os.Remove(f.Name())
+	})
+	return store
 }

@@ -70,16 +70,26 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 			return fmt.Errorf("store peer key: %w", err)
 		}
 
-		// Store establishment timestamp.
-		var tsBuf [8]byte
-		binary.BigEndian.PutUint64(tsBuf[:], uint64(s.clock.Now().UnixNano()))
-		err = meta.PutEncrypted([]byte(EstablishedAtKey), tsBuf[:])
-		if err != nil {
-			return fmt.Errorf("store established_at: %w", err)
+		existing, err := meta.GetEncrypted([]byte(EstablishedAtKey))
+		if err != nil && !isMissing(err) {
+			return fmt.Errorf("read established_at: %w", err)
+		}
+		if len(existing) < 8 {
+			var tsBuf [8]byte
+			binary.BigEndian.PutUint64(
+				tsBuf[:], uint64(s.clock.Now().UnixNano()),
+			)
+			err = meta.PutEncrypted([]byte(EstablishedAtKey), tsBuf[:])
+			if err != nil {
+				return fmt.Errorf("store established_at: %w", err)
+			}
 		}
 
 		return nil
 	})
+	if errors.Is(err, ErrPeerExpired) {
+		s.removeExpiredPeer(peerKey(publicKey))
+	}
 	if err != nil {
 		return fmt.Errorf("create session %s: %w", sessionID, err)
 	}
@@ -108,14 +118,58 @@ func (s *Storage) GetMeta(sessionID, key string) (Meta, error) {
 	return NewBytesMeta(key, val), nil
 }
 
-// SetMeta writes a Meta's key-value pair into a session's meta namespace.
+// SetMeta writes a Meta's key-value pair into a session's meta namespace,
+// creating the session if it does not exist.
 func (s *Storage) SetMeta(sessionID string, m Meta) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
-		meta := sessionMeta(b, sessionID)
+		meta := sessionMetaEnsure(b, sessionID)
 		return meta.PutEncrypted(m.key, m.value)
 	})
 	if err != nil {
 		return fmt.Errorf("set session meta %s/%s: %w", sessionID, m.Key(), err)
+	}
+	return nil
+}
+
+// PutSessionResumption writes resumption metadata, creating the session
+// namespace if needed. When setEstablished is true, established_at is stored
+// only if it is not already present so a resume cannot reset the window.
+func (s *Storage) PutSessionResumption(
+	sessionID string,
+	peerPublicKey []byte,
+	tokens [][]byte,
+	setEstablished bool,
+) error {
+	err := s.engine.Command(func(b engine.Namespace) error {
+		meta := sessionMetaEnsure(b, sessionID)
+		if len(peerPublicKey) > 0 {
+			err := meta.PutEncrypted([]byte(PeerKey), peerPublicKey)
+			if err != nil {
+				return fmt.Errorf("store peer key: %w", err)
+			}
+		}
+		if setEstablished {
+			existing, err := meta.GetEncrypted([]byte(EstablishedAtKey))
+			if err != nil && !isMissing(err) {
+				return fmt.Errorf("read established_at: %w", err)
+			}
+			if len(existing) < 8 {
+				var tsBuf [8]byte
+				binary.BigEndian.PutUint64(
+					tsBuf[:], uint64(s.clock.Now().UnixNano()),
+				)
+				err = meta.PutEncrypted([]byte(EstablishedAtKey), tsBuf[:])
+				if err != nil {
+					return fmt.Errorf("store established_at: %w", err)
+				}
+			}
+		}
+		return meta.PutEncrypted(
+			[]byte(ResumptionTokensKey), serializeList(tokens),
+		)
+	})
+	if err != nil {
+		return fmt.Errorf("put session resumption %s: %w", sessionID, err)
 	}
 	return nil
 }
@@ -141,15 +195,20 @@ func (s *Storage) GetPeer(sessionID string) (*Peer, error) {
 	if m.Value() == nil {
 		return nil, ErrSessionNotFound
 	}
+	key := peerKey(m.Value())
 	var peer *Peer
 	err = s.engine.Query(func(b engine.Namespace) error {
-		p, findErr := s.findPeer(b, peerKey(m.Value()))
+		p, findErr := s.findPeer(b, key)
 		if findErr != nil {
 			return findErr
 		}
 		peer = p
 		return nil
 	})
+	if errors.Is(err, ErrPeerExpired) {
+		s.removeExpiredPeer(key)
+		return nil, ErrPeerExpired
+	}
 	if err != nil {
 		return nil, fmt.Errorf("find peer for session %s: %w", sessionID, err)
 	}
@@ -212,6 +271,9 @@ func (s *Storage) RemoveListItem(sessionID, key string, entry []byte) error {
 			return err
 		}
 		for i, item := range list {
+			if len(item) != len(entry) {
+				continue
+			}
 			if subtle.ConstantTimeCompare(item, entry) == 1 {
 				// Remove by swapping with last and truncating.
 				list[i] = list[len(list)-1]

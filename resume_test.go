@@ -171,14 +171,10 @@ func setupResumptionTest(
 	sessionID := t1.SessionID()
 	a.Equal(sessionID, t2.SessionID())
 
-	// Create session records in both storages (required by GetSession).
-	// Each storage references the remote peer's public key.
-	a.NoError(store1.CreateSession(sessionID, att2.MarshalPublicKey()))
-	a.NoError(store2.CreateSession(sessionID, att1.MarshalPublicKey()))
-
-	// Store resumption tokens in both storages.
-	a.NoError(store1.SetMeta(sessionID, storage.NewByteSlicesMeta(storage.ResumptionTokensKey, t1.deriveResumptionTokens())))
-	a.NoError(store2.SetMeta(sessionID, storage.NewByteSlicesMeta(storage.ResumptionTokensKey, t2.deriveResumptionTokens())))
+	t1.remotePeer = peer2
+	t2.remotePeer = peer
+	persistEstablishedSession(store1, t1, true)
+	persistEstablishedSession(store2, t2, true)
 
 	cleanup := func() {
 		conn1.Close()

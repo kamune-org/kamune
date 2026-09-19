@@ -98,7 +98,9 @@ func BenchmarkValidateHandshakeFields_OK(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := validateHandshakeFields(salt, string(sessionKey)); err != nil {
+		if err := validateHandshakeFields(
+			salt, string(sessionKey), sessionIDLength/2,
+		); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -109,15 +111,22 @@ func TestValidateHandshakeFields(t *testing.T) {
 		name       string
 		sessionKey string
 		saltSize   int
+		wantLen    int
 		wantErr    bool
 	}{
-		{"prefix", "ABCDEFGHIJKL", handshakeSaltSize, false},
-		{"full", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[:sessionIDLength], handshakeSaltSize, false},
-		{"short salt", "ABCDEFGHIJKL", handshakeSaltSize - 1, true},
-		{"short key", "ABCDEFGHIJK", handshakeSaltSize, true},
-		{"lowercase", "ABCDEFGHIJKa", handshakeSaltSize, true},
-		{"punctuation", "ABCDEFGHIJK!", handshakeSaltSize, true},
-		{"invalid digit", "ABCDEFGHIJK0", handshakeSaltSize, true},
+		{"prefix", "ABCDEFGHIJKL", handshakeSaltSize, 12, false},
+		{
+			"full",
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[:sessionIDLength],
+			handshakeSaltSize, sessionIDLength, false,
+		},
+		{"cold rejects full", "ABCDEFGHIJKLMNOPQRSTUVWX", handshakeSaltSize, 12, true},
+		{"resume rejects prefix", "ABCDEFGHIJKL", handshakeSaltSize, 24, true},
+		{"short salt", "ABCDEFGHIJKL", handshakeSaltSize - 1, 12, true},
+		{"short key", "ABCDEFGHIJK", handshakeSaltSize, 12, true},
+		{"lowercase", "ABCDEFGHIJKa", handshakeSaltSize, 12, true},
+		{"punctuation", "ABCDEFGHIJK!", handshakeSaltSize, 12, true},
+		{"invalid digit", "ABCDEFGHIJK0", handshakeSaltSize, 12, true},
 	}
 
 	for _, tt := range tests {
@@ -126,6 +135,7 @@ func TestValidateHandshakeFields(t *testing.T) {
 			err := validateHandshakeFields(
 				make([]byte, tt.saltSize),
 				tt.sessionKey,
+				tt.wantLen,
 			)
 			if tt.wantErr {
 				a.Error(err)
@@ -142,7 +152,9 @@ func BenchmarkValidateHandshakeFields_BadSalt(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = validateHandshakeFields(salt, string(sessionKey))
+		_ = validateHandshakeFields(
+			salt, string(sessionKey), sessionIDLength/2,
+		)
 	}
 }
 
@@ -152,7 +164,9 @@ func BenchmarkValidateHandshakeFields_BadSessionKey(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = validateHandshakeFields(salt, string(sessionKey))
+		_ = validateHandshakeFields(
+			salt, string(sessionKey), sessionIDLength/2,
+		)
 	}
 }
 
