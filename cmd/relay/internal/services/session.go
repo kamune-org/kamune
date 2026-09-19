@@ -49,9 +49,9 @@ func NewSessionManager(
 }
 
 func (sm *SessionManager) Create(listener *exchange.Channel) ([]byte, error) {
-	sm.purgeExpired()
-
 	sm.mu.Lock()
+	toClose := sm.takeExpiredLocked()
+	defer closeChannels(toClose)
 	defer sm.mu.Unlock()
 
 	if len(sm.sessions) >= sm.maxConns {
@@ -67,7 +67,6 @@ func (sm *SessionManager) Create(listener *exchange.Channel) ([]byte, error) {
 		listener: listener,
 		expiry:   time.Now().Add(sm.ttl),
 	}
-
 	return token[:], nil
 }
 
@@ -83,9 +82,9 @@ func (sm *SessionManager) CreateWith(
 		return err
 	}
 
-	sm.purgeExpired()
-
 	sm.mu.Lock()
+	toClose := sm.takeExpiredLocked()
+	defer closeChannels(toClose)
 	defer sm.mu.Unlock()
 
 	if len(sm.sessions) >= sm.maxConns {
@@ -193,6 +192,22 @@ func (sm *SessionManager) Remove(token []byte) {
 	delete(sm.sessions, fmt.Sprintf("%x", token))
 }
 
+func (sm *SessionManager) RemoveIfOwner(
+	token []byte, ch *exchange.Channel,
+) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	key := fmt.Sprintf("%x", token)
+	sess, ok := sm.sessions[key]
+	if !ok {
+		return
+	}
+	if ch != sess.listener && ch != sess.dialer {
+		return
+	}
+	delete(sm.sessions, key)
+}
+
 func (sm *SessionManager) Len() int {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -215,34 +230,38 @@ func (sm *SessionManager) cleanupLoop(ctx context.Context) {
 
 func (sm *SessionManager) purgeExpired() {
 	sm.mu.Lock()
+	toClose := sm.takeExpiredLocked()
+	sm.mu.Unlock()
+	closeChannels(toClose)
+}
 
-	var wg sync.WaitGroup
+func (sm *SessionManager) takeExpiredLocked() []*exchange.Channel {
 	now := time.Now()
+	var toClose []*exchange.Channel
 	for key, sess := range sm.sessions {
 		switch {
 		case sess.dialer == nil && now.After(sess.expiry):
 			delete(sm.sessions, key)
-			wg.Go(func() {
-				if err := sess.listener.Close(); err != nil {
-					slog.Debug("session: close listener", slog.Any("error", err))
-				}
-			})
-
+			toClose = append(toClose, sess.listener)
 		case sess.dialer != nil &&
 			!sess.sessionExpiry.IsZero() &&
 			now.After(sess.sessionExpiry):
 			delete(sm.sessions, key)
-			wg.Go(func() {
-				if err := sess.listener.Close(); err != nil {
-					slog.Debug("session: close listener", slog.Any("error", err))
-				}
-				if err := sess.dialer.Close(); err != nil {
-					slog.Debug("session: close dialer", slog.Any("error", err))
-				}
-			})
+			toClose = append(toClose, sess.listener, sess.dialer)
 		}
 	}
-	sm.mu.Unlock()
+	return toClose
+}
+
+func closeChannels(chs []*exchange.Channel) {
+	var wg sync.WaitGroup
+	for _, ch := range chs {
+		wg.Go(func() {
+			if err := ch.Close(); err != nil {
+				slog.Debug("session: close channel", slog.Any("error", err))
+			}
+		})
+	}
 	wg.Wait()
 }
 

@@ -681,3 +681,177 @@ func TestNotify_ForwardSecrecy(t *testing.T) {
 
 	_ = peer2Priv // referenced for symmetry
 }
+
+func TestRegister_SelfMatch_UpdatesAddr(t *testing.T) {
+	a := require.New(t)
+	b := newTestBroker(t, time.Minute)
+	oldClient := newTestClient(t)
+	newClient := newTestClient(t)
+	peer1Priv, peer1Pub := peerKey(t)
+	peer2Client := newTestClient(t)
+	peer2Priv, peer2Pub := peerKey(t)
+
+	token := make([]byte, 16)
+	for i := range token {
+		token[i] = byte(i + 1)
+	}
+
+	oldIP := oldClient.LocalAddr().(*net.UDPAddr).IP.To4()
+	pktOld := relaybroker.BuildRegister(
+		token, peer1Pub, oldIP,
+		uint16(oldClient.LocalAddr().(*net.UDPAddr).Port),
+	)
+	_, err := oldClient.WriteToUDP(pktOld, b.Addr())
+	a.NoError(err)
+	time.Sleep(20 * time.Millisecond)
+
+	newIP := newClient.LocalAddr().(*net.UDPAddr).IP.To4()
+	pktNew := relaybroker.BuildRegister(
+		token, peer1Pub, newIP,
+		uint16(newClient.LocalAddr().(*net.UDPAddr).Port),
+	)
+	_, err = newClient.WriteToUDP(pktNew, b.Addr())
+	a.NoError(err)
+	time.Sleep(20 * time.Millisecond)
+
+	peer2IP := peer2Client.LocalAddr().(*net.UDPAddr).IP.To4()
+	pkt2 := relaybroker.BuildRegister(
+		token, peer2Pub, peer2IP,
+		uint16(peer2Client.LocalAddr().(*net.UDPAddr).Port),
+	)
+	resp2 := sendAndRead(t, peer2Client, b.Addr(), pkt2)
+	peer2Payload, err := decryptNotify(t, peer2Priv, resp2)
+	a.NoError(err)
+	a.Equal(relaybroker.NotifyPeerMatched, peer2Payload.Type)
+
+	_ = newClient.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 1500)
+	n, _, err := newClient.ReadFromUDP(buf)
+	a.NoError(err)
+	payload, err := decryptNotify(t, peer1Priv, buf[:n])
+	a.NoError(err)
+	a.Equal(relaybroker.NotifyPeerMatched, payload.Type)
+
+	_ = oldClient.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	_, _, err = oldClient.ReadFromUDP(buf)
+	a.Error(err, "NOTIFY must go to rebound address, not the old one")
+}
+
+func TestRegister_MatchUsesObservedAddr(t *testing.T) {
+	a := require.New(t)
+	b := newTestBroker(t, time.Minute)
+	peer1Client := newTestClient(t)
+	peer1Priv, peer1Pub := peerKey(t)
+	peer2Client := newTestClient(t)
+	_, peer2Pub := peerKey(t)
+
+	token := make([]byte, 16)
+	for i := range token {
+		token[i] = byte(i + 1)
+	}
+
+	peer1IP := peer1Client.LocalAddr().(*net.UDPAddr).IP.To4()
+	pkt1 := relaybroker.BuildRegister(
+		token, peer1Pub, peer1IP,
+		uint16(peer1Client.LocalAddr().(*net.UDPAddr).Port),
+	)
+	_, err := peer1Client.WriteToUDP(pkt1, b.Addr())
+	a.NoError(err)
+	time.Sleep(20 * time.Millisecond)
+
+	claimedIP := net.IPv4(1, 2, 3, 4)
+	pkt2 := relaybroker.BuildRegister(token, peer2Pub, claimedIP, 9999)
+	_, err = peer2Client.WriteToUDP(pkt2, b.Addr())
+	a.NoError(err)
+
+	_ = peer1Client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 1500)
+	n, _, err := peer1Client.ReadFromUDP(buf)
+	a.NoError(err)
+	payload, err := decryptNotify(t, peer1Priv, buf[:n])
+	a.NoError(err)
+	a.Equal(relaybroker.NotifyPeerMatched, payload.Type)
+
+	observed := peer2Client.LocalAddr().(*net.UDPAddr)
+	a.Equal(observed.IP.To4(), net.IP(payload.IP))
+	a.Equal(uint16(observed.Port), payload.Port)
+}
+
+func TestRegister_DropsWhenRegistryFull(t *testing.T) {
+	a := require.New(t)
+	cfg := config.Broker{
+		Enabled:         true,
+		Address:         "127.0.0.1:0",
+		RegistrationTTL: time.Minute,
+	}
+	b, err := New(cfg, nil)
+	a.NoError(err)
+	b.maxRegistry = 1
+	go b.Run(context.Background())
+	t.Cleanup(func() { _ = b.Close() })
+
+	peer1Client := newTestClient(t)
+	peer1Priv, peer1Pub := peerKey(t)
+	peer2Client := newTestClient(t)
+	peer2Priv, peer2Pub := peerKey(t)
+
+	token1 := make([]byte, 16)
+	for i := range token1 {
+		token1[i] = byte(i + 1)
+	}
+	token2 := make([]byte, 16)
+	for i := range token2 {
+		token2[i] = byte(i + 2)
+	}
+
+	peer1IP := peer1Client.LocalAddr().(*net.UDPAddr).IP.To4()
+	pkt1 := relaybroker.BuildRegister(
+		token1, peer1Pub, peer1IP,
+		uint16(peer1Client.LocalAddr().(*net.UDPAddr).Port),
+	)
+	_, err = peer1Client.WriteToUDP(pkt1, b.Addr())
+	a.NoError(err)
+	time.Sleep(20 * time.Millisecond)
+
+	overflow := newTestClient(t)
+	_, overflowPub := peerKey(t)
+	overflowIP := overflow.LocalAddr().(*net.UDPAddr).IP.To4()
+	pktOverflow := relaybroker.BuildRegister(
+		token2, overflowPub, overflowIP,
+		uint16(overflow.LocalAddr().(*net.UDPAddr).Port),
+	)
+	_, err = overflow.WriteToUDP(pktOverflow, b.Addr())
+	a.NoError(err)
+	time.Sleep(20 * time.Millisecond)
+
+	joiner := newTestClient(t)
+	_, joinerPub := peerKey(t)
+	joinerIP := joiner.LocalAddr().(*net.UDPAddr).IP.To4()
+	pktJoin2 := relaybroker.BuildRegister(
+		token2, joinerPub, joinerIP,
+		uint16(joiner.LocalAddr().(*net.UDPAddr).Port),
+	)
+	_, err = joiner.WriteToUDP(pktJoin2, b.Addr())
+	a.NoError(err)
+	_ = joiner.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	buf := make([]byte, 1500)
+	_, _, err = joiner.ReadFromUDP(buf)
+	a.Error(err, "overflow token must not be held")
+
+	peer2IP := peer2Client.LocalAddr().(*net.UDPAddr).IP.To4()
+	pkt2 := relaybroker.BuildRegister(
+		token1, peer2Pub, peer2IP,
+		uint16(peer2Client.LocalAddr().(*net.UDPAddr).Port),
+	)
+	resp2 := sendAndRead(t, peer2Client, b.Addr(), pkt2)
+	payload2, err := decryptNotify(t, peer2Priv, resp2)
+	a.NoError(err)
+	a.Equal(relaybroker.NotifyPeerMatched, payload2.Type)
+
+	_ = peer1Client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, _, err := peer1Client.ReadFromUDP(buf)
+	a.NoError(err)
+	payload1, err := decryptNotify(t, peer1Priv, buf[:n])
+	a.NoError(err)
+	a.Equal(relaybroker.NotifyPeerMatched, payload1.Type)
+}

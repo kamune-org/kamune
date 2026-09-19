@@ -137,6 +137,12 @@ func (h *Hub) handlePing(ch *exchange.Channel) {
 	}
 }
 
-func (h *Hub) Unregister(token []byte) {
-	h.sessions.Remove(token)
+func (h *Hub) ClosePeerChannel(
+	token []byte, closed *exchange.Channel,
+) {
+	h.sessions.ClosePeerChannel(token, closed)
+}
+
+func (h *Hub) Unregister(token []byte, ch *exchange.Channel) {
+	h.sessions.RemoveIfOwner(token, ch)
 }

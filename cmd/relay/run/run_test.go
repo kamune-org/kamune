@@ -23,6 +23,18 @@ func TestLoadTLSConfig_InMemoryWhenPathsEmpty(t *testing.T) {
 	r.NoError(err)
 	r.NotNil(cfg)
 	r.Len(cfg.Certificates, 1)
+
+	parsed, err := x509.ParseCertificate(cfg.Certificates[0].Certificate[0])
+	r.NoError(err)
+	r.Contains(parsed.DNSNames, "localhost")
+	hasLoopback := false
+	for _, ip := range parsed.IPAddresses {
+		if ip.Equal(net.IPv4(127, 0, 0, 1)) {
+			hasLoopback = true
+			break
+		}
+	}
+	r.True(hasLoopback, "self-signed cert must include 127.0.0.1")
 }
 
 func TestLoadTLSConfig_LoadsExistingCert(t *testing.T) {

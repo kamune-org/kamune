@@ -689,6 +689,14 @@ func TestHandler_RandomTokenStillWorks(t *testing.T) {
 	stopDialer()
 }
 
+func TestDurationSeconds(t *testing.T) {
+	a := require.New(t)
+	a.Equal(uint32(0), durationSeconds(0))
+	a.Equal(uint32(0), durationSeconds(-time.Second))
+	a.Equal(uint32(1), durationSeconds(500*time.Millisecond))
+	a.Equal(uint32(10), durationSeconds(10*time.Second))
+}
+
 func TestHandler_RejectsWrongSizeToken(t *testing.T) {
 	a := require.New(t)
 	hub := newTestHub(t, "", 0)

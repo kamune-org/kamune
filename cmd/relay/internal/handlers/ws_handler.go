@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"runtime/debug"
 	"time"
@@ -17,6 +18,13 @@ import (
 )
 
 func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
+	remoteAddr := clientIP(r, h.trustedProxies)
+	if rl := h.service.Hub().RateLimiter(); rl != nil && !rl.Allow(remoteAddr) {
+		slog.Warn("rate limit exceeded", slog.String("remote", remoteAddr))
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
 	})
@@ -25,16 +33,11 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if maxSize := h.service.MaxMessageSize(); maxSize > 0 {
+	maxSize := h.service.MaxMessageSize()
+	if maxSize > 0 {
 		conn.SetReadLimit(int64(maxSize))
-	}
-
-	remoteAddr := clientIP(r, h.trustedProxies)
-
-	if rl := h.service.Hub().RateLimiter(); rl != nil && !rl.Allow(remoteAddr) {
-		slog.Warn("rate limit exceeded", slog.String("remote", remoteAddr))
-		conn.Close(websocket.StatusPolicyViolation, "rate limit exceeded")
-		return
+	} else {
+		conn.SetReadLimit(-1)
 	}
 
 	adapter := &wsAdapter{conn: conn}
@@ -61,6 +64,7 @@ func handleRelayConn(
 	// ch is hoisted to function scope so the panic-recovery defer below
 	// can close it regardless of where the panic occurred.
 	var ch *exchange.Channel
+	var registeredToken []byte
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -70,11 +74,13 @@ func handleRelayConn(
 				slog.String("stack", string(debug.Stack())),
 			)
 		}
-		// Best-effort cleanup so the underlying connection is closed and
-		// the peer's read pump exits even if a panic bypassed the normal
-		// error paths. We close the adapter (if it implements io.Closer)
-		// in addition to the exchange channel, so a panic that occurs
-		// before ch is assigned still results in a closed connection.
+		// Close the peer first while the session is still registered,
+		// then drop the map entry. Closing the adapter last covers
+		// panics that occur before ch is assigned.
+		if len(registeredToken) > 0 {
+			hub.ClosePeerChannel(registeredToken, ch)
+			hub.Unregister(registeredToken, ch)
+		}
 		if ch != nil {
 			_ = ch.Close()
 		}
@@ -163,7 +169,7 @@ func handleRelayConn(
 				ch.Close()
 				return
 			}
-			ttlSeconds = uint32(hub.TokenTTL().Seconds())
+			ttlSeconds = durationSeconds(hub.TokenTTL())
 		} else {
 			if err := hub.RegisterListenerWith(ch, token); err != nil {
 				slog.Error(
@@ -174,7 +180,7 @@ func handleRelayConn(
 				return
 			}
 			sentToken = token
-			ttlSeconds = uint32(hub.TokenTTL().Seconds())
+			ttlSeconds = durationSeconds(hub.TokenTTL())
 		}
 
 	case pb.Register_MODE_JOIN:
@@ -201,7 +207,8 @@ func handleRelayConn(
 		ch.Close()
 		return
 	}
-	sessionTTLSeconds = uint32(hub.SessionTTL().Seconds())
+	sessionTTLSeconds = durationSeconds(hub.SessionTTL())
+	registeredToken = sentToken
 
 	registered := &pb.Frame{
 		Kind: &pb.Frame_Registered{
@@ -236,5 +243,15 @@ func handleRelayConn(
 	)
 
 	hub.ReadPump(ch, sentToken)
-	hub.Unregister(sentToken)
+}
+
+func durationSeconds(d time.Duration) uint32 {
+	if d <= 0 {
+		return 0
+	}
+	s := math.Ceil(d.Seconds())
+	if s > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(s)
 }

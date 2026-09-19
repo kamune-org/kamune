@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -25,6 +26,8 @@ import (
 // readDeadline is the UDP read deadline. Short enough for responsive shutdown
 // and TTL cleanup, long enough to avoid busy-looping.
 const readDeadline = 500 * time.Millisecond
+
+const defaultMaxRegistry = 100_000
 
 // AllowFunc is the rate limiter's Allow method, abstracted so the broker
 // package does not import the relay's private ratelimit package. nil means "no
@@ -42,12 +45,13 @@ type registration struct {
 
 // Broker is the UDP server. One instance per relay process.
 type Broker struct {
-	conn     *net.UDPConn
-	registry map[string]*registration
-	mu       sync.Mutex
-	ttl      time.Duration
-	allow    AllowFunc
-	now      func() time.Time
+	conn        *net.UDPConn
+	registry    map[string]*registration
+	mu          sync.Mutex
+	ttl         time.Duration
+	allow       AllowFunc
+	now         func() time.Time
+	maxRegistry int
 }
 
 // New binds the UDP socket and returns a Broker ready for Run.
@@ -65,11 +69,12 @@ func New(cfg config.Broker, allow AllowFunc) (*Broker, error) {
 		ttl = 60 * time.Second
 	}
 	return &Broker{
-		conn:     conn,
-		registry: make(map[string]*registration),
-		ttl:      ttl,
-		allow:    allow,
-		now:      time.Now,
+		conn:        conn,
+		registry:    make(map[string]*registration),
+		ttl:         ttl,
+		allow:       allow,
+		now:         time.Now,
+		maxRegistry: defaultMaxRegistry,
 	}, nil
 }
 
@@ -178,7 +183,7 @@ func (b *Broker) handleRegister(pkt []byte, src *net.UDPAddr) {
 		b.handleRandomRegister(peerEphPub, src4)
 		return
 	}
-	b.handleStaticRegister(token, peerEphPub, src4, ip, port)
+	b.handleStaticRegister(token, peerEphPub, src4)
 }
 
 // handleRandomRegister is the empty-token case: generate a random 16-byte
@@ -193,6 +198,10 @@ func (b *Broker) handleRandomRegister(peerEphPub []byte, src *net.UDPAddr) {
 	copy(pub[:], peerEphPub)
 
 	b.mu.Lock()
+	if b.registryFullLocked() {
+		b.mu.Unlock()
+		return
+	}
 	b.registry[hexKey(key[:])] = &registration{
 		addr:       src,
 		peerEphPub: pub,
@@ -206,7 +215,7 @@ func (b *Broker) handleRandomRegister(peerEphPub []byte, src *net.UDPAddr) {
 // handleStaticRegister is the non-empty-token case: lookup, then match,
 // refresh, or hold.
 func (b *Broker) handleStaticRegister(
-	token, peerEphPub []byte, src *net.UDPAddr, ip net.IP, port uint16,
+	token, peerEphPub []byte, src *net.UDPAddr,
 ) {
 	var pub [32]byte
 	copy(pub[:], peerEphPub)
@@ -214,13 +223,16 @@ func (b *Broker) handleStaticRegister(
 	b.mu.Lock()
 	held, exists := b.registry[hexKey(token)]
 	if exists && bytes.Equal(held.peerEphPub[:], pub[:]) {
-		// Self-match: same peer, refresh TTL, no NOTIFY.
 		held.expires = b.now().Add(b.ttl)
+		held.addr = src
 		b.mu.Unlock()
 		return
 	}
 	if !exists {
-		// Hold: no match yet, no NOTIFY.
+		if b.registryFullLocked() {
+			b.mu.Unlock()
+			return
+		}
 		b.registry[hexKey(token)] = &registration{
 			addr:       src,
 			peerEphPub: pub,
@@ -229,20 +241,19 @@ func (b *Broker) handleStaticRegister(
 		b.mu.Unlock()
 		return
 	}
-	// Match: held peer has a different PEER_EPH_PUB than this peer. Send
-	// NOTIFY(PEER_MATCHED) to BOTH, each with its own fresh broker ephemeral
-	// key. Clear the entry.
 	heldEntry := held
 	delete(b.registry, hexKey(token))
 	b.mu.Unlock()
 
-	b.sendPeerMatched(token, heldEntry, pub, src, ip, port)
+	b.sendPeerMatched(token, heldEntry, pub, src)
 }
 
 // sendTokenAssigned builds and sends NOTIFY(TOKEN_ASSIGNED) to the given peer
 // address.
 func (b *Broker) sendTokenAssigned(token []byte, peerEphPub [32]byte, dst *net.UDPAddr) {
-	plaintext := relaybroker.TokenAssignedPlaintext(token, uint32(b.ttl.Seconds()))
+	plaintext := relaybroker.TokenAssignedPlaintext(
+		token, durationSeconds(b.ttl),
+	)
 	b.sendNotify(plaintext, peerEphPub, dst)
 }
 
@@ -255,24 +266,39 @@ func (b *Broker) sendPeerMatched(
 	held *registration,
 	newPub [32]byte,
 	newAddr *net.UDPAddr,
-	newIP net.IP,
-	newPort uint16,
 ) {
 	heldIP := ipv4FromAddr(held.addr)
-	if heldIP == nil {
+	newIP := ipv4FromAddr(newAddr)
+	if heldIP == nil || newIP == nil {
 		return
 	}
-	// NOTIFY to the new peer: held's IP:port + eph pub.
 	heldPlain := relaybroker.PeerMatchedPlaintext(
 		token, held.peerEphPub[:], heldIP.IP, uint16(held.addr.Port),
 	)
 	b.sendNotify(heldPlain, newPub, newAddr)
 
-	// NOTIFY to the held peer: new's IP:port + eph pub.
 	newPlain := relaybroker.PeerMatchedPlaintext(
-		token, newPub[:], newIP, newPort,
+		token, newPub[:], newIP.IP, uint16(newAddr.Port),
 	)
 	b.sendNotify(newPlain, held.peerEphPub, held.addr)
+}
+
+func (b *Broker) registryFullLocked() bool {
+	if b.maxRegistry <= 0 {
+		return false
+	}
+	return len(b.registry) >= b.maxRegistry
+}
+
+func durationSeconds(d time.Duration) uint32 {
+	if d <= 0 {
+		return 0
+	}
+	s := math.Ceil(d.Seconds())
+	if s > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(s)
 }
 
 // sendNotify performs the per-NOTIFY crypto: generate a fresh broker ephemeral

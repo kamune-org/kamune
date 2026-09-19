@@ -329,6 +329,28 @@ func TestSessionManager_ClosePeerChannel_ClosesPeer(t *testing.T) {
 	}
 }
 
+func TestSessionManager_RemoveIfOwner_IgnoresStranger(t *testing.T) {
+	a := require.New(t)
+	sm := newTestSessionManager(time.Minute, 0, 10)
+
+	listener, _, cleanup := pipeChans(t)
+	defer cleanup()
+	defer listener.Close()
+
+	token := makeToken(0x50)
+	a.NoError(sm.CreateWith(listener, token))
+
+	stranger, _, cleanup2 := pipeChans(t)
+	defer cleanup2()
+	defer stranger.Close()
+
+	sm.RemoveIfOwner(token, stranger)
+	a.Equal(1, sm.Len(), "stranger must not delete a reused token")
+
+	sm.RemoveIfOwner(token, listener)
+	a.Equal(0, sm.Len())
+}
+
 func TestSessionManager_Remove_Idempotent(t *testing.T) {
 	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)

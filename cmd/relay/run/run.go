@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -81,10 +82,11 @@ func Run(cfgPath string) error {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/health", h.HealthHandler)
 		diagnoseServer := &http.Server{
-			Addr:         cfg.Diagnose.Address,
-			Handler:      mux,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
+			Addr:              cfg.Diagnose.Address,
+			Handler:           mux,
+			ReadHeaderTimeout: 30 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      30 * time.Second,
 		}
 		httpServers = append(httpServers, diagnoseServer)
 		wg.Go(func() {
@@ -108,10 +110,9 @@ func Run(cfgPath string) error {
 	}
 	if cfg.WS.Enabled {
 		wsServer := &http.Server{
-			Addr:         cfg.WS.Address,
-			Handler:      wsMux,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
+			Addr:              cfg.WS.Address,
+			Handler:           wsMux,
+			ReadHeaderTimeout: 30 * time.Second,
 		}
 		httpServers = append(httpServers, wsServer)
 		wg.Go(func() {
@@ -150,11 +151,10 @@ func Run(cfgPath string) error {
 	// 5. WSS server (WebSocket over TLS).
 	if cfg.WSS.Enabled {
 		wssServer := &http.Server{
-			Addr:         cfg.WSS.Address,
-			Handler:      wsMux, // shared with [ws] when both are enabled
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			TLSConfig:    wssCfg,
+			Addr:              cfg.WSS.Address,
+			Handler:           wsMux, // shared with [ws] when both are enabled
+			ReadHeaderTimeout: 30 * time.Second,
+			TLSConfig:         wssCfg,
 		}
 		httpServers = append(httpServers, wssServer)
 		wg.Go(func() {
@@ -276,6 +276,11 @@ func createSelfSignedCert() (certPEM, keyPEM []byte, err error) {
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
+		DNSNames:              []string{"localhost"},
+		IPAddresses: []net.IP{
+			net.IPv4(127, 0, 0, 1),
+			net.IPv6loopback,
+		},
 	}
 
 	der, err := x509.CreateCertificate(
