@@ -2,6 +2,7 @@ package relayconn
 
 import (
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -96,4 +97,72 @@ func TestListenerReadPumpExitReleasesRelaySession(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		a.Fail("Accept did not return after the relay went away")
 	}
+}
+
+// TestListenerRepeatedCloseKeepsNewerConn closes an old connection a
+// second time after the relay has started a new one, and checks that
+// the new connection keeps receiving frames and that the old one can
+// no longer write to the shared channel.
+func TestListenerRepeatedCloseKeepsNewerConn(t *testing.T) {
+	a := require.New(t)
+	listener, serverCh := setupListener(t)
+
+	// Everything the listener writes reaches the relay here.
+	relayGot := make(chan []byte, 16)
+	go func() {
+		for {
+			data, err := serverCh.ReadBytes()
+			if err != nil {
+				return
+			}
+			relayGot <- data
+		}
+	}()
+
+	a.NoError(serverCh.WriteBytes(msgFrame([]byte("a"))))
+	c1, err := listener.Accept()
+	a.NoError(err)
+	a.NoError(c1.Close())
+
+	a.NoError(serverCh.WriteBytes(msgFrame([]byte("b"))))
+	c2, err := listener.Accept()
+	a.NoError(err)
+	defer c2.Close()
+
+	a.NoError(c1.Close())
+	// Even a late close hook of the old conn must leave the new one.
+	c1.(*RelayConn).closeFn()
+	a.ErrorIs(c1.WriteBytes([]byte("stale")), net.ErrClosed)
+
+	a.NoError(serverCh.WriteBytes(msgFrame([]byte("c"))))
+	a.NoError(c2.SetDeadline(time.Now().Add(2 * time.Second)))
+	for _, want := range []string{"b", "c"} {
+		got, err := c2.ReadBytes()
+		a.NoError(err)
+		a.Equal(want, string(got))
+	}
+
+	listener.mu.Lock()
+	current := listener.conn
+	listener.mu.Unlock()
+	a.Same(c2, current)
+
+	select {
+	case data := <-relayGot:
+		a.Failf("closed conn wrote to the relay", "frame %x", data)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestRelayConnWriteAfterClose(t *testing.T) {
+	a := require.New(t)
+	clientCh, _ := channelPair(t)
+
+	var mu sync.Mutex
+	rc := newRelayConn(t.Context(), clientCh, &mu)
+	rc.closeFn = func() { clientCh.Close() }
+	a.NoError(rc.Close())
+	a.NoError(rc.Close())
+
+	a.ErrorIs(rc.WriteBytes([]byte("late")), net.ErrClosed)
 }

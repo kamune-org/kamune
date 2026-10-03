@@ -298,7 +298,9 @@ func (l *RelayListener) deliver(msg *pb.Message) {
 	rc := newRelayConn(l.ctx, l.channel, &l.channelMu)
 	rc.closeFn = func() {
 		l.mu.Lock()
-		l.conn = nil
+		if l.conn == rc {
+			l.conn = nil
+		}
 		stopped := l.stopped.Load()
 		l.mu.Unlock()
 		if stopped {
