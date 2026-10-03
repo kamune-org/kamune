@@ -5,9 +5,13 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -57,6 +61,180 @@ func TestRun_CloseIsCleanShutdown(t *testing.T) {
 	case <-time.After(time.Second):
 		a.FailNow("broker Run did not return after Close")
 	}
+}
+
+// faultyConn returns the queued errors from ReadFromUDP and SetReadDeadline,
+// one per call, before it uses the real socket again.
+type faultyConn struct {
+	*net.UDPConn
+	errs         []error
+	deadlineErrs []error
+	mu           sync.Mutex
+}
+
+func (c *faultyConn) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
+	c.mu.Lock()
+	if len(c.errs) > 0 {
+		err := c.errs[0]
+		c.errs = c.errs[1:]
+		c.mu.Unlock()
+		return 0, nil, err
+	}
+	c.mu.Unlock()
+	return c.UDPConn.ReadFromUDP(b)
+}
+
+func (c *faultyConn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	if len(c.deadlineErrs) > 0 {
+		err := c.deadlineErrs[0]
+		c.deadlineErrs = c.deadlineErrs[1:]
+		c.mu.Unlock()
+		return err
+	}
+	c.mu.Unlock()
+	return c.UDPConn.SetReadDeadline(t)
+}
+
+// failingConn fails every read and counts the attempts.
+type failingConn struct {
+	*net.UDPConn
+	reads atomic.Int64
+}
+
+func (c *failingConn) ReadFromUDP([]byte) (int, *net.UDPAddr, error) {
+	c.reads.Add(1)
+	return 0, nil, errors.New("persistent read failure")
+}
+
+func TestRun_SurvivesPacketReadErrors(t *testing.T) {
+	// wsaEMSGSIZE is what Windows returns for a datagram larger than the
+	// read buffer.
+	const wsaEMSGSIZE = syscall.Errno(10040)
+	tests := []struct {
+		name         string
+		errs         []error
+		deadlineErrs []error
+	}{
+		{
+			name: "message too long",
+			errs: []error{&net.OpError{
+				Op:  "read",
+				Net: "udp",
+				Err: os.NewSyscallError("wsarecvfrom", wsaEMSGSIZE),
+			}},
+		},
+		{
+			name: "unknown error",
+			errs: []error{errors.New("transient read failure")},
+		},
+		{
+			name: "burst of errors",
+			errs: func() []error {
+				errs := make([]error, readErrBurst+2)
+				for i := range errs {
+					errs[i] = errors.New("transient read failure")
+				}
+				return errs
+			}(),
+		},
+		{
+			name:         "set read deadline error",
+			deadlineErrs: []error{errors.New("transient deadline failure")},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			b, err := New(config.Broker{
+				Enabled: true,
+				Address: "127.0.0.1:0",
+			}, nil)
+			a.NoError(err)
+			udp, ok := b.conn.(*net.UDPConn)
+			a.True(ok)
+			b.conn = &faultyConn{
+				UDPConn:      udp,
+				errs:         tt.errs,
+				deadlineErrs: tt.deadlineErrs,
+			}
+
+			runErr := make(chan error, 1)
+			go func() { runErr <- b.Run(context.Background()) }()
+			t.Cleanup(func() { _ = b.Close() })
+
+			client := newTestClient(t)
+			pkt := []byte{'K', 'B', 'R', 'K', 0x01, 0x01}
+			resp := sendAndRead(t, client, b.Addr(), pkt)
+			a.NotEmpty(resp, "broker must keep serving after a read error")
+
+			select {
+			case err := <-runErr:
+				a.FailNow("Run returned after a read error", "%v", err)
+			default:
+			}
+		})
+	}
+}
+
+func TestRun_SurvivesOversizedDatagram(t *testing.T) {
+	// maxIPv4UDPPayload is the largest datagram IPv4 can carry. The read
+	// buffer must hold it, or Windows fails the read with WSAEMSGSIZE.
+	const maxIPv4UDPPayload = 65507
+	a := require.New(t)
+	a.GreaterOrEqual(readBufSize, maxIPv4UDPPayload)
+	b := newTestBroker(t, time.Minute)
+	client := newTestClient(t)
+
+	// Larger than an Ethernet MTU. No valid header, so the only response
+	// the client sees is to the echo that follows.
+	for _, size := range []int{4000, maxIPv4UDPPayload} {
+		_, err := client.WriteToUDP(make([]byte, size), b.Addr())
+		a.NoError(err)
+	}
+
+	pkt := []byte{'K', 'B', 'R', 'K', 0x01, 0x01}
+	resp := sendAndRead(t, client, b.Addr(), pkt)
+	a.NotEmpty(resp)
+}
+
+func TestRun_BacksOffOnPersistentReadErrors(t *testing.T) {
+	a := require.New(t)
+	b, err := New(config.Broker{
+		Enabled: true,
+		Address: "127.0.0.1:0",
+	}, nil)
+	a.NoError(err)
+	udp, ok := b.conn.(*net.UDPConn)
+	a.True(ok)
+	conn := &failingConn{UDPConn: udp}
+	b.conn = conn
+	t.Cleanup(func() { _ = b.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runErr := make(chan error, 1)
+	start := time.Now()
+	go func() { runErr <- b.Run(ctx) }()
+
+	// Run must keep reading after the burst: wait for two backoff reads.
+	a.Eventually(func() bool {
+		return conn.reads.Load() >= int64(readErrBurst)+2
+	}, 10*time.Second, 10*time.Millisecond, "Run must keep reading")
+	cancel()
+	select {
+	case err := <-runErr:
+		a.NoError(err)
+	case <-time.After(10 * time.Second):
+		a.FailNow("Run did not return after cancel")
+	}
+	// Measured after Run returned, so a late wake-up on a loaded runner
+	// raises the bound by the backoff reads it allowed.
+	elapsed := time.Since(start)
+
+	// readErrBurst reads fail at full speed, then Run waits readErrBackoff
+	// before each read. A loop that spins makes millions of reads.
+	maxReads := int64(readErrBurst) + int64(elapsed/readErrBackoff) + 2
+	a.LessOrEqual(conn.reads.Load(), maxReads)
 }
 
 // newTestClient returns a UDP socket bound to 127.0.0.1:0, suitable for sending

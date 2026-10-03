@@ -27,6 +27,19 @@ import (
 // and TTL cleanup, long enough to avoid busy-looping.
 const readDeadline = 500 * time.Millisecond
 
+// readBufSize holds the largest IPv4 UDP payload, so no datagram is too long
+// to read. With a shorter buffer Windows fails the read with WSAEMSGSIZE.
+const readBufSize = 64 << 10
+
+// readErrBurst is the number of reads in a row that may fail before Run backs
+// off. Once the buffer fits any datagram, no packet a remote host sends makes
+// a read fail, so a run of failures points to a local socket fault.
+const readErrBurst = 16
+
+// readErrBackoff is the pause before each further read while reads keep
+// failing, so a persistent socket fault cannot spin the loop.
+const readErrBackoff = 100 * time.Millisecond
+
 const defaultMaxRegistry = 100_000
 
 // AllowFunc is the rate limiter's Allow method, abstracted so the broker
@@ -43,9 +56,19 @@ type registration struct {
 	expires    time.Time
 }
 
+// packetConn is the part of *net.UDPConn the broker uses. Tests wrap it to
+// inject read errors.
+type packetConn interface {
+	ReadFromUDP(b []byte) (int, *net.UDPAddr, error)
+	WriteToUDP(b []byte, addr *net.UDPAddr) (int, error)
+	SetReadDeadline(t time.Time) error
+	LocalAddr() net.Addr
+	Close() error
+}
+
 // Broker is the UDP server. One instance per relay process.
 type Broker struct {
-	conn        *net.UDPConn
+	conn        packetConn
 	registry    map[string]*registration
 	mu          sync.Mutex
 	ttl         time.Duration
@@ -78,12 +101,16 @@ func New(cfg config.Broker, allow AllowFunc) (*Broker, error) {
 	}, nil
 }
 
-// Run is the main loop. It returns when ctx is cancelled or the socket is
-// closed. Single goroutine: read with a deadline, dispatch, tick cleanup at
-// every deadline.
+// Run is the main loop. It returns nil when ctx is cancelled or the socket is
+// closed, and does not return otherwise. Single goroutine: read with a
+// deadline, dispatch, tick cleanup at every deadline. A failed read is logged
+// and skipped, so no packet a remote host sends can stop the loop. Once
+// readErrBurst reads in a row have failed, Run waits readErrBackoff before
+// each further read until one succeeds or times out.
 func (b *Broker) Run(ctx context.Context) error {
-	buf := make([]byte, 1500)
+	buf := make([]byte, readBufSize)
 	lastPurge := b.now()
+	failures := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -95,26 +122,69 @@ func (b *Broker) Run(ctx context.Context) error {
 			b.purgeExpired()
 			lastPurge = now
 		}
-		if err := b.conn.SetReadDeadline(b.now().Add(readDeadline)); err != nil {
-			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
-				return nil
-			}
-			return fmt.Errorf("set udp read deadline: %w", err)
+		n, src, err := b.read(buf)
+		if err == nil {
+			logReadRecovered(failures)
+			failures = 0
+			b.dispatch(buf[:n], src)
+			continue
 		}
-		n, src, err := b.conn.ReadFromUDP(buf)
-		if err != nil {
-			var ne net.Error
-			if errors.As(err, &ne) && ne.Timeout() {
-				b.purgeExpired()
-				lastPurge = b.now()
-				continue
-			}
-			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
-				return nil
-			}
-			return fmt.Errorf("read udp packet: %w", err)
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			logReadRecovered(failures)
+			failures = 0
+			b.purgeExpired()
+			lastPurge = b.now()
+			continue
 		}
-		b.dispatch(buf[:n], src)
+		if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+			return nil
+		}
+		failures++
+		if failures < readErrBurst {
+			slog.Debug("broker: read packet", slog.Any("error", err))
+			continue
+		}
+		if failures == readErrBurst {
+			slog.Warn(
+				"broker: udp reads keep failing, backing off",
+				slog.Int("failures", failures),
+				slog.Any("error", err),
+			)
+		}
+		if !sleepCtx(ctx, readErrBackoff) {
+			return nil
+		}
+	}
+}
+
+// read sets the read deadline and reads one datagram into buf.
+func (b *Broker) read(buf []byte) (int, *net.UDPAddr, error) {
+	if err := b.conn.SetReadDeadline(b.now().Add(readDeadline)); err != nil {
+		return 0, nil, fmt.Errorf("set udp read deadline: %w", err)
+	}
+	return b.conn.ReadFromUDP(buf)
+}
+
+// logReadRecovered logs the end of a run of failed reads that made Run back
+// off.
+func logReadRecovered(failures int) {
+	if failures >= readErrBurst {
+		slog.Info(
+			"broker: udp reads recovered", slog.Int("failures", failures),
+		)
+	}
+}
+
+// sleepCtx waits for d and reports false if ctx was cancelled first.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
 	}
 }
 

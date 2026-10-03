@@ -73,7 +73,7 @@ func Run(cfgPath string) error {
 		}
 	}
 
-	errCh := make(chan error, 6)
+	errCh := make(chan error, 5)
 	var wg sync.WaitGroup
 	var httpServers []*http.Server
 
@@ -168,7 +168,10 @@ func Run(cfgPath string) error {
 		})
 	}
 
-	// 6. Broker (UDP signaling).
+	// 6. Broker (UDP signaling). The socket is already bound, so a Run
+	// error is a runtime failure, not a startup one. It is logged instead
+	// of sent to errCh: a broker fault must not take down the TCP, TLS
+	// and WS listeners.
 	if br != nil {
 		wg.Go(func() {
 			slog.Info(
@@ -176,7 +179,7 @@ func Run(cfgPath string) error {
 				slog.String("address", br.Addr().String()),
 			)
 			if err := br.Run(ctx); err != nil {
-				errCh <- fmt.Errorf("broker: %w", err)
+				slog.Error("broker stopped", slog.Any("error", err))
 			}
 		})
 	}
