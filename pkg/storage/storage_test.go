@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -937,4 +938,67 @@ func TestChangePassphrase_WrongOldPassphrase(t *testing.T) {
 	s, err = openWithPass(path, pass)
 	a.NoError(err)
 	a.NoError(s.Close())
+}
+
+func TestOpenStorage_DirectoryPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits do not control access on Windows")
+	}
+	cases := []struct {
+		// setup prepares the home directory and returns the database path
+		// to pass with WithDBPath, or "" for the default path.
+		setup func(t *testing.T, home string) string
+		want  map[string]os.FileMode // relative to home
+		name  string
+	}{
+		{
+			name: "created directories are private",
+			setup: func(t *testing.T, home string) string {
+				return filepath.Join(home, "a", "b", "db")
+			},
+			want: map[string]os.FileMode{"a": 0o700, "a/b": 0o700},
+		},
+		{
+			name: "default directory is tightened",
+			setup: func(t *testing.T, home string) string {
+				dir := filepath.Join(home, ".config", "kamune")
+				require.New(t).NoError(os.MkdirAll(dir, 0o740))
+				require.New(t).NoError(os.Chmod(dir, 0o740))
+				return ""
+			},
+			want: map[string]os.FileMode{".config/kamune": 0o700},
+		},
+		{
+			name: "chosen existing directory is left alone",
+			setup: func(t *testing.T, home string) string {
+				dir := filepath.Join(home, "shared")
+				require.New(t).NoError(os.Mkdir(dir, 0o750))
+				require.New(t).NoError(os.Chmod(dir, 0o750))
+				return filepath.Join(dir, "db")
+			},
+			want: map[string]os.FileMode{"shared": 0o750},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("KAMUNE_DB_PATH", "")
+
+			opts := []StorageOption{WithNoPassphrase()}
+			if path := tc.setup(t, home); path != "" {
+				opts = append(opts, WithDBPath(path))
+			}
+			s, err := OpenStorage(opts...)
+			a.NoError(err)
+			a.NoError(s.Close())
+
+			for rel, want := range tc.want {
+				info, err := os.Stat(filepath.Join(home, rel))
+				a.NoError(err)
+				a.Equal(want, info.Mode().Perm(), rel)
+			}
+		})
+	}
 }

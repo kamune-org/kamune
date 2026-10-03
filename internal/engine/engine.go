@@ -30,6 +30,9 @@ var (
 	// data encryption key. A tampered wrapped key or salt gives the same
 	// error, since the two cannot be told apart.
 	ErrWrongPassphrase = errors.New("wrong passphrase")
+	// ErrInsecurePermissions is returned when the database file can be
+	// read or written by other users and its mode cannot be restricted.
+	ErrInsecurePermissions = errors.New("insecure database file permissions")
 	// ErrReopen is returned when a change that rewrites the database file,
 	// such as a passphrase or data key rotation, is on disk but the store
 	// could not be opened again afterwards. The change is in effect: the

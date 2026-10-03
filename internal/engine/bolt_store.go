@@ -85,6 +85,16 @@ func NewBoltDB(
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+	if mode, changed, err := restrictFileMode(path); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open db: %w", err)
+	} else if changed {
+		slog.Warn(
+			"removed group and other access from database file",
+			slog.String("path", path),
+			slog.String("previous_mode", mode.String()),
+		)
+	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
 		for _, name := range [][]byte{

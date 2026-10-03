@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"sync"
@@ -778,4 +779,28 @@ func TestRotateDataKey_BucketNamesWithSlash(t *testing.T) {
 		a.Equal([]byte("hello"), val)
 		return nil
 	}))
+}
+
+func TestNewBoltDB_RestrictsFileMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits do not control access on Windows")
+	}
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	mode := func() os.FileMode {
+		info, err := os.Stat(path)
+		a.NoError(err)
+		return info.Mode().Perm()
+	}
+
+	db, err := NewBoltDB(path, []byte("pass"))
+	a.NoError(err)
+	a.NoError(db.Close())
+	a.Equal(os.FileMode(0o600), mode())
+
+	a.NoError(os.Chmod(path, 0o644))
+	db, err = NewBoltDB(path, []byte("pass"))
+	a.NoError(err)
+	a.NoError(db.Close())
+	a.Equal(os.FileMode(0o600), mode())
 }

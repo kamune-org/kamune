@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"time"
 
@@ -36,6 +37,9 @@ var (
 	// [Storage.ChangePassphrase] when the passphrase does not unlock the
 	// database. Tampered key metadata gives the same error.
 	ErrWrongPassphrase = engine.ErrWrongPassphrase
+	// ErrInsecurePermissions is returned by [OpenStorage] when the database
+	// file is accessible to other users and its mode cannot be restricted.
+	ErrInsecurePermissions = engine.ErrInsecurePermissions
 	// ErrReopen is returned by [Storage.ChangePassphrase] when the new
 	// passphrase is already in effect on disk but the database could not
 	// be opened again. The Storage must be closed, and the database opened
@@ -116,18 +120,25 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 		if envPath := os.Getenv("KAMUNE_DB_PATH"); envPath != "" {
 			s.dbPath = envPath
 		} else {
-			home, err := os.UserHomeDir()
+			dir, err := defaultDBDir()
 			if err != nil {
 				return nil, fmt.Errorf("getting user's home directory: %w", err)
 			}
-			s.dbPath = filepath.Join(home, ".config", "kamune", "db")
+			s.dbPath = filepath.Join(dir, "db")
 		}
 	}
 
-	// Ensure the parent directory exists
+	// Ensure the parent directory exists and only the user can enter it.
 	dir := filepath.Dir(s.dbPath)
-	if err := os.MkdirAll(dir, 0740); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("creating database directory %s: %w", dir, err)
+	}
+	// Older releases created the default directory group-readable. It
+	// belongs to kamune alone, so tighten it. A directory the caller chose
+	// may be shared on purpose and is left alone; the engine restricts the
+	// database file itself to its owner either way.
+	if def, err := defaultDBDir(); err == nil && filepath.Clean(dir) == def {
+		restrictDirMode(dir)
 	}
 
 	slog.Debug("opening kamune storage", slog.String("db_path", s.dbPath))
@@ -148,6 +159,35 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	s.engine = db
 
 	return s, nil
+}
+
+// defaultDBDir returns the directory of the default database path.
+func defaultDBDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "kamune"), nil
+}
+
+// restrictDirMode removes group and other permission bits from dir. Failure
+// is logged, not returned, since the database file mode is what protects
+// its contents. On Windows these bits do not control access.
+func restrictDirMode(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	info, err := os.Stat(dir)
+	if err != nil || info.Mode().Perm()&0o077 == 0 {
+		return
+	}
+	if err := os.Chmod(dir, info.Mode().Perm()&0o700); err != nil {
+		slog.Warn(
+			"could not restrict database directory permissions",
+			slog.String("dir", dir),
+			slog.Any("error", err),
+		)
+	}
 }
 
 func (s *Storage) Close() error {
