@@ -860,11 +860,11 @@ func TestNotify_ForwardSecrecy(t *testing.T) {
 	_ = peer2Priv // referenced for symmetry
 }
 
-func TestRegister_SelfMatch_UpdatesAddr(t *testing.T) {
+func TestRegister_ReplayDoesNotRebindLivePeer(t *testing.T) {
 	a := require.New(t)
 	b := newTestBroker(t, time.Minute)
-	oldClient := newTestClient(t)
-	newClient := newTestClient(t)
+	heldClient := newTestClient(t)
+	replayClient := newTestClient(t)
 	peer1Priv, peer1Pub := peerKey(t)
 	peer2Client := newTestClient(t)
 	peer2Priv, peer2Pub := peerKey(t)
@@ -874,45 +874,234 @@ func TestRegister_SelfMatch_UpdatesAddr(t *testing.T) {
 		token[i] = byte(i + 1)
 	}
 
-	oldIP := oldClient.LocalAddr().(*net.UDPAddr).IP.To4()
-	pktOld := relaybroker.BuildRegister(
-		token, peer1Pub, oldIP,
-		uint16(oldClient.LocalAddr().(*net.UDPAddr).Port),
+	heldAddr := heldClient.LocalAddr().(*net.UDPAddr)
+	pktHeld := relaybroker.BuildRegister(
+		token, peer1Pub, heldAddr.IP.To4(), uint16(heldAddr.Port),
 	)
-	_, err := oldClient.WriteToUDP(pktOld, b.Addr())
+	_, err := heldClient.WriteToUDP(pktHeld, b.Addr())
 	a.NoError(err)
 	time.Sleep(20 * time.Millisecond)
 
-	newIP := newClient.LocalAddr().(*net.UDPAddr).IP.To4()
-	pktNew := relaybroker.BuildRegister(
-		token, peer1Pub, newIP,
-		uint16(newClient.LocalAddr().(*net.UDPAddr).Port),
-	)
-	_, err = newClient.WriteToUDP(pktNew, b.Addr())
+	// The same REGISTER replayed from another address while the held
+	// address is fresh must not move the entry.
+	_, err = replayClient.WriteToUDP(pktHeld, b.Addr())
 	a.NoError(err)
 	time.Sleep(20 * time.Millisecond)
 
-	peer2IP := peer2Client.LocalAddr().(*net.UDPAddr).IP.To4()
+	peer2Addr := peer2Client.LocalAddr().(*net.UDPAddr)
 	pkt2 := relaybroker.BuildRegister(
-		token, peer2Pub, peer2IP,
-		uint16(peer2Client.LocalAddr().(*net.UDPAddr).Port),
+		token, peer2Pub, peer2Addr.IP.To4(), uint16(peer2Addr.Port),
 	)
 	resp2 := sendAndRead(t, peer2Client, b.Addr(), pkt2)
 	peer2Payload, err := decryptNotify(t, peer2Priv, resp2)
 	a.NoError(err)
 	a.Equal(relaybroker.NotifyPeerMatched, peer2Payload.Type)
+	a.Equal(uint16(heldAddr.Port), peer2Payload.Port,
+		"matched peer must be told the held address")
 
-	_ = newClient.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = heldClient.SetReadDeadline(time.Now().Add(2 * time.Second))
 	buf := make([]byte, 1500)
-	n, _, err := newClient.ReadFromUDP(buf)
+	n, _, err := heldClient.ReadFromUDP(buf)
 	a.NoError(err)
 	payload, err := decryptNotify(t, peer1Priv, buf[:n])
 	a.NoError(err)
 	a.Equal(relaybroker.NotifyPeerMatched, payload.Type)
 
-	_ = oldClient.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-	_, _, err = oldClient.ReadFromUDP(buf)
-	a.Error(err, "NOTIFY must go to rebound address, not the old one")
+	_ = replayClient.SetReadDeadline(
+		time.Now().Add(200 * time.Millisecond),
+	)
+	_, _, err = replayClient.ReadFromUDP(buf)
+	a.Error(err, "NOTIFY must not go to the replaying address")
+}
+
+func TestRegister_SameKeyRefreshAndRebind(t *testing.T) {
+	held := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1).To4(), Port: 1000}
+	otherPort := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1).To4(), Port: 2000}
+	otherIP := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2).To4(), Port: 1000}
+	tests := []struct {
+		src      *net.UDPAddr
+		wantAddr *net.UDPAddr
+		name     string
+		elapsed  time.Duration
+		// ttl is the registration TTL; zero means one minute.
+		ttl time.Duration
+		// wantRefreshed is true when the REGISTER refreshed the held
+		// address or moved the entry to its source.
+		wantRefreshed bool
+	}{
+		{
+			name: "held address refreshes", src: held,
+			elapsed: 10 * time.Second, wantAddr: held, wantRefreshed: true,
+		},
+		{
+			name: "held address refreshes late", src: held,
+			elapsed: 45 * time.Second, wantAddr: held, wantRefreshed: true,
+		},
+		{
+			name: "other port while held is fresh", src: otherPort,
+			elapsed: 10 * time.Second, wantAddr: held,
+		},
+		{
+			name: "other ip while held is fresh", src: otherIP,
+			elapsed: 10 * time.Second, wantAddr: held,
+		},
+		{
+			name: "other port one refresh interval later", src: otherPort,
+			elapsed: peerRefreshInterval, wantAddr: held,
+		},
+		{
+			name: "other port just before rebindAfter", src: otherPort,
+			elapsed: rebindAfter - time.Millisecond, wantAddr: held,
+		},
+		{
+			name: "other port at rebindAfter", src: otherPort,
+			elapsed: rebindAfter, wantAddr: otherPort, wantRefreshed: true,
+		},
+		{
+			name: "other ip after rebindAfter", src: otherIP,
+			elapsed: 45 * time.Second, wantAddr: otherIP, wantRefreshed: true,
+		},
+		{
+			name: "long ttl, other port at rebindAfter", src: otherPort,
+			ttl: 10 * time.Minute, elapsed: rebindAfter,
+			wantAddr: otherPort, wantRefreshed: true,
+		},
+		{
+			name: "other ip after expiry", src: otherIP,
+			elapsed: time.Minute + time.Second, wantAddr: otherIP,
+			wantRefreshed: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			ttl := tt.ttl
+			if ttl == 0 {
+				ttl = time.Minute
+			}
+			now := time.Unix(1000, 0)
+			b := &Broker{
+				registry: make(map[string]*registration),
+				ttl:      ttl,
+				now:      func() time.Time { return now },
+			}
+			token := make([]byte, 16)
+			for i := range token {
+				token[i] = byte(i + 1)
+			}
+			_, pub := peerKey(t)
+
+			b.handleStaticRegister(token, pub, held)
+			firstRefresh := b.registry[hexKey(token)].refreshed
+
+			now = now.Add(tt.elapsed)
+			b.handleStaticRegister(token, pub, tt.src)
+
+			reg := b.registry[hexKey(token)]
+			a.NotNil(reg)
+			a.Equal(tt.wantAddr, reg.addr)
+			a.Equal(now.Add(ttl), reg.expires,
+				"every same-key REGISTER keeps the entry alive")
+			if tt.wantRefreshed {
+				a.Equal(now, reg.refreshed)
+			} else {
+				a.Equal(firstRefresh, reg.refreshed)
+			}
+		})
+	}
+}
+
+// TestRegister_NewSocketRefreshesKeepEntryAlive covers a peer that refreshes
+// from a new socket each time, as Client.Register does. Every refresh must
+// keep the entry alive. The address moves on every other refresh, once the
+// address it last moved to has gone rebindAfter without a REGISTER.
+func TestRegister_NewSocketRefreshesKeepEntryAlive(t *testing.T) {
+	a := require.New(t)
+	now := time.Unix(1000, 0)
+	b := &Broker{
+		registry: make(map[string]*registration),
+		ttl:      time.Minute,
+		now:      func() time.Time { return now },
+	}
+	token := make([]byte, 16)
+	for i := range token {
+		token[i] = byte(i + 1)
+	}
+	_, pub := peerKey(t)
+	socket := func(i int) *net.UDPAddr {
+		return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1).To4(), Port: 1000 + i}
+	}
+
+	b.handleStaticRegister(token, pub, socket(0))
+	wantAddr := socket(0)
+	for i := 1; i <= 6; i++ {
+		// One refresh interval plus the echo round trip before REGISTER.
+		now = now.Add(peerRefreshInterval + 200*time.Millisecond)
+		b.handleStaticRegister(token, pub, socket(i))
+
+		reg, ok := b.registry[hexKey(token)]
+		a.True(ok, "refresh %d: entry must be held", i)
+		a.Equal(now.Add(b.ttl), reg.expires,
+			"refresh %d must keep the entry alive", i)
+		if i%2 == 0 {
+			wantAddr = socket(i)
+		}
+		a.Equal(wantAddr, reg.addr, "refresh %d", i)
+	}
+}
+
+// TestRegister_EvictAndReplay records the part of REL-12 the broker cannot
+// fix without proof of possession of the private key. An observer who
+// captured Alice's REGISTER evicts her entry by matching it with its own key,
+// then replays her REGISTER from its own address. The squat holds while the
+// attacker refreshes within rebindAfter, and Alice's refreshes only keep it
+// alive meanwhile. Alice's first refresh after the attacker has gone quiet
+// for rebindAfter takes the entry back.
+func TestRegister_EvictAndReplay(t *testing.T) {
+	a := require.New(t)
+	b, err := New(config.Broker{
+		Enabled:         true,
+		Address:         "127.0.0.1:0",
+		RegistrationTTL: time.Minute,
+	}, Limits{})
+	a.NoError(err)
+	t.Cleanup(func() { _ = b.Close() })
+	now := time.Unix(1000, 0)
+	b.now = func() time.Time { return now }
+
+	// Real sockets, so the NOTIFYs of the eviction match land somewhere.
+	alice := ipv4FromAddr(newTestClient(t).LocalAddr().(*net.UDPAddr))
+	attacker := ipv4FromAddr(newTestClient(t).LocalAddr().(*net.UDPAddr))
+	token := make([]byte, 16)
+	for i := range token {
+		token[i] = byte(i + 1)
+	}
+	_, alicePub := peerKey(t)
+	_, attackerPub := peerKey(t)
+	heldAddr := func() string {
+		reg, ok := b.registry[hexKey(token)]
+		a.True(ok, "entry must be held")
+		return reg.addr.String()
+	}
+
+	b.handleStaticRegister(token, alicePub, alice)
+
+	now = now.Add(time.Second)
+	b.handleStaticRegister(token, attackerPub, attacker)
+	a.NotContains(b.registry, hexKey(token), "a match removes the entry")
+	b.handleStaticRegister(token, alicePub, attacker)
+	a.Equal(attacker.String(), heldAddr())
+
+	for range 4 {
+		now = now.Add(20 * time.Second)
+		b.handleStaticRegister(token, alicePub, alice)
+		a.Equal(attacker.String(), heldAddr(), "the squat holds")
+		b.handleStaticRegister(token, alicePub, attacker)
+	}
+
+	now = now.Add(rebindAfter)
+	b.handleStaticRegister(token, alicePub, alice)
+	a.Equal(alice.String(), heldAddr())
 }
 
 func TestRegister_MatchUsesObservedAddr(t *testing.T) {

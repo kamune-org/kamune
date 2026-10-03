@@ -53,4 +53,9 @@ address   = "0.0.0.0:8891"
 [broker]
 enabled = true
 address = "0.0.0.0:4788"
+# A registration lapses registration_ttl after its last REGISTER. Clients
+# refresh every 30s. A refresh from a new source address moves the entry only
+# once its held address has gone 35s without one, whatever the TTL, so after a
+# NAT rebinding a matched peer may be sent the old address for up to about two
+# refresh intervals.
 # registration_ttl = "60s"

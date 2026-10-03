@@ -42,6 +42,15 @@ const readErrBackoff = 100 * time.Millisecond
 
 const defaultMaxRegistry = 100_000
 
+// peerRefreshInterval is how often the shipped clients re-send REGISTER for a
+// token they hold (the refresh loops in cmd/daemon and cmd/bus).
+const peerRefreshInterval = 30 * time.Second
+
+// rebindAfter is how long the held address must go without refreshing before
+// a REGISTER with the held public key from another address may move the entry
+// there: one client refresh interval plus slack for delay and jitter.
+const rebindAfter = peerRefreshInterval + 5*time.Second
+
 // AllowFunc is a rate limiter's Allow method, called with the packet's source
 // IPv4. It is abstracted so the broker package does not import the relay's
 // private ratelimit package.
@@ -60,13 +69,18 @@ type Limits struct {
 	Register AllowFunc
 }
 
-// registration is the broker's per-token state. The peer is identified by their
-// ephemeral public key — same key, NAT rebinding; different keys, different
-// processes.
+// registration is the broker's per-token state. A REGISTER with the held
+// public key keeps the entry alive from any source address, and moves it to a
+// new one only once the held address has gone quiet (see
+// heldAddrQuietLocked). One with a different key matches it.
 type registration struct {
-	addr       *net.UDPAddr
+	addr *net.UDPAddr
+	// expires is when the entry lapses. Every REGISTER with the held public
+	// key sets it a full TTL ahead.
+	expires time.Time
+	// refreshed is when addr last sent a REGISTER for the entry.
+	refreshed  time.Time
 	peerEphPub [32]byte
-	expires    time.Time
 }
 
 // packetConn is the part of *net.UDPConn the broker uses. Tests wrap it to
@@ -294,11 +308,7 @@ func (b *Broker) handleRandomRegister(peerEphPub []byte, src *net.UDPAddr) {
 		b.mu.Unlock()
 		return
 	}
-	b.registry[hexKey(key[:])] = &registration{
-		addr:       src,
-		peerEphPub: pub,
-		expires:    b.now().Add(b.ttl),
-	}
+	b.registry[hexKey(key[:])] = b.newRegistration(src, pub)
 	b.mu.Unlock()
 
 	b.sendTokenAssigned(key[:], pub, src)
@@ -320,8 +330,12 @@ func (b *Broker) handleStaticRegister(
 		held = nil
 	}
 	if exists && bytes.Equal(held.peerEphPub[:], pub[:]) {
-		held.expires = b.now().Add(b.ttl)
-		held.addr = src
+		now := b.now()
+		if sameUDPAddr(held.addr, src) || b.heldAddrQuietLocked(held) {
+			held.addr = src
+			held.refreshed = now
+		}
+		held.expires = now.Add(b.ttl)
 		b.mu.Unlock()
 		return
 	}
@@ -330,11 +344,7 @@ func (b *Broker) handleStaticRegister(
 			b.mu.Unlock()
 			return
 		}
-		b.registry[hexKey(token)] = &registration{
-			addr:       src,
-			peerEphPub: pub,
-			expires:    b.now().Add(b.ttl),
-		}
+		b.registry[hexKey(token)] = b.newRegistration(src, pub)
 		b.mu.Unlock()
 		return
 	}
@@ -343,6 +353,56 @@ func (b *Broker) handleStaticRegister(
 	b.mu.Unlock()
 
 	b.sendPeerMatched(token, heldEntry, pub, src)
+}
+
+// newRegistration returns an entry for pub at addr that expires a TTL from
+// now.
+func (b *Broker) newRegistration(
+	addr *net.UDPAddr, pub [32]byte,
+) *registration {
+	now := b.now()
+	return &registration{
+		addr:       addr,
+		expires:    now.Add(b.ttl),
+		refreshed:  now,
+		peerEphPub: pub,
+	}
+}
+
+// heldAddrQuietLocked reports whether a REGISTER with the held public key from
+// another address may move the entry there: true once the held address has
+// gone rebindAfter without sending a REGISTER for it.
+//
+// The public key travels in clear, so repeating it proves nothing about the
+// sender. A same-key REGISTER from another address still pushes the entry's
+// expiry a TTL ahead, as before, so a peer that refreshes from a new socket
+// each time, as Client.Register does, keeps its entry alive. It does not count
+// as a refresh of the held address, so it cannot make that address look live
+// or quiet. While the held address refreshes on schedule it is never quiet,
+// and a replayed REGISTER cannot move a live peer's entry however it is timed.
+//
+// The cost falls on a peer whose address really changed, as after a NAT
+// rebinding. Its first refresh from the new address, one refresh interval
+// after its last from the old one, only keeps the entry alive. Its second,
+// about two intervals after, moves the entry. A peer matched in between is
+// sent the old address. The threshold follows the client cadence, not the
+// TTL, so a longer registration_ttl does not lengthen that delay.
+//
+// Without proof of possession of the private key in REGISTER, a broker wire
+// format change, an observer holding a captured REGISTER can still:
+//   - replay it to keep the entry alive after its owner has stopped
+//     refreshing;
+//   - replay it while the other peer of a static token holds the entry. That
+//     matches, and the held peer is sent the replayer's address as the key
+//     owner's;
+//   - evict the entry by matching it with a key of its own, which sends the
+//     owner a spurious NOTIFY, and then replay the capture from its own
+//     address. The squat holds while the replayer refreshes within
+//     rebindAfter, and the owner's refreshes only keep it alive meanwhile.
+//     Before this rule the owner's next refresh moved the entry back;
+//   - take the entry once the owner misses a refresh.
+func (b *Broker) heldAddrQuietLocked(held *registration) bool {
+	return b.now().Sub(held.refreshed) >= rebindAfter
 }
 
 // sendTokenAssigned builds and sends NOTIFY(TOKEN_ASSIGNED) to the given peer
@@ -481,6 +541,10 @@ func ipv4FromAddr(addr *net.UDPAddr) *net.UDPAddr {
 		return nil
 	}
 	return &net.UDPAddr{IP: ip, Port: addr.Port}
+}
+
+func sameUDPAddr(a, b *net.UDPAddr) bool {
+	return a.Port == b.Port && a.IP.Equal(b.IP)
 }
 
 func ipv4KeyFromAddr(addr *net.UDPAddr) string {
