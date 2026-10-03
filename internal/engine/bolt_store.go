@@ -354,20 +354,6 @@ func createCipher(tx *bolt.Tx, pass []byte) (*enigma.Enigma, error) {
 	return newDataCipher(secret, secretSalt)
 }
 
-// navigateBucket walks a slash-separated path (e.g. "a/b/c") from the tx root,
-// returning the deepest bucket or nil if any segment is missing.
-func navigateBucket(tx *bolt.Tx, path []byte) *bolt.Bucket {
-	parts := bytes.Split(path, []byte("/"))
-	bucket := tx.Bucket(parts[0])
-	for _, part := range parts[1:] {
-		if bucket == nil {
-			return nil
-		}
-		bucket = bucket.Bucket(part)
-	}
-	return bucket
-}
-
 // RotatePassphrase re-wraps the data encryption key under a new passphrase,
 // with key derivation parameters no weaker than the stored ones or
 // [defaultKDF] (see [kdfParams.atLeast]). Only the key-wrapping metadata
@@ -395,121 +381,119 @@ func (s *BoltStore) RotatePassphrase(old, new []byte) error {
 	return nil
 }
 
-// RotateDataKey generates a new data encryption key and re-encrypts all
-// encrypted values across every namespace. This is expensive but atomic per
-// bolt.Update transaction.
+// RotateDataKey generates a new data encryption key, re-encrypts every
+// encrypted value in every namespace with it, and wraps it under the new
+// passphrase with the parameters [BoltStore.RotatePassphrase] uses. All of
+// it happens in one write transaction, so it either completes or leaves the
+// store unchanged.
 func (s *BoltStore) RotateDataKey(old, new []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Verify we can decrypt with the old passphrase.
-	var (
-		oldCipher *enigma.Enigma
-		oldKDF    kdfParams
-	)
-	err := s.db.View(func(tx *bolt.Tx) error {
+	var newCipher *enigma.Enigma
+	err := s.db.Update(func(tx *bolt.Tx) error {
 		meta, secret, err := unlock(tx, old)
+		if err != nil {
+			return fmt.Errorf("unlock with old passphrase: %w", err)
+		}
+		oldCipher, err := newDataCipher(secret, meta.secretSalt)
 		if err != nil {
 			return err
 		}
-		oldKDF = meta.wrap.kdf
-		oldCipher, err = newDataCipher(secret, meta.secretSalt)
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("unlock with old passphrase: %w", err)
-	}
 
-	// Generate a fresh DEK and wrap it with the new passphrase.
-	newSecret := randomBytes(secretSize)
-	newSecretSalt := randomBytes(saltSize)
-	newCipher, err := newDataCipher(newSecret, newSecretSalt)
-	if err != nil {
-		return err
-	}
-	newWrap, err := wrapSecret(newSecret, new, oldKDF.atLeast(defaultKDF))
-	if err != nil {
-		return fmt.Errorf("wrap with new passphrase: %w", err)
-	}
+		newSecret := randomBytes(secretSize)
+		newSecretSalt := randomBytes(saltSize)
+		newCipher, err = newDataCipher(newSecret, newSecretSalt)
+		if err != nil {
+			return err
+		}
+		newWrap, err := wrapSecret(
+			newSecret, new, meta.wrap.kdf.atLeast(defaultKDF),
+		)
+		if err != nil {
+			return fmt.Errorf("wrap with new passphrase: %w", err)
+		}
 
-	// Collect every (bucket-path, key, ciphertext) triple first, outside the
-	// write transaction, to avoid holding a write lock while iterating.
-	type entry struct {
-		path  []byte
-		key   []byte
-		value []byte
-	}
-	var entries []entry
-
-	var collect func(bucket *bolt.Bucket, path []byte) error
-	collect = func(bucket *bolt.Bucket, path []byte) error {
-		return bucket.ForEach(func(k, v []byte) error {
-			sub := bucket.Bucket(k)
-			if sub != nil {
-				// Descend into nested sub-bucket.
-				child := make([]byte, len(path)+len(k)+1)
-				copy(child, path)
-				child[len(path)] = '/'
-				copy(child[len(path)+1:], k)
-				return collect(sub, child)
-			}
-			entries = append(entries, entry{
-				path:  bytes.Clone(path),
-				key:   bytes.Clone(k),
-				value: bytes.Clone(v),
-			})
+		var roots [][]byte
+		err = tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
+			roots = append(roots, bytes.Clone(name))
 			return nil
 		})
-	}
-
-	err = s.db.View(func(tx *bolt.Tx) error {
-		return tx.ForEach(func(name []byte, bucket *bolt.Bucket) error {
-			return collect(bucket, bytes.Clone(name))
-		})
-	})
-	if err != nil {
-		return fmt.Errorf("read phase: %w", err)
-	}
-
-	// Decrypt with old cipher, re-encrypt with new cipher, and store updated
-	// cipher metadata — all in one write transaction.
-	err = s.db.Update(func(tx *bolt.Tx) error {
-		for _, e := range entries {
-			plaintext, err := oldCipher.Decrypt(e.value)
+		if err != nil {
+			return err
+		}
+		for _, name := range roots {
+			err := reencrypt(tx.Bucket(name), oldCipher, newCipher)
 			if err != nil {
-				// Cipher metadata keys are stored as raw
-				// bytes — skip values that fail to decrypt.
-				continue
-			}
-			reencrypted := newCipher.Encrypt(plaintext)
-
-			bucket := tx.Bucket(e.path)
-			if bucket == nil {
-				bucket = navigateBucket(tx, e.path)
-			}
-			if bucket == nil {
-				continue
-			}
-			if err := bucket.Put(e.key, reencrypted); err != nil {
-				return fmt.Errorf("put %s/%s: %w", e.path, e.key, err)
+				return fmt.Errorf("namespace %q: %w", name, err)
 			}
 		}
 
 		// Store all cipher metadata so future reads reconstruct the correct
 		// cipher on restart.
 		bucket := tx.Bucket(defaultNamespace)
-		err := bucket.Put([]byte(secretSaltKey), newSecretSalt)
+		err = bucket.Put([]byte(secretSaltKey), newSecretSalt)
 		if err != nil {
 			return fmt.Errorf("put %s: %w", secretSaltKey, err)
 		}
 		return newWrap.put(bucket)
 	})
 	if err != nil {
-		return fmt.Errorf("write phase: %w", err)
+		return fmt.Errorf("rotate data key: %w", err)
 	}
 
 	// Swap the in-memory cipher.
 	s.cipher = newCipher
 
+	return nil
+}
+
+// reencrypt replaces every value in bucket and its nested buckets that
+// decrypts with oldCipher by its encryption under newCipher. Values that do
+// not decrypt, such as the raw cipher metadata, are left as they are.
+// Nested buckets are reached by handle, never by a joined path, so any byte
+// may appear in a bucket name.
+func reencrypt(bucket *bolt.Bucket, oldCipher, newCipher *enigma.Enigma) error {
+	type update struct {
+		key   []byte
+		value []byte
+	}
+	var (
+		updates []update
+		nested  [][]byte
+	)
+	err := bucket.ForEach(func(k, v []byte) error {
+		if bucket.Bucket(k) != nil {
+			nested = append(nested, bytes.Clone(k))
+			return nil
+		}
+		plaintext, err := oldCipher.Decrypt(v)
+		if err != nil {
+			return nil
+		}
+		updates = append(updates, update{
+			key:   bytes.Clone(k),
+			value: newCipher.Encrypt(plaintext),
+		})
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, u := range updates {
+		if err := bucket.Put(u.key, u.value); err != nil {
+			return fmt.Errorf("put %q: %w", u.key, err)
+		}
+	}
+	for _, name := range nested {
+		child := bucket.Bucket(name)
+		if child == nil {
+			return fmt.Errorf("%q: %w", name, ErrMissingNamespace)
+		}
+		if err := reencrypt(child, oldCipher, newCipher); err != nil {
+			return fmt.Errorf("%q: %w", name, err)
+		}
+	}
 	return nil
 }

@@ -745,3 +745,37 @@ func TestNewBoltDB_EmptyStoreWithoutMetadataIsCreated(t *testing.T) {
 	a.NoError(err)
 	a.NoError(db.Close())
 }
+
+func TestRotateDataKey_BucketNamesWithSlash(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	pass := []byte("test-pass")
+
+	db, err := NewBoltDB(path, pass)
+	a.NoError(err)
+
+	chat := func(b Namespace) Namespace {
+		return b.Sub([]byte(SessionsNamespace)).
+			Sub([]byte("a/b")).
+			Sub([]byte("chat"))
+	}
+	a.NoError(db.Command(func(b Namespace) error {
+		return b.Ensure([]byte(SessionsNamespace)).
+			Ensure([]byte("a/b")).
+			Ensure([]byte("chat")).
+			PutEncrypted([]byte("msg"), []byte("hello"))
+	}))
+
+	a.NoError(db.RotateDataKey(pass, pass))
+	a.NoError(db.Close())
+
+	db, err = NewBoltDB(path, pass)
+	a.NoError(err)
+	defer db.Close()
+	a.NoError(db.Query(func(b Namespace) error {
+		val, err := chat(b).GetEncrypted([]byte("msg"))
+		a.NoError(err)
+		a.Equal([]byte("hello"), val)
+		return nil
+	}))
+}
