@@ -76,6 +76,11 @@ func (c *conn) Read(buf []byte) (int, error) {
 	return n, nil
 }
 
+// ReadBytes reads one length-prefixed frame. A failure before any byte of
+// the frame has arrived, such as a read deadline, leaves the stream intact
+// and the caller may retry. A failure part-way through a frame closes the
+// conn and returns an error wrapping ErrConnClosed: the consumed bytes cannot
+// be put back, so a later read would start in the middle of the frame.
 func (c *conn) ReadBytes() ([]byte, error) {
 	c.readMu.Lock()
 	defer c.readMu.Unlock()
@@ -86,10 +91,20 @@ func (c *conn) ReadBytes() ([]byte, error) {
 	}
 
 	buf := make([]byte, l)
-	if _, err := io.ReadFull(c.conn, buf); err != nil {
-		return nil, fmt.Errorf("reading message: %w", err)
+	if n, err := io.ReadFull(c.conn, buf); err != nil {
+		return nil, c.abortFrame(
+			fmt.Errorf("reading message (%d of %d bytes): %w", n, l, err),
+		)
 	}
 	return buf, nil
+}
+
+// abortFrame closes the conn after a read or write failed part-way through a
+// frame. The returned error wraps ErrConnClosed but not cause, so a deadline
+// that fired mid-frame is not mistaken for a retryable timeout.
+func (c *conn) abortFrame(cause error) error {
+	_ = c.Close()
+	return fmt.Errorf("%w: partial frame: %v", ErrConnClosed, cause)
 }
 
 func (c *conn) Write(data []byte) (int, error) {
@@ -107,28 +122,45 @@ func (c *conn) Write(data []byte) (int, error) {
 	return n, nil
 }
 
+// WriteBytes writes one length-prefixed frame. A failure before any byte of
+// the frame has been written, such as a write deadline, leaves the stream
+// intact and the caller may retry. A failure part-way through a frame closes
+// the conn and returns an error wrapping ErrConnClosed: the peer already has
+// part of the frame, so a retried frame would be read as the rest of it.
 func (c *conn) WriteBytes(data []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
-	_, err := c.writeLenLocked(data)
-	if err != nil {
+	if err := c.checkWriteDeadlineLocked(c.writeDeadline); err != nil {
 		return fmt.Errorf("writing length: %w", err)
 	}
+	if len(data) > math.MaxUint16 {
+		return fmt.Errorf("writing length: %w", ErrMessageTooLarge)
+	}
 
-	// Ensure the full payload is written.
-	written := 0
-	for written < len(data) {
-		n, err := c.conn.Write(data[written:])
-		if err != nil {
-			return fmt.Errorf("writing message: %w", err)
-		}
-		if n == 0 {
-			return fmt.Errorf(
-				"wrote %d bytes instead of %d", written, len(data),
+	var lenBuf [2]byte
+	binary.BigEndian.PutUint16(lenBuf[:], uint16(len(data)))
+	total := len(lenBuf) + len(data)
+	sent := 0
+	for _, part := range [][]byte{lenBuf[:], data} {
+		for written := 0; written < len(part); {
+			n, err := c.conn.Write(part[written:])
+			written += n
+			sent += n
+			if err == nil && n == 0 {
+				err = io.ErrShortWrite
+			}
+			if err == nil {
+				continue
+			}
+			err = fmt.Errorf(
+				"writing message (%d of %d bytes): %w", sent, total, err,
 			)
+			if sent > 0 {
+				return c.abortFrame(err)
+			}
+			return err
 		}
-		written += n
 	}
 	return nil
 }
@@ -144,43 +176,15 @@ func (c *conn) readLenLocked() (uint16, error) {
 	}
 
 	var lenBuf [2]byte
-	if _, err := io.ReadFull(c.conn, lenBuf[:]); err != nil {
-		return 0, fmt.Errorf("reading first two bytes: %w", err)
-	}
-
-	return binary.BigEndian.Uint16(lenBuf[:]), nil
-}
-
-// writeLenLocked writes the 2-byte length prefix. Caller must hold c.writeMu.
-func (c *conn) writeLenLocked(data []byte) (int, error) {
-	if err := c.checkWriteDeadlineLocked(c.writeDeadline); err != nil {
+	if n, err := io.ReadFull(c.conn, lenBuf[:]); err != nil {
+		err = fmt.Errorf("reading first two bytes: %w", err)
+		if n > 0 {
+			return 0, c.abortFrame(err)
+		}
 		return 0, err
 	}
 
-	if len(data) > math.MaxUint16 {
-		return 0, ErrMessageTooLarge
-	}
-	msgLen := uint16(len(data))
-
-	var lenBuf [2]byte
-	binary.BigEndian.PutUint16(lenBuf[:], msgLen)
-
-	// Ensure the full length prefix is written.
-	written := 0
-	for written < len(lenBuf) {
-		n, err := c.conn.Write(lenBuf[written:])
-		if err != nil {
-			return 0, fmt.Errorf("writing length: %w", err)
-		}
-		if n == 0 {
-			return 0, fmt.Errorf(
-				"wrote %d bytes instead of %d", written, len(data),
-			)
-		}
-		written += n
-	}
-
-	return int(msgLen), nil
+	return binary.BigEndian.Uint16(lenBuf[:]), nil
 }
 
 // checkReadDeadlineLocked refreshes the read deadline if needed.

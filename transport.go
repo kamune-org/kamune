@@ -78,11 +78,16 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 
 // ReceivePayload reads and decrypts the next message and returns the
 // verified protobuf bytes without unmarshalling them into a caller type.
+//
+// It returns ErrReceiveTimeout when the read deadline passes before any byte
+// of the next frame has arrived; the caller may retry. A connection that drops
+// or times out part-way through a frame yields ErrConnClosed.
 func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 	payload, err := t.conn.ReadBytes()
 	switch {
 	case err == nil: // continue
-	case errors.Is(err, io.EOF) ||
+	case errors.Is(err, ErrConnClosed) ||
+		errors.Is(err, io.EOF) ||
 		errors.Is(err, net.ErrClosed) ||
 		errors.Is(err, io.ErrClosedPipe):
 		return nil, nil, ErrConnClosed
@@ -144,6 +149,10 @@ func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 }
 
 // Send encrypts and sends a message with the specified route.
+//
+// An error wrapping ErrConnClosed means the connection is gone, for example
+// because a write failed part-way through the frame; the caller must not
+// retry on this Transport.
 func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 	if !route.IsValid() {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
