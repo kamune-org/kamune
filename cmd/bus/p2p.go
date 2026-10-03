@@ -9,7 +9,6 @@ import (
 
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/relayconn"
-	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // p2pTokenRefreshInterval is how often the bus re-registers a p2p token on the
@@ -73,6 +72,7 @@ func (a *App) GenerateP2PToken(brokerAddr, peerPubB64 string) (string, error) {
 		expectedToken = hex.EncodeToString(staticToken)
 	}
 	a.mu.RLock()
+	listener := a.p2pListener
 	var existing *p2pToken
 	for i := range a.p2pTokens {
 		t := &a.p2pTokens[i]
@@ -93,26 +93,31 @@ func (a *App) GenerateP2PToken(brokerAddr, peerPubB64 string) (string, error) {
 	}
 	a.mu.RUnlock()
 	if existing != nil {
-		// Refresh the broker registration. We re-send ECHO + REGISTER
-		// with the same token; the broker's self-match path resets the
-		// TTL without changing the token.
-		if err := a.refreshBrokerRegistration(
-			brokerAddr, existing.Token, staticToken,
-		); err != nil {
-			a.addLogEntry("WARN",
-				"Failed to refresh existing p2p token: "+err.Error())
-			// Fall through and return the existing token anyway — the
-			// local refresh loop will retry.
-		} else {
-			a.mu.Lock()
-			existing.ExpiresAt = time.Now().Add(p2pTokenRefreshInterval)
-			snapshot := a.p2pTokensSnapshot()
-			a.mu.Unlock()
-			a.emitEvent("p2p-tokens", snapshot)
-			a.addLogEntry("INFO",
-				"Refreshed p2p token lifetime: "+existing.Token)
-		}
 		return existing.Token, nil
+	}
+
+	if l, ok := listener.(*p2pListener); ok && staticToken != nil {
+		if err := l.RegisterToken(staticToken); err != nil {
+			return "", fmt.Errorf("register token on punch socket: %w", err)
+		}
+		hexToken := hex.EncodeToString(staticToken)
+		ptCtx, ptCancel := context.WithCancel(context.Background())
+		a.mu.Lock()
+		a.p2pTokens = append(a.p2pTokens, p2pToken{
+			Token:      hexToken,
+			Mode:       "static",
+			PeerPubB64: peerPubB64,
+			Consumed:   false,
+			TTL:        p2pTokenRefreshInterval,
+			ExpiresAt:  time.Now().Add(p2pTokenRefreshInterval),
+			brokerAddr: brokerAddr,
+			ctx:        ptCtx,
+			cancel:     ptCancel,
+		})
+		snapshot := a.p2pTokensSnapshot()
+		a.mu.Unlock()
+		a.emitEvent("p2p-tokens", snapshot)
+		return hexToken, nil
 	}
 
 	client, err := a.brokerClient.Client(brokerAddr)
@@ -213,27 +218,7 @@ func (a *App) deriveP2PToken(peerPubB64 string) ([]byte, error) {
 		return nil, errors.New("storage is not available")
 	}
 
-	// Check for stored ECDH-derived relay tokens from a previous session.
-	peerPubPKIX, err := decodePeerPubKey(peerPubB64)
-	if err != nil {
-		return nil, fmt.Errorf("decode peer public key: %w", err)
-	}
-	sessionID, err := store.FindSessionByPeer(peerPubPKIX)
-	if err != nil {
-		return nil, fmt.Errorf("find session by peer: %w", err)
-	}
-	if sessionID != "" {
-		m, err := store.GetMeta(
-			sessionID, storage.RelayTokensKey,
-		)
-		if err == nil && m.Value() != nil {
-			if tokens := decodeTokenList(m.Value()); len(tokens) > 0 {
-				return tokens[0], nil
-			}
-		}
-	}
-
-	// Fall back to static token derived from public keys.
+	// Derive deterministic static token from public keys.
 	myPubPKIX, err := store.PublicKey()
 	if err != nil {
 		return nil, fmt.Errorf("get identity: %w", err)

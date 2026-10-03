@@ -10,6 +10,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/storage"
+	"google.golang.org/protobuf/proto"
 )
 
 func (a *App) SendMessage(sessionID string, text string) error {
@@ -77,11 +78,10 @@ func (a *App) receiveMessages(session *liveSession) {
 	defer close(session.ReceiveDone)
 
 	for {
-		b := kamune.Bytes(nil)
 		session.mu.Lock()
 		transport := session.Transport
 		session.mu.Unlock()
-		metadata, err := transport.Receive(b)
+		metadata, payload, err := transport.ReceivePayload()
 		if err != nil {
 			switch {
 			case errors.Is(err, kamune.ErrPeerDisconnected):
@@ -100,6 +100,16 @@ func (a *App) receiveMessages(session *liveSession) {
 			break
 		}
 
+		if metadata.Route() == kamune.RouteSessionData {
+			a.finishRelayToken(session, payload)
+			continue
+		}
+		b := kamune.Bytes(nil)
+		if err := proto.Unmarshal(payload, b); err != nil {
+			a.addLogEntry("WARN", "bad payload: "+err.Error())
+			continue
+		}
+
 		// Handle protocol-level routes before treating as chat.
 		switch metadata.Route() {
 		case kamune.RoutePing:
@@ -110,9 +120,14 @@ func (a *App) receiveMessages(session *liveSession) {
 			}
 			continue
 		case kamune.RoutePong:
-			select {
-			case session.pongCh <- b.GetValue():
-			default:
+			session.mu.Lock()
+			ch := session.pongCh
+			session.mu.Unlock()
+			if ch != nil {
+				select {
+				case ch <- b.GetValue():
+				default:
+				}
 			}
 			continue
 		}
@@ -171,7 +186,7 @@ func (a *App) receiveMessages(session *liveSession) {
 
 // keepAliveLoop sends periodic pings to detect dead connections. After 3
 // consecutive ping failures, the session is closed.
-func (a *App) keepAliveLoop(session *liveSession) {
+func (a *App) keepAliveLoop(session *liveSession, stopCh <-chan struct{}) {
 	const pingTimeout = 10 * time.Second
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -179,7 +194,7 @@ func (a *App) keepAliveLoop(session *liveSession) {
 		select {
 		case <-session.ReceiveDone:
 			return
-		case <-session.keepAliveDone:
+		case <-stopCh:
 			return
 		case <-ticker.C:
 			session.mu.Lock()
@@ -198,7 +213,7 @@ func (a *App) keepAliveLoop(session *liveSession) {
 					" failures="+strconv.Itoa(failures))
 				if failures >= 3 {
 					a.addLogEntry("WARN", "Peer unresponsive: "+session.PeerName)
-					_ = transport.Close()
+					_ = transport.CloseAbort()
 					return
 				}
 			} else {
@@ -221,13 +236,13 @@ func sendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duration) 
 	if _, err := rand.Read(tok); err != nil {
 		return err
 	}
-	if _, err := t.Send(kamune.Bytes(tok), kamune.RoutePing); err != nil {
-		return err
-	}
-	// Drain any stale pong from a previous (timed-out) ping.
+	// Drain any stale pong from a previous (timed-out) ping BEFORE sending.
 	select {
 	case <-pongCh:
 	default:
+	}
+	if _, err := t.Send(kamune.Bytes(tok), kamune.RoutePing); err != nil {
+		return err
 	}
 	select {
 	case data := <-pongCh:
@@ -272,17 +287,23 @@ func (a *App) reconnectSession(session *liveSession) bool {
 			continue
 		}
 
+		if session.reconnectCtx.Err() != nil {
+			_ = t.Close()
+			return false
+		}
+
+		newStopCh := make(chan struct{})
 		session.mu.Lock()
 		session.Transport = t
 		session.pingFailures = 0
 		session.pongCh = make(chan []byte, 1)
 		close(session.keepAliveDone)
-		session.keepAliveDone = make(chan struct{})
+		session.keepAliveDone = newStopCh
 		session.mu.Unlock()
 
 		a.addLogEntry("INFO", "Reconnected session "+session.ID)
 		a.emitEvent("session-reconnected", session.ID)
-		go a.keepAliveLoop(session)
+		go a.keepAliveLoop(session, newStopCh)
 		return true
 	}
 

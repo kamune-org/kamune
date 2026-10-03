@@ -100,48 +100,52 @@
 
   {#if expanded}
     <div class="st-body">
-      <div class="st-broker-row">
-        <input
-          class="st-broker-input"
-          type="text"
-          placeholder="broker host:port"
-          bind:value={brokerAddr}
-          disabled={locked}
-          onkeydown={(e) => { if (e.key === 'Enter') handleGenerate() }}
-        />
-      </div>
+      {#if !locked}
+        <div class="st-broker-row">
+          <input
+            class="st-broker-input"
+            type="text"
+            placeholder="broker host:port"
+            bind:value={brokerAddr}
+            disabled={locked}
+            onkeydown={(e) => { if (e.key === 'Enter') handleGenerate() }}
+          />
+        </div>
 
-      <div class="st-mode-row">
-        <button
-          class="st-mode-btn"
-          class:active={mode === 'random'}
-          onclick={() => { mode = 'random'; selectedPeer = '' }}
-        >random</button>
-        <button
-          class="st-mode-btn"
-          class:active={mode === 'static'}
-          onclick={() => { mode = 'static' }}
-        >static</button>
-      </div>
+        <div class="st-mode-row">
+          <button
+            class="st-mode-btn"
+            class:active={mode === 'random'}
+            onclick={() => { mode = 'random'; selectedPeer = '' }}
+          >random</button>
+          <button
+            class="st-mode-btn"
+            class:active={mode === 'static'}
+            onclick={() => { mode = 'static' }}
+          >static</button>
+        </div>
+      {/if}
 
-      {#if mode === 'static'}
+      {#if mode === 'static' || locked}
         <PeerSelect
           bind:value={selectedPeer}
           peers={$peers}
-          placeholder="Select a peer"
+          placeholder="Select a peer for static token"
         />
       {/if}
 
-      <button
-        class="st-gen-btn"
-        onclick={handleGenerate}
-        disabled={generating || (mode === 'static' && !selectedPeer)}
-      >
-        <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-          <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
-        </svg>
-        Generate {mode === 'static' ? 'static' : 'random'} token
-      </button>
+      {#if !locked || selectedPeer}
+        <button
+          class="st-gen-btn"
+          onclick={handleGenerate}
+          disabled={generating || (!locked && mode === 'static' && !selectedPeer) || (locked && !selectedPeer)}
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+          </svg>
+          Generate {locked ? 'peer' : (mode === 'static' ? 'static' : 'random')} token
+        </button>
+      {/if}
 
       {#if $p2pTokens.length === 0}
         <p class="st-hint">Generate a token above to share with a peer.</p>

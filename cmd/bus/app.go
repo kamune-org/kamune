@@ -18,6 +18,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/relayconn"
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/zalando/go-keyring"
@@ -159,6 +160,7 @@ type liveSession struct {
 	PeerName         string
 	RemoteVersion    string
 	Transport        *kamune.Transport
+	relayToken       *relayconn.RelayTokenPending
 	Messages         []MessageInfo
 	LastActivity     time.Time
 	ReceiveDone      chan struct{}
@@ -227,11 +229,12 @@ type ShareRelayInfo struct {
 }
 
 type App struct {
-	ctx     context.Context
-	wails   *application.App
-	window  *application.WebviewWindow
-	appMenu *application.Menu
-	mu      sync.RWMutex
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+	wails     *application.App
+	window    *application.WebviewWindow
+	appMenu   *application.Menu
+	mu        sync.RWMutex
 
 	sessions            []*liveSession
 	histSessions        []*historySession
@@ -349,7 +352,9 @@ func (a *App) passphraseHandler() storage.PassphraseHandler {
 func (a *App) ServiceStartup(
 	ctx context.Context, _ application.ServiceOptions,
 ) error {
+	ctx, cancel := context.WithCancel(ctx)
 	a.ctx = ctx
+	a.ctxCancel = cancel
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -417,6 +422,9 @@ func (a *App) ServiceStartup(
 
 func (a *App) ServiceShutdown() error {
 	a.addLogEntry("INFO", "Application shutting down")
+	if a.ctxCancel != nil {
+		a.ctxCancel()
+	}
 
 	var sessions []*liveSession
 	var serverDone chan struct{}
@@ -436,6 +444,11 @@ func (a *App) ServiceShutdown() error {
 	a.serverDone = nil
 	a.mu.Unlock()
 
+	for _, s := range sessions {
+		if s.reconnectCancel != nil {
+			s.reconnectCancel()
+		}
+	}
 	for _, s := range sessions {
 		s.Transport.Close()
 	}
@@ -945,19 +958,26 @@ func (a *App) markRelayTokenConsumed(token string) {
 		}
 		rt := a.relayTokens[idx]
 		a.relayTokens = append(a.relayTokens[:idx], a.relayTokens[idx+1:]...)
+		tokens := a.relayTokensSnapshotLocked()
 		a.mu.Unlock()
 		if s, ok := rt.listener.(interface{ Stop() }); ok {
 			s.Stop()
 		}
-		a.emitEvent("relay-tokens", a.getRelayTokens())
+		a.emitEvent("relay-tokens", tokens)
 		a.addLogEntry("INFO", "Discarded consumed relay token")
 	}()
 }
 
-func (a *App) getRelayTokens() []relayToken {
+func (a *App) relayTokensSnapshotLocked() []relayToken {
 	tokens := make([]relayToken, len(a.relayTokens))
 	copy(tokens, a.relayTokens)
 	return tokens
+}
+
+func (a *App) getRelayTokens() []relayToken {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.relayTokensSnapshotLocked()
 }
 
 func (a *App) GetFingerprintFormat() string {

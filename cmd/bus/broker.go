@@ -147,6 +147,7 @@ func (b *BrokerClient) WaitMatch(
 	// which pre-resolves the token before WaitMatch is called) and
 	// return on the first PEER_MATCHED.
 	buf := make([]byte, 1500)
+	lastRegister := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -154,13 +155,17 @@ func (b *BrokerClient) WaitMatch(
 			return nil, relaybroker.Payload{}, ctx.Err()
 		default:
 		}
+		if time.Since(lastRegister) >= 25*time.Second {
+			_, _ = punchConn.WriteToUDP(pkt, brokerUDPAddr)
+			lastRegister = time.Now()
+		}
 		if err := punchConn.SetReadDeadline(
 			time.Now().Add(500 * time.Millisecond),
 		); err != nil {
 			punchConn.Close()
 			return nil, relaybroker.Payload{}, fmt.Errorf("set read deadline: %w", err)
 		}
-		n, _, err := punchConn.ReadFromUDP(buf)
+		n, src, err := punchConn.ReadFromUDP(buf)
 		if err != nil {
 			var ne net.Error
 			if errors.As(err, &ne) && ne.Timeout() {
@@ -168,6 +173,9 @@ func (b *BrokerClient) WaitMatch(
 			}
 			punchConn.Close()
 			return nil, relaybroker.Payload{}, fmt.Errorf("read notify: %w", err)
+		}
+		if !src.IP.Equal(brokerUDPAddr.IP) || src.Port != brokerUDPAddr.Port {
+			continue
 		}
 		payload, err := b.parseNotify(buf[:n])
 		if err != nil {

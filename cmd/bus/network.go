@@ -490,8 +490,6 @@ func (a *App) RemoveRelayToken(token string) error {
 }
 
 func (a *App) GetRelayTokens() []relayToken {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
 	return a.getRelayTokens()
 }
 
@@ -515,7 +513,25 @@ func (a *App) ConnectToServer(
 			fmt.Errorf("storage is not available")
 	}
 
+	if name == "" || a.incognito {
+		pubKey, err := store.PublicKey()
+		if err != nil {
+			return ConnectResult{ErrorCode: "identity_unavailable"},
+				fmt.Errorf("getting identity: %w", err)
+		}
+		name = fingerprint.Pseudonym(pubKey)
+	}
+
+	a.mu.Lock()
+	a.myName = name
+	a.mu.Unlock()
+	if !a.incognito {
+		_ = store.SetSettings("bus", "local_name", name)
+	}
+
 	var opts []kamune.DialOption
+	opts = append(opts, kamune.DialWithClientName(name))
+	relayTokenHex := token
 
 	// P2P: hole-punch the peer via the broker, then run the kamune
 	// handshake on the punched KCP session. The dialer opens a single
@@ -590,29 +606,12 @@ func (a *App) ConnectToServer(
 			},
 		))
 		addr = "p2p://" + addr
-	} else if name == "" || a.incognito {
-		pubKey, err := store.PublicKey()
-		if err != nil {
-			return ConnectResult{ErrorCode: "identity_unavailable"},
-				fmt.Errorf("getting identity: %w", err)
-		}
-		name = fingerprint.Pseudonym(pubKey)
 	}
-
-	a.mu.Lock()
-	a.myName = name
-	a.mu.Unlock()
-	if !a.incognito {
-		_ = store.SetSettings("bus", "local_name", name)
-	}
-
-	opts = append(opts, kamune.DialWithClientName(name))
 
 	var sessionTTL time.Duration
 	if !(transport == "udp" && useP2P) {
 		switch transport {
 		case "relay":
-			relayTokenHex := token
 			if peerPubB64 != "" {
 				staticTokenRaw, err := a.deriveP2PToken(peerPubB64)
 				if err != nil {
@@ -622,7 +621,8 @@ func (a *App) ConnectToServer(
 				relayTokenHex = hex.EncodeToString(staticTokenRaw)
 			}
 			fn, err := dialRelayFuncWithSessionTTL(
-				relayAddr, relayTokenHex, password, false, &sessionTTL,
+				a.lifeCtx(), relayAddr, relayTokenHex, password, false,
+				&sessionTTL,
 			)
 			if err != nil {
 				a.setStatus(StatusError, "Failed to prepare relay dial")
@@ -652,7 +652,11 @@ func (a *App) ConnectToServer(
 	if err != nil {
 		a.setStatus(StatusError, "Connection failed")
 		a.addLogEntry("ERROR", "Dial failed: "+err.Error())
-		return ConnectResult{ErrorCode: "dial_failed"},
+		errCode := "dial_failed"
+		if useP2P {
+			errCode = "hole_punch_failed"
+		}
+		return ConnectResult{ErrorCode: errCode},
 			fmt.Errorf("dial: %w", err)
 	}
 
@@ -677,50 +681,83 @@ func (a *App) ConnectToServer(
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
-		a.deriveAndStoreRelayTokens(t, sessionID)
+		a.deriveAndStoreRelayTokens(t, session)
 	}
 
-	// Store dial params for transparent resumption on involuntary
-	// disconnect.
-	reconnectCtx, reconnectCancel := context.WithCancel(a.lifeCtx())
-	session.reconnectCtx = reconnectCtx
-	session.reconnectCancel = reconnectCancel
-	session.reconnectFn = func(sessionID string) (*kamune.Transport, error) {
-		resumeOpts := append(
-			[]kamune.DialOption{kamune.DialWithResume(sessionID)}, opts...,
-		)
+	// Store dial params for transparent resumption on involuntary disconnect.
+	// For broker P2P, transparent resumption is not possible because the NAT
+	// mapping is gone and the remote peer is not listening on the broker.
+	if !(transport == "udp" && useP2P && useBroker) {
+		reconnectCtx, reconnectCancel := context.WithCancel(a.lifeCtx())
+		session.reconnectCtx = reconnectCtx
+		session.reconnectCancel = reconnectCancel
 
-		// For relay connections with stored ECDH tokens, try all tokens
-		// on reconnect instead of just the original one.
-		if store != nil && relayAddr != "" {
-			if m, err := store.GetMeta(
-				sessionID, storage.RelayTokensKey,
-			); err == nil && m.Value() != nil {
-				if tokens := decodeTokenList(m.Value()); len(tokens) > 1 {
-					fn, err := dialRelayFuncMultiToken(
-						relayAddr, password, false, tokens,
-					)
-					if err == nil {
-						resumeOpts = append(
-							resumeOpts, kamune.DialWithFunc(fn),
-						)
+		targetAddr := addr
+		isDirectP2P := transport == "udp" && useP2P && !useBroker
+		directAddr := strings.TrimPrefix(addr, "p2p://")
+
+		session.reconnectFn = func(sessionID string) (*kamune.Transport, error) {
+			resumeOpts := append(
+				[]kamune.DialOption{kamune.DialWithResume(sessionID)}, opts...,
+			)
+
+			if isDirectP2P {
+				pConn, err := directP2PDial(directAddr)
+				if err != nil {
+					return nil, fmt.Errorf("direct p2p redial: %w", err)
+				}
+				resumeOpts = append(resumeOpts, kamune.DialWithFunc(
+					func(string) (kamune.Conn, error) {
+						return pConn, nil
+					},
+				))
+			} else if relayAddr != "" {
+				// Always replace the original dial func. It closed over
+				// lifeCtx, which disconnect does not cancel. More than
+				// one stored token tries the pool; otherwise the single
+				// token is dialed with the session context.
+				var fn func(string) (kamune.Conn, error)
+				var fnErr error
+				if store != nil {
+					if m, err := store.GetMeta(
+						sessionID, storage.RelayTokensKey,
+					); err == nil && m.Value() != nil {
+						if tokens := decodeTokenList(m.Value()); len(tokens) > 1 {
+							fn, fnErr = dialRelayFuncMultiToken(
+								reconnectCtx, relayAddr, password,
+								false, tokens,
+							)
+						}
 					}
 				}
+				if fn == nil && fnErr == nil {
+					fn, fnErr = dialRelayFunc(
+						reconnectCtx, relayAddr, relayTokenHex,
+						password, false,
+					)
+				}
+				if fnErr == nil && fn != nil {
+					resumeOpts = append(
+						resumeOpts, kamune.DialWithFunc(fn),
+					)
+				}
 			}
-		}
 
-		d, err := kamune.NewDialer(addr, store, a.getVerifier(), resumeOpts...)
-		if err != nil {
-			return nil, err
+			d, err := kamune.NewDialer(
+				targetAddr, store, a.getVerifier(), resumeOpts...,
+			)
+			if err != nil {
+				return nil, err
+			}
+			t, err := d.Dial()
+			if err != nil {
+				return nil, err
+			}
+			// Fresh ECDH exchange over the new transport so the local
+			// token pool stays in sync with the listener's.
+			a.deriveAndStoreRelayTokens(t, session)
+			return t, nil
 		}
-		t, err := d.Dial()
-		if err != nil {
-			return nil, err
-		}
-		// Fresh ECDH exchange over the new transport so the local
-		// token pool stays in sync with the listener's.
-		a.deriveAndStoreRelayTokens(t, sessionID)
-		return t, nil
 	}
 
 	a.loadChatHistory(session)
@@ -752,7 +789,7 @@ func (a *App) ConnectToServer(
 	a.addLogEntry("INFO", "Connected | addr="+addr+" session_id="+sessionID)
 
 	go a.receiveMessages(session)
-	go a.keepAliveLoop(session)
+	go a.keepAliveLoop(session, session.keepAliveDone)
 
 	connected = true
 	return ConnectResult{SessionID: sessionID}, nil
@@ -849,6 +886,9 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	}
 
 	sessionID := t.SessionID()
+	a.mu.Lock()
+	stampRelaySession(a.relayTokens, t.AcceptedMeta(), sessionID)
+	a.mu.Unlock()
 	peer := t.RemotePeer()
 
 	a.mu.RLock()
@@ -875,27 +915,8 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
-		a.deriveAndStoreRelayTokens(t, sessionID)
+		a.deriveAndStoreRelayTokens(t, session)
 	}
-
-	// TODO(h.yazdani): A Transport does not retain which relay listener accepted
-	// it. With multiple consumed relay tokens, this fallback can associate a
-	// session with the wrong token. Preserve optional connection metadata through
-	// the core server handshake, then use the exact accepting relay token here.
-
-	// Link the session ID to the consumed relay token so the
-	// reconnect loop can look up stored tokens from BoltDB.
-	a.mu.Lock()
-	for i := range a.relayTokens {
-		if a.relayTokens[i].Consumed {
-			a.relayTokens[i].sessionID = sessionID
-			if tt, ok := a.relayTokens[i].listener.(*tokenTracker); ok {
-				tt.sessionID = sessionID
-			}
-			break
-		}
-	}
-	a.mu.Unlock()
 
 	a.loadChatHistory(session)
 
@@ -923,18 +944,37 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	a.emitEvent("session-messages", session.ID, session.Messages)
 	a.addLogEntry("INFO", "New incoming connection: "+sessionID)
 
-	go a.keepAliveLoop(session)
+	go a.keepAliveLoop(session, session.keepAliveDone)
 	a.receiveMessages(session)
 	return nil
 }
 
-// deriveAndStoreRelayTokens performs an ECDH exchange over the transport to
-// derive3 reconnect tokens and stores them in the session's meta bucket.
-// Failures are logged but non-fatal — the session works without ECDH tokens.
+// deriveAndStoreRelayTokens sends this side's relay-token key and keeps
+// the pending exchange on the session. The receive loop finishes it when
+// the peer's SessionData arrives. Failures are logged and non-fatal.
 func (a *App) deriveAndStoreRelayTokens(
-	t *kamune.Transport, sessionID string,
+	t *kamune.Transport, session *liveSession,
 ) {
-	tokens, err := relayconn.DeriveRelayTokens(t)
+	pending, err := relayconn.BeginRelayTokenExchange(t)
+	if err != nil {
+		a.addLogEntry("WARN", "Failed to derive relay tokens: "+err.Error())
+		return
+	}
+	session.mu.Lock()
+	session.relayToken = pending
+	session.mu.Unlock()
+}
+
+// finishRelayToken completes a pending exchange from a SessionData
+// payload and stores the pool. A second SessionData is ignored.
+func (a *App) finishRelayToken(session *liveSession, payload []byte) {
+	session.mu.Lock()
+	pending := session.relayToken
+	session.mu.Unlock()
+	if pending == nil {
+		return
+	}
+	tokens, err := relayconn.CompleteRelayTokenPayload(pending, payload)
 	if err != nil {
 		a.addLogEntry("WARN", "Failed to derive relay tokens: "+err.Error())
 		return
@@ -947,11 +987,18 @@ func (a *App) deriveAndStoreRelayTokens(
 	if store == nil {
 		return
 	}
-	if err := store.SetMeta(sessionID,
+	if err := store.SetMeta(
+		session.ID,
 		storage.NewByteSlicesMeta(storage.RelayTokensKey, slices),
 	); err != nil {
 		a.addLogEntry("WARN", "Failed to store relay tokens: "+err.Error())
+		return
 	}
+	session.mu.Lock()
+	if session.relayToken == pending {
+		session.relayToken = nil
+	}
+	session.mu.Unlock()
 }
 
 func (a *App) loadChatHistory(session *liveSession) {

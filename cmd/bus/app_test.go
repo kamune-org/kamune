@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"sync"
 	"testing"
@@ -8,7 +9,18 @@ import (
 
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/stretchr/testify/require"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+func TestServiceShutdown_CancelsLifeCtx(t *testing.T) {
+	a := require.New(t)
+	app := &App{}
+	a.NoError(app.ServiceStartup(
+		context.Background(), application.ServiceOptions{},
+	))
+	a.NoError(app.ServiceShutdown())
+	a.ErrorIs(app.lifeCtx().Err(), context.Canceled)
+}
 
 func TestDBPathDefault(t *testing.T) {
 	a := require.New(t)

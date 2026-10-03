@@ -48,16 +48,32 @@ type tokenTracker struct {
 	consumed   atomic.Bool
 }
 
+type trackingConn struct {
+	kamune.Conn
+	tracker *tokenTracker
+	onClose func()
+	once    sync.Once
+}
+
+func (c *trackingConn) AcceptedMeta() any { return c.tracker }
+
+func (c *trackingConn) Close() error {
+	defer c.once.Do(c.onClose)
+	return c.Conn.Close()
+}
+
 func (t *tokenTracker) Accept() (kamune.Conn, error) {
 	cn, err := t.Listener.Accept()
 	if err == nil {
 		t.cancelExpiry()
 		t.consumed.Store(true)
 		t.app.markRelayTokenConsumed(t.token)
-	} else {
-		t.closeDead()
+		return &trackingConn{
+			Conn: cn, tracker: t, onClose: t.closeDead,
+		}, nil
 	}
-	return cn, err
+	t.closeDead()
+	return nil, err
 }
 
 func (t *tokenTracker) Stop() {
@@ -76,6 +92,52 @@ func (t *tokenTracker) closeDead() {
 
 func (t *tokenTracker) Dead() <-chan struct{} {
 	return t.dead
+}
+
+// stampRelaySession records sessionID on the accepting tracker and on
+// the slice entry that still points at it. Other tokens are left alone.
+func stampRelaySession(
+	tokens []relayToken, meta any, sessionID string,
+) {
+	tt, ok := meta.(*tokenTracker)
+	if !ok || tt == nil {
+		return
+	}
+	tt.sessionID = sessionID
+	for i := range tokens {
+		if tokens[i].listener == tt {
+			tokens[i].sessionID = sessionID
+		}
+	}
+}
+
+func relaySessionID(tracker *tokenTracker, tokens []relayToken) string {
+	if tracker != nil && tracker.sessionID != "" {
+		return tracker.sessionID
+	}
+	for i := len(tokens) - 1; i >= 0; i-- {
+		if tokens[i].sessionID != "" {
+			return tokens[i].sessionID
+		}
+		tt, ok := tokens[i].listener.(*tokenTracker)
+		if ok && tt.sessionID != "" {
+			return tt.sessionID
+		}
+	}
+	return ""
+}
+
+func loadRelayPool(
+	store *storage.Storage, sessionID string,
+) ([][]byte, bool) {
+	if sessionID == "" || store == nil {
+		return nil, false
+	}
+	m, err := store.GetMeta(sessionID, storage.RelayTokensKey)
+	if err != nil || m.Value() == nil {
+		return nil, false
+	}
+	return decodeTokenList(m.Value()), true
 }
 
 func (t *tokenTracker) cancelExpiry() {
@@ -186,14 +248,20 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 	return result.Listener, hex.EncodeToString(result.Token), result.TTL, result.SessionTTL, nil
 }
 
-func dialRelayFunc(relayAddr, tokenHex, password string, insecureSkipVerify bool) (func(string) (kamune.Conn, error), error) {
-	return dialRelayFuncWithSessionTTL(relayAddr, tokenHex, password, insecureSkipVerify, nil)
+func dialRelayFunc(
+	ctx context.Context, relayAddr, tokenHex, password string,
+	insecureSkipVerify bool,
+) (func(string) (kamune.Conn, error), error) {
+	return dialRelayFuncWithSessionTTL(
+		ctx, relayAddr, tokenHex, password, insecureSkipVerify, nil,
+	)
 }
 
 // dialRelayFuncMultiToken returns a dial function that tries each of the given
 // relay tokens in order, returning the first successful connection. The
 // relay address is parsed once; only the token changes per attempt.
 func dialRelayFuncMultiToken(
+	ctx context.Context,
 	relayAddr, password string,
 	insecureSkipVerify bool,
 	tokens [][]byte,
@@ -205,13 +273,18 @@ func dialRelayFuncMultiToken(
 		return nil, errors.New("at least one relay token is required")
 	}
 
-	ctx := context.Background()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
 	if insecureOverride != nil {
 		insecureSkipVerify = *insecureOverride
 	}
 
 	return func(addr string) (kamune.Conn, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var lastErr error
 		for _, rawToken := range tokens {
 			var (
@@ -241,7 +314,10 @@ func dialRelayFuncMultiToken(
 	}, nil
 }
 
-func dialRelayFuncWithSessionTTL(relayAddr, tokenHex, password string, insecureSkipVerify bool, sessionTTL *time.Duration) (func(string) (kamune.Conn, error), error) {
+func dialRelayFuncWithSessionTTL(
+	ctx context.Context, relayAddr, tokenHex, password string,
+	insecureSkipVerify bool, sessionTTL *time.Duration,
+) (func(string) (kamune.Conn, error), error) {
 	if strings.TrimSpace(relayAddr) == "" {
 		return nil, errors.New("relay server address is required")
 	}
@@ -254,13 +330,18 @@ func dialRelayFuncWithSessionTTL(relayAddr, tokenHex, password string, insecureS
 		return nil, fmt.Errorf("decode token: %w", err)
 	}
 
-	ctx := context.Background()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
 	if insecureOverride != nil {
 		insecureSkipVerify = *insecureOverride
 	}
 
 	return func(addr string) (kamune.Conn, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var opts []relayconn.Option
 		if password != "" {
 			opts = append(opts, relayconn.WithPassword(password))
@@ -303,14 +384,14 @@ func (a *App) relayReconnectLoop(
 		maxBackoff = 5 * time.Second
 	)
 
-	// Find the current tracker's dead channel and session ID.
+	// Find the current tracker's dead channel.
 	a.mu.RLock()
 	var currentDead <-chan struct{}
-	var sessionID string
+	var currentTracker *tokenTracker
 	for i := len(a.relayTokens) - 1; i >= 0; i-- {
 		if tt, ok := a.relayTokens[i].listener.(*tokenTracker); ok {
 			currentDead = tt.Dead()
-			sessionID = tt.sessionID
+			currentTracker = tt
 			break
 		}
 	}
@@ -347,22 +428,28 @@ func (a *App) relayReconnectLoop(
 			return
 		}
 
-		// Read stored ECDH tokens from BoltDB.
-		st := a.store()
-		if st == nil {
-			return
-		}
-		m, err := st.GetMeta(
-			sessionID, storage.RelayTokensKey,
-		)
-		if err != nil || m.Value() == nil {
+		// Resolve session ID from tracker or tokens after connection death.
+		a.mu.RLock()
+		sessionID := relaySessionID(currentTracker, a.relayTokens)
+		a.mu.RUnlock()
+		if sessionID == "" {
 			slog.Warn(
 				"relay reconnect: no stored tokens, cold start required",
 				"session", sessionID,
 			)
 			return
 		}
-		tokens := decodeTokenList(m.Value())
+
+		// Read stored ECDH tokens from BoltDB.
+		st := a.store()
+		tokens, ok := loadRelayPool(st, sessionID)
+		if !ok {
+			slog.Warn(
+				"relay reconnect: no stored tokens, cold start required",
+				"session", sessionID,
+			)
+			return
+		}
 		if len(tokens) == 0 {
 			slog.Warn(
 				"relay reconnect: empty token pool, cold start required",
@@ -421,6 +508,7 @@ func (a *App) relayReconnectLoop(
 			// Track the new listener's death for the next cycle.
 			if tt, ok := listener.(*tokenTracker); ok {
 				currentDead = tt.Dead()
+				currentTracker = tt
 				tt.sessionID = sessionID
 			}
 			registered = true

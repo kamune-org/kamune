@@ -702,6 +702,7 @@
                             connectP2PMode === "token"
                                 ? connectP2PToken.trim()
                                 : "",
+                        name: $myName,
                         useP2P: connectUseP2P,
                         useBroker: connectUseBroker,
                     };

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -234,7 +235,7 @@ func TestDialRelayFuncMultiToken_Errors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			a := require.New(t)
 			_, err := dialRelayFuncMultiToken(
-				tc.relayAddr, "", false, tc.tokens,
+				context.Background(), tc.relayAddr, "", false, tc.tokens,
 			)
 			if tc.wantErr {
 				a.Error(err)
@@ -250,7 +251,7 @@ func TestDialRelayFuncMultiToken_ParsesRelayAddrOnce(t *testing.T) {
 	validToken := make([]byte, 32)
 	validToken[0] = 0xAA
 	fn, err := dialRelayFuncMultiToken(
-		"wss://relay.example.com:443", "", false,
+		context.Background(), "wss://relay.example.com:443", "", false,
 		[][]byte{validToken},
 	)
 	a.NoError(err)
@@ -530,6 +531,47 @@ func TestMarkRelayTokenConsumed_NotFound(t *testing.T) {
 	app.mu.RLock()
 	defer app.mu.RUnlock()
 	a.False(app.relayTokens[0].Consumed)
+}
+
+func TestReconnectDial_SingleTokenUsesSessionContext(t *testing.T) {
+	a := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	token := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	fn, err := dialRelayFunc(ctx, "tcp://127.0.0.1:1", token, "", false)
+	a.NoError(err)
+	_, err = fn("")
+	a.ErrorIs(err, context.Canceled)
+}
+
+func TestStampRelaySession_TwoConsumedTokens(t *testing.T) {
+	a := require.New(t)
+	first := &tokenTracker{}
+	second := &tokenTracker{}
+	tokens := []relayToken{
+		{Consumed: true, listener: first},
+		{Consumed: true, listener: second},
+	}
+	stampRelaySession(tokens, second, "session-b")
+	a.Empty(first.sessionID)
+	a.Equal("session-b", second.sessionID)
+	a.Empty(tokens[0].sessionID)
+	a.Equal("session-b", tokens[1].sessionID)
+}
+
+func TestStampRelaySession_AfterSliceRemoval(t *testing.T) {
+	a := require.New(t)
+	tt := &tokenTracker{}
+	stampRelaySession(nil, tt, "session-a")
+	a.Equal("session-a", tt.sessionID)
+}
+
+func TestRelayReconnectLoop_EmptySessionDoesNotQueryRoot(t *testing.T) {
+	a := require.New(t)
+	id := relaySessionID(&tokenTracker{}, nil)
+	a.Empty(id)
+	_, ok := loadRelayPool(nil, id)
+	a.False(ok)
 }
 
 // ---------------------------------------------------------------------------
