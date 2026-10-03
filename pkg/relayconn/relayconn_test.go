@@ -173,7 +173,7 @@ func TestListenHandshake_Success(t *testing.T) {
 	defer s.Close()
 
 	errCh := make(chan error, 1)
-	go relayListen(s, "", []byte("test-token"), 300, errCh)
+	go relayListen(s, "", []byte("test-token-0016b"), 300, errCh)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -183,7 +183,7 @@ func TestListenHandshake_Success(t *testing.T) {
 	defer result.Listener.Close()
 
 	a.NoError(<-errCh)
-	a.Equal("test-token", string(result.Token))
+	a.Equal("test-token-0016b", string(result.Token))
 	a.Equal(5*time.Minute, result.TTL)
 	a.Equal(5*time.Minute, result.Listener.TTL())
 }
@@ -202,7 +202,7 @@ func TestListenHandshake_EmptyToken(t *testing.T) {
 
 	_, err := listenHandshake(ctx, newTCPAdapter(c), func() { c.Close() })
 	a.Error(err)
-	a.Equal("relay returned empty token", err.Error())
+	a.ErrorIs(err, ErrInvalidRelayToken)
 	<-errCh // drain relay error (expected)
 }
 
@@ -237,7 +237,7 @@ func TestListenHandshake_WithAuth(t *testing.T) {
 	defer s.Close()
 
 	errCh := make(chan error, 1)
-	go relayListen(s, "sekret", []byte("auth-token"), 60, errCh)
+	go relayListen(s, "sekret", []byte("auth-token-0016b"), 60, errCh)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -247,7 +247,7 @@ func TestListenHandshake_WithAuth(t *testing.T) {
 	defer result.Listener.Close()
 
 	a.NoError(<-errCh)
-	a.Equal("auth-token", string(result.Token))
+	a.Equal("auth-token-0016b", string(result.Token))
 	a.Equal(time.Minute, result.TTL)
 }
 
@@ -273,7 +273,7 @@ func TestListenHandshake_SessionTTL(t *testing.T) {
 		registered := &pb.Frame{
 			Kind: &pb.Frame_Registered{
 				Registered: &pb.Registered{
-					Token:             []byte("sttl-token"),
+					Token:             []byte("sttl-token-0016b"),
 					TtlSeconds:        300,
 					SessionTtlSeconds: 1800,
 				},
@@ -291,7 +291,7 @@ func TestListenHandshake_SessionTTL(t *testing.T) {
 	defer result.Listener.Close()
 
 	a.NoError(<-errCh)
-	a.Equal("sttl-token", string(result.Token))
+	a.Equal("sttl-token-0016b", string(result.Token))
 	a.Equal(5*time.Minute, result.TTL)
 	a.Equal(30*time.Minute, result.SessionTTL)
 }
@@ -350,7 +350,7 @@ func TestListenAccept_AfterStop(t *testing.T) {
 	defer s.Close()
 
 	errCh := make(chan error, 1)
-	go relayListen(s, "", []byte("l"), 300, errCh)
+	go relayListen(s, "", []byte("listener-token16"), 300, errCh)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -372,7 +372,7 @@ func TestListenAccept_AfterClose(t *testing.T) {
 	defer s.Close()
 
 	errCh := make(chan error, 1)
-	go relayListen(s, "", []byte("l"), 300, errCh)
+	go relayListen(s, "", []byte("listener-token16"), 300, errCh)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -628,7 +628,7 @@ func setupListenerSpy(
 		registered := &pb.Frame{
 			Kind: &pb.Frame_Registered{
 				Registered: &pb.Registered{
-					Token:      []byte("test-token"),
+					Token:      []byte("test-token-0016b"),
 					TtlSeconds: 300,
 				},
 			},
@@ -855,7 +855,7 @@ func TestListenHandshake_WithToken(t *testing.T) {
 		registered := &pb.Frame{
 			Kind: &pb.Frame_Registered{
 				Registered: &pb.Registered{
-					Token:      []byte("from-relay"),
+					Token:      reg.GetToken(),
 					TtlSeconds: 300,
 				},
 			},
@@ -876,6 +876,7 @@ func TestListenHandshake_WithToken(t *testing.T) {
 
 	got := <-regToken
 	a.Equal(staticToken, got)
+	a.Equal(staticToken, result.Token)
 }
 
 func TestDialHandshake_WithAuth(t *testing.T) {
@@ -924,7 +925,7 @@ func TestDialHandshake_WithAuth(t *testing.T) {
 
 		registered := &pb.Frame{
 			Kind: &pb.Frame_Registered{
-				Registered: &pb.Registered{Token: []byte("auth-token")},
+				Registered: &pb.Registered{Token: f2.GetRegister().GetToken()},
 			},
 		}
 		b, _ = proto.Marshal(registered)

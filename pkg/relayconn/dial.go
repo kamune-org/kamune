@@ -142,15 +142,18 @@ func relayHandshake(
 	if err := proto.Unmarshal(relayBytes, &relayFrame); err != nil {
 		return nil, fmt.Errorf("unmarshal registered: %w", err)
 	}
-	if relayFrame.GetRegistered() == nil {
+	reg := relayFrame.GetRegistered()
+	if reg == nil {
 		return nil, fmt.Errorf(
 			"unexpected frame: expected registered, got %T", relayFrame.Kind,
 		)
 	}
+	if err := checkRegisteredToken(reg.GetToken(), token); err != nil {
+		return nil, err
+	}
 
 	var mu sync.Mutex
 	rc := newRelayConn(ctx, ch, &mu)
-	reg := relayFrame.GetRegistered()
 	rc.ttl = time.Duration(reg.GetTtlSeconds()) * time.Second
 	rc.sessionTTL = time.Duration(reg.GetSessionTtlSeconds()) * time.Second
 	rc.closeFn = func() { ch.Close() }

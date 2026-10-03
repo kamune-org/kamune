@@ -22,6 +22,7 @@ const (
 	// relayTokenSize is the length in bytes of relay-generated session tokens
 	// assigned by the relay via Create(). User-provided tokens (static and
 	// ECDH-derived) use peerTokenSize.
+	relayTokenSize = 16
 
 	// peerTokenSize is the required length in bytes of user-provided tokens
 	// (static tokens from TokenFromKeys and ECDH-derived tokens from
@@ -54,7 +55,32 @@ var (
 	// ErrECDHPeerKeyMissing is returned by DeriveRelayTokens when the peer's
 	// SessionData message does not contain an "ecdh_pubkey" field.
 	ErrECDHPeerKeyMissing = errors.New("peer SessionData missing ecdh_pubkey")
+
+	// ErrInvalidRelayToken is returned by the Listen helpers when the relay
+	// assigns a token that is empty or neither 16 nor 32 bytes long.
+	ErrInvalidRelayToken = errors.New("relay returned an invalid token")
+
+	// ErrRelayTokenMismatch is returned by the Listen and Dial helpers when
+	// the relay's Registered frame echoes a token other than the one the
+	// client registered with.
+	ErrRelayTokenMismatch = errors.New("relay returned a different token")
 )
+
+// checkRegisteredToken validates the token in the relay's Registered
+// frame. When the client sent a token, the relay must echo it unchanged.
+// Otherwise the relay assigned one, which must have a known length.
+func checkRegisteredToken(got, sent []byte) error {
+	if len(sent) > 0 {
+		if !bytes.Equal(got, sent) {
+			return ErrRelayTokenMismatch
+		}
+		return nil
+	}
+	if len(got) != relayTokenSize && len(got) != peerTokenSize {
+		return fmt.Errorf("%w: %d bytes", ErrInvalidRelayToken, len(got))
+	}
+	return nil
+}
 
 // ValidateUserToken checks that a user-provided token meets the relay's
 // requirements: exactly 32 bytes, non-zero, not all the same byte, and Shannon

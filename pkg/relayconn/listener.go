@@ -154,12 +154,17 @@ func listenHandshake(
 	if err := proto.Unmarshal(relayBytes, &relayFrame); err != nil {
 		return nil, fmt.Errorf("unmarshal registered: %w", err)
 	}
-	token := relayFrame.GetRegistered().GetToken()
-	if token == nil {
-		return nil, fmt.Errorf("relay returned empty token")
+	reg := relayFrame.GetRegistered()
+	if reg == nil {
+		return nil, fmt.Errorf(
+			"unexpected frame: expected registered, got %T", relayFrame.Kind,
+		)
+	}
+	token := reg.GetToken()
+	if err := checkRegisteredToken(token, o.token); err != nil {
+		return nil, err
 	}
 
-	reg := relayFrame.GetRegistered()
 	ttl := time.Duration(reg.GetTtlSeconds()) * time.Second
 	sessionTTL := time.Duration(reg.GetSessionTtlSeconds()) * time.Second
 
