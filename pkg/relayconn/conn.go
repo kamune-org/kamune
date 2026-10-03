@@ -13,19 +13,36 @@ import (
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 )
 
+const (
+	// maxBufferedFrames is the most received frames a RelayConn holds
+	// before its reader stops pulling frames from the relay.
+	maxBufferedFrames = 1024
+	// maxBufferedBytes is the most payload bytes a RelayConn holds
+	// before its reader stops pulling frames from the relay. An empty
+	// buffer always takes one frame, whatever its size.
+	maxBufferedBytes = 4 << 20
+)
+
 // RelayConn implements Conn for relay-mediated connections. It buffers
 // incoming data from a readPump goroutine and exposes ReadBytes/WriteBytes
 // for the kamune protocol. Deadline support uses a timer+channel pattern
 // to unblock ReadBytes on timeout or cancellation.
+//
+// The receive buffer is bounded by maxBufferedFrames and
+// maxBufferedBytes. When it is full the reader blocks until ReadBytes
+// drains it, so a peer or relay that sends faster than the consumer
+// reads is pushed back through the transport instead of growing memory.
 type RelayConn struct {
 	deadline   time.Time
 	ctx        context.Context
 	recv       chan struct{}
+	space      chan struct{}
 	channel    *exchange.Channel
 	channelMu  *sync.Mutex
 	cancel     context.CancelFunc
 	closeFn    func()
 	buf        [][]byte
+	bufBytes   int
 	bufMu      sync.Mutex
 	deadlineMu sync.Mutex
 	ttl        time.Duration
@@ -41,6 +58,7 @@ func newRelayConn(
 	ctx, cancel := context.WithCancel(ctx)
 	return &RelayConn{
 		recv:      make(chan struct{}, 1),
+		space:     make(chan struct{}, 1),
 		channel:   ch,
 		channelMu: channelMu,
 		ctx:       ctx,
@@ -53,8 +71,14 @@ func (rc *RelayConn) ReadBytes() ([]byte, error) {
 		rc.bufMu.Lock()
 		if len(rc.buf) > 0 {
 			data := rc.buf[0]
+			rc.buf[0] = nil
 			rc.buf = rc.buf[1:]
+			rc.bufBytes -= len(data)
 			rc.bufMu.Unlock()
+			select {
+			case rc.space <- struct{}{}:
+			default:
+			}
 			return data, nil
 		}
 		rc.bufMu.Unlock()
@@ -121,20 +145,47 @@ func (rc *RelayConn) Close() error {
 	return nil
 }
 
-func (rc *RelayConn) pushData(data []byte) {
-	rc.bufMu.Lock()
-	rc.buf = append(rc.buf, data)
-	rc.bufMu.Unlock()
-	select {
-	case rc.recv <- struct{}{}:
-	default:
+// pushData appends data to the receive buffer. While the buffer is
+// full it blocks until ReadBytes makes room. It returns false, dropping
+// data, if the connection is closed first.
+func (rc *RelayConn) pushData(data []byte) bool {
+	for {
+		rc.bufMu.Lock()
+		if rc.hasRoomLocked(len(data)) {
+			rc.buf = append(rc.buf, data)
+			rc.bufBytes += len(data)
+			rc.bufMu.Unlock()
+			select {
+			case rc.recv <- struct{}{}:
+			default:
+			}
+			return true
+		}
+		rc.bufMu.Unlock()
+
+		select {
+		case <-rc.space:
+		case <-rc.ctx.Done():
+			return false
+		}
 	}
+}
+
+// hasRoomLocked reports whether a frame of n bytes fits in the receive
+// buffer. The caller must hold bufMu.
+func (rc *RelayConn) hasRoomLocked(n int) bool {
+	if len(rc.buf) == 0 {
+		return true
+	}
+	return len(rc.buf) < maxBufferedFrames &&
+		rc.bufBytes+n <= maxBufferedBytes
 }
 
 // readPump continuously reads frames from the exchange channel and
 // dispatches them: message frames are pushed into the read buffer,
-// ping frames receive an automatic pong reply. On read error or
-// context cancellation the pump exits and cancels the context.
+// ping frames receive an automatic pong reply. While the buffer is full
+// the pump stops reading. On read error or context cancellation the
+// pump exits and cancels the context.
 func (rc *RelayConn) readPump() {
 	defer rc.cancel()
 	for {
@@ -148,7 +199,9 @@ func (rc *RelayConn) readPump() {
 		}
 		switch v := frame.Kind.(type) {
 		case *pb.Frame_Msg:
-			rc.pushData(v.Msg.GetData())
+			if !rc.pushData(v.Msg.GetData()) {
+				return
+			}
 		case *pb.Frame_Ping:
 			pong := &pb.Frame{Kind: &pb.Frame_Pong{Pong: &pb.Pong{}}}
 			b, _ := proto.Marshal(pong)

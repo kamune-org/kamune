@@ -256,9 +256,11 @@ func (l *RelayListener) deliver(msg *pb.Message) {
 	l.mu.Lock()
 
 	// Always deliver to an existing connection, even after Stop().
-	if l.conn != nil {
-		l.conn.pushData(data)
+	// pushData can block until the consumer drains the buffer, so it
+	// runs without l.mu: closing the connection takes l.mu.
+	if conn := l.conn; conn != nil {
 		l.mu.Unlock()
+		conn.pushData(data)
 		return
 	}
 
