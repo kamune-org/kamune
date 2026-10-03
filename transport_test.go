@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/attest"
+	"github.com/kamune-org/kamune/pkg/exchange"
+	relaypb "github.com/kamune-org/kamune/pkg/relayconn/pb"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -261,22 +264,90 @@ func TestTransport_PadToBucket(t *testing.T) {
 	}
 }
 
-// TestTransport_EncryptFitsUint16 asserts that the largest bucket
-// plus encryption overhead equals math.MaxUint16.
-func TestTransport_EncryptFitsUint16(t *testing.T) {
+// TestTransport_FrameBudget asserts that the largest bucket plus encryption
+// overhead equals maxFrameSize and leaves transportReserve bytes of headroom
+// below math.MaxUint16.
+func TestTransport_FrameBudget(t *testing.T) {
 	a := require.New(t)
-	a.Equal(
-		math.MaxUint16-encryptionOverhead, frameTargetSize,
-		"sanity: frameTargetSize + encryptionOverhead == math.MaxUint16",
-	)
 	a.Equal(
 		frameTargetSize, paddingBuckets[len(paddingBuckets)-1],
 		"sanity: last bucket must be frameTargetSize",
 	)
-	a.LessOrEqual(
-		frameTargetSize+encryptionOverhead, math.MaxUint16,
-		"last bucket + AEAD must fit math.MaxUint16",
+	a.Equal(
+		maxFrameSize, frameTargetSize+encryptionOverhead,
+		"last bucket + AEAD must equal maxFrameSize",
 	)
+	a.Equal(
+		math.MaxUint16, maxFrameSize+transportReserve,
+		"maxFrameSize must leave transportReserve below math.MaxUint16",
+	)
+	a.Less(maxTransportSize, frameTargetSize)
+}
+
+// TestTransport_LargestFrameFitsRelayWrapping sends the largest padded
+// session frame through the wrapping the relay transport applies (a relay
+// Frame envelope sealed by an HPKE channel) over a 2-byte length-prefixed
+// conn and checks that it arrives intact.
+func TestTransport_LargestFrameFitsRelayWrapping(t *testing.T) {
+	a := require.New(t)
+	att, err := attest.New()
+	a.NoError(err)
+	serde := newSignedSerde(att.MarshalPublicKey(), att)
+	cipher, err := enigma.NewEnigma(
+		[]byte("relay budget secret"),
+		[]byte("relay budget salt"),
+		[]byte("relay budget info"),
+	)
+	a.NoError(err)
+
+	// A message near the user cap always lands on the last bucket.
+	msg := Bytes(make([]byte, maxTransportSize-64))
+	payload, _, err := serde.serialize(msg, RouteExchangeMessages, 1)
+	a.NoError(err)
+	a.Len(payload, frameTargetSize)
+	frame := cipher.Encrypt(payload)
+	a.Len(frame, maxFrameSize)
+
+	wrapped, err := proto.Marshal(&relaypb.Frame{
+		Kind: &relaypb.Frame_Msg{Msg: &relaypb.Message{Data: frame}},
+	})
+	a.NoError(err)
+
+	left, right := net.Pipe()
+	t.Cleanup(func() {
+		_ = left.Close()
+		_ = right.Close()
+	})
+	type result struct {
+		ch  *exchange.Channel
+		err error
+	}
+	accepted := make(chan result, 1)
+	go func() {
+		ch, err := exchange.Accept(newConn(right))
+		accepted <- result{ch, err}
+	}()
+	sender, err := exchange.Initiate(newConn(left))
+	a.NoError(err)
+	res := <-accepted
+	a.NoError(res.err)
+
+	type readResult struct {
+		err  error
+		data []byte
+	}
+	read := make(chan readResult, 1)
+	go func() {
+		data, err := res.ch.ReadBytes()
+		read <- readResult{err, data}
+	}()
+	a.NoError(sender.WriteBytes(wrapped))
+	got := <-read
+	a.NoError(got.err)
+
+	var out relaypb.Frame
+	a.NoError(proto.Unmarshal(got.data, &out))
+	a.Equal(frame, out.GetMsg().GetData())
 }
 
 func TestTransportReceiveRejectsHandshakeRoute(t *testing.T) {

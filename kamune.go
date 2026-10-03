@@ -21,15 +21,26 @@ const (
 	// (XChaCha20-Poly1305): 24-byte nonce + 16-byte tag.
 	encryptionOverhead = 40
 
+	// transportReserve is the headroom kept below math.MaxUint16 for a
+	// Conn that wraps every kamune frame again before it puts its own
+	// 2-byte length prefix on the wire. The relay transport adds a
+	// relay Frame envelope (8 bytes) and an HPKE tag (16 bytes); the
+	// rest is margin.
+	transportReserve = 64
+
+	// maxFrameSize is the largest frame kamune hands to a Conn. It
+	// leaves transportReserve bytes below math.MaxUint16 (the wire
+	// format's hard upper bound).
+	maxFrameSize = math.MaxUint16 - transportReserve
+
 	// frameTargetSize is the maximum pre-encryption size for a padded
-	// SignedTransport. After encryption, the wire payload is frameTargetSize +
-	// encryptionOverhead, which must fit in math.MaxUint16 (the wire format's
-	// hard upper bound).
-	frameTargetSize = math.MaxUint16 - encryptionOverhead
+	// SignedTransport. After encryption, the frame is frameTargetSize +
+	// encryptionOverhead, which equals maxFrameSize.
+	frameTargetSize = maxFrameSize - encryptionOverhead
 
 	// maxTransportSize is the protocol's user-message cap. It is derived as
-	// math.MaxUint16 - reservedProtocolOverhead.
-	maxTransportSize = math.MaxUint16 - reservedProtocolOverhead
+	// maxFrameSize - reservedProtocolOverhead.
+	maxTransportSize = maxFrameSize - reservedProtocolOverhead
 
 	// sessionIDLength is the length of the session ID.
 	sessionIDLength = 24
@@ -57,8 +68,8 @@ const (
 )
 
 // Bucket sizes for the bucketed padding scheme (pre-encryption target sizes in
-// bytes). Bucket 6 lands on frameTargetSize so the encrypted wire payload fits
-// exactly in math.MaxUint16.
+// bytes). Bucket 6 lands on frameTargetSize so the encrypted frame is exactly
+// maxFrameSize and still fits math.MaxUint16 after relay wrapping.
 var paddingBuckets = []int{
 	512,
 	1024,
