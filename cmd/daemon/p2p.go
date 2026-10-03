@@ -66,6 +66,7 @@ func (d *Daemon) GenerateP2PToken(
 		expectedToken = hex.EncodeToString(staticToken)
 	}
 	d.mu.RLock()
+	listener := d.p2pListener
 	var existingToken string
 	for i := range d.p2pTokens {
 		t := d.p2pTokens[i]
@@ -83,28 +84,31 @@ func (d *Daemon) GenerateP2PToken(
 	}
 	d.mu.RUnlock()
 	if existingToken != "" {
-		if err := d.refreshBrokerRegistration(
-			broker, brokerAddr, existingToken,
-		); err != nil {
-			d.addLogEntry("WARN",
-				"Failed to refresh existing p2p token: "+err.Error())
-		} else {
-			d.mu.Lock()
-			for i := range d.p2pTokens {
-				if d.p2pTokens[i].Token == existingToken {
-					d.p2pTokens[i].ExpiresAt = time.Now().Add(
-						p2pTokenRefreshInterval,
-					)
-					break
-				}
-			}
-			snapshot := d.p2pTokensSnapshot()
-			d.mu.Unlock()
-			d.emit(EvtP2PTokens, "", MapA{"tokens": snapshot})
-			d.addLogEntry("INFO",
-				"Refreshed p2p token lifetime: "+existingToken)
-		}
 		return existingToken, nil
+	}
+
+	if l, ok := listener.(*p2pListener); ok && staticToken != nil {
+		if err := l.RegisterToken(staticToken); err != nil {
+			return "", fmt.Errorf("register token on punch socket: %w", err)
+		}
+		hexToken := hex.EncodeToString(staticToken)
+		ptCtx, ptCancel := context.WithCancel(d.ctx)
+		d.mu.Lock()
+		d.p2pTokens = append(d.p2pTokens, p2pToken{
+			Token:      hexToken,
+			Mode:       "static",
+			PeerPubB64: peerPubB64,
+			Consumed:   false,
+			TTL:        p2pTokenRefreshInterval,
+			ExpiresAt:  time.Now().Add(p2pTokenRefreshInterval),
+			brokerAddr: brokerAddr,
+			ctx:        ptCtx,
+			cancel:     ptCancel,
+		})
+		snapshot := d.p2pTokensSnapshot()
+		d.mu.Unlock()
+		d.emit(EvtP2PTokens, "", MapA{"tokens": snapshot})
+		return hexToken, nil
 	}
 
 	client, err := broker.Client(brokerAddr)
@@ -189,25 +193,6 @@ func (d *Daemon) deriveP2PToken(peerPubB64 string) ([]byte, error) {
 	store := d.store()
 	if store == nil {
 		return nil, errors.New("storage is not available")
-	}
-
-	peerPubPKIX, err := decodePeerPubKey(peerPubB64)
-	if err != nil {
-		return nil, fmt.Errorf("decode peer public key: %w", err)
-	}
-	sessionID, err := store.FindSessionByPeer(peerPubPKIX)
-	if err != nil {
-		return nil, fmt.Errorf("find session by peer: %w", err)
-	}
-	if sessionID != "" {
-		m, err := store.GetMeta(
-			sessionID, storage.RelayTokensKey,
-		)
-		if err == nil && m.Value() != nil {
-			if tokens := decodeTokenList(m.Value()); len(tokens) > 0 {
-				return tokens[0], nil
-			}
-		}
 	}
 
 	myPubPKIX, err := store.PublicKey()

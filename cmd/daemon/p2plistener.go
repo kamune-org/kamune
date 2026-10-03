@@ -17,8 +17,10 @@ import (
 type p2pListener struct {
 	bindAddr   string
 	broker     *BrokerClient
-	brokerAddr string
-	token      []byte
+	brokerAddr  string
+	token       []byte
+	extraTokens [][]byte
+	tokenMu     sync.RWMutex
 
 	conn *net.UDPConn
 	kcp  *kcp.Listener
@@ -161,7 +163,8 @@ func (l *p2pListener) refreshLoop() {
 	}
 }
 
-func (l *p2pListener) refreshRegistration() error {
+// RegisterToken registers an additional token from the punch socket.
+func (l *p2pListener) RegisterToken(token []byte) error {
 	brokerUDPAddr, err := net.ResolveUDPAddr("udp4", l.brokerAddr)
 	if err != nil {
 		return fmt.Errorf("resolve broker: %w", err)
@@ -175,10 +178,45 @@ func (l *p2pListener) refreshRegistration() error {
 		return fmt.Errorf("broker client: %w", err)
 	}
 	pkt := relaybroker.BuildRegister(
-		l.token, client.PublicKey(), claimIP, claimPort,
+		token, client.PublicKey(), claimIP, claimPort,
 	)
 	if _, err := l.conn.WriteToUDP(pkt, brokerUDPAddr); err != nil {
 		return fmt.Errorf("send register: %w", err)
+	}
+	l.tokenMu.Lock()
+	l.extraTokens = append(l.extraTokens, token)
+	l.tokenMu.Unlock()
+	return nil
+}
+
+func (l *p2pListener) refreshRegistration() error {
+	brokerUDPAddr, err := net.ResolveUDPAddr("udp4", l.brokerAddr)
+	if err != nil {
+		return fmt.Errorf("resolve broker: %w", err)
+	}
+	claimIP, claimPort, err := l.broker.echoSeparate(l.ctx, l.brokerAddr)
+	if err != nil {
+		return fmt.Errorf("broker echo: %w", err)
+	}
+	client, err := l.broker.Client(l.brokerAddr)
+	if err != nil {
+		return fmt.Errorf("broker client: %w", err)
+	}
+
+	l.tokenMu.RLock()
+	allTokens := append([][]byte{l.token}, l.extraTokens...)
+	l.tokenMu.RUnlock()
+
+	for _, tok := range allTokens {
+		if len(tok) == 0 {
+			continue
+		}
+		pkt := relaybroker.BuildRegister(
+			tok, client.PublicKey(), claimIP, claimPort,
+		)
+		if _, err := l.conn.WriteToUDP(pkt, brokerUDPAddr); err != nil {
+			return fmt.Errorf("send register: %w", err)
+		}
 	}
 	return nil
 }

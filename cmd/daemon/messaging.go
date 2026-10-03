@@ -12,6 +12,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/storage"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *liveSession) snapshotTransport() *kamune.Transport {
@@ -62,11 +63,20 @@ func (s *liveSession) stop() *kamune.Transport {
 }
 
 // handleSendMessage sends a message on an existing session and persists it
+// handleSendMessage sends an encrypted message on an active session and adds it
 // to the chat history (mirrors cmd/bus/messaging.go:13-62).
 func (d *Daemon) handleSendMessage(cmd Command) {
 	var params SendMessageParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
 		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+	if params.SessionID == "" {
+		d.emitError(cmd.ID, "session_id_required", "session_id is required")
+		return
+	}
+	if params.DataBase64 == "" {
+		d.emitError(cmd.ID, "data_base64_required", "data_base64 is required")
 		return
 	}
 
@@ -76,46 +86,71 @@ func (d *Daemon) handleSendMessage(cmd Command) {
 
 	if !ok {
 		d.emitError(
-			cmd.ID, "session_not_found", fmt.Sprintf("session not found: %s", params.SessionID),
+			cmd.ID, "session_not_found",
+			fmt.Sprintf("session not found: %s", params.SessionID),
 		)
 		return
 	}
 
 	data, err := base64.StdEncoding.DecodeString(params.DataBase64)
 	if err != nil {
-		d.emitError(cmd.ID, "invalid_base64", fmt.Sprintf("invalid base64 data: %v", err))
+		d.emitError(
+			cmd.ID, "invalid_base64",
+			fmt.Sprintf("invalid base64 data: %v", err),
+		)
 		return
 	}
 
+	d.wg.Go(func() {
+		defer func() {
+			if msg := recover(); msg != nil {
+				d.emitError(
+					cmd.ID,
+					"goroutine_panic",
+					fmt.Sprintf("goroutine panic: %v", msg),
+				)
+			}
+		}()
+		d.sendMessage(cmd, session, params.SessionID, data)
+	})
+}
+
+func (d *Daemon) sendMessage(
+	cmd Command, session *liveSession, sessionID string, data []byte,
+) {
 	transport := session.snapshotTransport()
 	metadata, err := transport.Send(
 		kamune.Bytes(data), kamune.RouteExchangeMessages,
 	)
 	if err != nil {
-		d.emitError(cmd.ID, "send_message_failed", fmt.Sprintf("failed to send message: %v", err))
+		d.emitError(
+			cmd.ID, "send_message_failed",
+			fmt.Sprintf("failed to send message: %v", err),
+		)
 		return
 	}
 
 	msg := MessageInfo{
-		Text:      string(data),
-		Timestamp: metadata.Timestamp(),
-		IsLocal:   true,
+		Text:       string(data),
+		DataBase64: base64.StdEncoding.EncodeToString(data),
+		Timestamp:  metadata.Timestamp(),
+		IsLocal:    true,
 	}
 
 	session.appendMessage(msg)
 
 	if store := d.store(); store != nil && !d.isIncognito() {
 		store.AddChatEntry(
-			params.SessionID, data, metadata.Timestamp(), storage.SenderLocal,
+			sessionID, data, metadata.Timestamp(), storage.SenderLocal,
 		)
 	}
 
 	d.emit(EvtMessageSent, cmd.ID, MapA{
-		"session_id": params.SessionID,
+		"session_id": sessionID,
 		"timestamp":  metadata.Timestamp().Format(time.RFC3339Nano),
 	})
-	d.emit(EvtSessionUpdated, "", MapS{"session_id": params.SessionID})
-	d.addLogEntry("DEBUG", "Sent message to "+params.SessionID)
+	d.emit(EvtSessionUpdated, "", MapS{"session_id": sessionID})
+	d.addLogEntry("DEBUG", "Sent message to "+sessionID)
 }
 
 // receiveMessages is the wrapper for client-side (dialed) sessions. It
@@ -128,8 +163,7 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 
 	for {
 		transport := session.snapshotTransport()
-		b := kamune.Bytes(nil)
-		metadata, err := transport.Receive(b)
+		metadata, payload, err := transport.ReceivePayload()
 		if err != nil {
 			switch {
 			case errors.Is(err, kamune.ErrPeerDisconnected):
@@ -145,6 +179,16 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 				d.addLogEntry("ERROR", "Receive error: "+err.Error())
 			}
 			break
+		}
+
+		if metadata.Route() == kamune.RouteSessionData {
+			d.finishRelayToken(session, payload)
+			continue
+		}
+		b := kamune.Bytes(nil)
+		if err := proto.Unmarshal(payload, b); err != nil {
+			d.addLogEntry("WARN", "bad payload: "+err.Error())
+			continue
 		}
 
 		switch metadata.Route() {
@@ -165,9 +209,10 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 
 		msgText := string(b.GetValue())
 		msg := MessageInfo{
-			Text:      msgText,
-			Timestamp: metadata.Timestamp(),
-			IsLocal:   false,
+			Text:       msgText,
+			DataBase64: base64.StdEncoding.EncodeToString(b.GetValue()),
+			Timestamp:  metadata.Timestamp(),
+			IsLocal:    false,
 		}
 
 		session.appendMessage(msg)
@@ -197,8 +242,7 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
 	t := session.snapshotTransport()
 
 	for {
-		b := kamune.Bytes(nil)
-		metadata, err := t.Receive(b)
+		metadata, payload, err := t.ReceivePayload()
 		if err != nil {
 			switch {
 			case errors.Is(err, kamune.ErrPeerDisconnected):
@@ -215,9 +259,21 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
 			}
 		}
 
+		if metadata.Route() == kamune.RouteSessionData {
+			d.finishRelayToken(session, payload)
+			continue
+		}
+		b := kamune.Bytes(nil)
+		if err := proto.Unmarshal(payload, b); err != nil {
+			d.addLogEntry("WARN", "bad payload: "+err.Error())
+			continue
+		}
+
 		switch metadata.Route() {
 		case kamune.RoutePing:
-			if _, err := t.Send(kamune.Bytes(b.GetValue()), kamune.RoutePong); err != nil {
+			if _, err := t.Send(
+				kamune.Bytes(b.GetValue()), kamune.RoutePong,
+			); err != nil {
 				slog.Warn("failed to send pong",
 					slog.String("session_id", session.ID),
 					slog.Any("error", err),
@@ -231,9 +287,10 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
 
 		msgText := string(b.GetValue())
 		msg := MessageInfo{
-			Text:      msgText,
-			Timestamp: metadata.Timestamp(),
-			IsLocal:   false,
+			Text:       msgText,
+			DataBase64: base64.StdEncoding.EncodeToString(b.GetValue()),
+			Timestamp:  metadata.Timestamp(),
+			IsLocal:    false,
 		}
 
 		session.appendMessage(msg)
@@ -289,7 +346,7 @@ func (d *Daemon) keepAliveLoop(
 				d.addLogEntry("DEBUG", "Keepalive ping failed: "+err.Error())
 				if failures >= 3 {
 					d.addLogEntry("WARN", "Peer unresponsive: "+peerName)
-					_ = transport.Close()
+					_ = transport.CloseAbort()
 					return
 				}
 			} else {

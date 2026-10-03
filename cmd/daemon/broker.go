@@ -104,11 +104,18 @@ func (b *BrokerClient) WaitMatch(
 	}
 
 	buf := make([]byte, 1500)
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			punchConn.Close()
 			return nil, relaybroker.Payload{}, ctx.Err()
+		case <-ticker.C:
+			// Refresh registration on the broker so it doesn't expire
+			// while we are waiting for the peer to match.
+			_, _ = punchConn.WriteToUDP(pkt, brokerUDPAddr)
 		default:
 		}
 		if err := punchConn.SetReadDeadline(
@@ -117,7 +124,7 @@ func (b *BrokerClient) WaitMatch(
 			punchConn.Close()
 			return nil, relaybroker.Payload{}, fmt.Errorf("set read deadline: %w", err)
 		}
-		n, _, err := punchConn.ReadFromUDP(buf)
+		n, src, err := punchConn.ReadFromUDP(buf)
 		if err != nil {
 			var ne net.Error
 			if errors.As(err, &ne) && ne.Timeout() {
@@ -125,6 +132,10 @@ func (b *BrokerClient) WaitMatch(
 			}
 			punchConn.Close()
 			return nil, relaybroker.Payload{}, fmt.Errorf("read notify: %w", err)
+		}
+		if src == nil || !src.IP.Equal(brokerUDPAddr.IP) ||
+			src.Port != brokerUDPAddr.Port {
+			continue
 		}
 		payload, err := b.parseNotify(buf[:n])
 		if err != nil {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/relayconn"
 )
 
 var (
@@ -225,9 +226,10 @@ type FingerprintInfo struct {
 
 // MessageInfo is a single chat message in a session's history.
 type MessageInfo struct {
-	Text      string    `json:"text"`
-	Timestamp time.Time `json:"timestamp"`
-	IsLocal   bool      `json:"is_local"`
+	Text       string    `json:"text"`
+	DataBase64 string    `json:"data_base64,omitempty"`
+	Timestamp  time.Time `json:"timestamp"`
+	IsLocal    bool      `json:"is_local"`
 }
 
 // relayToken is one active or consumed relay token.
@@ -253,6 +255,7 @@ type liveSession struct {
 	RemoteAddr       string
 	Cause            string
 	Transport        *kamune.Transport
+	relayToken       *relayconn.RelayTokenPending
 	Messages         []MessageInfo
 	LastActivity     time.Time
 	ReceiveDone      chan struct{}

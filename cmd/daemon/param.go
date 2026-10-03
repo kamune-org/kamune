@@ -78,6 +78,8 @@ type SetVerificationModeParams struct {
 // GetHistoryMessagesParams fetches messages for a history session.
 type GetHistoryMessagesParams struct {
 	SessionID string `json:"session_id"`
+	Limit     int    `json:"limit,omitempty"`
+	Offset    int    `json:"offset,omitempty"`
 }
 
 // LoadHistoryParams marks a history session as loaded.

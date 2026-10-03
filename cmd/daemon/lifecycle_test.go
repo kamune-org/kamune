@@ -346,3 +346,68 @@ func TestP2PDialDoesNotBlockCommandHandler(t *testing.T) {
 		t.Fatal("handleDial blocked the command loop")
 	}
 }
+
+func TestRemoveSessionPointerIdentity(t *testing.T) {
+	a := require.New(t)
+	d := newQuietDaemon()
+
+	oldSession := &liveSession{ID: "sess-1"}
+	newSession := &liveSession{ID: "sess-1"}
+
+	d.mu.Lock()
+	d.sessions["sess-1"] = newSession
+	d.mu.Unlock()
+
+	// finishSession with oldSession pointer should NOT remove newSession
+	d.finishSession(oldSession)
+
+	d.mu.RLock()
+	cur, ok := d.sessions["sess-1"]
+	d.mu.RUnlock()
+	a.True(ok)
+	a.Equal(newSession, cur)
+
+	// finishSession with newSession pointer SHOULD remove it
+	d.finishSession(newSession)
+
+	d.mu.RLock()
+	_, ok = d.sessions["sess-1"]
+	d.mu.RUnlock()
+	a.False(ok)
+}
+
+func TestHandleSendMessageDoesNotBlock(t *testing.T) {
+	a := require.New(t)
+	d := newQuietDaemon()
+
+	session := &liveSession{
+		ID:        "sess-1",
+		Transport: nil,
+	}
+	d.mu.Lock()
+	d.sessions["sess-1"] = session
+	d.mu.Unlock()
+
+	params, err := json.Marshal(SendMessageParams{
+		SessionID:  "sess-1",
+		DataBase64: "aGVsbG8=",
+	})
+	a.NoError(err)
+
+	returned := make(chan struct{})
+	go func() {
+		d.handleCommand(Command{
+			Type:   "cmd",
+			CMD:    CmdSendMessage,
+			ID:     "msg-1",
+			Params: params,
+		})
+		close(returned)
+	}()
+
+	select {
+	case <-returned:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("handleSendMessage blocked the command loop")
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -388,26 +389,38 @@ func (d *Daemon) Run() {
 		"protocol_version": "1",
 	})
 
-	// Read commands from stdin
-	scanner := bufio.NewScanner(os.Stdin)
-	// Increase buffer size for larger messages
-	buf := make([]byte, maxScanTokenSize)
-	scanner.Buffer(buf, maxScanTokenSize)
+	// Read commands from stdin using bufio.Reader so lines exceeding
+	// maxScanTokenSize don't cause an unrecoverable scanner error that kills
+	// the daemon.
+	reader := bufio.NewReader(os.Stdin)
 
-	for scanner.Scan() {
+	for {
 		select {
 		case <-d.ctx.Done():
 			return
 		default:
 		}
 
-		line := scanner.Text()
-		if line == "" {
+		line, err := reader.ReadBytes('\n')
+		if err != nil && len(line) == 0 {
+			if !errors.Is(err, io.EOF) {
+				slog.Error("stdin reader error", slog.Any("error", err))
+			}
+			break
+		}
+
+		if len(line) > maxScanTokenSize {
+			d.emitError("", "line_too_long", "line exceeds maximum allowed length")
+			continue
+		}
+
+		lineStr := strings.TrimRight(string(line), "\r\n")
+		if lineStr == "" {
 			continue
 		}
 
 		var cmd Command
-		if err := json.Unmarshal([]byte(line), &cmd); err != nil {
+		if err := json.Unmarshal([]byte(lineStr), &cmd); err != nil {
 			d.emitError("", "invalid_json", fmt.Sprintf("invalid JSON: %v", err))
 			continue
 		}
@@ -427,10 +440,6 @@ func (d *Daemon) Run() {
 
 	// stdin closed without a shutdown command — clean up all resources.
 	d.Shutdown()
-
-	if err := scanner.Err(); err != nil {
-		slog.Error("stdin scanner error", slog.Any("error", err))
-	}
 }
 
 // handleCommand processes a single command

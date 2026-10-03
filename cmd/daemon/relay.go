@@ -13,6 +13,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/relayconn"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 func wrapRelayError(scheme, host string, password bool, err error) error {
@@ -43,16 +44,42 @@ type tokenTracker struct {
 	consumed   atomic.Bool
 }
 
+type trackingConn struct {
+	kamune.Conn
+	tracker   *tokenTracker
+	closeOnce sync.Once
+	onClose   func()
+}
+
+func (c *trackingConn) AcceptedMeta() any { return c.tracker }
+
+func (c *trackingConn) Close() error {
+	var err error
+	c.closeOnce.Do(func() {
+		if c.onClose != nil {
+			c.onClose()
+		}
+		err = c.Conn.Close()
+	})
+	return err
+}
+
 func (t *tokenTracker) Accept() (kamune.Conn, error) {
 	cn, err := t.Listener.Accept()
 	if err == nil {
 		t.cancelExpiry()
 		t.consumed.Store(true)
 		t.app.markRelayTokenConsumed(t.token)
-	} else {
-		t.closeDead()
+		return &trackingConn{
+			Conn:    cn,
+			tracker: t,
+			onClose: func() {
+				t.closeDead()
+			},
+		}, nil
 	}
-	return cn, err
+	t.closeDead()
+	return nil, err
 }
 
 func (t *tokenTracker) Stop() {
@@ -71,6 +98,52 @@ func (t *tokenTracker) closeDead() {
 
 func (t *tokenTracker) Dead() <-chan struct{} {
 	return t.dead
+}
+
+// stampRelaySession records sessionID on the accepting tracker and on
+// the slice entry that still points at it. Other tokens are left alone.
+func stampRelaySession(
+	tokens []relayToken, meta any, sessionID string,
+) {
+	tt, ok := meta.(*tokenTracker)
+	if !ok || tt == nil {
+		return
+	}
+	tt.sessionID = sessionID
+	for i := range tokens {
+		if tokens[i].listener == tt {
+			tokens[i].sessionID = sessionID
+		}
+	}
+}
+
+func relaySessionID(tracker *tokenTracker, tokens []relayToken) string {
+	if tracker != nil && tracker.sessionID != "" {
+		return tracker.sessionID
+	}
+	for i := len(tokens) - 1; i >= 0; i-- {
+		if tokens[i].sessionID != "" {
+			return tokens[i].sessionID
+		}
+		tt, ok := tokens[i].listener.(*tokenTracker)
+		if ok && tt.sessionID != "" {
+			return tt.sessionID
+		}
+	}
+	return ""
+}
+
+func loadRelayPool(
+	store *storage.Storage, sessionID string,
+) ([][]byte, bool) {
+	if sessionID == "" || store == nil {
+		return nil, false
+	}
+	m, err := store.GetMeta(sessionID, storage.RelayTokensKey)
+	if err != nil || m.Value() == nil {
+		return nil, false
+	}
+	return decodeTokenList(m.Value()), true
 }
 
 func (t *tokenTracker) cancelExpiry() {

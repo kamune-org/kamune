@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -174,19 +175,45 @@ func (d *Daemon) handleGetHistoryMessages(cmd Command) {
 	entries, err := store.GetChatHistory(params.SessionID)
 	if err != nil {
 		d.addLogEntry("ERROR", "Failed to get chat history: "+err.Error())
-		d.emitError(cmd.ID, "history_fetch_failed", fmt.Sprintf("failed to get chat history: %v", err))
+		d.emitError(
+			cmd.ID, "history_fetch_failed",
+			fmt.Sprintf("failed to get chat history: %v", err),
+		)
 		return
+	}
+
+	total := len(entries)
+	offset := params.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	entries = entries[offset:]
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	if len(entries) > limit {
+		entries = entries[:limit]
 	}
 
 	msgs := make([]MessageInfo, len(entries))
 	for i, e := range entries {
 		msgs[i] = MessageInfo{
-			Text:      string(e.Data),
-			Timestamp: e.Timestamp,
-			IsLocal:   e.Sender == storage.SenderLocal,
+			Text:       string(e.Data),
+			DataBase64: base64.StdEncoding.EncodeToString(e.Data),
+			Timestamp:  e.Timestamp,
+			IsLocal:    e.Sender == storage.SenderLocal,
 		}
 	}
-	d.emit(EvtResponse, cmd.ID, MapA{"messages": msgs})
+	d.emit(EvtResponse, cmd.ID, MapA{
+		"messages": msgs,
+		"total":    total,
+		"offset":   offset,
+		"limit":    limit,
+	})
 }
 
 // handleLoadHistory marks a history session as loaded.

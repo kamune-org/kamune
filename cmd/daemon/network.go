@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -557,6 +558,13 @@ func (d *Daemon) handleDial(cmd Command) {
 }
 
 func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
+	connected := false
+	defer func() {
+		if !connected {
+			d.setStatus(StatusError, "Connection failed")
+		}
+	}()
+
 	d.setStatus(StatusConnecting, "Connecting to "+params.Addr+"...")
 
 	store := d.store()
@@ -715,7 +723,7 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		); err != nil {
 			d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
-		d.deriveAndStoreRelayTokens(t, sessionID)
+		d.deriveAndStoreRelayTokens(t, session)
 	}
 
 	// Store dial params for transparent resumption on involuntary
@@ -725,7 +733,7 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	session.reconnectCtx = reconnectCtx
 	session.reconnectCancel = reconnectCancel
 	session.reconnectFn = d.makeReconnectFn(
-		reconnectCtx, &params, sessionStore, opts,
+		reconnectCtx, session, &params, sessionStore, opts,
 	)
 	session.mu.Unlock()
 
@@ -747,6 +755,7 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	info := d.sessionInfo(session)
 	d.emit(EvtSessionStarted, cmd.ID, info)
 
+	connected = true
 	d.setStatus(StatusConnected, "Connected to "+params.Addr)
 	d.addLogEntry("INFO", "Connected to "+params.Addr+" (session: "+sessionID+")")
 
@@ -769,6 +778,9 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	d.mu.RUnlock()
 
 	sessionID := t.SessionID()
+	d.mu.Lock()
+	stampRelaySession(d.relayTokens, t.AcceptedMeta(), sessionID)
+	d.mu.Unlock()
 	peer := t.RemotePeer()
 
 	session := &liveSession{
@@ -794,23 +806,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
-		d.deriveAndStoreRelayTokens(t, sessionID)
-	}
-
-	// Link the session ID to the consumed relay token so the
-	// reconnect loop can look up stored tokens from BoltDB.
-	if store != nil && transport == "relay" {
-		d.mu.Lock()
-		for i := range d.relayTokens {
-			if d.relayTokens[i].Consumed {
-				d.relayTokens[i].sessionID = sessionID
-				if tt, ok := d.relayTokens[i].listener.(*tokenTracker); ok {
-					tt.sessionID = sessionID
-				}
-				break
-			}
-		}
-		d.mu.Unlock()
+		d.deriveAndStoreRelayTokens(t, session)
 	}
 
 	d.loadChatHistory(session)
@@ -823,6 +819,11 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	}
 
 	d.mu.Lock()
+	if d.server == nil {
+		d.mu.Unlock()
+		_ = t.Close()
+		return errors.New("server is stopped")
+	}
 	d.sessions[sessionID] = session
 	d.mu.Unlock()
 
@@ -988,11 +989,31 @@ func (d *Daemon) handleListP2PTokens(cmd Command) {
 	d.emit(EvtResponse, cmd.ID, MapA{"tokens": tokens})
 }
 
-// deriveAndStoreRelayTokens performs an ECDH exchange over the transport to
-// derive relay reconnect tokens and stores them in the session's meta bucket
-// (mirrors cmd/bus/network.go:924-945).
-func (d *Daemon) deriveAndStoreRelayTokens(t *kamune.Transport, sessionID string) {
-	tokens, err := relayconn.DeriveRelayTokens(t)
+// deriveAndStoreRelayTokens sends this side's relay-token key and keeps
+// the pending exchange on the session. The receive loop finishes it.
+func (d *Daemon) deriveAndStoreRelayTokens(
+	t *kamune.Transport, session *liveSession,
+) {
+	pending, err := relayconn.BeginRelayTokenExchange(t)
+	if err != nil {
+		d.addLogEntry("WARN", "Failed to derive relay tokens: "+err.Error())
+		return
+	}
+	session.mu.Lock()
+	session.relayToken = pending
+	session.mu.Unlock()
+}
+
+// finishRelayToken completes a pending exchange from a SessionData
+// payload and stores the pool. A second SessionData is ignored.
+func (d *Daemon) finishRelayToken(session *liveSession, payload []byte) {
+	session.mu.Lock()
+	pending := session.relayToken
+	session.mu.Unlock()
+	if pending == nil {
+		return
+	}
+	tokens, err := relayconn.CompleteRelayTokenPayload(pending, payload)
 	if err != nil {
 		d.addLogEntry("WARN", "Failed to derive relay tokens: "+err.Error())
 		return
@@ -1005,11 +1026,18 @@ func (d *Daemon) deriveAndStoreRelayTokens(t *kamune.Transport, sessionID string
 	if store == nil {
 		return
 	}
-	if err := store.SetMeta(sessionID,
+	if err := store.SetMeta(
+		session.ID,
 		storage.NewByteSlicesMeta(storage.RelayTokensKey, slices),
 	); err != nil {
 		d.addLogEntry("WARN", "Failed to store relay tokens: "+err.Error())
+		return
 	}
+	session.mu.Lock()
+	if session.relayToken == pending {
+		session.relayToken = nil
+	}
+	session.mu.Unlock()
 }
 
 // deriveAndStoreRelayTokensForPeers derives relay tokens for existing sessions
@@ -1078,18 +1106,34 @@ func (d *Daemon) deriveAndStoreRelayTokensForPeers(peerPubB64 ...string) error {
 // cmd/bus/network.go:687-723).
 func (d *Daemon) makeReconnectFn(
 	ctx context.Context,
+	session *liveSession,
 	params *DialParams,
 	store *storage.Storage,
 	opts []kamune.DialOption,
 ) func(string) (*kamune.Transport, error) {
+	if params.Transport == "p2p" {
+		return nil
+	}
 	addr := params.Addr
 	relayAddr := params.RelayAddr
 	password := params.Password
+	isDirectP2P := params.Transport == "direct-p2p"
+	directPeerAddr := params.DirectPeerAddr
 	return func(sessionID string) (*kamune.Transport, error) {
 		resumeOpts := append(
 			[]kamune.DialOption{kamune.DialWithResume(sessionID)}, opts...,
 		)
-		if store != nil && relayAddr != "" {
+		if isDirectP2P {
+			pConn, err := directP2PDial(directPeerAddr)
+			if err != nil {
+				return nil, fmt.Errorf("direct p2p redial: %w", err)
+			}
+			resumeOpts = append(resumeOpts, kamune.DialWithFunc(
+				func(_ string) (kamune.Conn, error) {
+					return pConn, nil
+				},
+			))
+		} else if store != nil && relayAddr != "" {
 			if m, err := store.GetMeta(
 				sessionID, storage.RelayTokensKey,
 			); err == nil && m.Value() != nil {
@@ -1113,7 +1157,7 @@ func (d *Daemon) makeReconnectFn(
 		if err != nil {
 			return nil, err
 		}
-		d.deriveAndStoreRelayTokens(t, sessionID)
+		d.deriveAndStoreRelayTokens(t, session)
 		return t, nil
 	}
 }
@@ -1130,10 +1174,12 @@ func (d *Daemon) relayReconnectLoop(ctx context.Context, ml *multiListener) {
 	d.mu.RLock()
 	var currentDead <-chan struct{}
 	var sessionID string
+	var currentTracker *tokenTracker
 	for i := len(d.relayTokens) - 1; i >= 0; i-- {
 		if tt, ok := d.relayTokens[i].listener.(*tokenTracker); ok {
 			currentDead = tt.Dead()
 			sessionID = tt.sessionID
+			currentTracker = tt
 			break
 		}
 	}
@@ -1160,33 +1206,28 @@ func (d *Daemon) relayReconnectLoop(ctx context.Context, ml *multiListener) {
 
 		d.mu.RLock()
 		server := d.server
-		sessionID = ""
-		for i := len(d.relayTokens) - 1; i >= 0; i-- {
-			if d.relayTokens[i].sessionID != "" {
-				sessionID = d.relayTokens[i].sessionID
-				break
-			}
-			if tt, ok := d.relayTokens[i].listener.(*tokenTracker); ok &&
-				tt.sessionID != "" {
-				sessionID = tt.sessionID
-				break
-			}
-		}
+		sessionID = relaySessionID(currentTracker, d.relayTokens)
 		d.mu.RUnlock()
 		if server == nil {
 			return
 		}
+		if sessionID == "" {
+			slog.Warn(
+				"relay reconnect: no stored tokens, cold start required",
+				"session", sessionID,
+			)
+			return
+		}
 
 		st := d.store()
-		if st == nil {
+		tokens, ok := loadRelayPool(st, sessionID)
+		if !ok {
+			slog.Warn(
+				"relay reconnect: no stored tokens, cold start required",
+				"session", sessionID,
+			)
 			return
 		}
-		m, err := st.GetMeta(sessionID, storage.RelayTokensKey)
-		if err != nil || m.Value() == nil {
-			slog.Warn("relay reconnect: no stored tokens, cold start required", "session", sessionID)
-			return
-		}
-		tokens := decodeTokenList(m.Value())
 		if len(tokens) == 0 {
 			slog.Warn("relay reconnect: empty token pool, cold start required", "session", sessionID)
 			return
@@ -1480,9 +1521,10 @@ func (d *Daemon) loadChatHistory(session *liveSession) {
 	session.Messages = make([]MessageInfo, 0, len(entries))
 	for _, e := range entries {
 		session.Messages = append(session.Messages, MessageInfo{
-			Text:      string(e.Data),
-			Timestamp: e.Timestamp,
-			IsLocal:   e.Sender == storage.SenderLocal,
+			Text:       string(e.Data),
+			DataBase64: base64.StdEncoding.EncodeToString(e.Data),
+			Timestamp:  e.Timestamp,
+			IsLocal:    e.Sender == storage.SenderLocal,
 		})
 		if e.Timestamp.After(session.LastActivity) {
 			session.LastActivity = e.Timestamp
@@ -1491,18 +1533,21 @@ func (d *Daemon) loadChatHistory(session *liveSession) {
 	session.mu.Unlock()
 }
 
-// removeSession removes a session from the map and returns the remaining
-// session count.
-func (d *Daemon) removeSession(sessionID string) (int, bool) {
+// removeSession removes a session from the map if it matches the session
+// pointer, and returns the remaining session count.
+func (d *Daemon) removeSession(session *liveSession) (int, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	_, ok := d.sessions[sessionID]
-	delete(d.sessions, sessionID)
-	return len(d.sessions), ok
+	current, ok := d.sessions[session.ID]
+	if !ok || current != session {
+		return len(d.sessions), false
+	}
+	delete(d.sessions, session.ID)
+	return len(d.sessions), true
 }
 
 func (d *Daemon) finishSession(session *liveSession) {
-	remaining, removed := d.removeSession(session.ID)
+	remaining, removed := d.removeSession(session)
 	if !removed {
 		return
 	}
