@@ -76,8 +76,8 @@ func NewBoltDB(
 	}
 
 	cipher, _, err := extractCipher(db, passphrase)
-	if errors.Is(err, ErrMissingItem) {
-		// create if missing
+	if errors.Is(err, errNoCipherMeta) {
+		// A new store: createCipher refuses to run if it holds any data.
 		cipher, err = createCipher(db, passphrase)
 	}
 	if err != nil {
@@ -113,12 +113,58 @@ func (s *BoltStore) Command(f func(b Namespace) error) error {
 	})
 }
 
+// errNoCipherMeta reports that none of the key-wrapping metadata exists.
+var errNoCipherMeta = errors.New("no cipher metadata")
+
 // cipherMeta holds the raw cipher-wrapping metadata stored in the DB.
 type cipherMeta struct {
 	secretSalt  []byte
 	deriveSalt  []byte
 	wrappedSalt []byte
 	wrappedKey  []byte
+}
+
+// check returns errNoCipherMeta when no metadata is stored at all and
+// [ErrCorruptMetadata] when only some of it is.
+func (m cipherMeta) check() error {
+	var present int
+	for _, v := range [][]byte{
+		m.secretSalt, m.deriveSalt, m.wrappedSalt, m.wrappedKey,
+	} {
+		if v != nil {
+			present++
+		}
+	}
+	switch present {
+	case 0:
+		return errNoCipherMeta
+	case 4:
+		return nil
+	default:
+		return fmt.Errorf("%w: %d of 4 entries", ErrCorruptMetadata, present)
+	}
+}
+
+// errStopIteration ends a bolt ForEach early.
+var errStopIteration = errors.New("stop iteration")
+
+// hasData reports whether any top-level bucket holds a key or a nested
+// bucket.
+func hasData(tx *bolt.Tx) (bool, error) {
+	err := tx.ForEach(func(_ []byte, b *bolt.Bucket) error {
+		if k, _ := b.Cursor().First(); k != nil {
+			return errStopIteration
+		}
+		return nil
+	})
+	switch {
+	case errors.Is(err, errStopIteration):
+		return true, nil
+	case err != nil:
+		return false, err
+	default:
+		return false, nil
+	}
 }
 
 func extractCipher(
@@ -136,9 +182,8 @@ func extractCipher(
 	if err != nil {
 		return nil, cipherMeta{}, fmt.Errorf("get values: %w", err)
 	}
-	if meta.secretSalt == nil || meta.deriveSalt == nil ||
-		meta.wrappedSalt == nil || meta.wrappedKey == nil {
-		return nil, cipherMeta{}, ErrMissingItem
+	if err := meta.check(); err != nil {
+		return nil, cipherMeta{}, err
 	}
 	derivedPass, err := enigma.Derive(
 		pass, meta.deriveSalt, []byte(dpk), 32,
@@ -188,6 +233,19 @@ func createCipher(db *bolt.DB, pass []byte) (*enigma.Enigma, error) {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
+		// Only a store without any data may get a new key hierarchy.
+		// Anything else means the metadata was removed, and writing a new
+		// wrapped key would accept any passphrase and orphan the data.
+		populated, err := hasData(tx)
+		if err != nil {
+			return fmt.Errorf("check store contents: %w", err)
+		}
+		if populated {
+			return fmt.Errorf(
+				"%w: store holds data but no key metadata",
+				ErrCorruptMetadata,
+			)
+		}
 		bucket := tx.Bucket(defaultNamespace)
 		err = bucket.Put([]byte(wrappedKey), wrapped)
 		if err != nil {

@@ -1,15 +1,19 @@
 package engine
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	bolt "go.etcd.io/bbolt"
 )
 
 var (
@@ -644,4 +648,99 @@ func TestSubReadOnly(t *testing.T) {
 		a.Nil(val)
 		return nil
 	}))
+}
+
+// readRaw returns the raw (undecrypted) value of key in the default bucket.
+func readRaw(t *testing.T, path, key string) []byte {
+	t.Helper()
+	a := require.New(t)
+	db, err := bolt.Open(path, 0600, nil)
+	a.NoError(err)
+	defer db.Close()
+	var v []byte
+	a.NoError(db.View(func(tx *bolt.Tx) error {
+		v = bytes.Clone(tx.Bucket(defaultNamespace).Get([]byte(key)))
+		return nil
+	}))
+	return v
+}
+
+// deleteRaw removes keys from the default bucket without the passphrase.
+func deleteRaw(t *testing.T, path string, keys ...string) {
+	t.Helper()
+	a := require.New(t)
+	db, err := bolt.Open(path, 0600, nil)
+	a.NoError(err)
+	defer db.Close()
+	a.NoError(db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(defaultNamespace)
+		for _, k := range keys {
+			if err := b.Delete([]byte(k)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+}
+
+func TestNewBoltDB_MissingMetadataIsCorrupt(t *testing.T) {
+	cases := []struct {
+		name    string
+		deleted []string
+	}{
+		{"secret salt", []string{secretSaltKey}},
+		{"derive salt", []string{deriveSaltKey}},
+		{"wrapped salt", []string{wrappedSaltKey}},
+		{"wrapped key", []string{wrappedKey}},
+		{
+			"all metadata with data present",
+			[]string{secretSaltKey, deriveSaltKey, wrappedSaltKey, wrappedKey},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			path := filepath.Join(t.TempDir(), "db")
+			pass := []byte("original")
+
+			db, err := NewBoltDB(path, pass)
+			a.NoError(err)
+			a.NoError(db.Command(func(b Namespace) error {
+				return b.Sub([]byte(PeersNamespace)).PutEncrypted(
+					[]byte("peer"), []byte("data"),
+				)
+			}))
+			a.NoError(db.Close())
+
+			want := readRaw(t, path, wrappedKey)
+			if slices.Contains(tc.deleted, wrappedKey) {
+				want = nil
+			}
+			deleteRaw(t, path, tc.deleted...)
+
+			_, err = NewBoltDB(path, []byte("anything-else"))
+			a.ErrorIs(err, ErrCorruptMetadata)
+			a.Equal(
+				want, readRaw(t, path, wrappedKey),
+				"wrapped key must not be rewritten",
+			)
+		})
+	}
+}
+
+func TestNewBoltDB_EmptyStoreWithoutMetadataIsCreated(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+
+	db, err := NewBoltDB(path, []byte("first"))
+	a.NoError(err)
+	a.NoError(db.Close())
+
+	// A store that never held data can safely get a new key hierarchy.
+	deleteRaw(
+		t, path, secretSaltKey, deriveSaltKey, wrappedSaltKey, wrappedKey,
+	)
+	db, err = NewBoltDB(path, []byte("second"))
+	a.NoError(err)
+	a.NoError(db.Close())
 }

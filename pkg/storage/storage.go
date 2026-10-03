@@ -28,6 +28,10 @@ type (
 var (
 	ErrMissingChatBucket = errors.New("chat bucket not found")
 	ErrEmptyAppName      = errors.New("app name must not be empty")
+	// ErrCorruptMetadata is returned by [OpenStorage] when the database's
+	// key-wrapping metadata is partly missing or malformed, or missing from
+	// a database that already holds data.
+	ErrCorruptMetadata = engine.ErrCorruptMetadata
 
 	sessionMetaKey = []byte("name")
 

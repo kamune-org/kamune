@@ -22,6 +22,10 @@ const (
 var (
 	ErrMissingItem      = errors.New("item not found")
 	ErrMissingNamespace = errors.New("namespace not found")
+	// ErrCorruptMetadata is returned when opening a store whose key-wrapping
+	// metadata is partly missing or malformed, or missing from a store that
+	// already holds data. Such a store is never silently re-keyed.
+	ErrCorruptMetadata = errors.New("cipher metadata is missing or corrupt")
 
 	defaultNamespace  = []byte(DefaultNamespace)
 	settingsNamespace = []byte(SettingsNamespace)
