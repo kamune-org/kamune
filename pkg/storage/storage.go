@@ -32,6 +32,15 @@ var (
 	// key-wrapping metadata is partly missing or malformed, or missing from
 	// a database that already holds data.
 	ErrCorruptMetadata = engine.ErrCorruptMetadata
+	// ErrWrongPassphrase is returned by [OpenStorage] and
+	// [Storage.ChangePassphrase] when the passphrase does not unlock the
+	// database. Tampered key metadata gives the same error.
+	ErrWrongPassphrase = engine.ErrWrongPassphrase
+	// ErrReopen is returned by [Storage.ChangePassphrase] when the new
+	// passphrase is already in effect on disk but the database could not
+	// be opened again. The Storage must be closed, and the database opened
+	// again with the new passphrase.
+	ErrReopen = engine.ErrReopen
 
 	sessionMetaKey = []byte("name")
 
@@ -143,6 +152,32 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 
 func (s *Storage) Close() error {
 	return s.engine.Close()
+}
+
+// ChangePassphrase re-encrypts the database under a new data encryption key
+// and wraps that key with newPass. oldPass must be the current passphrase;
+// otherwise [ErrWrongPassphrase] is returned and nothing changes. An empty
+// oldPass or newPass stands for a database without a passphrase, as with
+// [WithNoPassphrase].
+//
+// A new data key is used, rather than re-wrapping the old one, so that
+// someone who knows the old passphrase cannot read data written later. The
+// database file is rewritten and atomically replaced, so neither the old
+// wrapped key nor data under the old key remain in it. The new file is
+// owned by the user running the process, with mode 0600. Copies of the old
+// file made elsewhere, such as backups or other hard links, still open with
+// the old passphrase.
+//
+// From the next [OpenStorage] on, newPass is required: callers must update
+// any saved copy of the passphrase, such as a keychain entry. On error the
+// passphrase is unchanged, unless the error wraps [ErrReopen]; then newPass
+// is in effect, and the Storage must be closed and the database opened
+// again with it.
+func (s *Storage) ChangePassphrase(oldPass, newPass []byte) error {
+	if err := s.engine.RotateDataKey(oldPass, newPass); err != nil {
+		return fmt.Errorf("change passphrase: %w", err)
+	}
+	return nil
 }
 
 // PublicKey returns the marshaled public key from the stored identity.

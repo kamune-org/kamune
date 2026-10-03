@@ -26,6 +26,10 @@ var (
 	// metadata is partly missing or malformed, or missing from a store that
 	// already holds data. Such a store is never silently re-keyed.
 	ErrCorruptMetadata = errors.New("cipher metadata is missing or corrupt")
+	// ErrWrongPassphrase is returned when a passphrase does not unwrap the
+	// data encryption key. A tampered wrapped key or salt gives the same
+	// error, since the two cannot be told apart.
+	ErrWrongPassphrase = errors.New("wrong passphrase")
 	// ErrReopen is returned when a change that rewrites the database file,
 	// such as a passphrase or data key rotation, is on disk but the store
 	// could not be opened again afterwards. The change is in effect: the

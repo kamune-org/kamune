@@ -48,7 +48,7 @@ func TestRotation_WaitingOpenSeesNewKey(t *testing.T) {
 	if r.db != nil {
 		r.db.Close()
 	}
-	a.ErrorContains(r.err, "decrypt secret")
+	a.ErrorIs(r.err, ErrWrongPassphrase)
 
 	db, err = NewBoltDB(path, newPass)
 	a.NoError(err)

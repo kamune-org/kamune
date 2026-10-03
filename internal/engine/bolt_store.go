@@ -243,7 +243,7 @@ func (w wrappedSecret) keyCipher(pass []byte) (*enigma.Enigma, error) {
 	return c, nil
 }
 
-// unwrap returns the data encryption secret. It fails when pass is wrong.
+// unwrap returns the data encryption secret, or [ErrWrongPassphrase].
 func (w wrappedSecret) unwrap(pass []byte) ([]byte, error) {
 	keyCipher, err := w.keyCipher(pass)
 	if err != nil {
@@ -251,7 +251,9 @@ func (w wrappedSecret) unwrap(pass []byte) ([]byte, error) {
 	}
 	secret, err := keyCipher.Decrypt(w.wrappedKey)
 	if err != nil {
-		return nil, fmt.Errorf("decrypt secret: %w", err)
+		return nil, fmt.Errorf(
+			"%w: decrypt secret: %w", ErrWrongPassphrase, err,
+		)
 	}
 	return secret, nil
 }

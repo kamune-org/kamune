@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -845,4 +846,95 @@ func TestRemoveListItemUnequalLength(t *testing.T) {
 	got, err := store.PopList("sess-len", ResumptionTokensKey)
 	a.NoError(err)
 	a.Equal(tok, got)
+}
+
+func openWithPass(path string, pass []byte) (*Storage, error) {
+	return OpenStorage(
+		WithDBPath(path),
+		WithCreateDB(false),
+		WithPassphraseHandler(func() ([]byte, error) { return pass, nil }),
+	)
+}
+
+func TestChangePassphrase(t *testing.T) {
+	cases := []struct {
+		name     string
+		old, new []byte
+	}{
+		{"set on passwordless database", []byte(""), []byte("secret")},
+		{"replace", []byte("old-secret"), []byte("new-secret")},
+		{"remove", []byte("old-secret"), []byte("")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			path := filepath.Join(t.TempDir(), "db")
+
+			s, err := OpenStorage(
+				WithDBPath(path),
+				WithPassphraseHandler(func() ([]byte, error) {
+					return tc.old, nil
+				}),
+			)
+			a.NoError(err)
+			at, err := s.Attester()
+			a.NoError(err)
+			peer, err := attest.New()
+			a.NoError(err)
+			a.NoError(s.StorePeer(&Peer{
+				Name: "alice", PublicKey: peer.MarshalPublicKey(),
+			}))
+			a.NoError(s.CreateSession("sess", peer.MarshalPublicKey()))
+			a.NoError(s.AddChatEntry(
+				"sess", []byte("hello"), time.Now(), SenderLocal,
+			))
+			a.NoError(s.SetSettings("app", "k", "v"))
+
+			a.NoError(s.ChangePassphrase(tc.old, tc.new))
+
+			// The open handle keeps working under the new key.
+			v, err := s.GetSettings("app", "k")
+			a.NoError(err)
+			a.Equal("v", v)
+			a.NoError(s.Close())
+
+			_, err = openWithPass(path, tc.old)
+			a.ErrorIs(err, ErrWrongPassphrase)
+
+			s, err = openWithPass(path, tc.new)
+			a.NoError(err)
+			defer s.Close()
+			reloaded, err := s.Attester()
+			a.NoError(err)
+			a.Equal(at.MarshalPublicKey(), reloaded.MarshalPublicKey())
+			entries, err := s.GetChatHistory("sess")
+			a.NoError(err)
+			a.Len(entries, 1)
+			a.Equal([]byte("hello"), entries[0].Data)
+		})
+	}
+}
+
+func TestChangePassphrase_WrongOldPassphrase(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	pass := []byte("right")
+
+	s, err := OpenStorage(
+		WithDBPath(path),
+		WithPassphraseHandler(func() ([]byte, error) { return pass, nil }),
+	)
+	a.NoError(err)
+	a.NoError(s.SetSettings("app", "k", "v"))
+
+	err = s.ChangePassphrase([]byte("wrong"), []byte("new"))
+	a.ErrorIs(err, ErrWrongPassphrase)
+	v, err := s.GetSettings("app", "k")
+	a.NoError(err)
+	a.Equal("v", v)
+	a.NoError(s.Close())
+
+	s, err = openWithPass(path, pass)
+	a.NoError(err)
+	a.NoError(s.Close())
 }
