@@ -1084,3 +1084,36 @@ func TestRateLimit_KeysAndValidRegisterOnly(t *testing.T) {
 	defer mu.Unlock()
 	a.Equal([]string{"echo 127.0.0.1", "register 127.0.0.1"}, keys)
 }
+
+func TestRegister_FullRegistryIsNotScannedOnInsert(t *testing.T) {
+	a := require.New(t)
+	now := time.Unix(1000, 0)
+	b := &Broker{
+		registry:    make(map[string]*registration),
+		ttl:         time.Minute,
+		now:         func() time.Time { return now },
+		maxRegistry: 3,
+	}
+	for i := range b.maxRegistry {
+		b.registry[fmt.Sprintf("expired-%d", i)] = &registration{
+			expires: now.Add(-time.Second),
+		}
+	}
+	src := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1).To4(), Port: 1234}
+	token := make([]byte, 16)
+	for i := range token {
+		token[i] = byte(i + 1)
+	}
+	_, pub := peerKey(t)
+
+	// A REGISTER into a full registry is dropped without a purge; the
+	// expired entries wait for Run's timer.
+	b.handleStaticRegister(token, pub, src)
+	a.Len(b.registry, b.maxRegistry)
+	a.NotContains(b.registry, hexKey(token))
+
+	b.purgeExpired()
+	b.handleStaticRegister(token, pub, src)
+	a.Len(b.registry, 1)
+	a.Contains(b.registry, hexKey(token))
+}

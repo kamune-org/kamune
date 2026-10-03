@@ -380,14 +380,14 @@ func (b *Broker) sendPeerMatched(
 	b.sendNotify(newPlain, held.peerEphPub, held.addr)
 }
 
+// registryFullLocked reports whether the registry is at maxRegistry. It does
+// not purge: Run purges expired entries every readDeadline, so a REGISTER that
+// arrives while the registry is full costs O(1) instead of a walk over every
+// entry. A full registry of expired entries frees up within readDeadline.
 func (b *Broker) registryFullLocked() bool {
 	if b.maxRegistry <= 0 {
 		return false
 	}
-	if len(b.registry) < b.maxRegistry {
-		return false
-	}
-	b.purgeExpiredLocked()
 	return len(b.registry) >= b.maxRegistry
 }
 
