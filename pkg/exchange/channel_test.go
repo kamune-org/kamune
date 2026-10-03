@@ -3,6 +3,7 @@ package exchange
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -186,6 +187,186 @@ func TestWriteBytesWithin_SlowWriteKeepsDeadline(t *testing.T) {
 	close(writer.release)
 	a.NoError(<-firstDone)
 	a.NoError(<-secondDone)
+}
+
+// limitedConn is a framedConn that rejects frames above limit, can be told
+// to fail its next write, and records Close. When closeGate is set, Close
+// signals closing and then blocks until closeGate is closed.
+type limitedConn struct {
+	*framedConn
+	closeGate chan struct{}
+	closing   chan struct{}
+	limit     int
+	failNext  atomic.Bool
+	closed    atomic.Bool
+}
+
+func (c *limitedConn) MaxFrameSize() int { return c.limit }
+
+func (c *limitedConn) WriteBytes(data []byte) error {
+	if c.failNext.CompareAndSwap(true, false) {
+		return errors.New("transient write failure")
+	}
+	if len(data) > c.limit {
+		return fmt.Errorf("frame size %d exceeds %d", len(data), c.limit)
+	}
+	return c.framedConn.WriteBytes(data)
+}
+
+func (c *limitedConn) Close() error {
+	c.closed.Store(true)
+	if c.closeGate != nil {
+		close(c.closing)
+		<-c.closeGate
+	}
+	return c.framedConn.Close()
+}
+
+// limitedChannelPair returns a sender Channel over a limitedConn and the
+// Channel that reads its frames.
+func limitedChannelPair(
+	t *testing.T, limit int,
+) (*Channel, *Channel, *limitedConn) {
+	t.Helper()
+	a := require.New(t)
+	initiatorConn, recipientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = initiatorConn.Close()
+		_ = recipientConn.Close()
+	})
+	lc := &limitedConn{
+		framedConn: &framedConn{Conn: initiatorConn},
+		limit:      limit,
+	}
+
+	type result struct {
+		channel *Channel
+		err     error
+	}
+	acceptCh := make(chan result, 1)
+	go func() {
+		channel, err := Accept(&framedConn{Conn: recipientConn})
+		acceptCh <- result{channel, err}
+	}()
+	sender, err := Initiate(lc)
+	a.NoError(err)
+	accepted := <-acceptCh
+	a.NoError(accepted.err)
+	return sender, accepted.channel, lc
+}
+
+func TestChannel_OversizeWriteKeepsChannelUsable(t *testing.T) {
+	a := require.New(t)
+	const limit = 2048
+	sender, recipient, lc := limitedChannelPair(t, limit)
+
+	received := make(chan []byte, 1)
+	go func() {
+		data, err := recipient.ReadBytes()
+		if err != nil {
+			data = []byte("read error: " + err.Error())
+		}
+		received <- data
+	}()
+
+	err := sender.WriteBytes(make([]byte, limit-Overhead+1))
+	a.ErrorIs(err, ErrFrameTooLarge)
+	a.False(lc.closed.Load())
+
+	a.NoError(sender.WriteBytes([]byte("after oversize")))
+	a.Equal([]byte("after oversize"), <-received)
+}
+
+// fixedLimitConn is a ReadWriter that reports a fixed FrameLimiter limit.
+type fixedLimitConn struct {
+	ReadWriter
+	limit int
+}
+
+func (c fixedLimitConn) MaxFrameSize() int { return c.limit }
+
+func TestChannel_MaxFrameSize(t *testing.T) {
+	cases := []struct {
+		conn ReadWriter
+		name string
+		want int
+	}{
+		{name: "no limiter", conn: &framedConn{}, want: 0},
+		{name: "no limit", conn: fixedLimitConn{limit: 0}, want: 0},
+		{name: "limit", conn: fixedLimitConn{limit: 2048}, want: 2032},
+		{name: "tiny limit", conn: fixedLimitConn{limit: Overhead}, want: 1},
+		{
+			name: "nested channel",
+			conn: newChannel(fixedLimitConn{limit: 2048}, nil, nil),
+			want: 2048 - 2*Overhead,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			a.Equal(tc.want, newChannel(tc.conn, nil, nil).MaxFrameSize())
+		})
+	}
+}
+
+func TestChannel_FailedWriteBreaksChannel(t *testing.T) {
+	a := require.New(t)
+	sender, _, lc := limitedChannelPair(t, 2048)
+
+	lc.failNext.Store(true)
+	err := sender.WriteBytes([]byte("lost"))
+	a.ErrorIs(err, ErrChannelBroken)
+	a.True(lc.closed.Load())
+
+	err = sender.WriteBytes([]byte("next"))
+	a.ErrorIs(err, ErrChannelBroken)
+}
+
+// TestChannel_BreakClosesOutsideWriteLock checks that closing the ReadWriter
+// after a failed write does not hold up other writers, which fail at once.
+func TestChannel_BreakClosesOutsideWriteLock(t *testing.T) {
+	a := require.New(t)
+	sender, _, lc := limitedChannelPair(t, 2048)
+	lc.closeGate = make(chan struct{})
+	lc.closing = make(chan struct{})
+	var release sync.Once
+	releaseClose := func() { release.Do(func() { close(lc.closeGate) }) }
+	t.Cleanup(releaseClose)
+
+	lc.failNext.Store(true)
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- sender.WriteBytes([]byte("lost")) }()
+	<-lc.closing
+
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- sender.WriteBytes([]byte("next")) }()
+	select {
+	case err := <-secondDone:
+		a.ErrorIs(err, ErrChannelBroken)
+	case <-time.After(10 * time.Second):
+		a.FailNow("write blocked while the channel was closing")
+	}
+
+	releaseClose()
+	a.ErrorIs(<-firstDone, ErrChannelBroken)
+}
+
+func TestChannel_SealOverhead(t *testing.T) {
+	a := require.New(t)
+	initiatorConn, recipientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = initiatorConn.Close()
+		_ = recipientConn.Close()
+	})
+	go func() { _, _ = Accept(&framedConn{Conn: recipientConn}) }()
+	sender, err := Initiate(&framedConn{Conn: initiatorConn})
+	a.NoError(err)
+
+	for _, n := range []int{0, 1, 1000} {
+		sealed, err := sender.sender.Seal(nil, make([]byte, n))
+		a.NoError(err)
+		a.Len(sealed, n+Overhead)
+	}
 }
 
 func FuzzParseMergedExchange(f *testing.F) {

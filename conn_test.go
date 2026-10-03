@@ -9,11 +9,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kamune-org/kamune/pkg/exchange"
 )
 
 var (
-	_ net.Conn = new(conn)
-	_ Conn     = new(conn)
+	_ net.Conn              = new(conn)
+	_ Conn                  = new(conn)
+	_ exchange.FrameLimiter = new(conn)
 )
 
 func TestConn_WriteBytes_RejectsOverflow(t *testing.T) {

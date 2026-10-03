@@ -133,6 +133,10 @@ func (c *conn) WriteBytes(data []byte) error {
 	return nil
 }
 
+// MaxFrameSize reports the largest payload WriteBytes accepts, the bound of
+// the 2-byte length prefix. It implements [exchange.FrameLimiter].
+func (c *conn) MaxFrameSize() int { return math.MaxUint16 }
+
 // readLenLocked reads the 2-byte length prefix. Caller must hold c.readMu.
 func (c *conn) readLenLocked() (uint16, error) {
 	if err := c.checkReadDeadlineLocked(c.readDeadline); err != nil {
