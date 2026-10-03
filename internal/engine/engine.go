@@ -26,6 +26,12 @@ var (
 	// metadata is partly missing or malformed, or missing from a store that
 	// already holds data. Such a store is never silently re-keyed.
 	ErrCorruptMetadata = errors.New("cipher metadata is missing or corrupt")
+	// ErrReopen is returned when a change that rewrites the database file,
+	// such as a passphrase or data key rotation, is on disk but the store
+	// could not be opened again afterwards. The change is in effect: the
+	// store must be closed and opened again, with the new passphrase if it
+	// changed.
+	ErrReopen = errors.New("could not reopen store")
 
 	defaultNamespace  = []byte(DefaultNamespace)
 	settingsNamespace = []byte(SettingsNamespace)
