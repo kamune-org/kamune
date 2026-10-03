@@ -739,6 +739,7 @@ func TestNewBoltDB_EmptyStoreWithoutMetadataIsCreated(t *testing.T) {
 	// A store that never held data can safely get a new key hierarchy.
 	deleteRaw(
 		t, path, secretSaltKey, deriveSaltKey, wrappedSaltKey, wrappedKey,
+		kdfParamsKey,
 	)
 	db, err = NewBoltDB(path, []byte("second"))
 	a.NoError(err)

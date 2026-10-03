@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ const (
 	wrappedKey     = "wrapped-key"
 	deriveSaltKey  = "derive-salt"
 	secretSaltKey  = "secret-salt"
+	kdfParamsKey   = "kdf-params"
 )
 
 // BoltStore is the BoltDB implementation of [Store].
@@ -28,7 +30,9 @@ type BoltStore struct {
 }
 
 // NewBoltDB creates a new BoltStore at the given path, encrypting values with
-// the provided passphrase.
+// the provided passphrase. The passphrase is stretched with Argon2id. A store
+// whose key is wrapped with the legacy HKDF derivation, or with weaker
+// Argon2id parameters, is re-wrapped on its first successful open.
 func NewBoltDB(
 	path string, passphrase []byte, opts ...Option,
 ) (*BoltStore, error) {
@@ -75,11 +79,7 @@ func NewBoltDB(
 		return nil, fmt.Errorf("creating default bucket: %w", err)
 	}
 
-	cipher, _, err := extractCipher(db, passphrase)
-	if errors.Is(err, errNoCipherMeta) {
-		// A new store: createCipher refuses to run if it holds any data.
-		cipher, err = createCipher(db, passphrase)
-	}
+	cipher, err := openCipher(db, passphrase)
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("cipher: %w", err)
@@ -113,36 +113,154 @@ func (s *BoltStore) Command(f func(b Namespace) error) error {
 	})
 }
 
+const (
+	secretSize = 32
+	saltSize   = 32
+)
+
 // errNoCipherMeta reports that none of the key-wrapping metadata exists.
 var errNoCipherMeta = errors.New("no cipher metadata")
 
-// cipherMeta holds the raw cipher-wrapping metadata stored in the DB.
-type cipherMeta struct {
-	secretSalt  []byte
+// wrappedSecret is the data encryption secret wrapped under a key derived
+// from the passphrase, with the salts and parameters of that derivation.
+type wrappedSecret struct {
 	deriveSalt  []byte
 	wrappedSalt []byte
 	wrappedKey  []byte
+	kdf         kdfParams
 }
 
-// check returns errNoCipherMeta when no metadata is stored at all and
-// [ErrCorruptMetadata] when only some of it is.
-func (m cipherMeta) check() error {
+// cipherMeta holds the raw cipher-wrapping metadata stored in the DB.
+type cipherMeta struct {
+	secretSalt []byte
+	wrap       wrappedSecret
+}
+
+// readCipherMeta loads the metadata from the default bucket. It returns
+// errNoCipherMeta when none is stored and [ErrCorruptMetadata] when it is
+// incomplete or malformed. A store without kdf-params uses [legacyKDF].
+func readCipherMeta(bucket *bolt.Bucket) (cipherMeta, error) {
+	get := func(key string) []byte {
+		return bytes.Clone(bucket.Get([]byte(key)))
+	}
+	m := cipherMeta{
+		secretSalt: get(secretSaltKey),
+		wrap: wrappedSecret{
+			deriveSalt:  get(deriveSaltKey),
+			wrappedSalt: get(wrappedSaltKey),
+			wrappedKey:  get(wrappedKey),
+		},
+	}
+	rawKDF := get(kdfParamsKey)
+
 	var present int
 	for _, v := range [][]byte{
-		m.secretSalt, m.deriveSalt, m.wrappedSalt, m.wrappedKey,
+		m.secretSalt, m.wrap.deriveSalt, m.wrap.wrappedSalt, m.wrap.wrappedKey,
 	} {
 		if v != nil {
 			present++
 		}
 	}
-	switch present {
-	case 0:
-		return errNoCipherMeta
-	case 4:
-		return nil
-	default:
-		return fmt.Errorf("%w: %d of 4 entries", ErrCorruptMetadata, present)
+	switch {
+	case present == 0 && rawKDF == nil:
+		return cipherMeta{}, errNoCipherMeta
+	case present != 4:
+		return cipherMeta{}, fmt.Errorf(
+			"%w: %d of 4 entries", ErrCorruptMetadata, present,
+		)
+	case rawKDF == nil:
+		m.wrap.kdf = legacyKDF
+		return m, nil
 	}
+
+	kdf, err := parseKDFParams(rawKDF)
+	if err != nil {
+		return cipherMeta{}, err
+	}
+	m.wrap.kdf = kdf
+	return m, nil
+}
+
+// wrapSecret wraps secret under a key derived from pass with params, using
+// fresh salts.
+func wrapSecret(
+	secret, pass []byte, params kdfParams,
+) (wrappedSecret, error) {
+	w := wrappedSecret{
+		deriveSalt:  randomBytes(saltSize),
+		wrappedSalt: randomBytes(saltSize),
+		kdf:         params,
+	}
+	keyCipher, err := w.keyCipher(pass)
+	if err != nil {
+		return wrappedSecret{}, err
+	}
+	w.wrappedKey = keyCipher.Encrypt(secret)
+	return w, nil
+}
+
+func (w wrappedSecret) keyCipher(pass []byte) (*enigma.Enigma, error) {
+	derived, err := w.kdf.derive(pass, w.deriveSalt)
+	if err != nil {
+		return nil, fmt.Errorf("derive from pass: %w", err)
+	}
+	c, err := enigma.NewEnigma(derived, w.wrappedSalt, []byte(kek))
+	if err != nil {
+		return nil, fmt.Errorf("key cipher: %w", err)
+	}
+	return c, nil
+}
+
+// unwrap returns the data encryption secret. It fails when pass is wrong.
+func (w wrappedSecret) unwrap(pass []byte) ([]byte, error) {
+	keyCipher, err := w.keyCipher(pass)
+	if err != nil {
+		return nil, err
+	}
+	secret, err := keyCipher.Decrypt(w.wrappedKey)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt secret: %w", err)
+	}
+	return secret, nil
+}
+
+// put stores the wrapping, replacing any previous one.
+func (w wrappedSecret) put(bucket *bolt.Bucket) error {
+	for _, kv := range []struct {
+		key   string
+		value []byte
+	}{
+		{wrappedKey, w.wrappedKey},
+		{wrappedSaltKey, w.wrappedSalt},
+		{deriveSaltKey, w.deriveSalt},
+		{kdfParamsKey, w.kdf.marshal()},
+	} {
+		if err := bucket.Put([]byte(kv.key), kv.value); err != nil {
+			return fmt.Errorf("put %s: %w", kv.key, err)
+		}
+	}
+	return nil
+}
+
+func newDataCipher(secret, secretSalt []byte) (*enigma.Enigma, error) {
+	c, err := enigma.NewEnigma(secret, secretSalt, []byte(dek))
+	if err != nil {
+		return nil, fmt.Errorf("data cipher: %w", err)
+	}
+	return c, nil
+}
+
+// unlock reads the metadata in tx and unwraps the data secret with pass.
+func unlock(tx *bolt.Tx, pass []byte) (cipherMeta, []byte, error) {
+	meta, err := readCipherMeta(tx.Bucket(defaultNamespace))
+	if err != nil {
+		return cipherMeta{}, nil, err
+	}
+	secret, err := meta.wrap.unwrap(pass)
+	if err != nil {
+		return cipherMeta{}, nil, err
+	}
+	return meta, secret, nil
 }
 
 // errStopIteration ends a bolt ForEach early.
@@ -167,110 +285,73 @@ func hasData(tx *bolt.Tx) (bool, error) {
 	}
 }
 
-func extractCipher(
-	db *bolt.DB, pass []byte,
-) (*enigma.Enigma, cipherMeta, error) {
-	var meta cipherMeta
-	err := db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(defaultNamespace)
-		meta.wrappedKey = bytes.Clone(bucket.Get([]byte(wrappedKey)))
-		meta.deriveSalt = bytes.Clone(bucket.Get([]byte(deriveSaltKey)))
-		meta.wrappedSalt = bytes.Clone(bucket.Get([]byte(wrappedSaltKey)))
-		meta.secretSalt = bytes.Clone(bucket.Get([]byte(secretSaltKey)))
-		return nil
-	})
-	if err != nil {
-		return nil, cipherMeta{}, fmt.Errorf("get values: %w", err)
-	}
-	if err := meta.check(); err != nil {
-		return nil, cipherMeta{}, err
-	}
-	derivedPass, err := enigma.Derive(
-		pass, meta.deriveSalt, []byte(dpk), 32,
-	)
-	if err != nil {
-		return nil, cipherMeta{}, fmt.Errorf("derive from pass: %w", err)
-	}
-	keyCipher, err := enigma.NewEnigma(
-		derivedPass, meta.wrappedSalt, []byte(kek),
-	)
-	if err != nil {
-		return nil, cipherMeta{}, fmt.Errorf("key cipher: %w", err)
-	}
-	secret, err := keyCipher.Decrypt(meta.wrappedKey)
-	if err != nil {
-		return nil, cipherMeta{}, fmt.Errorf("decrypt secret: %w", err)
-	}
-	dataCipher, err := enigma.NewEnigma(
-		secret, meta.secretSalt, []byte(dek),
-	)
-	if err != nil {
-		return nil, cipherMeta{}, fmt.Errorf("data cipher: %w", err)
-	}
-	return dataCipher, meta, nil
-}
-
-func createCipher(db *bolt.DB, pass []byte) (*enigma.Enigma, error) {
-	var (
-		secret      = randomBytes(32)
-		secretSalt  = randomBytes(32)
-		deriveSalt  = randomBytes(32)
-		wrappedSalt = randomBytes(32)
-	)
-
-	derivedPass, err := enigma.Derive(pass, deriveSalt, []byte(dpk), 32)
-	if err != nil {
-		return nil, fmt.Errorf("derive from pass: %w", err)
-	}
-	keyCipher, err := enigma.NewEnigma(derivedPass, wrappedSalt, []byte(kek))
-	if err != nil {
-		return nil, fmt.Errorf("key cipher: %w", err)
-	}
-	wrapped := keyCipher.Encrypt(secret)
-	dataCipher, err := enigma.NewEnigma(secret, secretSalt, []byte(dek))
-	if err != nil {
-		return nil, fmt.Errorf("data cipher: %w", err)
-	}
-
-	err = db.Update(func(tx *bolt.Tx) error {
-		// Only a store without any data may get a new key hierarchy.
-		// Anything else means the metadata was removed, and writing a new
-		// wrapped key would accept any passphrase and orphan the data.
-		populated, err := hasData(tx)
-		if err != nil {
-			return fmt.Errorf("check store contents: %w", err)
+// openCipher unlocks the data cipher with pass, or creates the key hierarchy
+// of a new store. When the stored wrapping is legacy HKDF, or its Argon2id
+// time or memory is below [defaultKDF], the secret is re-wrapped with fresh
+// salts under the parameters [kdfParams.atLeast] gives, in the same
+// transaction, so a store is upgraded on its first unlock.
+func openCipher(db *bolt.DB, pass []byte) (*enigma.Enigma, error) {
+	var c *enigma.Enigma
+	err := db.Update(func(tx *bolt.Tx) error {
+		meta, secret, err := unlock(tx, pass)
+		if errors.Is(err, errNoCipherMeta) {
+			c, err = createCipher(tx, pass)
+			return err
 		}
-		if populated {
-			return fmt.Errorf(
-				"%w: store holds data but no key metadata",
-				ErrCorruptMetadata,
+		if err != nil {
+			return err
+		}
+
+		target := meta.wrap.kdf.atLeast(defaultKDF)
+		if target != meta.wrap.kdf {
+			w, err := wrapSecret(secret, pass, target)
+			if err != nil {
+				return fmt.Errorf("upgrade key wrapping: %w", err)
+			}
+			if err := w.put(tx.Bucket(defaultNamespace)); err != nil {
+				return fmt.Errorf("upgrade key wrapping: %w", err)
+			}
+			slog.Info(
+				"upgraded database key wrapping",
+				slog.String("kdf", "argon2id"),
 			)
 		}
-		bucket := tx.Bucket(defaultNamespace)
-		err = bucket.Put([]byte(wrappedKey), wrapped)
-		if err != nil {
-			return fmt.Errorf("put wrapped key: %w", err)
-		}
-		err = bucket.Put([]byte(wrappedSaltKey), wrappedSalt)
-		if err != nil {
-			return fmt.Errorf("put wrapped salt: %w", err)
-		}
-		err = bucket.Put([]byte(deriveSaltKey), deriveSalt)
-		if err != nil {
-			return fmt.Errorf("put derive salt: %w", err)
-		}
-		err = bucket.Put([]byte(secretSaltKey), secretSalt)
-		if err != nil {
-			return fmt.Errorf("put secret salt: %w", err)
-		}
 
-		return nil
+		c, err = newDataCipher(secret, meta.secretSalt)
+		return err
 	})
+	return c, err
+}
+
+// createCipher writes a new key hierarchy wrapped under [defaultKDF]. Only a
+// store without any data may get one. Anything else means the metadata was
+// removed, and writing a new wrapped key would accept any passphrase and
+// orphan the data.
+func createCipher(tx *bolt.Tx, pass []byte) (*enigma.Enigma, error) {
+	populated, err := hasData(tx)
 	if err != nil {
-		return nil, fmt.Errorf("update db: %w", err)
+		return nil, fmt.Errorf("check store contents: %w", err)
+	}
+	if populated {
+		return nil, fmt.Errorf(
+			"%w: store holds data but no key metadata", ErrCorruptMetadata,
+		)
 	}
 
-	return dataCipher, nil
+	secret := randomBytes(secretSize)
+	secretSalt := randomBytes(saltSize)
+	w, err := wrapSecret(secret, pass, defaultKDF)
+	if err != nil {
+		return nil, err
+	}
+	bucket := tx.Bucket(defaultNamespace)
+	if err := w.put(bucket); err != nil {
+		return nil, err
+	}
+	if err := bucket.Put([]byte(secretSaltKey), secretSalt); err != nil {
+		return nil, fmt.Errorf("put secret salt: %w", err)
+	}
+	return newDataCipher(secret, secretSalt)
 }
 
 // navigateBucket walks a slash-separated path (e.g. "a/b/c") from the tx root,
@@ -287,75 +368,30 @@ func navigateBucket(tx *bolt.Tx, path []byte) *bolt.Bucket {
 	return bucket
 }
 
-// RotatePassphrase re-wraps the data encryption key with a new passphrase. Only
-// the key-wrapping metadata changes; encrypted data is untouched.
+// RotatePassphrase re-wraps the data encryption key under a new passphrase,
+// with key derivation parameters no weaker than the stored ones or
+// [defaultKDF] (see [kdfParams.atLeast]). Only the key-wrapping metadata
+// changes; encrypted data is untouched.
 func (s *BoltStore) RotatePassphrase(old, new []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Decrypt the DEK secret using the old passphrase.
-	_, meta, err := extractCipher(s.db, old)
-	if err != nil {
-		return fmt.Errorf("extract cipher with old passphrase: %w", err)
-	}
-
-	// Decrypt the raw DEK secret.
-	oldDerivedPass, err := enigma.Derive(old, meta.deriveSalt, []byte(dpk), 32)
-	if err != nil {
-		return fmt.Errorf("derive old pass: %w", err)
-	}
-	oldKeyCipher, err := enigma.NewEnigma(
-		oldDerivedPass, meta.wrappedSalt, []byte(kek),
-	)
-	if err != nil {
-		return fmt.Errorf("old key cipher: %w", err)
-	}
-	secret, err := oldKeyCipher.Decrypt(meta.wrappedKey)
-	if err != nil {
-		return fmt.Errorf("decrypt secret: %w", err)
-	}
-
-	// Re-wrap with new passphrase using fresh salts.
-	newDeriveSalt := randomBytes(32)
-	newWrappedSalt := randomBytes(32)
-
-	newDerivedPass, err := enigma.Derive(new, newDeriveSalt, []byte(dpk), 32)
-	if err != nil {
-		return fmt.Errorf("derive new pass: %w", err)
-	}
-	newKeyCipher, err := enigma.NewEnigma(
-		newDerivedPass, newWrappedSalt, []byte(kek),
-	)
-	if err != nil {
-		return fmt.Errorf("new key cipher: %w", err)
-	}
-	newWrapped := newKeyCipher.Encrypt(secret)
-
-	// Write updated metadata.
-	err = s.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(defaultNamespace)
-		if err := bucket.Put([]byte(wrappedKey), newWrapped); err != nil {
-			return fmt.Errorf("put wrapped key: %w", err)
-		}
-		err := bucket.Put([]byte(wrappedSaltKey), newWrappedSalt)
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		meta, secret, err := unlock(tx, old)
 		if err != nil {
-			return fmt.Errorf("put wrapped salt: %w", err)
+			return fmt.Errorf("unlock with old passphrase: %w", err)
 		}
-		if err := bucket.Put([]byte(deriveSaltKey), newDeriveSalt); err != nil {
-			return fmt.Errorf("put derive salt: %w", err)
+		w, err := wrapSecret(
+			secret, new, meta.wrap.kdf.atLeast(defaultKDF),
+		)
+		if err != nil {
+			return fmt.Errorf("wrap with new passphrase: %w", err)
 		}
-		return nil
+		return w.put(tx.Bucket(defaultNamespace))
 	})
 	if err != nil {
-		return fmt.Errorf("update metadata: %w", err)
+		return fmt.Errorf("rotate passphrase: %w", err)
 	}
-
-	// Swap the in-memory cipher.
-	s.cipher, _, err = extractCipher(s.db, new)
-	if err != nil {
-		return fmt.Errorf("reload cipher: %w", err)
-	}
-
 	return nil
 }
 
@@ -367,33 +403,34 @@ func (s *BoltStore) RotateDataKey(old, new []byte) error {
 	defer s.mu.Unlock()
 
 	// Verify we can decrypt with the old passphrase.
-	oldCipher, _, err := extractCipher(s.db, old)
-	if err != nil {
-		return fmt.Errorf("extract cipher with old passphrase: %w", err)
-	}
-
-	// Generate a fresh DEK.
-	newSecret := randomBytes(32)
-	newSecretSalt := randomBytes(32)
-	newCipher, err := enigma.NewEnigma(newSecret, newSecretSalt, []byte(dek))
-	if err != nil {
-		return fmt.Errorf("new data cipher: %w", err)
-	}
-
-	// Wrap the new DEK with the new passphrase.
-	newDeriveSalt := randomBytes(32)
-	newWrappedSalt := randomBytes(32)
-	newDerivedPass, err := enigma.Derive(new, newDeriveSalt, []byte(dpk), 32)
-	if err != nil {
-		return fmt.Errorf("derive new pass: %w", err)
-	}
-	newKeyCipher, err := enigma.NewEnigma(
-		newDerivedPass, newWrappedSalt, []byte(kek),
+	var (
+		oldCipher *enigma.Enigma
+		oldKDF    kdfParams
 	)
+	err := s.db.View(func(tx *bolt.Tx) error {
+		meta, secret, err := unlock(tx, old)
+		if err != nil {
+			return err
+		}
+		oldKDF = meta.wrap.kdf
+		oldCipher, err = newDataCipher(secret, meta.secretSalt)
+		return err
+	})
 	if err != nil {
-		return fmt.Errorf("new key cipher: %w", err)
+		return fmt.Errorf("unlock with old passphrase: %w", err)
 	}
-	newWrapped := newKeyCipher.Encrypt(newSecret)
+
+	// Generate a fresh DEK and wrap it with the new passphrase.
+	newSecret := randomBytes(secretSize)
+	newSecretSalt := randomBytes(saltSize)
+	newCipher, err := newDataCipher(newSecret, newSecretSalt)
+	if err != nil {
+		return err
+	}
+	newWrap, err := wrapSecret(newSecret, new, oldKDF.atLeast(defaultKDF))
+	if err != nil {
+		return fmt.Errorf("wrap with new passphrase: %w", err)
+	}
 
 	// Collect every (bucket-path, key, ciphertext) triple first, outside the
 	// write transaction, to avoid holding a write lock while iterating.
@@ -461,17 +498,11 @@ func (s *BoltStore) RotateDataKey(old, new []byte) error {
 		// Store all cipher metadata so future reads reconstruct the correct
 		// cipher on restart.
 		bucket := tx.Bucket(defaultNamespace)
-		for _, kv := range [][2][]byte{
-			{[]byte(secretSaltKey), newSecretSalt},
-			{[]byte(wrappedKey), newWrapped},
-			{[]byte(wrappedSaltKey), newWrappedSalt},
-			{[]byte(deriveSaltKey), newDeriveSalt},
-		} {
-			if err := bucket.Put(kv[0], kv[1]); err != nil {
-				return fmt.Errorf("put %s: %w", kv[0], err)
-			}
+		err := bucket.Put([]byte(secretSaltKey), newSecretSalt)
+		if err != nil {
+			return fmt.Errorf("put %s: %w", secretSaltKey, err)
 		}
-		return nil
+		return newWrap.put(bucket)
 	})
 	if err != nil {
 		return fmt.Errorf("write phase: %w", err)
