@@ -1,6 +1,7 @@
 package run
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -15,6 +16,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kamune-org/kamune/cmd/relay/internal/config"
+	"github.com/kamune-org/kamune/cmd/relay/internal/services"
 )
 
 func TestLoadTLSConfig_InMemoryWhenPathsEmpty(t *testing.T) {
@@ -196,4 +200,90 @@ func writeSelfSignedPEM(t *testing.T, certPath, keyFile string) {
 	r.NoError(os.MkdirAll(filepath.Dir(certPath), 0755))
 	r.NoError(os.WriteFile(certPath, certPEM, 0644))
 	r.NoError(os.WriteFile(keyFile, keyPEM, 0600))
+}
+
+func TestNewBroker_DoesNotShareHubLimiter(t *testing.T) {
+	a := require.New(t)
+	cfg := config.Config{
+		Session: config.Session{
+			TokenTTL:              time.Minute,
+			MaxConcurrentSessions: 10,
+		},
+		RateLimit: config.RateLimit{
+			TimeWindow: time.Minute,
+			Quota:      2,
+			MaxEntries: 100,
+		},
+		Broker: config.Broker{
+			Enabled:         true,
+			Address:         "127.0.0.1:0",
+			RegistrationTTL: time.Minute,
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	srvc, err := services.New(ctx, cfg)
+	a.NoError(err)
+	br, err := newBroker(cfg)
+	a.NoError(err)
+	go br.Run(ctx)
+	t.Cleanup(func() { _ = br.Close() })
+
+	client, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+	)
+	a.NoError(err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	echo := []byte{'K', 'B', 'R', 'K', 0x01, 0x01}
+	buf := make([]byte, 64)
+	for range cfg.RateLimit.Quota {
+		_, err := client.WriteToUDP(echo, br.Addr())
+		a.NoError(err)
+		a.NoError(client.SetReadDeadline(time.Now().Add(2 * time.Second)))
+		_, _, err = client.ReadFromUDP(buf)
+		a.NoError(err, "echo within quota must be answered")
+	}
+	_, err = client.WriteToUDP(echo, br.Addr())
+	a.NoError(err)
+	a.NoError(client.SetReadDeadline(time.Now().Add(200 * time.Millisecond)))
+	_, _, err = client.ReadFromUDP(buf)
+	a.Error(err, "broker limiter must drop echo over quota")
+
+	a.True(
+		srvc.Hub().RateLimiter().Allow("127.0.0.1"),
+		"broker UDP traffic must not spend the TCP/WS quota",
+	)
+}
+
+func TestNewBrokerLimits(t *testing.T) {
+	t.Run("disabled", func(t *testing.T) {
+		a := require.New(t)
+		limits := newBrokerLimits(config.RateLimit{Disabled: true})
+		a.Nil(limits.Echo)
+		a.Nil(limits.Register)
+	})
+	t.Run("echo spray cannot evict register history", func(t *testing.T) {
+		a := require.New(t)
+		limits := newBrokerLimits(config.RateLimit{
+			TimeWindow: time.Minute,
+			Quota:      1,
+			MaxEntries: 2,
+		})
+		a.NotNil(limits.Echo)
+		a.NotNil(limits.Register)
+
+		const victim = "192.0.2.1"
+		a.True(limits.Register(victim))
+		a.False(limits.Register(victim), "quota is one")
+		// Forged sources fill the echo limiter well past max_entries.
+		for i := range 10 {
+			limits.Echo(fmt.Sprintf("198.51.100.%d", i))
+		}
+		a.False(
+			limits.Register(victim),
+			"spoofed echoes must not evict the register history",
+		)
+		a.True(limits.Echo(victim), "echo has its own budget")
+	})
 }

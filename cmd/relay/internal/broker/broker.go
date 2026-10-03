@@ -42,10 +42,23 @@ const readErrBackoff = 100 * time.Millisecond
 
 const defaultMaxRegistry = 100_000
 
-// AllowFunc is the rate limiter's Allow method, abstracted so the broker
-// package does not import the relay's private ratelimit package. nil means "no
-// rate limiting".
+// AllowFunc is a rate limiter's Allow method, called with the packet's source
+// IPv4. It is abstracted so the broker package does not import the relay's
+// private ratelimit package.
 type AllowFunc func(key string) bool
+
+// Limits holds the broker's per-IP rate limiters. A nil field means no limit
+// for that packet type.
+//
+// UDP source addresses are not verified: a spoofed packet spends the quota of
+// the address it names, and a spray of forged sources evicts real addresses
+// from a limiter's history. The limiters must not be shared with the TCP, TLS
+// and WS listeners, and Echo and Register must be separate limiters so that
+// spoofed echoes cannot spend or evict REGISTER budgets.
+type Limits struct {
+	Echo     AllowFunc
+	Register AllowFunc
+}
 
 // registration is the broker's per-token state. The peer is identified by their
 // ephemeral public key — same key, NAT rebinding; different keys, different
@@ -72,13 +85,13 @@ type Broker struct {
 	registry    map[string]*registration
 	mu          sync.Mutex
 	ttl         time.Duration
-	allow       AllowFunc
+	limits      Limits
 	now         func() time.Time
 	maxRegistry int
 }
 
 // New binds the UDP socket and returns a Broker ready for Run.
-func New(cfg config.Broker, allow AllowFunc) (*Broker, error) {
+func New(cfg config.Broker, limits Limits) (*Broker, error) {
 	addr, err := net.ResolveUDPAddr("udp4", cfg.Address)
 	if err != nil {
 		return nil, fmt.Errorf("resolve udp addr %q: %w", cfg.Address, err)
@@ -95,7 +108,7 @@ func New(cfg config.Broker, allow AllowFunc) (*Broker, error) {
 		conn:        conn,
 		registry:    make(map[string]*registration),
 		ttl:         ttl,
-		allow:       allow,
+		limits:      limits,
 		now:         time.Now,
 		maxRegistry: defaultMaxRegistry,
 	}, nil
@@ -235,9 +248,6 @@ func (b *Broker) handleEcho(src *net.UDPAddr) {
 // handleRegister parses the REGISTER, branches on token, sends NOTIFY (
 // TOKEN_ASSIGNED or PEER_MATCHED) as appropriate.
 func (b *Broker) handleRegister(pkt []byte, src *net.UDPAddr) {
-	if !b.allowRegister(src) {
-		return
-	}
 	token, peerEphPub, ip, port, err := relaybroker.ParseRegister(pkt)
 	if err != nil {
 		return
@@ -253,6 +263,11 @@ func (b *Broker) handleRegister(pkt []byte, src *net.UDPAddr) {
 	// stable across IPv4-mapped-IPv6 listeners.
 	src4 := ipv4FromAddr(src)
 	if src4 == nil {
+		return
+	}
+	// Only well-formed REGISTERs are charged, so junk cannot spend a
+	// source's budget.
+	if !b.allowRegister(src4) {
 		return
 	}
 
@@ -422,17 +437,17 @@ func (b *Broker) sendNotify(
 }
 
 func (b *Broker) allowEcho(src *net.UDPAddr) bool {
-	if b.allow == nil {
+	if b.limits.Echo == nil {
 		return true
 	}
-	return b.allow(ipv4KeyFromAddr(src))
+	return b.limits.Echo(ipv4KeyFromAddr(src))
 }
 
 func (b *Broker) allowRegister(src *net.UDPAddr) bool {
-	if b.allow == nil {
+	if b.limits.Register == nil {
 		return true
 	}
-	return b.allow(ipv4KeyFromAddr(src))
+	return b.limits.Register(ipv4KeyFromAddr(src))
 }
 
 func (b *Broker) purgeExpiredLocked() {

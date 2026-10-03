@@ -23,6 +23,7 @@ import (
 	"github.com/kamune-org/kamune/cmd/relay/internal/broker"
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
 	"github.com/kamune-org/kamune/cmd/relay/internal/handlers"
+	"github.com/kamune-org/kamune/cmd/relay/internal/ratelimit"
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
 )
 
@@ -63,11 +64,7 @@ func Run(cfgPath string) error {
 
 	var br *broker.Broker
 	if cfg.Broker.Enabled {
-		var allow broker.AllowFunc
-		if rl := srvc.Hub().RateLimiter(); rl != nil {
-			allow = rl.Allow
-		}
-		br, err = broker.New(cfg.Broker, allow)
+		br, err = newBroker(cfg)
 		if err != nil {
 			return fmt.Errorf("new broker: %w", err)
 		}
@@ -224,6 +221,28 @@ func Run(cfgPath string) error {
 		}
 		return nil
 	}
+}
+
+// newBroker binds the UDP broker with its own rate limiters.
+func newBroker(cfg config.Config) (*broker.Broker, error) {
+	return broker.New(cfg.Broker, newBrokerLimits(cfg.RateLimit))
+}
+
+// newBrokerLimits builds one limiter for echo and one for REGISTER from the
+// [rate_limit] settings. Neither shares the hub's limiter: UDP source
+// addresses are unverified, so spoofed packets would otherwise lock the named
+// address out of TCP, TLS and WS. Echo and REGISTER do not share one either,
+// so a spray of spoofed echoes cannot evict REGISTER histories.
+func newBrokerLimits(rl config.RateLimit) broker.Limits {
+	if !rl.IsEnabled() {
+		return broker.Limits{}
+	}
+	newAllow := func() broker.AllowFunc {
+		return ratelimit.New(
+			int(rl.Quota), rl.TimeWindow, rl.MaxEntries,
+		).Allow
+	}
+	return broker.Limits{Echo: newAllow(), Register: newAllow()}
 }
 
 func loadTLSConfig(certFile, keyFile string) (*tls.Config, error) {

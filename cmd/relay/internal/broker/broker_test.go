@@ -32,7 +32,7 @@ func newTestBroker(t *testing.T, ttl time.Duration) *Broker {
 		Address:         "127.0.0.1:0",
 		RegistrationTTL: ttl,
 	}
-	b, err := New(cfg, nil)
+	b, err := New(cfg, Limits{})
 	a.NoError(err)
 
 	go b.Run(context.Background())
@@ -46,7 +46,7 @@ func TestRun_CloseIsCleanShutdown(t *testing.T) {
 	b, err := New(config.Broker{
 		Enabled: true,
 		Address: "127.0.0.1:0",
-	}, nil)
+	}, Limits{})
 	a.NoError(err)
 
 	runErr := make(chan error, 1)
@@ -149,7 +149,7 @@ func TestRun_SurvivesPacketReadErrors(t *testing.T) {
 			b, err := New(config.Broker{
 				Enabled: true,
 				Address: "127.0.0.1:0",
-			}, nil)
+			}, Limits{})
 			a.NoError(err)
 			udp, ok := b.conn.(*net.UDPConn)
 			a.True(ok)
@@ -203,7 +203,7 @@ func TestRun_BacksOffOnPersistentReadErrors(t *testing.T) {
 	b, err := New(config.Broker{
 		Enabled: true,
 		Address: "127.0.0.1:0",
-	}, nil)
+	}, Limits{})
 	a.NoError(err)
 	udp, ok := b.conn.(*net.UDPConn)
 	a.True(ok)
@@ -723,7 +723,7 @@ func TestSTUNEcho_RespectsRateLimit(t *testing.T) {
 		Address:         "127.0.0.1:0",
 		RegistrationTTL: time.Minute,
 	}
-	b, err := New(cfg, allow)
+	b, err := New(cfg, Limits{Echo: allow})
 	a.NoError(err)
 	go b.Run(context.Background())
 	t.Cleanup(func() { _ = b.Close() })
@@ -962,7 +962,7 @@ func TestRegister_DropsWhenRegistryFull(t *testing.T) {
 		Address:         "127.0.0.1:0",
 		RegistrationTTL: time.Minute,
 	}
-	b, err := New(cfg, nil)
+	b, err := New(cfg, Limits{})
 	a.NoError(err)
 	b.maxRegistry = 1
 	go b.Run(context.Background())
@@ -1032,4 +1032,55 @@ func TestRegister_DropsWhenRegistryFull(t *testing.T) {
 	payload1, err := decryptNotify(t, peer1Priv, buf[:n])
 	a.NoError(err)
 	a.Equal(relaybroker.NotifyPeerMatched, payload1.Type)
+}
+
+func TestRateLimit_KeysAndValidRegisterOnly(t *testing.T) {
+	a := require.New(t)
+	var (
+		mu   sync.Mutex
+		keys []string
+	)
+	record := func(limiter string) AllowFunc {
+		return func(key string) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			keys = append(keys, limiter+" "+key)
+			return true
+		}
+	}
+	b, err := New(config.Broker{
+		Enabled:         true,
+		Address:         "127.0.0.1:0",
+		RegistrationTTL: time.Minute,
+	}, Limits{Echo: record("echo"), Register: record("register")})
+	a.NoError(err)
+	go b.Run(context.Background())
+	t.Cleanup(func() { _ = b.Close() })
+
+	client := newTestClient(t)
+	clientAddr := client.LocalAddr().(*net.UDPAddr)
+	ip4 := clientAddr.IP.To4()
+	a.NotNil(ip4)
+	port := uint16(clientAddr.Port)
+	_, pub := peerKey(t)
+
+	// Malformed REGISTERs must not be charged.
+	malformed := [][]byte{
+		{'K', 'B', 'R', 'K', 0x01, 0x02, 0x00},
+		relaybroker.BuildRegister(nil, make([]byte, 32), ip4, port),
+		relaybroker.BuildRegister(nil, pub, net.IPv4zero, port),
+	}
+	for _, pkt := range malformed {
+		_, err := client.WriteToUDP(pkt, b.Addr())
+		a.NoError(err)
+	}
+	echo := []byte{'K', 'B', 'R', 'K', 0x01, 0x01}
+	_ = sendAndRead(t, client, b.Addr(), echo)
+	_ = sendAndRead(
+		t, client, b.Addr(), relaybroker.BuildRegister(nil, pub, ip4, port),
+	)
+
+	mu.Lock()
+	defer mu.Unlock()
+	a.Equal([]string{"echo 127.0.0.1", "register 127.0.0.1"}, keys)
 }

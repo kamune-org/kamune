@@ -10,7 +10,12 @@ handshake_timeout = "30s"    # max time for HPKE + registration (0 = no limit)
 max_concurrent_sessions = 10_000
 max_message_size = 65536
 
-[rate_limit]                 # rate limit is ON by default
+# Rate limit is ON by default. TCP, TLS and WS share one per-IP limiter. The
+# UDP broker has two more with the same settings, one for echo and one for
+# REGISTER, each tracking up to max_entries IPs. UDP sources are not verified,
+# so spoofed packets can still spend or evict an IP's broker budget, though
+# not its TCP, TLS or WS one.
+[rate_limit]
 time_window = "1m"
 quota = 20
 max_entries = 100_000        # max unique IPs tracked
