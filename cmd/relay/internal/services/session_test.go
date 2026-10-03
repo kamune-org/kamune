@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -291,7 +292,7 @@ func TestSessionManager_Recipient_ListenerOnlyHasNoPeer(t *testing.T) {
 	a.ErrorIs(err, ErrPeerNotFound, "Recipient(listener, no peer)")
 }
 
-func TestSessionManager_ClosePeerChannel_ClosesPeer(t *testing.T) {
+func TestSessionManager_Leave_ClosesPeer(t *testing.T) {
 	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
@@ -303,16 +304,16 @@ func TestSessionManager_ClosePeerChannel_ClosesPeer(t *testing.T) {
 	token, err := sm.Create(listener)
 	a.NoError(err, "Create")
 	a.NoError(sm.Join(token, dialer), "Join")
-	_ = dialerRemote
-	_ = dialerRemote2
 
 	// Drain the remote ends so peer Close() doesn't block on a write to
 	// the disconnected half of net.Pipe.
 	drainRead(t, dialerRemote)
 	drainRead(t, dialerRemote2)
 
-	// Closing the listener should close the dialer.
-	sm.ClosePeerChannel(token, listener)
+	// The listener leaving should remove the session and close the
+	// dialer.
+	sm.Leave(token, listener)
+	a.Equal(0, sm.Len())
 
 	// The dialer should now be closed: a ReadBytes on its pipe should
 	// return an error shortly.
@@ -329,7 +330,7 @@ func TestSessionManager_ClosePeerChannel_ClosesPeer(t *testing.T) {
 	}
 }
 
-func TestSessionManager_RemoveIfOwner_IgnoresStranger(t *testing.T) {
+func TestSessionManager_Leave_IgnoresStranger(t *testing.T) {
 	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 10)
 
@@ -344,11 +345,88 @@ func TestSessionManager_RemoveIfOwner_IgnoresStranger(t *testing.T) {
 	defer cleanup2()
 	defer stranger.Close()
 
-	sm.RemoveIfOwner(token, stranger)
+	sm.Leave(token, stranger)
 	a.Equal(1, sm.Len(), "stranger must not delete a reused token")
+	sm.Leave(token, nil)
+	a.Equal(1, sm.Len(), "nil channel must not delete the session")
 
-	sm.RemoveIfOwner(token, listener)
+	sm.Leave(token, listener)
 	a.Equal(0, sm.Len())
+}
+
+// closeCountingAdapter counts Close calls and leaves the pipe open, so one
+// channel can be closed many times in a loop.
+type closeCountingAdapter struct {
+	*testAdapter
+	closes atomic.Int32
+}
+
+func (c *closeCountingAdapter) Close() error {
+	c.closes.Add(1)
+	return nil
+}
+
+// countingChan returns a channel whose Close only increments the returned
+// counter.
+func countingChan(t *testing.T) (*exchange.Channel, *atomic.Int32) {
+	t.Helper()
+	a := require.New(t)
+	c, s := net.Pipe()
+	t.Cleanup(func() {
+		_ = c.Close()
+		_ = s.Close()
+	})
+	acceptErr := make(chan error, 1)
+	go func() {
+		_, err := exchange.Accept(&testAdapter{conn: s})
+		acceptErr <- err
+	}()
+	adapter := &closeCountingAdapter{testAdapter: &testAdapter{conn: c}}
+	ch, err := exchange.Initiate(adapter)
+	a.NoError(err)
+	a.NoError(<-acceptErr)
+	return ch, &adapter.closes
+}
+
+// TestSessionManager_Leave_RacesJoin runs a listener's Leave against a
+// dialer's Join. Whatever the order, the session must be gone afterwards and
+// a dialer that joined must have been closed, never left paired with a
+// listener that no longer exists.
+func TestSessionManager_Leave_RacesJoin(t *testing.T) {
+	a := require.New(t)
+	sm := newTestSessionManager(time.Minute, 0, 10)
+	listener, _ := countingChan(t)
+	dialer, dialerCloses := countingChan(t)
+
+	for range 5000 {
+		token, err := sm.Create(listener)
+		a.NoError(err)
+		closesBefore := dialerCloses.Load()
+
+		var joinErr error
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			<-start
+			sm.Leave(token, listener)
+		})
+		wg.Go(func() {
+			<-start
+			joinErr = sm.Join(token, dialer)
+		})
+		close(start)
+		wg.Wait()
+
+		a.Equal(0, sm.Len(), "session must be removed")
+		if joinErr != nil {
+			a.ErrorIs(joinErr, ErrTokenNotFound)
+			continue
+		}
+		a.Equal(
+			closesBefore+1, dialerCloses.Load(),
+			"a dialer that joined must be closed when the listener leaves",
+		)
+	}
 }
 
 func TestSessionManager_Remove_Idempotent(t *testing.T) {

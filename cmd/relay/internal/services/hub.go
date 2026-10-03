@@ -71,7 +71,7 @@ func (h *Hub) RegisterDialer(ch *exchange.Channel, token []byte) error {
 }
 
 func (h *Hub) ReadPump(ch *exchange.Channel, token []byte) {
-	defer h.sessions.ClosePeerChannel(token, ch)
+	defer h.sessions.Leave(token, ch)
 
 	for {
 		data, err := ch.ReadBytes()
@@ -140,12 +140,8 @@ func (h *Hub) handlePing(ch *exchange.Channel) {
 	}
 }
 
-func (h *Hub) ClosePeerChannel(
-	token []byte, closed *exchange.Channel,
-) {
-	h.sessions.ClosePeerChannel(token, closed)
-}
-
-func (h *Hub) Unregister(token []byte, ch *exchange.Channel) {
-	h.sessions.RemoveIfOwner(token, ch)
+// Leave removes the session that ch belongs to and closes the other peer, in
+// one step. See SessionManager.Leave.
+func (h *Hub) Leave(token []byte, ch *exchange.Channel) {
+	h.sessions.Leave(token, ch)
 }

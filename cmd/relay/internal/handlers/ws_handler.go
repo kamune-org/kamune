@@ -103,12 +103,12 @@ func handleRelayConn(
 				slog.String("stack", string(debug.Stack())),
 			)
 		}
-		// Close the peer first while the session is still registered,
-		// then drop the map entry. Closing the adapter last covers
-		// panics that occur before ch is assigned.
+		// Leave drops the map entry and closes the peer under one
+		// lock, so a Join cannot pair with this connection after it
+		// is gone. Closing the adapter last covers panics that occur
+		// before ch is assigned.
 		if len(registeredToken) > 0 {
-			hub.ClosePeerChannel(registeredToken, ch)
-			hub.Unregister(registeredToken, ch)
+			hub.Leave(registeredToken, ch)
 		}
 		if ch != nil {
 			_ = ch.Close()

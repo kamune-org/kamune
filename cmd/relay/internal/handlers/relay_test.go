@@ -241,7 +241,7 @@ func TestWebSocketHandshake_TimeoutDoesNotCloseFinished(t *testing.T) {
 
 // TestRelay_Disconnect_ClosesPeer ensures that closing one peer's
 // underlying connection causes the other peer's channel to close
-// (via ClosePeerChannel) and ReadPump to exit.
+// (via Hub.Leave) and ReadPump to exit.
 func TestRelay_Disconnect_ClosesPeer(t *testing.T) {
 	a := require.New(t)
 	hub := newTestHub(t, "", 0)
@@ -269,7 +269,7 @@ func TestRelay_Disconnect_ClosesPeer(t *testing.T) {
 	_ = dialerServer.Close()
 
 	// The listener's ReadBytes on its channel should return an error
-	// once ClosePeerChannel closes its underlying pipe.
+	// once Leave closes its underlying pipe.
 	readErr := make(chan error, 1)
 	go func() {
 		_, err := listenerCh.ReadBytes()

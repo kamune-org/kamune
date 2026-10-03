@@ -160,29 +160,35 @@ func (sm *SessionManager) Recipient(
 	}
 }
 
-// ClosePeerChannel closes the exchange channel of the peer that is NOT the
-// given closed channel. When one peer disconnects, this ensures the other
-// peer's read pump exits rather than blocking forever.
-func (sm *SessionManager) ClosePeerChannel(
-	token []byte, closed *exchange.Channel,
-) {
+// Leave removes the session under token when ch is its listener or dialer,
+// and closes the other peer's channel. The lookup and the removal share one
+// lock, so a concurrent Join either pairs first, and its dialer is closed
+// here, or finds no session. Without that, a dialer could join a listener
+// that is already gone and wait with no session to time it out. A ch that
+// does not own the session changes nothing.
+func (sm *SessionManager) Leave(token []byte, ch *exchange.Channel) {
+	if ch == nil {
+		return
+	}
 	sm.mu.Lock()
-	sess, ok := sm.sessions[fmt.Sprintf("%x", token)]
-	if !ok {
+	key := fmt.Sprintf("%x", token)
+	sess, ok := sm.sessions[key]
+	if !ok || (ch != sess.listener && ch != sess.dialer) {
 		sm.mu.Unlock()
 		return
 	}
-	var peer *exchange.Channel
-	switch closed {
-	case sess.listener:
-		peer = sess.dialer
-	case sess.dialer:
+	delete(sm.sessions, key)
+	peer := sess.dialer
+	if ch == sess.dialer {
 		peer = sess.listener
 	}
 	sm.mu.Unlock()
 
-	if peer != nil {
-		peer.Close()
+	if peer == nil {
+		return
+	}
+	if err := peer.Close(); err != nil {
+		slog.Debug("session: close peer", slog.Any("error", err))
 	}
 }
 
@@ -190,22 +196,6 @@ func (sm *SessionManager) Remove(token []byte) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	delete(sm.sessions, fmt.Sprintf("%x", token))
-}
-
-func (sm *SessionManager) RemoveIfOwner(
-	token []byte, ch *exchange.Channel,
-) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	key := fmt.Sprintf("%x", token)
-	sess, ok := sm.sessions[key]
-	if !ok {
-		return
-	}
-	if ch != sess.listener && ch != sess.dialer {
-		return
-	}
-	delete(sm.sessions, key)
 }
 
 func (sm *SessionManager) Len() int {
