@@ -54,9 +54,19 @@ func isTimeout(err error) bool {
 }
 
 // Transport handles encrypted message exchange with route-based dispatch.
+//
+// A Transport that receives a frame it must not process further (one that
+// fails decryption or signature verification, is out of sequence, carries a
+// route not allowed in the current phase, or is RouteCloseTransport) closes
+// its connection and invalidates the session's resumption tokens, so the
+// session cannot be resumed. Every later Receive returns the same error, and
+// Send fails with ErrConnClosed. Only RouteCloseTransport tells the peer; in
+// the other cases the peer sees the connection drop, and an attempt to resume
+// it fails.
 type Transport struct {
 	conn           Conn
 	acceptedMeta   any
+	termErr        error
 	serde          *signedSerde
 	encoder        *enigma.Enigma
 	decoder        *enigma.Enigma
@@ -107,6 +117,10 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 // of the next frame has arrived; the caller may retry. A connection that drops
 // or times out part-way through a frame yields ErrConnClosed.
 func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
+	if err := t.terminated(); err != nil {
+		return nil, nil, err
+	}
+
 	payload, err := t.conn.ReadBytes()
 	switch {
 	case err == nil: // continue
@@ -120,12 +134,14 @@ func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 
 	decrypted, err := t.decoder.Decrypt(payload)
 	if err != nil {
-		return nil, nil, fmt.Errorf("decrypting payload: %w", err)
+		return nil, nil, t.terminate(
+			fmt.Errorf("decrypting payload: %w", err),
+		)
 	}
 
 	metadata, message, err := t.serde.verify(decrypted)
 	if err != nil {
-		return nil, nil, fmt.Errorf("deserializing: %w", err)
+		return nil, nil, t.terminate(fmt.Errorf("deserializing: %w", err))
 	}
 
 	// Validate per-message sequence number to detect duplicates, missing, or
@@ -138,17 +154,16 @@ func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 		// A duplicate or gap violates the ordered, reliable Conn contract. The
 		// session cannot safely continue because a missing frame may have
 		// carried stateful protocol or application data.
-		_ = t.conn.Close()
 		if seq < expected {
-			return nil, nil, fmt.Errorf(
+			return nil, nil, t.terminate(fmt.Errorf(
 				"%w: duplicate message seq %d, expected %d",
 				ErrOutOfSync, seq, expected,
-			)
+			))
 		}
-		return nil, nil, fmt.Errorf(
+		return nil, nil, t.terminate(fmt.Errorf(
 			"%w: missing messages, got seq %d, expected %d",
 			ErrOutOfSync, seq, expected,
-		)
+		))
 	}
 	t.recvSequence = seq
 	t.mu.Unlock()
@@ -158,12 +173,12 @@ func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
 	}
 	if err := t.checkRoute(route); err != nil {
-		_ = t.conn.Close()
-		return nil, nil, err
+		return nil, nil, t.terminate(err)
 	}
 	if route == RouteCloseTransport {
-		t.invalidateResumptionTokens()
-		return nil, nil, ErrPeerDisconnected
+		// The peer will send nothing more; close the session so that no
+		// frame queued behind the close is processed.
+		return nil, nil, t.terminate(ErrPeerDisconnected)
 	}
 
 	return metadata, message, nil
@@ -180,6 +195,9 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 	}
 	if err := t.checkRoute(route); err != nil {
 		return nil, err
+	}
+	if err := t.terminated(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrConnClosed, err)
 	}
 
 	// Keep sequence allocation, serialization, and the frame write in the same
@@ -203,8 +221,14 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 }
 
 // Close closes the transport connection. It sends a RouteCloseTransport frame
-// before closing (best-effort — if the send fails, it closes directly).
+// before closing (best-effort — if the send fails, it closes directly) and,
+// once the frame is sent, invalidates the session's resumption tokens. It
+// returns nil when Receive has already closed the transport.
 func (t *Transport) Close() error {
+	if t.terminated() != nil {
+		_ = t.conn.Close()
+		return nil
+	}
 	_, err := t.Send(Bytes(nil), RouteCloseTransport)
 	if err == nil {
 		t.invalidateResumptionTokens()
@@ -217,6 +241,31 @@ func (t *Transport) Close() error {
 // connection drops or fails keepalive.
 func (t *Transport) CloseAbort() error {
 	return t.conn.Close()
+}
+
+// terminate records err as the terminal error of t, unless one is already
+// recorded, closes the connection and returns err. The first call also
+// invalidates the session's resumption tokens: the session ended on a frame
+// that must not be processed, so it must not be resumed either.
+func (t *Transport) terminate(err error) error {
+	t.mu.Lock()
+	first := t.termErr == nil
+	if first {
+		t.termErr = err
+	}
+	t.mu.Unlock()
+	_ = t.conn.Close()
+	if first {
+		t.invalidateResumptionTokens()
+	}
+	return err
+}
+
+// terminated returns the terminal error of t, or nil while t is usable.
+func (t *Transport) terminated() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.termErr
 }
 
 func (t *Transport) checkRoute(route Route) error {

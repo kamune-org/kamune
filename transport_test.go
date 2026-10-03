@@ -184,6 +184,99 @@ func TestReceive_TCPResetIsConnClosed(t *testing.T) {
 	a.ErrorIs(err, ErrConnClosed)
 }
 
+// TestReceive_FatalFrameTerminatesTransport checks that a frame that fails
+// decryption or verification, or a RouteCloseTransport frame, closes the
+// connection and that no frame queued behind it is processed.
+func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
+	a := require.New(t)
+	att, err := attest.New()
+	a.NoError(err)
+	other, err := attest.New()
+	a.NoError(err)
+	serde := newSignedSerde(att.MarshalPublicKey(), att)
+	forger := newSignedSerde(att.MarshalPublicKey(), other)
+	cipher, err := enigma.NewEnigma(
+		[]byte("terminate secret"),
+		[]byte("terminate salt"),
+		[]byte("terminate info"),
+	)
+	a.NoError(err)
+	frame := func(s *signedSerde, route Route, seq uint64) []byte {
+		payload, _, err := s.serialize(Bytes([]byte("data")), route, seq)
+		a.NoError(err)
+		return cipher.Encrypt(payload)
+	}
+
+	cases := []struct {
+		want  error
+		name  string
+		first []byte
+		next  []byte
+	}{
+		{
+			name:  "decryption failure",
+			first: bytes.Repeat([]byte{0x5a}, 64),
+			next:  frame(serde, RouteExchangeMessages, 1),
+		},
+		{
+			name:  "invalid signature",
+			want:  ErrInvalidSignature,
+			first: frame(forger, RouteExchangeMessages, 1),
+			next:  frame(serde, RouteExchangeMessages, 1),
+		},
+		{
+			name:  "out of sequence",
+			want:  ErrOutOfSync,
+			first: frame(serde, RouteExchangeMessages, 2),
+			next:  frame(serde, RouteExchangeMessages, 1),
+		},
+		{
+			name:  "unexpected route",
+			want:  ErrUnexpectedRoute,
+			first: frame(serde, RouteSendChallenge, 1),
+			next:  frame(serde, RouteExchangeMessages, 2),
+		},
+		{
+			name:  "peer close",
+			want:  ErrPeerDisconnected,
+			first: frame(serde, RouteCloseTransport, 1),
+			next:  frame(serde, RouteExchangeMessages, 2),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			conn := &queuedConn{frames: [][]byte{tc.first, tc.next}}
+			tr := newTransport(conn, serde, "test-session", cipher, cipher)
+			tr.established = true
+			store := newTransportTestStorage(t)
+			tr.storage = store
+			a.NoError(store.PutSessionResumption(
+				tr.sessionID, nil, [][]byte{bytes.Repeat([]byte{7}, 32)}, false,
+			))
+
+			_, err := tr.Receive(Bytes(nil))
+			a.Error(err)
+			if tc.want != nil {
+				a.ErrorIs(err, tc.want)
+			}
+			a.True(conn.closed)
+			_, popErr := store.PopList(
+				tr.sessionID, storage.ResumptionTokensKey,
+			)
+			a.ErrorIs(popErr, storage.ErrNotFound, "session stays resumable")
+
+			_, again := tr.Receive(Bytes(nil))
+			a.Equal(err, again)
+			a.Len(conn.frames, 1, "queued frame must not be read")
+
+			_, err = tr.Send(Bytes(nil), RouteExchangeMessages)
+			a.ErrorIs(err, ErrConnClosed)
+			a.NoError(tr.Close())
+		})
+	}
+}
+
 func TestTransportReceiveValidatesSequenceBeforeClose(t *testing.T) {
 	a := require.New(t)
 	transport := incomingTransport(t, RouteCloseTransport, 2, Bytes(nil))
