@@ -69,6 +69,9 @@ func NewBoltDB(
 		return nil
 	})
 	if err != nil {
+		// Release the handle so its file lock does not outlive the failed
+		// open and block every retry in this process.
+		db.Close()
 		return nil, fmt.Errorf("creating default bucket: %w", err)
 	}
 
