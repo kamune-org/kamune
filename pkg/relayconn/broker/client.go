@@ -112,7 +112,8 @@ func (c *Client) Echo(ctx context.Context) (net.IP, uint16, error) {
 // random mode (token == nil), the broker responds with NOTIFY(TOKEN_ASSIGNED);
 // the returned token is the new random token. For static mode (token != nil),
 // the broker stores the registration and sends no NOTIFY; the returned token is
-// the same as the input.
+// the same as the input. The broker matches and echoes the token in its
+// WireToken form, so check PEER_MATCHED tokens with TokenMatches.
 //
 // claimIP and claimPort are the peer's perceived public address (use Echo to
 // discover it). They are written into the REGISTER so the broker can echo them

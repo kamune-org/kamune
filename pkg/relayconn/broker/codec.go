@@ -5,6 +5,7 @@ package broker
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -49,6 +50,10 @@ const (
 	peerMatchedPayloadSize   = 1 + tokenSize + x25519KeySize + ipv4Size + portSize // 55
 	tokenAssignedPayloadSize = 1 + tokenSize + 4                                   // 21
 )
+
+// TokenSize is the length in bytes of a token on the broker wire. See
+// WireToken for how longer and shorter tokens are carried.
+const TokenSize = tokenSize
 
 // Opcode enumerates the protocol opcodes.
 type Opcode byte
@@ -156,8 +161,10 @@ func ParseRegister(pkt []byte) (
 }
 
 // BuildRegister builds a 60-byte REGISTER packet. The token may be nil/empty
-// (random mode) or a 16-byte precomputed token (static mode). The peerEphPub
-// must be 32 bytes.
+// (random mode) or a precomputed token (static mode). A static token is sent
+// in its WireToken form, so a 32-byte token from relayconn.TokenFromKeys
+// travels as its first 16 bytes; match NOTIFY tokens against it with
+// TokenMatches. The peerEphPub must be 32 bytes.
 func BuildRegister(token, peerEphPub []byte, ip net.IP, port uint16) []byte {
 	tk := padOrTruncate(token, tokenSize)
 	pk := padOrTruncate(peerEphPub, x25519KeySize)
@@ -177,6 +184,28 @@ func BuildRegister(token, peerEphPub []byte, ip net.IP, port uint16) []byte {
 	binary.BigEndian.PutUint16(portBytes, port)
 	pkt = append(pkt, portBytes...)
 	return pkt
+}
+
+// WireToken returns token as the broker carries it: truncated or
+// zero-padded to TokenSize bytes. It returns nil for an empty token
+// (random mode).
+func WireToken(token []byte) []byte {
+	if len(token) == 0 {
+		return nil
+	}
+	return padOrTruncate(token, tokenSize)
+}
+
+// TokenMatches reports whether notified, the token of a NOTIFY payload, is
+// the wire form of token, the token given to BuildRegister or
+// Client.Register. NOTIFY tokens must be compared with TokenMatches rather
+// than bytes.Equal: the broker echoes the 16-byte wire form, which never
+// equals a 32-byte static token.
+func TokenMatches(notified, token []byte) bool {
+	if len(notified) != tokenSize || len(token) == 0 {
+		return false
+	}
+	return subtle.ConstantTimeCompare(notified, WireToken(token)) == 1
 }
 
 // BuildNotifyPeerMatched builds a NOTIFY(PEER_MATCHED) packet from the given
