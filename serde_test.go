@@ -2,6 +2,8 @@ package kamune
 
 import (
 	"crypto/rand"
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,28 +12,6 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/attest"
 )
-
-func TestVarintSize(t *testing.T) {
-	cases := []struct {
-		n    int
-		want int
-	}{
-		{0, 1},
-		{1, 1},
-		{127, 1},
-		{128, 2},
-		{16_383, 2},
-		{16_384, 3},
-		{2_097_151, 3},
-		{2_097_152, 4},
-	}
-	for _, tc := range cases {
-		t.Run("", func(t *testing.T) {
-			a := require.New(t)
-			a.Equal(tc.want, varintSize(tc.n))
-		})
-	}
-}
 
 func TestNaturalBucketIndex(t *testing.T) {
 	cases := []struct {
@@ -78,25 +58,125 @@ func TestSelectBump_Distribution(t *testing.T) {
 	}
 }
 
-func TestSelectBucketSize_CappedAtLastBucket(t *testing.T) {
+func TestSelectBucketIndex_CappedAtLastBucket(t *testing.T) {
 	a := require.New(t)
 	last := len(paddingBuckets) - 1
 	for range 1000 {
-		got := selectBucketSize(paddingBuckets[last])
-		a.LessOrEqual(got, paddingBuckets[last])
-		a.GreaterOrEqual(got, paddingBuckets[last])
+		a.Equal(last, selectBucketIndex(paddingBuckets[last]))
 	}
 }
 
-func TestSelectBucketSize_AlwaysAtLeastBase(t *testing.T) {
+func TestSelectBucketIndex_AlwaysAtLeastBase(t *testing.T) {
 	a := require.New(t)
 	sizes := []int{0, 1, 100, 500, 512, 513, 1024, 4096, 16_384}
 	for _, base := range sizes {
 		for range 100 {
-			got := selectBucketSize(base)
+			got := paddingBuckets[selectBucketIndex(base)]
 			a.GreaterOrEqual(got, base)
 			a.LessOrEqual(got, frameTargetSize)
 		}
+	}
+}
+
+func TestPaddingField_MatchesDescriptor(t *testing.T) {
+	a := require.New(t)
+	fields := (&pb.SignedTransport{}).ProtoReflect().Descriptor().Fields()
+	a.Equal(paddingField, fields.ByName("Padding").Number())
+}
+
+// TestPaddingRecords_FillEveryGap checks that every gap of two or more bytes,
+// including those between two varint widths, is filled exactly.
+func TestPaddingRecords_FillEveryGap(t *testing.T) {
+	a := require.New(t)
+	records, ok := paddingRecords(0)
+	a.True(ok)
+	a.Empty(records)
+	_, ok = paddingRecords(1)
+	a.False(ok)
+
+	for gap := 2; gap <= math.MaxUint16; gap++ {
+		records, ok := paddingRecords(gap)
+		a.True(ok, "gap %d", gap)
+		size := 0
+		for _, n := range records {
+			size += paddingRecordSize(n)
+		}
+		a.Equal(gap, size, "gap %d", gap)
+	}
+}
+
+// TestBucketTarget_EveryBaseSizeLandsOnBucket checks that every reachable
+// envelope size, in every bucket the bump can pick, pads to a bucket size
+// exactly.
+func TestBucketTarget_EveryBaseSizeLandsOnBucket(t *testing.T) {
+	a := require.New(t)
+	// frameTargetSize-1 is the one size that cannot be padded: it would need
+	// a one-byte field. Serialized user messages are far below it.
+	for base := 0; base < frameTargetSize-1; base++ {
+		for idx := naturalBucketIndex(base); idx < len(paddingBuckets); idx++ {
+			target := bucketTarget(base, idx)
+			a.Contains(paddingBuckets, target)
+			records, ok := paddingRecords(target - base)
+			if !ok {
+				a.Failf("unpaddable", "base %d bucket %d", base, idx)
+			}
+			size := base
+			for _, n := range records {
+				size += paddingRecordSize(n)
+			}
+			if size != target {
+				a.Failf("off bucket", "base %d: got %d, want %d",
+					base, size, target)
+			}
+		}
+	}
+}
+
+// transportOfSize returns a SignedTransport whose unpadded encoding is
+// exactly size bytes.
+func transportOfSize(t *testing.T, size int) *pb.SignedTransport {
+	t.Helper()
+	a := require.New(t)
+	for sig := range 3 {
+		for data := max(size-8, 0); data <= size; data++ {
+			st := &pb.SignedTransport{
+				Data:      make([]byte, data),
+				Signature: make([]byte, sig),
+			}
+			if proto.Size(st) == size {
+				return st
+			}
+		}
+	}
+	a.FailNow("no SignedTransport of size", "%d", size)
+	return nil
+}
+
+// TestPadSignedTransport_VarintBoundaryGaps pads envelopes whose gap to the
+// natural bucket is 1, 2, 130 or 16387 bytes, which a single Padding field
+// cannot fill.
+func TestPadSignedTransport_VarintBoundaryGaps(t *testing.T) {
+	sizes := []int{
+		511, 510, 382, 1023, 894, 3966, 16_254, 16_381, 32_638,
+		frameTargetSize - 2,
+		frameTargetSize - 130,
+		frameTargetSize - 16_387,
+	}
+	for _, size := range sizes {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			a := require.New(t)
+			for range 20 {
+				st := transportOfSize(t, size)
+				data := st.GetData()
+				payload, err := padSignedTransport(st)
+				a.NoError(err)
+				a.Contains(paddingBuckets, len(payload))
+
+				var got pb.SignedTransport
+				a.NoError(proto.Unmarshal(payload, &got))
+				a.Equal(data, got.GetData())
+			}
+		})
 	}
 }
 
