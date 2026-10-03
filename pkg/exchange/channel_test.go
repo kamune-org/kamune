@@ -7,7 +7,9 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -90,6 +92,100 @@ func TestChannel_ConcurrentWrites(t *testing.T) {
 		a.NoError(err)
 	}
 	a.Len(received, messageCount)
+}
+
+type deadlineWriter struct {
+	inner    *framedConn
+	mu       sync.Mutex
+	deadline time.Time
+	hold     atomic.Bool
+	blocked  atomic.Bool
+	entered  chan struct{}
+	release  chan struct{}
+}
+
+func (w *deadlineWriter) ReadBytes() ([]byte, error) {
+	return w.inner.ReadBytes()
+}
+
+func (w *deadlineWriter) SetWriteDeadline(t time.Time) error {
+	w.mu.Lock()
+	w.deadline = t
+	w.mu.Unlock()
+	return nil
+}
+
+func (w *deadlineWriter) WriteBytes(data []byte) error {
+	if w.hold.Load() && w.blocked.CompareAndSwap(false, true) {
+		close(w.entered)
+		<-w.release
+		w.mu.Lock()
+		dl := w.deadline
+		w.mu.Unlock()
+		if dl.IsZero() || time.Until(dl) < 20*time.Second {
+			return fmt.Errorf("deadline cleared during write: %v", dl)
+		}
+	}
+	return w.inner.WriteBytes(data)
+}
+
+func TestWriteBytesWithin_SlowWriteKeepsDeadline(t *testing.T) {
+	a := require.New(t)
+	initiatorConn, recipientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = initiatorConn.Close()
+		_ = recipientConn.Close()
+	})
+
+	writer := &deadlineWriter{
+		inner:   &framedConn{Conn: initiatorConn},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	acceptCh := make(chan struct {
+		channel *Channel
+		err     error
+	}, 1)
+	go func() {
+		channel, err := Accept(&framedConn{Conn: recipientConn})
+		acceptCh <- struct {
+			channel *Channel
+			err     error
+		}{channel, err}
+	}()
+	sender, err := Initiate(writer)
+	a.NoError(err)
+	accepted := <-acceptCh
+	a.NoError(accepted.err)
+	go func() {
+		for {
+			if _, err := accepted.channel.ReadBytes(); err != nil {
+				return
+			}
+		}
+	}()
+
+	writer.hold.Store(true)
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- sender.WriteBytesWithin([]byte("slow"), 30*time.Second)
+	}()
+	<-writer.entered
+
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- sender.WriteBytesWithin([]byte("fast"), time.Millisecond)
+	}()
+	select {
+	case err := <-secondDone:
+		t.Fatalf("fast write returned while slow write held the lock: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(writer.release)
+	a.NoError(<-firstDone)
+	a.NoError(<-secondDone)
 }
 
 func FuzzParseMergedExchange(f *testing.F) {

@@ -298,3 +298,60 @@ func TestHandleResumeRejectsWrongLengthToken(t *testing.T) {
 	a.Equal(before.Value(), after.Value())
 	a.Error(<-serveErr)
 }
+
+type metaConn struct {
+	Conn
+	v any
+}
+
+func (m metaConn) AcceptedMeta() any { return m.v }
+
+func TestAcceptedMeta_ReachesHandler(t *testing.T) {
+	a := require.New(t)
+	clientStore, cleanupClient := newTestStore(t)
+	defer cleanupClient()
+	serverStore, cleanupServer := newTestStore(t)
+	defer cleanupServer()
+
+	label := "tok"
+	clientNet, serverNet := net.Pipe()
+	clientConn := newConn(clientNet)
+	serverConn := metaConn{Conn: newConn(serverNet), v: &label}
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+	})
+
+	got := make(chan any, 1)
+	verifier := func(store *storage.Storage, peer *storage.Peer) error {
+		return store.StorePeer(peer)
+	}
+	server, err := NewServer(
+		"",
+		func(tr *Transport) error {
+			got <- tr.AcceptedMeta()
+			return nil
+		},
+		serverStore,
+		verifier,
+	)
+	a.NoError(err)
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- server.serve(serverConn)
+	}()
+
+	dialer, err := NewDialer(
+		"",
+		clientStore,
+		verifier,
+		DialWithFunc(func(string) (Conn, error) { return clientConn, nil }),
+	)
+	a.NoError(err)
+	tr, err := dialer.Dial()
+	a.NoError(err)
+	t.Cleanup(func() { _ = tr.Close() })
+
+	a.Equal(&label, <-got)
+	a.NoError(<-serveErr)
+}

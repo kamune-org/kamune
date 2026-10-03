@@ -2,6 +2,7 @@ package kamune
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
@@ -20,9 +22,13 @@ import (
 type queuedConn struct {
 	closed bool
 	frames [][]byte
+	err    error
 }
 
 func (c *queuedConn) ReadBytes() ([]byte, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
 	if len(c.frames) == 0 {
 		return nil, io.EOF
 	}
@@ -60,6 +66,41 @@ func incomingTransport(
 	tr := newTransport(conn, serde, "test-session", cipher, cipher)
 	tr.established = true
 	return tr
+}
+
+func TestReceivePayload_RoundTrip(t *testing.T) {
+	a := require.New(t)
+	want := []byte("hello")
+	tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(want))
+
+	md, raw, err := tr.ReceivePayload()
+	a.NoError(err)
+	a.Equal(RouteExchangeMessages, md.Route())
+	var got wrapperspb.BytesValue
+	a.NoError(proto.Unmarshal(raw, &got))
+	a.Equal(want, got.GetValue())
+}
+
+func TestReceive_ErrClosedPipeIsConnClosed(t *testing.T) {
+	a := require.New(t)
+	tr := incomingTransport(t, RouteSessionData, 1, Bytes([]byte("x")))
+	qc := tr.conn.(*queuedConn)
+	qc.frames = nil
+	qc.err = io.ErrClosedPipe
+
+	_, err := tr.Receive(Bytes(nil))
+	a.ErrorIs(err, ErrConnClosed)
+}
+
+func TestReceive_WrappedErrClosedPipeIsConnClosed(t *testing.T) {
+	a := require.New(t)
+	tr := incomingTransport(t, RouteSessionData, 1, Bytes([]byte("x")))
+	qc := tr.conn.(*queuedConn)
+	qc.frames = nil
+	qc.err = fmt.Errorf("reading message: %w", io.ErrClosedPipe)
+
+	_, err := tr.Receive(Bytes(nil))
+	a.ErrorIs(err, ErrConnClosed)
 }
 
 func TestTransportReceiveValidatesSequenceBeforeClose(t *testing.T) {

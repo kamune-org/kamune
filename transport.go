@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -31,6 +32,7 @@ func isTimeout(err error) bool {
 // Transport handles encrypted message exchange with route-based dispatch.
 type Transport struct {
 	conn           Conn
+	acceptedMeta   any
 	serde          *signedSerde
 	encoder        *enigma.Enigma
 	decoder        *enigma.Enigma
@@ -64,25 +66,40 @@ func newTransport(
 // Receive reads and decrypts the next message from the connection.
 // It populates the dst, returns the metadata and any error.
 func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
+	metadata, message, err := t.ReceivePayload()
+	if err != nil {
+		return nil, err
+	}
+	if err := proto.Unmarshal(message, dst); err != nil {
+		return nil, fmt.Errorf("deserializing message: %w", err)
+	}
+	return metadata, nil
+}
+
+// ReceivePayload reads and decrypts the next message and returns the
+// verified protobuf bytes without unmarshalling them into a caller type.
+func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 	payload, err := t.conn.ReadBytes()
 	switch {
 	case err == nil: // continue
-	case errors.Is(err, io.EOF):
-		return nil, ErrConnClosed
+	case errors.Is(err, io.EOF) ||
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, io.ErrClosedPipe):
+		return nil, nil, ErrConnClosed
 	case isTimeout(err):
-		return nil, ErrReceiveTimeout
+		return nil, nil, ErrReceiveTimeout
 	default:
-		return nil, fmt.Errorf("reading payload: %w", err)
+		return nil, nil, fmt.Errorf("reading payload: %w", err)
 	}
 
 	decrypted, err := t.decoder.Decrypt(payload)
 	if err != nil {
-		return nil, fmt.Errorf("decrypting payload: %w", err)
+		return nil, nil, fmt.Errorf("decrypting payload: %w", err)
 	}
 
 	metadata, message, err := t.serde.verify(decrypted)
 	if err != nil {
-		return nil, fmt.Errorf("deserializing: %w", err)
+		return nil, nil, fmt.Errorf("deserializing: %w", err)
 	}
 
 	// Validate per-message sequence number to detect duplicates, missing, or
@@ -97,12 +114,12 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 		// carried stateful protocol or application data.
 		_ = t.conn.Close()
 		if seq < expected {
-			return nil, fmt.Errorf(
+			return nil, nil, fmt.Errorf(
 				"%w: duplicate message seq %d, expected %d",
 				ErrOutOfSync, seq, expected,
 			)
 		}
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"%w: missing messages, got seq %d, expected %d",
 			ErrOutOfSync, seq, expected,
 		)
@@ -112,21 +129,18 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 
 	route := metadata.Route()
 	if !route.IsValid() {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
+		return nil, nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
 	}
 	if err := t.checkRoute(route); err != nil {
 		_ = t.conn.Close()
-		return nil, err
+		return nil, nil, err
 	}
 	if route == RouteCloseTransport {
 		t.invalidateResumptionTokens()
-		return nil, ErrPeerDisconnected
-	}
-	if err := proto.Unmarshal(message, dst); err != nil {
-		return nil, fmt.Errorf("deserializing message: %w", err)
+		return nil, nil, ErrPeerDisconnected
 	}
 
-	return metadata, nil
+	return metadata, message, nil
 }
 
 // Send encrypts and sends a message with the specified route.
@@ -165,6 +179,13 @@ func (t *Transport) Close() error {
 	if err == nil {
 		t.invalidateResumptionTokens()
 	}
+	return t.conn.Close()
+}
+
+// CloseAbort closes the underlying connection abruptly without transmitting a
+// RouteCloseTransport frame or invalidating resumption tokens. Used when a
+// connection drops or fails keepalive.
+func (t *Transport) CloseAbort() error {
 	return t.conn.Close()
 }
 
@@ -216,8 +237,22 @@ func persistEstablishedSession(
 	}
 }
 
+// SetDeadline sets the read and write deadlines on the underlying connection.
+func (t *Transport) SetDeadline(tm time.Time) error {
+	return t.conn.SetDeadline(tm)
+}
+
 // SessionID returns the unique identifier for this session.
 func (t *Transport) SessionID() string { return t.sessionID }
+
+// AcceptedMeta returns the value copied from the accepted connection.
+func (t *Transport) AcceptedMeta() any { return t.acceptedMeta }
+
+func (t *Transport) takeAcceptedMeta(cn Conn) {
+	if m, ok := cn.(AcceptedMeta); ok {
+		t.acceptedMeta = m.AcceptedMeta()
+	}
+}
 
 // RemotePeer returns the remote peer's identity (name, public key, and app
 // version) as established during the introduction phase.

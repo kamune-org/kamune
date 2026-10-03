@@ -221,6 +221,7 @@ func (s *Server) handleNewConnection(
 	// Since from now on all communications are encrypted via the newly ciphers
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
+	t.takeAcceptedMeta(cn)
 	t.remotePeer = peer
 	persistEstablishedSession(s.storage, t, true)
 
@@ -301,6 +302,7 @@ func (s *Server) handleResume(
 	}
 
 	t.conn = cn
+	t.takeAcceptedMeta(cn)
 	t.remotePeer = peer
 	persistEstablishedSession(s.storage, t, false)
 

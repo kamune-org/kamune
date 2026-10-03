@@ -56,8 +56,20 @@ func (ch *Channel) ReadBytes() ([]byte, error) {
 }
 
 func (ch *Channel) WriteBytes(data []byte) error {
+	return ch.WriteBytesWithin(data, 0)
+}
+
+// WriteBytesWithin writes data while holding writeMu. A positive timeout
+// arms the connection write deadline for that write only, and clears it
+// before the lock is released, so a concurrent writer cannot cancel it.
+func (ch *Channel) WriteBytesWithin(data []byte, timeout time.Duration) error {
 	ch.writeMu.Lock()
 	defer ch.writeMu.Unlock()
+
+	if timeout > 0 {
+		_ = ch.SetWriteDeadline(time.Now().Add(timeout))
+		defer func() { _ = ch.SetWriteDeadline(time.Time{}) }()
+	}
 
 	encrypted, err := ch.sender.Seal(nil, data)
 	if err != nil {

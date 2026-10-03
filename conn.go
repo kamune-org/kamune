@@ -21,6 +21,12 @@ type Conn interface {
 	Close() error
 }
 
+// AcceptedMeta lets a Conn carry caller data through the handshake.
+// The value is copied onto the Transport before the handler runs.
+type AcceptedMeta interface {
+	AcceptedMeta() any
+}
+
 // conn implements [Conn] interface, providing frame-based read and write
 // operations over a network connection. It also implements [net.Conn]
 // interface.
