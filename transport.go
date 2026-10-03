@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -16,6 +17,29 @@ import (
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
+
+// connDropErrors are Conn read errors that mean the connection was closed
+// locally, closed by the peer, or dropped by the network.
+var connDropErrors = []error{
+	ErrConnClosed,
+	io.EOF,
+	io.ErrUnexpectedEOF,
+	io.ErrClosedPipe,
+	net.ErrClosed,
+	syscall.ECONNRESET,
+	syscall.ECONNABORTED,
+	syscall.EPIPE,
+}
+
+// isConnDrop reports whether err means the connection is gone.
+func isConnDrop(err error) bool {
+	for _, target := range connDropErrors {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
+}
 
 // isTimeout reports whether err is a deadline/timeout error, either from
 // os.ErrDeadlineExceeded or from a net.Error with Timeout() true.
@@ -86,10 +110,7 @@ func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 	payload, err := t.conn.ReadBytes()
 	switch {
 	case err == nil: // continue
-	case errors.Is(err, ErrConnClosed) ||
-		errors.Is(err, io.EOF) ||
-		errors.Is(err, net.ErrClosed) ||
-		errors.Is(err, io.ErrClosedPipe):
+	case isConnDrop(err):
 		return nil, nil, ErrConnClosed
 	case isTimeout(err):
 		return nil, nil, ErrReceiveTimeout

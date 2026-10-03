@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -103,6 +104,83 @@ func TestReceive_WrappedErrClosedPipeIsConnClosed(t *testing.T) {
 	qc.err = fmt.Errorf("reading message: %w", io.ErrClosedPipe)
 
 	_, err := tr.Receive(Bytes(nil))
+	a.ErrorIs(err, ErrConnClosed)
+}
+
+func TestReceive_ConnDropIsConnClosed(t *testing.T) {
+	cases := []struct {
+		err  error
+		name string
+	}{
+		{
+			name: "connection reset",
+			err: &net.OpError{
+				Op:  "read",
+				Net: "tcp",
+				Err: os.NewSyscallError("read", syscall.ECONNRESET),
+			},
+		},
+		{
+			name: "connection aborted",
+			err:  fmt.Errorf("reading: %w", syscall.ECONNABORTED),
+		},
+		{
+			name: "broken pipe",
+			err:  fmt.Errorf("reading: %w", syscall.EPIPE),
+		},
+		{
+			name: "truncated frame",
+			err:  fmt.Errorf("reading message: %w", io.ErrUnexpectedEOF),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			tr := incomingTransport(t, RouteSessionData, 1, Bytes(nil))
+			qc := tr.conn.(*queuedConn)
+			qc.frames = nil
+			qc.err = tc.err
+
+			_, err := tr.Receive(Bytes(nil))
+			a.ErrorIs(err, ErrConnClosed)
+		})
+	}
+}
+
+// TestReceive_TCPResetIsConnClosed has the peer abort a real TCP connection
+// with a reset.
+func TestReceive_TCPResetIsConnClosed(t *testing.T) {
+	a := require.New(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	dialed := make(chan struct{})
+	reset := make(chan error, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			reset <- err
+			return
+		}
+		// Reset only after Dial has returned, or Dial itself may fail.
+		<-dialed
+		tc := c.(*net.TCPConn)
+		if err := tc.SetLinger(0); err != nil {
+			reset <- err
+			return
+		}
+		reset <- tc.Close()
+	}()
+
+	c, err := net.Dial("tcp", ln.Addr().String())
+	close(dialed)
+	a.NoError(err)
+	t.Cleanup(func() { _ = c.Close() })
+	a.NoError(<-reset)
+
+	tr := newTransport(newConn(c), nil, "test-session", nil, nil)
+	_, _, err = tr.ReceivePayload()
 	a.ErrorIs(err, ErrConnClosed)
 }
 
