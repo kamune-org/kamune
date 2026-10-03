@@ -570,12 +570,39 @@ func TestTcpAdapterLengthPrefix(t *testing.T) {
 	a.Equal("world", string(data))
 }
 
+// closeSpy is a net.Conn that records whether it has been closed.
+type closeSpy struct {
+	net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newCloseSpy(c net.Conn) *closeSpy {
+	return &closeSpy{Conn: c, closed: make(chan struct{})}
+}
+
+func (c *closeSpy) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return c.Conn.Close()
+}
+
 // setupListener creates a listener via listenHandshake and returns the
 // listener plus a server-side exchange.Channel for sending frames.
 func setupListener(t *testing.T) (*RelayListener, *exchange.Channel) {
 	t.Helper()
+	l, serverCh, _ := setupListenerSpy(t)
+	return l, serverCh
+}
+
+// setupListenerSpy is setupListener that also returns a spy on the
+// listener's socket to the relay.
+func setupListenerSpy(
+	t *testing.T,
+) (*RelayListener, *exchange.Channel, *closeSpy) {
+	t.Helper()
 	a := require.New(t)
-	c, s := net.Pipe()
+	pc, s := net.Pipe()
+	c := newCloseSpy(pc)
 	t.Cleanup(func() { c.Close(); s.Close() })
 
 	serverReady := make(chan *exchange.Channel, 1)
@@ -625,7 +652,7 @@ func setupListener(t *testing.T) (*RelayListener, *exchange.Channel) {
 	a.NotNil(serverCh)
 	t.Cleanup(func() { serverCh.Close() })
 
-	return result.Listener, serverCh
+	return result.Listener, serverCh, c
 }
 
 func TestListenerDeliver_FirstMessage(t *testing.T) {

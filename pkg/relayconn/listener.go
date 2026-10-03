@@ -183,6 +183,11 @@ func listenHandshake(
 	}, nil
 }
 
+// Accept waits for the first frame of a new session from the relay. It
+// returns net.ErrClosed once the listener has been stopped or released.
+// A call that is already blocked when Stop runs returns when the relay
+// session is released: at once if no connection is active, otherwise
+// when the active connection closes.
 func (l *RelayListener) Accept() (kamune.Conn, error) {
 	if l.stopped.Load() {
 		return nil, net.ErrClosed
@@ -202,30 +207,50 @@ func (l *RelayListener) Close() error {
 	if conn != nil {
 		conn.Close()
 	}
+	l.release()
+	return nil
+}
+
+// Stop prevents new connections from being accepted. An active
+// connection keeps working, and the relay session (the exchange channel
+// and its readPump) is released when that connection closes. With no
+// active connection, Stop releases the relay session at once and a
+// blocked Accept returns net.ErrClosed. A connection the relay delivered
+// but Accept has not returned yet is closed.
+func (l *RelayListener) Stop() {
+	l.mu.Lock()
+	l.stopped.Store(true)
+	var pending *RelayConn
+	select {
+	case pending = <-l.accept:
+	default:
+	}
+	idle := l.conn == nil || l.conn == pending
+	l.mu.Unlock()
+
+	if pending != nil {
+		pending.Close()
+	}
+	if idle {
+		l.release()
+	}
+}
+
+// release cancels the listener context, which ends any connection
+// derived from it, and closes the exchange channel to the relay once.
+func (l *RelayListener) release() {
 	l.cancel()
 	l.closeOnce.Do(func() {
 		if l.closeFn != nil {
 			l.closeFn()
 		}
 	})
-	return nil
 }
 
-// Stop prevents new connections from being accepted without closing the
-// active connection or the shared exchange channel. The channel and readPump
-// remain alive until the active connection closes naturally, at which point
-// the exchange channel is cleaned up.
-func (l *RelayListener) Stop() {
-	l.stopped.Store(true)
-	select {
-	case rc := <-l.accept:
-		rc.Close()
-	default:
-	}
-}
-
+// readPump reads frames from the relay until the channel fails. On exit
+// it releases the relay session so the socket does not linger.
 func (l *RelayListener) readPump() {
-	defer l.cancel()
+	defer l.release()
 	for {
 		data, err := l.channel.ReadBytes()
 		if err != nil {
@@ -277,24 +302,21 @@ func (l *RelayListener) deliver(msg *pb.Message) {
 		stopped := l.stopped.Load()
 		l.mu.Unlock()
 		if stopped {
-			l.cancel()
-			l.closeOnce.Do(func() {
-				if l.closeFn != nil {
-					l.closeFn()
-				}
-			})
+			l.release()
 		}
 	}
-	l.conn = rc
+	// The buffer is empty, so this does not block.
 	rc.pushData(data)
-	l.mu.Unlock()
 
+	// Publish the connection and queue it for Accept under l.mu, so
+	// Stop sees either both or neither.
 	select {
 	case l.accept <- rc:
-	default:
-		slog.Warn("relayconn: accept channel full, dropping session")
-		l.mu.Lock()
-		l.conn = nil
+		l.conn = rc
 		l.mu.Unlock()
+	default:
+		l.mu.Unlock()
+		slog.Warn("relayconn: accept channel full, dropping session")
+		rc.cancel()
 	}
 }
