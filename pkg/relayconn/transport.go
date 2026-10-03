@@ -18,6 +18,28 @@ import (
 // buggy relay that would otherwise force large allocations.
 const DefaultMaxFrameSize = 65536
 
+// wsReadLimit is the largest WebSocket message the client accepts from
+// the relay. coder/websocket defaults to 32 KiB, which is below the
+// relay's default max_message_size (65536) and below padded kamune
+// frames once the relay leg has wrapped them. Twice DefaultMaxFrameSize
+// leaves room for relays configured with a larger max_message_size and
+// still bounds each message.
+const wsReadLimit = 2 * DefaultMaxFrameSize
+
+// dialWS opens a client WebSocket to the relay and raises its read
+// limit to wsReadLimit. Every client WebSocket must be opened through
+// it.
+func dialWS(
+	ctx context.Context, url string, opts *websocket.DialOptions,
+) (*websocket.Conn, error) {
+	ws, _, err := websocket.Dial(ctx, url, opts)
+	if err != nil {
+		return nil, err
+	}
+	ws.SetReadLimit(wsReadLimit)
+	return ws, nil
+}
+
 // tcpAdapter wraps a net.Conn with the relay's length-prefixed framing.
 type tcpAdapter struct {
 	f *Framing

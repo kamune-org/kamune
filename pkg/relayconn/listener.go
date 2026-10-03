@@ -47,7 +47,7 @@ func (l *RelayListener) SessionTTL() time.Duration { return l.sessionTTL }
 func ListenRelay(
 	ctx context.Context, relayAddr string, opts ...Option,
 ) (*ListenResult, error) {
-	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
+	ws, err := dialWS(ctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
 	if err != nil {
 		return nil, fmt.Errorf("relay ws dial: %w", err)
 	}
@@ -69,7 +69,7 @@ func ListenRelayWSS(
 			},
 		},
 	}
-	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
+	ws, err := dialWS(ctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
 	if err != nil {
 		return nil, fmt.Errorf("relay wss dial: %w", err)
 	}

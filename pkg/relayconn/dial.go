@@ -19,7 +19,7 @@ import (
 func DialRelay(
 	ctx context.Context, relayAddr string, token []byte, opts ...Option,
 ) (*RelayConn, error) {
-	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
+	ws, err := dialWS(ctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
 	if err != nil {
 		return nil, fmt.Errorf("relay ws dial: %w", err)
 	}
@@ -44,7 +44,7 @@ func DialRelayWSS(
 			Transport: &http.Transport{TLSClientConfig: tlsCfg},
 		},
 	}
-	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
+	ws, err := dialWS(ctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
 	if err != nil {
 		return nil, fmt.Errorf("relay wss dial: %w", err)
 	}
