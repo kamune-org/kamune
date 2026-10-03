@@ -17,15 +17,28 @@ func acceptLoop(ctx context.Context, listener net.Listener, hub *services.Hub) {
 		listener.Close()
 	}()
 
+	var tempDelay time.Duration
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
+			if tempDelay == 0 {
+				tempDelay = 5 * time.Millisecond
+			} else {
+				tempDelay *= 2
+			}
+			if tempDelay > time.Second {
+				tempDelay = time.Second
+			}
 			slog.Error("accept failed", slog.Any("error", err))
+			time.Sleep(tempDelay)
 			continue
 		}
+		tempDelay = 0
+
+		_ = setTCPKeepAlive(conn)
 
 		adapter := newRawTCPAdapter(conn, hub.MaxMessageSize())
 		remoteAddr := conn.RemoteAddr().String()
@@ -45,6 +58,20 @@ func acceptLoop(ctx context.Context, listener net.Listener, hub *services.Hub) {
 		// registration completes, so it does not apply to the session
 		// lifetime. No timer is needed.
 		go handleRelayConn(hub, adapter, remoteAddr, nil)
+	}
+}
+
+func setTCPKeepAlive(conn net.Conn) error {
+	switch c := conn.(type) {
+	case *net.TCPConn:
+		if err := c.SetKeepAlive(true); err != nil {
+			return err
+		}
+		return c.SetKeepAlivePeriod(30 * time.Second)
+	case *tls.Conn:
+		return setTCPKeepAlive(c.NetConn())
+	default:
+		return nil
 	}
 }
 

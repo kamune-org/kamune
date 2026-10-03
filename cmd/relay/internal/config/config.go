@@ -163,6 +163,30 @@ func (c Config) Validate() error {
 			c.WSS.CertFile, c.WSS.KeyFile,
 		)
 	}
+	if c.Session.HandshakeTimeout < 0 {
+		return fmt.Errorf(
+			"session.handshake_timeout must be >= 0 (0 = no limit), got %s",
+			c.Session.HandshakeTimeout,
+		)
+	}
+	if c.Diagnose.Enabled && c.Diagnose.Address == "" {
+		return fmt.Errorf("diagnose.address must not be empty when enabled")
+	}
+	if c.WS.Enabled && c.WS.Address == "" {
+		return fmt.Errorf("ws.address must not be empty when enabled")
+	}
+	if c.TCP.Enabled && c.TCP.Address == "" {
+		return fmt.Errorf("tcp.address must not be empty when enabled")
+	}
+	if c.TLS.Enabled && c.TLS.Address == "" {
+		return fmt.Errorf("tls.address must not be empty when enabled")
+	}
+	if c.WSS.Enabled && c.WSS.Address == "" {
+		return fmt.Errorf("wss.address must not be empty when enabled")
+	}
+	if c.Broker.Enabled && c.Broker.Address == "" {
+		return fmt.Errorf("broker.address must not be empty when enabled")
+	}
 	if !c.Diagnose.Enabled && !c.WS.Enabled && !c.TCP.Enabled &&
 		!c.TLS.Enabled && !c.WSS.Enabled && !c.Broker.Enabled {
 		return fmt.Errorf(
@@ -197,6 +221,9 @@ func New(path string) (Config, error) {
 	}
 
 	cfg := Config{
+		Session: Session{
+			HandshakeTimeout: 30 * time.Second,
+		},
 		RateLimit: RateLimit{
 			TimeWindow: defaultRateLimitWindow,
 			Quota:      defaultRateLimitQuota,

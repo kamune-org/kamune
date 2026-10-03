@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -107,7 +108,11 @@ func runServer(
 	serverDone := make(chan struct{})
 	go func() {
 		adapter := newRawTCPAdapter(conn, hub.MaxMessageSize())
-		handleRelayConn(hub, adapter, "test", handshakeTimer)
+		var cancel func()
+		if handshakeTimer != nil {
+			cancel = func() { handshakeTimer.Stop() }
+		}
+		handleRelayConn(hub, adapter, "test", cancel)
 		close(serverDone)
 	}()
 	return func() {
@@ -182,6 +187,56 @@ func TestRelay_HandshakeTimeout_AppliesOnlyToHandshake(t *testing.T) {
 
 	stopListener()
 	stopDialer()
+}
+
+func TestClaimHandshake(t *testing.T) {
+	cases := []struct {
+		name     string
+		first    int32
+		second   int32
+		secondOK bool
+	}{
+		{
+			name:     "finish then timeout",
+			first:    handshakeFinished,
+			second:   handshakeTimedOut,
+			secondOK: false,
+		},
+		{
+			name:     "timeout then finish",
+			first:    handshakeTimedOut,
+			second:   handshakeFinished,
+			secondOK: false,
+		},
+		{
+			name:     "finish then finish",
+			first:    handshakeFinished,
+			second:   handshakeFinished,
+			secondOK: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			var state atomic.Int32
+			a.True(claimHandshake(&state, tc.first))
+			a.Equal(tc.secondOK, claimHandshake(&state, tc.second))
+		})
+	}
+}
+
+func TestWebSocketHandshake_TimeoutDoesNotCloseFinished(t *testing.T) {
+	a := require.New(t)
+	var state atomic.Int32
+	var closed atomic.Bool
+	callback := func() {
+		if claimHandshake(&state, handshakeTimedOut) {
+			closed.Store(true)
+		}
+	}
+	a.True(claimHandshake(&state, handshakeFinished))
+	callback()
+	a.False(closed.Load())
 }
 
 // TestRelay_Disconnect_ClosesPeer ensures that closing one peer's

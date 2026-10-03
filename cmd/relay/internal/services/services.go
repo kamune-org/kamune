@@ -26,15 +26,8 @@ func New(ctx context.Context, cfg config.Config) (*Service, error) {
 
 	sessionTTL := cfg.Session.SessionTTL
 	handshakeTimeout := cfg.Session.HandshakeTimeout
-	switch {
-	case handshakeTimeout > 0:
-		// explicit value — use as-is
-	case handshakeTimeout < 0:
-		// negative means explicitly disabled
+	if handshakeTimeout < 0 {
 		handshakeTimeout = 0
-	default:
-		// zero / unset — default to 30s
-		handshakeTimeout = 30 * time.Second
 	}
 
 	sessions := NewSessionManager(

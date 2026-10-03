@@ -173,7 +173,7 @@ func Run(cfgPath string) error {
 		wg.Go(func() {
 			slog.Info(
 				"starting broker",
-				slog.String("address", cfg.Broker.Address),
+				slog.String("address", br.Addr().String()),
 			)
 			if err := br.Run(ctx); err != nil {
 				errCh <- fmt.Errorf("broker: %w", err)

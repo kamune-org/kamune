@@ -136,7 +136,7 @@ a STUN-like IP echo and signal introduction.
   perceived public IP:port (ASCII `ip:port\0`).
 - **Signal introduction**: peer registers with a shared token (random or
   precomputed); when a second peer registers with the same token, both are
-  notified of each other's claimed IP:port and ephemeral X25519 public key so
+  notified of each other's observed IP:port and ephemeral X25519 public key so
   they can attempt a direct UDP hole-punch.
 
 The broker uses X25519 + XChaCha20-Poly1305 with a per-NOTIFY fresh ephemeral

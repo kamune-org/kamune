@@ -119,7 +119,8 @@ func (h *Hub) handleMessage(sender *exchange.Channel, token []byte, data []byte)
 		return
 	}
 
-	if err := recipient.WriteBytes(b); err != nil {
+	const writeTimeout = 15 * time.Second
+	if err := recipient.WriteBytesWithin(b, writeTimeout); err != nil {
 		slog.Debug("hub: write to recipient failed", slog.Any("error", err))
 		// Close both peers so neither side blocks on a half-open
 		// connection waiting for the other to discover the failure.
@@ -132,8 +133,10 @@ func (h *Hub) handleMessage(sender *exchange.Channel, token []byte, data []byte)
 func (h *Hub) handlePing(ch *exchange.Channel) {
 	pong := &pb.Frame{Kind: &pb.Frame_Pong{Pong: &pb.Pong{}}}
 	b, _ := proto.Marshal(pong)
-	if err := ch.WriteBytes(b); err != nil {
+	const writeTimeout = 15 * time.Second
+	if err := ch.WriteBytesWithin(b, writeTimeout); err != nil {
 		slog.Debug("hub: write pong failed", slog.Any("error", err))
+		ch.Close()
 	}
 }
 

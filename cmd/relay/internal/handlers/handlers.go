@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
@@ -27,7 +28,7 @@ func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"status":       "ok",
-		"uptime":       h.service.StartedAt().String(),
+		"uptime":       time.Since(h.service.StartedAt()).String(),
 		"sessionCount": h.service.SessionCount(),
 	})
 }

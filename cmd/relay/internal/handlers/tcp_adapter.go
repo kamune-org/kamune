@@ -33,3 +33,7 @@ func (a *rawTCPAdapter) Close() error {
 func (a *rawTCPAdapter) SetDeadline(t time.Time) error {
 	return a.f.SetDeadline(t)
 }
+
+func (a *rawTCPAdapter) SetWriteDeadline(t time.Time) error {
+	return a.f.SetWriteDeadline(t)
+}

@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"runtime/debug"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -16,6 +17,17 @@ import (
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 	"google.golang.org/protobuf/proto"
 )
+
+const (
+	handshakePending int32 = iota
+	handshakeFinished
+	handshakeTimedOut
+)
+
+// claimHandshake moves a pending handshake to next. Only one caller wins.
+func claimHandshake(state *atomic.Int32, next int32) bool {
+	return state.CompareAndSwap(handshakePending, next)
+}
 
 func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	remoteAddr := clientIP(r, h.trustedProxies)
@@ -37,7 +49,7 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	if maxSize > 0 {
 		conn.SetReadLimit(int64(maxSize))
 	} else {
-		conn.SetReadLimit(-1)
+		conn.SetReadLimit(math.MaxUint16)
 	}
 
 	adapter := &wsAdapter{conn: conn}
@@ -45,21 +57,38 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	// Handshake timeout is enforced via a connection close, not via the
 	// adapter context: the context would otherwise remain in effect for
 	// the entire session and kill it after handshake_timeout.
+	// Completion and timeout share one claim. Stop's return value is
+	// not the decision: a callback that already passed a load can still
+	// close a session the handler has finished.
 	var handshakeTimer *time.Timer
+	var handshakeState atomic.Int32
 	if timeout := h.service.Hub().HandshakeTimeout(); timeout > 0 {
 		handshakeTimer = time.AfterFunc(timeout, func() {
-			_ = conn.Close(websocket.StatusPolicyViolation, "handshake timeout")
+			if claimHandshake(&handshakeState, handshakeTimedOut) {
+				_ = conn.Close(
+					websocket.StatusPolicyViolation,
+					"handshake timeout",
+				)
+			}
 		})
 	}
+	cancelHandshake := func() {
+		if !claimHandshake(&handshakeState, handshakeFinished) {
+			return
+		}
+		if handshakeTimer != nil {
+			handshakeTimer.Stop()
+		}
+	}
 
-	handleRelayConn(h.service.Hub(), adapter, remoteAddr, handshakeTimer)
+	handleRelayConn(h.service.Hub(), adapter, remoteAddr, cancelHandshake)
 }
 
 func handleRelayConn(
 	hub *services.Hub,
 	rw exchange.ReadWriter,
 	remoteAddr string,
-	handshakeTimer *time.Timer,
+	cancelHandshake func(),
 ) {
 	// ch is hoisted to function scope so the panic-recovery defer below
 	// can close it regardless of where the panic occurred.
@@ -87,8 +116,8 @@ func handleRelayConn(
 		if closer, ok := rw.(io.Closer); ok {
 			_ = closer.Close()
 		}
-		if handshakeTimer != nil {
-			handshakeTimer.Stop()
+		if cancelHandshake != nil {
+			cancelHandshake()
 		}
 	}()
 
@@ -226,14 +255,14 @@ func handleRelayConn(
 	}
 
 	// Handshake completed successfully:
-	//   - Stop the WS handshake timer (if any) so it does not fire later.
-	//     The defer at the top of the function is a safety net for the
-	//     panic path; Stop is idempotent.
+	//   - Claim the handshake as finished and stop its timer. A timeout
+	//     callback that already won the claim does not get here, and the
+	//     defer's later call loses the claim and does not stop again.
 	//   - Clear the TCP/TLS connection deadline so it does not kill the
 	//     session once registration is done. ch.SetDeadline is a no-op for
 	//     the WS adapter, so this is safe for both transports.
-	if handshakeTimer != nil {
-		handshakeTimer.Stop()
+	if cancelHandshake != nil {
+		cancelHandshake()
 	}
 	_ = ch.SetDeadline(time.Time{})
 

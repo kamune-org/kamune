@@ -55,24 +55,21 @@ func TestServices_New_ValidConfig(t *testing.T) {
 	a.NotNil(s.Hub(), "Hub is nil")
 }
 
-// Defaults are applied by services.New, not by cfg.Validate; that is
-// why these tests live here rather than in the config package.
-func TestServices_New_DefaultsHandshakeTimeout(t *testing.T) {
-	a := require.New(t)
-	cfg := validConfig()
-	cfg.Session.HandshakeTimeout = 0 // unset → 30s default
-	s, err := New(context.Background(), cfg)
-	a.NoError(err, "New")
-	a.Equal(30*time.Second, s.Hub().HandshakeTimeout())
-}
-
 func TestServices_New_DisablesHandshakeTimeout(t *testing.T) {
 	a := require.New(t)
 	cfg := validConfig()
-	cfg.Session.HandshakeTimeout = -1 // negative → disabled (0)
+	cfg.Session.HandshakeTimeout = 0 // 0 = no limit
 	s, err := New(context.Background(), cfg)
 	a.NoError(err, "New")
 	a.Equal(time.Duration(0), s.Hub().HandshakeTimeout())
+}
+
+func TestServices_New_RejectsNegativeHandshakeTimeout(t *testing.T) {
+	a := require.New(t)
+	cfg := validConfig()
+	cfg.Session.HandshakeTimeout = -1
+	_, err := New(context.Background(), cfg)
+	a.Error(err, "expected error for negative handshake timeout")
 }
 
 // Verify the wrapping applied by services.New: a validation error from

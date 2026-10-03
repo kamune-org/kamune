@@ -83,11 +83,17 @@ func New(cfg config.Broker, allow AllowFunc) (*Broker, error) {
 // every deadline.
 func (b *Broker) Run(ctx context.Context) error {
 	buf := make([]byte, 1500)
+	lastPurge := b.now()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
+		}
+		now := b.now()
+		if now.Sub(lastPurge) >= readDeadline {
+			b.purgeExpired()
+			lastPurge = now
 		}
 		if err := b.conn.SetReadDeadline(b.now().Add(readDeadline)); err != nil {
 			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
@@ -100,6 +106,7 @@ func (b *Broker) Run(ctx context.Context) error {
 			var ne net.Error
 			if errors.As(err, &ne) && ne.Timeout() {
 				b.purgeExpired()
+				lastPurge = b.now()
 				continue
 			}
 			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
@@ -222,6 +229,11 @@ func (b *Broker) handleStaticRegister(
 
 	b.mu.Lock()
 	held, exists := b.registry[hexKey(token)]
+	if exists && b.now().After(held.expires) {
+		delete(b.registry, hexKey(token))
+		exists = false
+		held = nil
+	}
 	if exists && bytes.Equal(held.peerEphPub[:], pub[:]) {
 		held.expires = b.now().Add(b.ttl)
 		held.addr = src
@@ -287,6 +299,10 @@ func (b *Broker) registryFullLocked() bool {
 	if b.maxRegistry <= 0 {
 		return false
 	}
+	if len(b.registry) < b.maxRegistry {
+		return false
+	}
+	b.purgeExpiredLocked()
 	return len(b.registry) >= b.maxRegistry
 }
 
@@ -349,17 +365,21 @@ func (b *Broker) allowRegister(src *net.UDPAddr) bool {
 	return b.allow(ipv4KeyFromAddr(src))
 }
 
-// purgeExpired evicts entries whose TTL has passed. Best-effort cleanup; the
-// lock is held briefly.
-func (b *Broker) purgeExpired() {
+func (b *Broker) purgeExpiredLocked() {
 	now := b.now()
-	b.mu.Lock()
-	defer b.mu.Unlock()
 	for k, r := range b.registry {
 		if now.After(r.expires) {
 			delete(b.registry, k)
 		}
 	}
+}
+
+// purgeExpired evicts entries whose TTL has passed. Best-effort cleanup; the
+// lock is held briefly.
+func (b *Broker) purgeExpired() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.purgeExpiredLocked()
 }
 
 // hexKey renders a 16-byte token as a 32-char hex string for the registry map.
