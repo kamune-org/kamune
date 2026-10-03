@@ -3,8 +3,13 @@ package relayconn
 import (
 	"bytes"
 	"crypto/ed25519"
+	"net"
+	"os"
 	"testing"
 
+	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/internal/box/pb"
+	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -110,4 +115,131 @@ func TestValidateUserToken_AcceptsHighEntropy(t *testing.T) {
 	tok, err := TokenFromKeys(x, y)
 	a.NoError(err)
 	a.NoError(ValidateUserToken(tok))
+}
+
+type localListener struct{ net.Listener }
+
+func (l localListener) Accept() (kamune.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return kamune.NewConn(c), nil
+}
+
+func dialEstablished(
+	t *testing.T, handler kamune.HandlerFunc,
+) *kamune.Transport {
+	t.Helper()
+	a := require.New(t)
+	open := func() *storage.Storage {
+		t.Helper()
+		f, err := os.CreateTemp("", "kamune-token-*.db")
+		a.NoError(err)
+		a.NoError(f.Close())
+		s, err := storage.OpenStorage(
+			storage.WithDBPath(f.Name()),
+			storage.WithNoPassphrase(),
+		)
+		a.NoError(err)
+		t.Cleanup(func() {
+			_ = s.Close()
+			_ = os.Remove(f.Name())
+		})
+		return s
+	}
+	verify := func(st *storage.Storage, peer *storage.Peer) error {
+		return st.StorePeer(peer)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	srv, err := kamune.NewServer(
+		"",
+		handler,
+		open(),
+		verify,
+		kamune.ServeWithListener(localListener{Listener: ln}),
+	)
+	a.NoError(err)
+	t.Cleanup(func() { _ = srv.Close() })
+	go func() { _ = srv.ListenAndServe() }()
+
+	dialer, err := kamune.NewDialer(
+		ln.Addr().String(),
+		open(),
+		verify,
+		kamune.DialWithTCP(),
+	)
+	a.NoError(err)
+	tr, err := dialer.Dial()
+	a.NoError(err)
+	t.Cleanup(func() { _ = tr.Close() })
+	return tr
+}
+
+func TestBeginRelayTokenExchange_LeavesTheNextFrame(t *testing.T) {
+	a := require.New(t)
+	tr := dialEstablished(t, func(peer *kamune.Transport) error {
+		_, err := peer.Send(
+			kamune.Bytes([]byte("hello")),
+			kamune.RouteExchangeMessages,
+		)
+		if err != nil {
+			return err
+		}
+		var ignore pb.SessionData
+		_, _ = peer.Receive(&ignore)
+		return nil
+	})
+
+	_, err := BeginRelayTokenExchange(tr)
+	a.NoError(err)
+	msg := kamune.Bytes(nil)
+	_, err = tr.Receive(msg)
+	a.NoError(err)
+	a.Equal([]byte("hello"), msg.GetValue())
+}
+
+func TestRelayTokenPending_BothSidesMatch(t *testing.T) {
+	a := require.New(t)
+	type result struct {
+		tokens [tokenPoolSize][32]byte
+		err    error
+	}
+	serverRes := make(chan result, 1)
+	tr := dialEstablished(t, func(peer *kamune.Transport) error {
+		pending, err := BeginRelayTokenExchange(peer)
+		if err != nil {
+			serverRes <- result{err: err}
+			return err
+		}
+		var msg pb.SessionData
+		if _, err = peer.Receive(&msg); err != nil {
+			serverRes <- result{err: err}
+			return err
+		}
+		key, ok := SessionDataPeerKey(&msg)
+		if !ok {
+			err = ErrECDHPeerKeyMissing
+			serverRes <- result{err: err}
+			return err
+		}
+		tokens, err := pending.Complete(key)
+		serverRes <- result{tokens: tokens, err: err}
+		return err
+	})
+
+	pending, err := BeginRelayTokenExchange(tr)
+	a.NoError(err)
+	md, raw, err := tr.ReceivePayload()
+	a.NoError(err)
+	a.Equal(kamune.RouteSessionData, md.Route())
+	local, err := CompleteRelayTokenPayload(pending, raw)
+	a.NoError(err)
+
+	remote := <-serverRes
+	a.NoError(remote.err)
+	a.Equal(remote.tokens, local)
+	var zero [tokenPoolSize][32]byte
+	a.NotEqual(zero, local)
 }

@@ -95,6 +95,9 @@ func relayHandshake(
 	closeFn func(),
 	opts ...Option,
 ) (_ *RelayConn, retErr error) {
+	stop := context.AfterFunc(ctx, closeFn)
+	defer stop()
+
 	var o options
 	for _, opt := range opts {
 		opt(&o)

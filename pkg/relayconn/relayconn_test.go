@@ -22,6 +22,47 @@ import (
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 )
 
+func TestRelayHandshake_CancelUnblocksTCP(t *testing.T) {
+	a := require.New(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	accepted := make(chan struct{})
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		close(accepted)
+		time.Sleep(30 * time.Second)
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := DialRelayTCP(
+			ctx, ln.Addr().String(), []byte("relay-token"),
+		)
+		errCh <- err
+	}()
+
+	select {
+	case <-accepted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("listener did not accept")
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		a.Error(err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("dial did not return after cancel")
+	}
+}
+
 var (
 	_ kamune.Conn = &RelayConn{}
 	_ kamune.Conn = &tcpAdapter{}

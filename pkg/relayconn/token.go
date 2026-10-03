@@ -10,17 +10,18 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/pkg/exchange"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
 	// relayTokenSize is the length in bytes of relay-generated session tokens
 	// assigned by the relay via Create(). User-provided tokens (static and
 	// ECDH-derived) use peerTokenSize.
-	relayTokenSize = 16
 
 	// peerTokenSize is the required length in bytes of user-provided tokens
 	// (static tokens from TokenFromKeys and ECDH-derived tokens from
@@ -135,52 +136,43 @@ func TokenFromKeys(a, b ed25519.PublicKey) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-// DeriveRelayTokens performs an ephemeral ECDH key exchange over the given
-// transport and derives a pool of 3 reconnect tokens. Both peers must call this
-// concurrently — the exchange is synchronous (send then receive) so each peer
-// must send before the other's receive completes.
-//
-// The shared secret is never stored. Tokens are derived via HKDF and stored by
-// the caller in persistent storage.
-func DeriveRelayTokens(
-	transport *kamune.Transport,
-) ([tokenPoolSize][32]byte, error) {
-	var zero [tokenPoolSize][32]byte
+// RelayTokenPending is one side of a relay-token ECDH exchange.
+// The shared secret is not stored.
+type RelayTokenPending struct {
+	local *exchange.ECDH
+}
 
+// BeginRelayTokenExchange sends this side's ephemeral public key.
+// It does not read the next frame and does not set a deadline.
+func BeginRelayTokenExchange(
+	transport *kamune.Transport,
+) (*RelayTokenPending, error) {
 	localKey, err := exchange.NewECDH()
 	if err != nil {
-		return zero, fmt.Errorf("generating ecdh key: %w", err)
+		return nil, fmt.Errorf("generating ecdh key: %w", err)
 	}
-
-	// Send our ephemeral public key.
 	_, err = transport.Send(&pb.SessionData{
 		Fields: map[string][]byte{
 			"ecdh_pubkey": localKey.MarshalPublicKey(),
 		},
 	}, kamune.RouteSessionData)
 	if err != nil {
-		return zero, fmt.Errorf("sending ecdh pubkey: %w", err)
+		return nil, fmt.Errorf("sending ecdh pubkey: %w", err)
 	}
+	return &RelayTokenPending{local: localKey}, nil
+}
 
-	// Receive the peer's ephemeral public key.
-	var peerSession pb.SessionData
-	if _, err := transport.Receive(&peerSession); err != nil {
-		return zero, fmt.Errorf("receiving ecdh pubkey: %w", err)
-	}
-
-	peerPub, ok := peerSession.Fields["ecdh_pubkey"]
-	if !ok {
-		return zero, ErrECDHPeerKeyMissing
-	}
-
-	sharedSecret, err := localKey.Exchange(peerPub)
+// Complete derives the reconnect pool from the peer's public key.
+func (p *RelayTokenPending) Complete(
+	peerPub []byte,
+) ([tokenPoolSize][32]byte, error) {
+	var zero [tokenPoolSize][32]byte
+	sharedSecret, err := p.local.Exchange(peerPub)
 	if err != nil {
 		return zero, fmt.Errorf("ecdh exchange: %w", err)
 	}
 
-	// Derive tokenPoolSize tokens via HKDF-Expand. The X25519 shared secret is
-	// already uniformly random, so it serves directly as the PRK for
-	// HKDF-Expand (no Extract step needed).
+	// The X25519 shared secret is already uniform, so it is the PRK.
 	var tokens [tokenPoolSize][32]byte
 	for i := range uint32(tokenPoolSize) {
 		info := make([]byte, len(tokenInfoPrefix)+4)
@@ -196,6 +188,68 @@ func DeriveRelayTokens(
 		}
 		copy(tokens[i][:], tok)
 	}
-
 	return tokens, nil
+}
+
+// CompleteRelayTokenPayload unmarshals a RouteSessionData payload and
+// derives the pool. Clients use it because SessionData is not exported.
+func CompleteRelayTokenPayload(
+	p *RelayTokenPending, payload []byte,
+) ([tokenPoolSize][32]byte, error) {
+	var zero [tokenPoolSize][32]byte
+	if p == nil {
+		return zero, errors.New("no pending relay token")
+	}
+	var msg pb.SessionData
+	if err := proto.Unmarshal(payload, &msg); err != nil {
+		return zero, fmt.Errorf("session data: %w", err)
+	}
+	key, ok := SessionDataPeerKey(&msg)
+	if !ok {
+		return zero, ErrECDHPeerKeyMissing
+	}
+	return p.Complete(key)
+}
+
+// SessionDataPeerKey returns the ecdh_pubkey field when it is present.
+func SessionDataPeerKey(msg *pb.SessionData) ([]byte, bool) {
+	if msg == nil {
+		return nil, false
+	}
+	key, ok := msg.Fields["ecdh_pubkey"]
+	if !ok || len(key) == 0 {
+		return nil, false
+	}
+	return key, true
+}
+
+// DeriveRelayTokens performs an ephemeral ECDH key exchange over the given
+// transport and derives a pool of 3 reconnect tokens. Both peers must call this
+// concurrently — the exchange is synchronous (send then receive) so each peer
+// must send before the other's receive completes.
+//
+// The shared secret is never stored. Tokens are derived via HKDF and stored by
+// the caller in persistent storage.
+func DeriveRelayTokens(
+	transport *kamune.Transport,
+) ([tokenPoolSize][32]byte, error) {
+	var zero [tokenPoolSize][32]byte
+
+	_ = transport.SetDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = transport.SetDeadline(time.Time{}) }()
+
+	pending, err := BeginRelayTokenExchange(transport)
+	if err != nil {
+		return zero, err
+	}
+
+	var peerSession pb.SessionData
+	if _, err := transport.Receive(&peerSession); err != nil {
+		return zero, fmt.Errorf("receiving ecdh pubkey: %w", err)
+	}
+	peerPub, ok := SessionDataPeerKey(&peerSession)
+	if !ok {
+		return zero, ErrECDHPeerKeyMissing
+	}
+	return pending.Complete(peerPub)
 }
