@@ -828,7 +828,16 @@ RELAY.md say what a third party can do with one.
 
 Generates a new relay token for the running relay server: a random 16-byte
 token (32 hex characters) that the relay picks, or, with `peer_pub_b64`, the
-[static token](#relay) for that peer.
+[static token](#relay) for that peer. `params` may be left out.
+
+The token is registered with the relay after the command is read, for at most
+15 seconds, and the response follows; other commands are handled meanwhile.
+The command fails with `relay_not_configured` when no relay server runs,
+`invalid_params` for params that do not parse, `invalid_peer_key` for a
+`peer_pub_b64` that is not a valid Ed25519 key, and `relay_token_failed` when
+the static token cannot be derived. A registration that fails reports
+`relay_listen_failed`, `server_stopped` when the server stopped or restarted
+meanwhile, or `listener_failed`.
 
 **Input (random token):**
 
@@ -850,13 +859,16 @@ token (32 hex characters) that the relay picks, or, with `peer_pub_b64`, the
 **Output:**
 
 ```json
-{ "type": "evt", "evt": "relay_tokens", "data": { "tokens": [{ "token": "cafebabe...", "consumed": false, "ttl_ns": 600000000000, "session_ttl_ns": 300000000000, "expires_at": "2026-06-21T11:00:00Z" }] } }
-{ "type": "evt", "evt": "response", "id": "1", "data": { "token": "cafebabe...", "ttl_ns": 600000000000, "session_ttl_ns": 300000000000, "expires_at": "2026-06-21T11:00:00Z" } }
+{ "type": "evt", "evt": "relay_tokens", "data": { "tokens": [{ "token": "cafebabe...", "consumed": false, "ttl_ns": 600000000000, "session_ttl_ns": 300000000000, "expires_at": "2026-06-21T11:00:00Z", "mode": "static", "peer_pub_b64": "base64key..." }] } }
+{ "type": "evt", "evt": "response", "id": "1", "data": { "token": "cafebabe...", "ttl_ns": 600000000000, "session_ttl_ns": 300000000000, "expires_at": "2026-06-21T11:00:00Z", "mode": "static" } }
 ```
 
 #### `remove_relay_token`
 
-Removes an active relay token.
+Removes a relay token from the list and closes its relay listener. Removing a
+reconnect token (mode `ecdh`) ends the server's offer to resume that dropped
+session through the relay: its reconnect tokens are deleted and none is
+registered again. Fails with `token_not_found` for a token that is not listed.
 
 **Input:**
 
@@ -878,7 +890,38 @@ Removes an active relay token.
 
 #### `list_relay_tokens`
 
-Returns all active relay tokens.
+Returns the relay tokens of the running relay server.
+
+| Field            | Description                                                                                                                         |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `token`          | The token in hex.                                                                                                                   |
+| `consumed`       | `true` once a peer has connected with the token. A consumed token is removed from the list about 4 seconds later.                   |
+| `ttl_ns`         | The token's lifetime, as the relay reported it.                                                                                     |
+| `session_ttl_ns` | The relay's session TTL.                                                                                                            |
+| `expires_at`     | When the token expires; it is then removed from the list.                                                                           |
+| `mode`           | `random`, `static` for a [static token](#relay), or `ecdh` for a reconnect token that lets the peer of a dropped session resume it. |
+| `peer_pub_b64`   | The public key that a static token was derived for. Omitted otherwise.                                                              |
+
+A token also leaves the list when its listener loses its link to the relay
+before a peer used it. For a token other than a reconnect token, the daemon
+then emits an `error` event without an `id` and with code `relay_link_lost`,
+since no peer can connect with that token any more. A server whose list runs
+empty through expiry or a lost link keeps running and logs a warning; it
+accepts connections again once `generate_relay_token` or `get_share_info`
+registers a token.
+
+When the connection of a session that came through the relay drops, the server
+registers a listener with one of the session's reconnect tokens, which the two
+peers derived when the session started, so that the peer can resume the
+session through the relay. Such a listener is listed with mode `ecdh`. Each
+reconnect token is registered once and then deleted. When a listener ends
+unused, the server registers the next token, until the session has resumed,
+its reconnect tokens or its resumption tokens run out, the server stops, or 10
+minutes have passed since the drop. `remove_relay_token` on the listener's
+token, or `delete_history_session` of the session, ends this and deletes the
+session's reconnect tokens. A session that ends with `close_session`, a
+graceful close by the peer, or any way other than a dropped connection gets no
+such listener, and its reconnect tokens are deleted.
 
 **Input:** (no params)
 
@@ -900,7 +943,8 @@ Returns all active relay tokens.
         "consumed": false,
         "ttl_ns": 600000000000,
         "session_ttl_ns": 300000000000,
-        "expires_at": "2026-06-21T11:00:00Z"
+        "expires_at": "2026-06-21T11:00:00Z",
+        "mode": "random"
       }
     ]
   }
@@ -909,9 +953,31 @@ Returns all active relay tokens.
 
 #### `get_share_info`
 
-Generates a connection card. For `tcp`/`udp`, returns the local address
-(auto-detected via `net.InterfaceAddrs` if bound to `""` or `"0.0.0.0"`).
-For `relay`, generates a fresh token and includes `relay_info`.
+Returns a connection card for the running server, or fails with
+`server_not_running`. The card carries the server's fingerprint as
+`fingerprint_emoji`, `fingerprint_hex` and `fingerprint_numeric`, the last
+being the one for the peer to compare.
+
+- **tcp, udp, direct-p2p**: `address` and `port` are those the server is bound
+  to. When it is bound to every interface (`0.0.0.0`, `[::]` or an empty
+  host), `address` is the first non-loopback IPv4 address of the host
+  (`detect_ip_failed` when there is none). `url` is
+  `<transport>://<address>:<port>`.
+- **relay**: the card carries the token of the previous card while that token
+  is listed, unused, and has more than half its lifetime left. Otherwise a new
+  random token is registered for it, after the command is read and for at most
+  15 seconds, which can fail with `relay_token_failed`, `server_stopped` or
+  `listener_failed`. Call `generate_relay_token` for a token of its own for
+  each peer. `relay_info` names the relay's address and scheme (`wss` for an
+  address without one), the token, whether the relay needs a password, and
+  `pin`, the relay's certificate fingerprint, when the server was started
+  with `relay_pin`. The `url` carries the same as query parameters, with
+  `password=1` and `pin=<hex>` only when they apply; the password itself is
+  never on the card.
+- **p2p**: `address` is the broker address and `url` is
+  `p2p://<broker_addr>?token=<token>`, with the server's first P2P token.
+
+`relay_info` is `null` for every transport but relay.
 
 **Input:** (no params)
 
@@ -933,16 +999,17 @@ For `relay`, generates a fresh token and includes `relay_info`.
     "port": "9000",
     "fingerprint_emoji": "🦊 • 🐱",
     "fingerprint_hex": "ab12cd34...",
+    "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900",
     "relay_info": null
   }
 }
 ```
 
-**Output (Relay):**
+**Output (Relay), when a new token is registered for the card:**
 
 ```json
-{ "type": "evt", "evt": "relay_tokens", "data": { "tokens": [{ "token": "freshbeef...", "consumed": false, "ttl_ns": 600000000000, "session_ttl_ns": 300000000000, "expires_at": "2026-06-21T11:00:00Z" }] } }
-{ "type": "evt", "evt": "response", "id": "1", "data": { "url": "relay://relay.example.com:8443?token=freshbeef...&scheme=wss", "transport": "relay", "address": "", "port": "", "fingerprint_emoji": "🦊 • 🐱", "fingerprint_hex": "ab12cd34...", "relay_info": { "address": "relay.example.com:8443", "scheme": "wss", "token": "freshbeef...", "password": false } } }
+{ "type": "evt", "evt": "relay_tokens", "data": { "tokens": [{ "token": "freshbeef...", "consumed": false, "ttl_ns": 600000000000, "session_ttl_ns": 300000000000, "expires_at": "2026-06-21T11:00:00Z", "mode": "random" }] } }
+{ "type": "evt", "evt": "response", "id": "1", "data": { "url": "relay://relay.example.com:8443?token=freshbeef...&scheme=wss", "transport": "relay", "address": "", "port": "", "fingerprint_emoji": "🦊 • 🐱", "fingerprint_hex": "ab12cd34...", "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900", "relay_info": { "address": "relay.example.com:8443", "scheme": "wss", "token": "freshbeef...", "password": false } } }
 ```
 
 ### P2P Tokens
@@ -2096,8 +2163,11 @@ must respond with a `verify_response` command within 2 minutes.
 
 ### `relay_tokens`
 
-Emitted when the relay token list changes (token generated, consumed, or
-removed).
+Emitted with the whole list whenever the relay token list of a relay server
+changes: a token is registered (at start, by `generate_relay_token` or
+`get_share_info`, or as a reconnect listener), consumed, removed, expired or
+cut off from the relay. The token fields are those of
+[`list_relay_tokens`](#list_relay_tokens).
 
 ```json
 {
@@ -2110,7 +2180,8 @@ removed).
         "consumed": false,
         "ttl_ns": 600000000000,
         "session_ttl_ns": 300000000000,
-        "expires_at": "2026-06-21T11:00:00Z"
+        "expires_at": "2026-06-21T11:00:00Z",
+        "mode": "random"
       }
     ]
   }
