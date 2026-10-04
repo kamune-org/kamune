@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -533,6 +534,20 @@ func (a *App) ConnectToServer(
 		_ = store.SetSettings("bus", "local_name", name)
 	}
 
+	// A connection to a selected peer must reach that peer's key. The
+	// static relay and broker tokens are derived from both public keys,
+	// so anyone who knows them can answer, and a relay or broker picks
+	// who does; the pin makes the handshake reject any other key.
+	var wantKey []byte
+	if peerPubB64 != "" {
+		k, err := decodePeerPubKey(peerPubB64)
+		if err != nil {
+			return ConnectResult{ErrorCode: "invalid_peer_key"},
+				fmt.Errorf("decode peer key: %w", err)
+		}
+		wantKey = k
+	}
+
 	var opts []kamune.DialOption
 	opts = append(opts, kamune.DialWithClientName(name))
 	relayTokenHex := token
@@ -646,7 +661,7 @@ func (a *App) ConnectToServer(
 
 	verifMode := a.currentVerifMode()
 	dialer, err := kamune.NewDialer(
-		addr, store, a.verifierFor(verifMode), opts...,
+		addr, store, a.pinPeer(wantKey, a.verifierFor(verifMode)), opts...,
 	)
 	if err != nil {
 		a.setStatus(StatusError, "Failed to create dialer")
@@ -660,7 +675,10 @@ func (a *App) ConnectToServer(
 		a.setStatus(StatusError, "Connection failed")
 		a.addLogEntry("ERROR", "Dial failed: "+err.Error())
 		errCode := "dial_failed"
-		if useP2P {
+		switch {
+		case errors.Is(err, ErrPeerKeyMismatch):
+			errCode = "peer_key_mismatch"
+		case useP2P:
 			errCode = "hole_punch_failed"
 		}
 		return ConnectResult{ErrorCode: errCode},
@@ -703,6 +721,7 @@ func (a *App) ConnectToServer(
 		session.reconnectCancel = reconnectCancel
 
 		targetAddr := addr
+		peerKey := peer.PublicKey
 		isDirectP2P := transport == "udp" && useP2P && !useBroker
 		directAddr := strings.TrimPrefix(addr, "p2p://")
 
@@ -753,8 +772,10 @@ func (a *App) ConnectToServer(
 				}
 			}
 
+			// A reconnect must reach the same peer.
 			d, err := kamune.NewDialer(
-				targetAddr, store, a.getVerifier(), resumeOpts...,
+				targetAddr, store,
+				a.pinPeer(peerKey, a.getVerifier()), resumeOpts...,
 			)
 			if err != nil {
 				return nil, err

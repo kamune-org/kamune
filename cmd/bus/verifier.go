@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -8,6 +10,12 @@ import (
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
+)
+
+// ErrPeerKeyMismatch rejects a peer whose key is not the key of the peer
+// the connection was opened for.
+var ErrPeerKeyMismatch = errors.New(
+	"peer key does not match the peer selected for this connection",
 )
 
 // currentVerifMode returns the verification mode that new servers and
@@ -32,6 +40,27 @@ func (a *App) verifierFor(mode VerificationMode) kamune.RemoteVerifier {
 		return a.createQuickVerifier()
 	default:
 		return a.createAutoAcceptVerifier()
+	}
+}
+
+// pinPeer returns a verifier that rejects a peer whose key is not want
+// before rv sees it, so a peer that answers a connection meant for
+// another peer is neither prompted for nor admitted, whatever name it
+// claims and whether or not its key is stored. A nil want returns rv.
+func (a *App) pinPeer(
+	want []byte, rv kamune.RemoteVerifier,
+) kamune.RemoteVerifier {
+	if want == nil {
+		return rv
+	}
+	return func(store *storage.Storage, peer *storage.Peer) error {
+		if !bytes.Equal(peer.PublicKey, want) {
+			a.addLogEntry("WARN",
+				"Rejected peer "+a.identifyPeer(store, peer).logName()+
+					": its key is not the selected peer's key")
+			return ErrPeerKeyMismatch
+		}
+		return rv(store, peer)
 	}
 }
 
