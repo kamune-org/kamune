@@ -3,8 +3,9 @@
 Kamune includes a relay server for NAT traversal. The relay is a **blind
 token-based session switch**: a listener connects, receives a random token,
 shares it out of band, and the dialer connects with that token. The relay
-bridges encrypted frames between the two and learns nothing about their
-identities or message content.
+bridges encrypted frames between the two. A relay that forwards those frames
+unchanged learns nothing about the peers' identities or message content; what an
+active relay can learn is set out in the [Threat Model](#threat-model).
 
 The relay makes no trust decisions beyond an optional pre-shared key. End-to-end
 authentication and encryption are established directly between the two peers;
@@ -12,7 +13,9 @@ the relay is a low-trust message forwarder.
 
 ## Design Goals
 
-- **Blind**: the relay never sees public keys, identities, or message content.
+- **Blind**: a relay that forwards frames unchanged never sees public keys,
+  identities, or message content. An active relay can read the peers' public
+  keys and names, but not their messages (see [Threat Model](#threat-model)).
 - **Stateless**: no persistent storage, no queues, no offline messages. Tokens,
   sessions, and rate-limit counters are ephemeral, scoped to the relay process
   lifetime.
@@ -26,27 +29,38 @@ the relay is a low-trust message forwarder.
 
 The relay is a **low-trust relay**. Callers must assume:
 
-- A **network attacker** on the path between client and relay can observe
-  connection metadata (timing, sizes, IP pairs) but not message contents.
+- A **passive network attacker** on the path between client and relay can
+  observe connection metadata (timing, sizes, IP pairs) but not message
+  contents.
+- An **active network attacker** on that path can pose as the relay unless the
+  client checks the relay's TLS certificate. The HPKE exchange between a client
+  and the relay does not authenticate the relay, so over `ws`, `tcp`, or TLS
+  without a verified or pinned certificate, such an attacker receives the PSK
+  and the session token and can do anything a malicious relay can.
 - The **relay operator** can deny service, log connection metadata, and observe
-  which connection pairs share a session. They cannot read message contents,
-  identify peers, or persist identity across sessions.
-- A **malicious relay** cannot impersonate either peer: authentication and
-  end-to-end encryption are established directly between the two peers using the
-  rendezvous token alone.
+  which connection pairs share a session. They cannot read message contents.
+- A **malicious relay** cannot read the messages of an established session or
+  impersonate a peer whose identity key the other peer checks: the kamune
+  handshake is signed with the peers' identity keys. It can read what the peers
+  send before that handshake completes, their identity keys included (see
+  below).
 
 ### What the Relay Observes
+
+This table holds for a relay that forwards frames unchanged.
 
 | The relay observes               | The relay does NOT observe                                |
 | -------------------------------- | --------------------------------------------------------- |
 | Session `S` has 2 connections    | Public keys of either peer                                |
 | Connection `A` is in session `S` | Identity of any peer                                      |
-| Session `S` received a message   | Persistent identifier (token is ephemeral and single-use) |
+| Session `S` received a message   | Persistent identifier (random tokens are single-use)      |
 |                                  | Message content (E2E encrypted)                           |
-|                                  | Social graph (each token is unique per rendezvous)        |
+|                                  | Social graph (each random token is unique per rendezvous) |
 
-The relay never learns who any peer is — only that two connections share a
-token, nothing more.
+Such a relay never learns who any peer is, only that two connections share a
+token. Static tokens are the exception to the "Persistent identifier" and
+"Social graph" rows: a pair's static token is the same in every session, so the
+relay can link those sessions (see [Static Tokens](#security-considerations)).
 
 ### What a Compromised Relay Can and Cannot Do
 
@@ -61,17 +75,27 @@ breached), the attacker can:
 - **Replay or forge** messages it has previously observed, but the end-to-end
   cryptographic layer rejects any frame the recipient cannot authenticate, so
   the only effect is to drop traffic or cause disconnects.
+- **Read the PSK and tokens** that clients send: the HPKE channel between a
+  client and the relay ends at the relay.
+- **Read the peers' introductions** by running the kamune Exchange separately
+  with each peer and re-encrypting the frames between them. That Exchange is
+  unauthenticated HPKE and nothing later in the kamune handshake binds it, so
+  neither peer notices. The relay then reads both Introduce messages (name,
+  identity public key, app version), the session ID, and, when a peer resumes a
+  session, its resumption token. With the two public keys it can compute the
+  pair's static token and link the pair's sessions over time.
 
 The attacker **cannot**:
 
-- Read message contents (end-to-end encryption is established peer-to-peer via
-  the HPKE exchange).
-- Impersonate a peer (no long-term keys are exchanged with the relay; peers
-  authenticate each other after rendezvous).
+- Read message contents. The session keys come from the kamune handshake
+  (ML-KEM-768), whose messages each peer signs with its identity key, so a
+  relay that splits the Exchange still cannot learn them, provided each peer
+  checks the other's identity key.
+- Impersonate a peer to a user who checks that peer's identity key (no
+  long-term keys are exchanged with the relay; peers authenticate each other
+  after rendezvous).
 - Decrypt past sessions retroactively (ephemeral keys per session; see
   [Forward Secrecy](#forward-secrecy)).
-- Persist a peer's identity across separate sessions (tokens are single-use; the
-  relay does not know the same client is back).
 
 ## Protocol
 
@@ -243,10 +267,13 @@ this.
 
 ### Forward Secrecy
 
-Each session uses fresh HPKE ephemeral keys. A compromised relay — or a future
-compromise of any long-term key — cannot decrypt past sessions, because the keys
-never existed outside that session's lifetime and are destroyed when the session
-ends.
+Each connection to the relay runs its own HPKE exchange with fresh ephemeral
+keys. The relay holds its end of that channel and decrypts every frame on it by
+design, so the forward secrecy that protects message content comes from the
+kamune session the peers run inside `Message` frames. Its keys come from an
+ephemeral ML-KEM-768 key pair per session (SPEC 12.4), so a relay that records
+the traffic, or a later compromise of a long-term identity key, does not reveal
+the keys of a past session.
 
 **Design decision: ephemeral per-session keys.** Long-term keys would allow the
 relay to persist identity across sessions (violating zero-metadata) and would
@@ -258,9 +285,9 @@ slightly more work per handshake.
 
 Replay protection is **explicitly out of scope** at the relay layer. The relay
 does not track, deduplicate, or sequence messages. Replay defense is the
-responsibility of the end-to-end Kamune protocol layer, which uses the
-rendezvous token and ML-KEM-768 handshake to establish a fresh session secret
-per rendezvous.
+responsibility of the end-to-end Kamune protocol layer, which numbers every
+frame of a session (SPEC 8.2) and derives fresh session keys from an ML-KEM-768
+handshake for each session. The rendezvous token plays no part in it.
 
 **Design decision: no replay state at the relay.** Replay tracking would require
 keeping per-message state for the entire session lifetime and across sessions
@@ -278,11 +305,21 @@ relay.
 **Design decision: PSK as a deployment-level gate, not per-peer identity.** The
 PSK identifies the _deployment_, not the peer. It prevents drive-by token
 harvesting from a public relay, but it does not authenticate individual peers to
-each other. Peer-to-peer authentication is established end-to-end after the
-rendezvous, using the shared token as a starting point for a key agreement.
+each other. The peers authenticate each other end-to-end after the rendezvous,
+in the kamune handshake, with their identity keys; the token plays no part in
+it.
 
-In PSK mode, the password is transmitted inside the HPKE-encrypted channel and
-verified with a constant-time comparison. A wrong password closes the connection.
+In PSK mode, the password is sent inside the HPKE channel to the relay and
+verified with a constant-time comparison. A wrong or missing password closes
+the connection, and so does an `Auth` frame sent to a relay without a password.
+The relay answers a correct password with an empty `Frame.Auth`.
+
+That HPKE channel ends at the relay and does not authenticate it, so it hides
+the password from passive observers only. An active attacker that poses as the
+relay receives the password, and the client accepts any `Auth` reply, so the
+reply does not prove that the relay knows the password. Send a password only
+over `wss` or `tls` with a certificate the client verifies or pins (see
+[TLS](#tls-tls)).
 
 ### Rate Limiting
 
@@ -547,9 +584,10 @@ Static tokens (derived from public keys) are convenient but leak session
 existence — anyone who knows both peers' public keys can compute the token and
 probe the relay. ECDH-derived tokens solve this by deriving tokens from an
 ephemeral key exchange performed _after_ the kamune handshake completes. The
-tokens are not computable from public keys alone; an adversary would need to
-compromise the ECDH exchange in real time, which requires controlling the relay
-between both peers.
+tokens are not computable from public keys alone, and the ephemeral keys travel
+inside the established kamune session, so a relay that splits the kamune
+Exchange still cannot read them, provided each peer checks the other's identity
+key.
 
 ### Derivation
 

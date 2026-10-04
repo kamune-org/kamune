@@ -1,10 +1,12 @@
 # Kamune Relay
 
 A stateless, blind session switch for the kamune secure messaging library.
-The relay forwards encrypted traffic between two kamune peers without being able
-to read it; it never sees plaintext, identity, or session content. Transports:
-WebSocket, raw TCP, and TLS-wrapped variants of both. Optional pre-shared key
-(PSK) authentication on registration.
+The relay forwards encrypted traffic between two kamune peers and cannot read
+their messages. A relay that forwards that traffic unchanged sees no identities
+either; an active one can read the peers' names and public keys (see
+[Threat Model](../../docs/RELAY.md#threat-model)). Transports: WebSocket, raw
+TCP, and TLS-wrapped variants of both. Optional pre-shared key (PSK)
+authentication on registration.
 
 **Protocol details** — see [`docs/SPEC.md`](../../docs/SPEC.md) (cipher suite,
 exchange, handshake, message framing).
