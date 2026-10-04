@@ -17,6 +17,7 @@ and WebKitGTK 6.0 on Linux.
 - **Log Viewer** — Integrated log panel with real-time streaming and level-colored entries
 - **Session Info** — Dialog with session metadata (peer name, message count, timestamps)
 - **Rename & Delete** — Rename live or history sessions, delete history sessions
+- **Incognito Mode**: Sessions that leave no record or messages in the database
 - **Keyboard Shortcuts** — Ctrl+N (connect), Ctrl+S (server), Ctrl+L (logs), and more
 - **Cross-Platform**: macOS, Linux and Windows, each with its own web view
 
@@ -360,12 +361,39 @@ To make a peer pass the verifier again, disconnect the session (a session
 closed on purpose, by either side, cannot be resumed), or delete the peer in
 the Peers tab or the session in the History tab.
 
+## Incognito Mode
+
+**Connection > Incognito Mode** turns incognito mode on, after a
+confirmation, or off. Bus saves the setting in the database. While it is
+on:
+
+- A new session leaves no record in the database: no session entry, peer
+  key, start time, resumption tokens or relay reconnect tokens.
+- No session saves its messages, not even one started outside incognito
+  mode, whose history then has a gap. A session started in incognito mode
+  saves none until it ends, even after the mode is turned off.
+- Peers you accept are not saved.
+- Bus introduces you under a pseudonym derived from your identity key, the
+  same one every time. Your identity key and fingerprint do not change, so
+  peers that know your key recognize you, and anyone who sees your key in
+  more than one session can link those sessions.
+- The server refuses every resumption, also of sessions stored before, and
+  a dropped incognito session that Bus dialed is not resumed.
+- Message notifications say only that a message arrived.
+
+The history and the peers stored before stay readable, and settings and
+changes you make yourself, such as adding, renaming or deleting a peer, are
+still saved. Turning the mode on or off while the server runs restarts the
+server once you confirm, which disconnects all sessions. Bus refuses the
+change while a server is starting or a connect is in progress.
+
 ## Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Database path | `~/.config/kamune/db` | Override with `KAMUNE_DB_PATH` env var, or pick another directory in the passphrase dialog |
 | Verification mode | Quick | Connection > Verification Mode; saved in the database |
+| Incognito mode | off | Connection > Incognito Mode; saved in the database |
 | Passphrase | asked at startup | Entered in the passphrase dialog or read from the system keychain. Bus ignores `KAMUNE_DB_PASSPHRASE`, which the TUI and the daemon read |
 
 ## Security Notes
