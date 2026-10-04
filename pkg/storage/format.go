@@ -17,7 +17,9 @@ const formatKey = "storage-format"
 // version adds to the one before it:
 //   - 1: chat entries are keyed by index, and hold their receive time and
 //     sender in their padded value (see [chatKeyPrefix])
-const storageFormat = 1
+//   - 2: peers, sessions and settings are stored under keyed names, and
+//     setting values are padded (see [nameKeyKey])
+const storageFormat = 2
 
 // upgradeFormat brings the database up to [storageFormat] and records it.
 // Each step can be run again on data it already converted, so a step that
@@ -39,9 +41,20 @@ func (s *Storage) upgradeFormat() error {
 		)
 	}
 
-	changed, err := s.convertLegacyChats()
-	if err != nil {
-		return fmt.Errorf("convert chat entries: %w", err)
+	var changed int
+	if version < 1 {
+		n, err := s.convertLegacyChats()
+		if err != nil {
+			return fmt.Errorf("convert chat entries: %w", err)
+		}
+		changed += n
+	}
+	if version < 2 {
+		n, err := s.keyNames()
+		if err != nil {
+			return fmt.Errorf("key names: %w", err)
+		}
+		changed += n
 	}
 	err = s.engine.Command(func(b engine.Namespace) error {
 		return b.Ensure([]byte(engine.DefaultNamespace)).PutEncrypted(

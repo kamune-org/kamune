@@ -1,8 +1,7 @@
 package storage
 
 import (
-	"bytes"
-	"crypto/sha3"
+	"crypto/hmac"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,19 +31,11 @@ var (
 	ErrPeerMismatch = errors.New("stored peer does not match its key")
 )
 
-// peerKey returns the storage key for a peer identified by the given claim
-// (typically the marshaled public key). The key is the SHA3-512 hash of the
-// claim.
-func peerKey(claim []byte) []byte {
-	h := sha3.Sum512(claim)
-	return h[:]
-}
-
 // FindPeer returns the stored peer whose public key is claim. An expired
 // peer is removed and [ErrPeerExpired] returned. A record stored under
 // claim that holds another public key gives [ErrPeerMismatch].
 func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
-	key := peerKey(claim)
+	key := s.peerKey(claim)
 	var peer *Peer
 	err := s.engine.Query(func(b engine.Namespace) error {
 		var err error
@@ -58,8 +49,8 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	return peer, err
 }
 
-// findPeer reads the peer stored under key, the [peerKey] of its public
-// key. A record whose public key does not hash to key is rejected with
+// findPeer reads the peer stored under key, the [Storage.peerKey] of its
+// public key. A record whose public key does not give key is rejected with
 // [ErrPeerMismatch].
 func (s *Storage) findPeer(b engine.Namespace, key []byte) (*Peer, error) {
 	peers := b.Sub([]byte(engine.PeersNamespace))
@@ -72,7 +63,7 @@ func (s *Storage) findPeer(b engine.Namespace, key []byte) (*Peer, error) {
 	if err = proto.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("unmarshaling peer: %w", err)
 	}
-	if !matchesKey(&p, key) {
+	if !s.matchesKey(&p, key) {
 		return nil, ErrPeerMismatch
 	}
 
@@ -96,8 +87,8 @@ func (s *Storage) findPeer(b engine.Namespace, key []byte) (*Peer, error) {
 
 // matchesKey reports whether p is the peer whose records are stored under
 // key.
-func matchesKey(p *pb.Peer, key []byte) bool {
-	return bytes.Equal(peerKey(p.GetPublicKey()), key)
+func (s *Storage) matchesKey(p *pb.Peer, key []byte) bool {
+	return hmac.Equal(s.peerKey(p.GetPublicKey()), key)
 }
 
 // removeExpiredPeer deletes the peer stored under key if it is still
@@ -163,7 +154,7 @@ func (s *Storage) StorePeer(peer *Peer) error {
 	if err != nil {
 		return fmt.Errorf("marshaling peer: %w", err)
 	}
-	key := peerKey(pubKey)
+	key := s.peerKey(pubKey)
 	err = s.engine.Command(func(b engine.Namespace) error {
 		peers := b.Sub([]byte(engine.PeersNamespace))
 		return peers.PutEncrypted(key, data)
@@ -184,7 +175,7 @@ func (s *Storage) UpdatePeerLastSeen(claim []byte, t time.Time) error {
 		t = s.clock.Now()
 	}
 	err := s.engine.Command(func(b engine.Namespace) error {
-		return setPeerLastSeen(b, peerKey(claim), t)
+		return s.setPeerLastSeen(b, s.peerKey(claim), t)
 	})
 	if err != nil {
 		return fmt.Errorf("updating peer LastSeen: %w", err)
@@ -194,7 +185,9 @@ func (s *Storage) UpdatePeerLastSeen(claim []byte, t time.Time) error {
 
 // setPeerLastSeen sets the LastSeen of the peer stored under key to t, in
 // the transaction of b. It does nothing when no peer is stored under key.
-func setPeerLastSeen(b engine.Namespace, key []byte, t time.Time) error {
+func (s *Storage) setPeerLastSeen(
+	b engine.Namespace, key []byte, t time.Time,
+) error {
 	peers := b.Sub([]byte(engine.PeersNamespace))
 	data, err := peers.GetEncrypted(key)
 	if err != nil {
@@ -208,7 +201,7 @@ func setPeerLastSeen(b engine.Namespace, key []byte, t time.Time) error {
 	if err = proto.Unmarshal(data, &p); err != nil {
 		return fmt.Errorf("unmarshaling peer: %w", err)
 	}
-	if !matchesKey(&p, key) {
+	if !s.matchesKey(&p, key) {
 		return ErrPeerMismatch
 	}
 	p.LastSeen = timestamppb.New(t)
@@ -236,7 +229,7 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 				)
 				continue
 			}
-			if !matchesKey(&p, key) {
+			if !s.matchesKey(&p, key) {
 				slog.Warn(
 					"skipping peer entry stored under another key",
 					slog.String("name", p.GetName()),
@@ -284,7 +277,7 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 // same, and the error wraps [ErrCompactFailed]. The sessions with the
 // peer are kept.
 func (s *Storage) DeletePeer(claim []byte) error {
-	key := peerKey(claim)
+	key := s.peerKey(claim)
 	err := s.engine.Command(func(b engine.Namespace) error {
 		peers := b.Sub([]byte(engine.PeersNamespace))
 		return peers.Delete(key)

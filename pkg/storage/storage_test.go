@@ -326,13 +326,13 @@ func TestRemoveExpiredPeerKeepsRestoredPeer(t *testing.T) {
 		Name: "old", PublicKey: pub, FirstSeen: now.Add(-2 * time.Hour),
 	}))
 	a.NoError(s.engine.Query(func(b Namespace) error {
-		_, err := s.findPeer(b, peerKey(pub))
+		_, err := s.findPeer(b, s.peerKey(pub))
 		a.ErrorIs(err, ErrPeerExpired)
 		return nil
 	}))
 
 	a.NoError(s.StorePeer(&Peer{Name: "new", PublicKey: pub}))
-	s.removeExpiredPeer(peerKey(pub))
+	s.removeExpiredPeer(s.peerKey(pub))
 
 	found, err := s.FindPeer(pub)
 	a.NoError(err)
@@ -471,9 +471,9 @@ func TestCopiedPeerRecordIsNotTrusted(t *testing.T) {
 				a.NoError(err)
 				a.NoError(db.Update(func(tx *bolt.Tx) error {
 					peers := tx.Bucket([]byte("peers"))
-					v := bytes.Clone(peers.Get(peerKey(victim)))
+					v := bytes.Clone(peers.Get(s.peerKey(victim)))
 					a.NotNil(v)
-					return peers.Put(peerKey(attacker), v)
+					return peers.Put(s.peerKey(attacker), v)
 				}))
 				a.NoError(db.Close())
 			},
@@ -487,11 +487,11 @@ func TestCopiedPeerRecordIsNotTrusted(t *testing.T) {
 				a := require.New(t)
 				a.NoError(s.engine.Command(func(b Namespace) error {
 					peers := b.Sub([]byte("peers"))
-					v, err := peers.GetEncrypted(peerKey(victim))
+					v, err := peers.GetEncrypted(s.peerKey(victim))
 					if err != nil {
 						return err
 					}
-					return peers.PutEncrypted(peerKey(attacker), v)
+					return peers.PutEncrypted(s.peerKey(attacker), v)
 				}))
 				a.NoError(s.Close())
 			},
@@ -794,9 +794,7 @@ func TestGetChatHistorySupportsLegacyAndMalformedEntries(t *testing.T) {
 	legacyTime := time.Unix(0, 100)
 	versionedTime := time.Unix(0, 200)
 	a.NoError(storage.engine.Command(func(b Namespace) error {
-		chat := b.Ensure([]byte("sessions")).
-			Ensure([]byte("mixed")).
-			Ensure([]byte("chat"))
+		chat := ensureChat(a, storage, b, "mixed")
 
 		legacyKey := chatKey(legacyTime, SenderLocal, 1)
 		if err := chat.PutEncrypted(legacyKey, []byte("legacy")); err != nil {
@@ -913,9 +911,7 @@ func TestSessionMessageCount(t *testing.T) {
 	// A session stored without a counter is counted, and listing the
 	// sessions stores its counter.
 	a.NoError(store.engine.Command(func(b Namespace) error {
-		chat := b.Ensure([]byte("sessions")).
-			Ensure([]byte("old")).
-			Ensure([]byte("chat"))
+		chat := ensureChat(a, store, b, "old")
 		for i := range 5 {
 			err := chat.PutEncrypted(
 				chatKey(time.Unix(0, int64(i+1)), SenderPeer, 1), []byte("m"),
@@ -1030,8 +1026,38 @@ func TestChatEntriesHideTimeSenderAndLength(t *testing.T) {
 	}
 }
 
+// ensureChat returns the chat namespace of session id, creating the
+// session as this version stores it.
+func ensureChat(a *require.Assertions, s *Storage, b Namespace, id string) Namespace {
+	session, err := s.ensureSession(b, id)
+	a.NoError(err)
+	return session.Ensure([]byte("chat"))
+}
+
+// putLegacyEntries stores entries in chat as versions before index keys
+// did.
+func putLegacyEntries(chat Namespace, entries []ChatEntry) error {
+	for i, e := range entries {
+		value := e.Data
+		if !e.SentAt.IsZero() {
+			value = binary.BigEndian.AppendUint64(
+				bytes.Clone(valueMagic), uint64(e.SentAt.UnixNano()),
+			)
+			value = append(value, e.Data...)
+		}
+		err := chat.PutEncrypted(
+			chatKey(e.Timestamp, e.Sender, uint32(i)), value,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // writeLegacyChat stores entries in session id as versions before index
-// keys did, and marks the database as written by them.
+// keys and keyed names did, and marks the database as written by them.
+// The database must be opened again to see them.
 func writeLegacyChat(t *testing.T, s *Storage, id string, entries []ChatEntry) {
 	t.Helper()
 	a := require.New(t)
@@ -1044,22 +1070,7 @@ func writeLegacyChat(t *testing.T, s *Storage, id string, entries []ChatEntry) {
 		chat := b.Ensure([]byte("sessions")).
 			Ensure([]byte(id)).
 			Ensure([]byte("chat"))
-		for i, e := range entries {
-			value := e.Data
-			if !e.SentAt.IsZero() {
-				value = binary.BigEndian.AppendUint64(
-					bytes.Clone(valueMagic), uint64(e.SentAt.UnixNano()),
-				)
-				value = append(value, e.Data...)
-			}
-			err := chat.PutEncrypted(
-				chatKey(e.Timestamp, e.Sender, uint32(i)), value,
-			)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
+		return putLegacyEntries(chat, entries)
 	}))
 }
 
@@ -1075,34 +1086,32 @@ func TestOpenStorageConvertsLegacyChat(t *testing.T) {
 		a.NoError(err)
 		return s
 	}
-	base := time.Date(2026, 10, 3, 22, 15, 24, 0, time.UTC)
+	base := time.Unix(1_790_000_000, 0)
+	// In the order history had them: by receive time, then sender.
 	legacy := []ChatEntry{
 		{Timestamp: base, Data: []byte("raw"), Sender: SenderLocal},
-		{
-			Timestamp: base.Add(time.Second),
-			SentAt:    base.Add(-time.Hour),
-			Data:      []byte("versioned"),
-			Sender:    SenderPeer,
-		},
 		{
 			Timestamp: base.Add(time.Second),
 			SentAt:    base,
 			Data:      []byte("same time, local"),
 			Sender:    SenderLocal,
 		},
+		{
+			Timestamp: base.Add(time.Second),
+			SentAt:    base.Add(-time.Hour),
+			Data:      []byte("versioned"),
+			Sender:    SenderPeer,
+		},
 	}
 
 	s := open()
 	writeLegacyChat(t, s, "old", legacy)
-	before, err := s.GetChatHistory("old")
-	a.NoError(err)
-	a.Len(before, 3)
 	a.NoError(s.Close())
 
 	s = open()
 	after, err := s.GetChatHistory("old")
 	a.NoError(err)
-	a.Equal(before, after)
+	a.Equal(legacy, after)
 	first, last, count, err := s.SessionTimestamps("old")
 	a.NoError(err)
 	a.True(first.Equal(base))
@@ -1128,7 +1137,7 @@ func TestOpenStorageConvertsLegacyChat(t *testing.T) {
 	defer s.Close()
 	after, err = s.GetChatHistory("old")
 	a.NoError(err)
-	a.Equal(append(before, after[3]), after)
+	a.Equal(append(legacy, after[3]), after)
 	a.Equal([]byte("new"), after[3].Data)
 }
 
@@ -1162,13 +1171,15 @@ func TestAddChatEntryConvertsLegacyEntries(t *testing.T) {
 	store, cleanup := newTestStorage(t)
 	defer cleanup()
 	base := time.Unix(1_700_000_000, 0)
-	writeLegacyChat(t, store, "sess", []ChatEntry{
-		{Timestamp: base, Data: []byte("one"), Sender: SenderPeer},
-		{Timestamp: base.Add(time.Second), Data: []byte("two")},
-	})
 	a.NoError(store.engine.Command(func(b Namespace) error {
-		chat := b.Sub([]byte("sessions")).Sub([]byte("sess")).
-			Sub([]byte("chat"))
+		chat := ensureChat(a, store, b, "sess")
+		err := putLegacyEntries(chat, []ChatEntry{
+			{Timestamp: base, Data: []byte("one"), Sender: SenderPeer},
+			{Timestamp: base.Add(time.Second), Data: []byte("two")},
+		})
+		if err != nil {
+			return err
+		}
 		return chat.PutEncrypted(
 			chatKey(base.Add(2*time.Second), SenderPeer, 9),
 			append(bytes.Clone(valueMagic), 1, 2),
@@ -1190,8 +1201,7 @@ func TestAddChatEntryConvertsLegacyEntries(t *testing.T) {
 	a.NoError(err)
 	a.Equal(3, count)
 	a.NoError(store.engine.Query(func(b Namespace) error {
-		chat := b.Sub([]byte("sessions")).Sub([]byte("sess")).
-			Sub([]byte("chat"))
+		chat := store.sessionChat(b, "sess")
 		a.Equal(chatIndexKey(0), chat.FirstKey())
 		a.Equal(chatIndexKey(2), chat.LastKey())
 		return nil

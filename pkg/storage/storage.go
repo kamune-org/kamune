@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -118,6 +119,7 @@ type Storage struct {
 	passphraseHandler PassphraseHandler
 	engine            engine.Store
 	dbPath            string
+	nameKey           []byte
 	expiryDuration    time.Duration
 	timeout           time.Duration
 	idleSessionLimit  int
@@ -145,8 +147,8 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 
 	// If a backend was injected via WithBackend, skip BoltDB setup.
 	if s.engine != nil {
-		if err := s.upgradeFormat(); err != nil {
-			return nil, fmt.Errorf("upgrading storage format: %w", err)
+		if err := s.prepare(); err != nil {
+			return nil, err
 		}
 		return s, nil
 	}
@@ -193,12 +195,24 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 		return nil, fmt.Errorf("opening kamune db: %w", err)
 	}
 	s.engine = db
-	if err := s.upgradeFormat(); err != nil {
+	if err := s.prepare(); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("upgrading storage format: %w", err)
+		return nil, err
 	}
 
 	return s, nil
+}
+
+// prepare loads the name key and brings the database up to the current
+// layout.
+func (s *Storage) prepare() error {
+	if err := s.loadNameKey(); err != nil {
+		return err
+	}
+	if err := s.upgradeFormat(); err != nil {
+		return fmt.Errorf("upgrading storage format: %w", err)
+	}
+	return nil
 }
 
 // defaultDBDir returns the directory of the default database path.
@@ -242,8 +256,11 @@ func (s *Storage) Close() error {
 //
 // A new data key is used, rather than re-wrapping the old one, so that
 // someone who knows the old passphrase cannot read data written later. The
-// database file is rewritten and atomically replaced, so neither the old
-// wrapped key nor data under the old key remain in it. The new file is
+// key that peers, sessions and settings are named under is kept, so such
+// a person can still check a guessed public key, session ID or setting
+// name against a later copy of the file. The database file is rewritten
+// and atomically replaced, so neither the old wrapped key nor data under
+// the old key remain in it. The new file is
 // owned by the user running the process, with mode 0600. Copies of the old
 // file made elsewhere, such as backups or other hard links, still open with
 // the old passphrase.
@@ -349,31 +366,59 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 	return attest.Load(id)
 }
 
+// session returns the namespace of a session, stored under its keyed
+// name (see [Storage.sessionName]).
+func (s *Storage) session(b engine.Namespace, id string) engine.Namespace {
+	return b.Sub([]byte(engine.SessionsNamespace)).Sub(s.sessionName(id))
+}
+
 // sessionChat returns the chat sub-namespace for a session.
-func sessionChat(b engine.Namespace, sessionID string) engine.Namespace {
-	return b.Sub([]byte(engine.SessionsNamespace)).
-		Sub([]byte(sessionID)).
-		Sub([]byte("chat"))
+func (s *Storage) sessionChat(
+	b engine.Namespace, sessionID string,
+) engine.Namespace {
+	return s.session(b, sessionID).Sub([]byte("chat"))
 }
 
 // sessionMeta returns the meta sub-namespace for a session.
-func sessionMeta(b engine.Namespace, sessionID string) engine.Namespace {
-	return b.Sub([]byte(engine.SessionsNamespace)).
-		Sub([]byte(sessionID)).
-		Sub([]byte("meta"))
-}
-
-// sessionMetaEnsure returns the meta sub-namespace, creating it if needed.
-func sessionMetaEnsure(
+func (s *Storage) sessionMeta(
 	b engine.Namespace, sessionID string,
 ) engine.Namespace {
-	sessions := b.Ensure([]byte(engine.SessionsNamespace))
-	session := sessions.Ensure([]byte(sessionID))
-	return session.Ensure([]byte("meta"))
+	return s.session(b, sessionID).Sub([]byte("meta"))
+}
+
+// ensureSession returns the namespace of a session, creating it if needed,
+// with the session ID recorded in its meta namespace.
+func (s *Storage) ensureSession(
+	b engine.Namespace, sessionID string,
+) (engine.Namespace, error) {
+	session := b.Ensure([]byte(engine.SessionsNamespace)).
+		Ensure(s.sessionName(sessionID))
+	meta := session.Ensure([]byte("meta"))
+	if _, err := meta.GetEncrypted([]byte(sessionIDKey)); err == nil {
+		return session, nil
+	}
+	err := meta.PutEncrypted([]byte(sessionIDKey), []byte(sessionID))
+	if err != nil {
+		return nil, fmt.Errorf("store session ID: %w", err)
+	}
+	return session, nil
+}
+
+// sessionID returns the ID of the session stored under name, and whether
+// it is recorded there and name is its keyed name.
+func (s *Storage) sessionID(sessions engine.Namespace, name string) (
+	string, bool,
+) {
+	id, err := sessions.Sub([]byte(name)).Sub([]byte("meta")).
+		GetEncrypted([]byte(sessionIDKey))
+	if err != nil || !hmac.Equal(s.sessionName(string(id)), []byte(name)) {
+		return "", false
+	}
+	return string(id), true
 }
 
 // GetChatHistory returns the decrypted chat entries of the given session,
-// stored under sessions/<id>/chat/ by [Storage.AddChatEntry], in the order
+// stored in its chat namespace by [Storage.AddChatEntry], in the order
 // they were stored, so a peer cannot reorder history by the time it puts
 // on its messages. Malformed entries are skipped.
 //
@@ -389,7 +434,7 @@ func sessionMetaEnsure(
 func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	var entries []ChatEntry
 	err := s.engine.Query(func(b engine.Namespace) error {
-		chat := sessionChat(b, sessionID)
+		chat := s.sessionChat(b, sessionID)
 		for key, value := range chat.IterateEncrypted() {
 			entry, ok := decodeChatEntry(key, value)
 			if ok {
@@ -436,17 +481,28 @@ func decodeChatEntry(key, value []byte) (ChatEntry, bool) {
 	return entry, true
 }
 
-// ListSessions returns a list of session IDs stored under the sessions namespace.
+// ListSessions returns the IDs of the stored sessions, in no particular
+// order. Each is read from the meta namespace of its session; a session
+// whose ID is missing there, or does not match the name it is stored
+// under, is skipped.
 func (s *Storage) ListSessions() ([]string, error) {
-	var sessions []string
+	var ids []string
 	err := s.engine.Query(func(b engine.Namespace) error {
-		sessions = b.Sub([]byte(engine.SessionsNamespace)).ListSubNamespaces()
+		sessions := b.Sub([]byte(engine.SessionsNamespace))
+		for _, name := range sessions.ListSubNamespaces() {
+			id, ok := s.sessionID(sessions, name)
+			if !ok {
+				slog.Warn("skipping session without a valid ID")
+				continue
+			}
+			ids = append(ids, id)
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("listing sessions: %w", err)
 	}
-	return sessions, nil
+	return ids, nil
 }
 
 // FindSessionByPeer returns the session ID whose PeerKey metadata matches the
@@ -455,15 +511,15 @@ func (s *Storage) ListSessions() ([]string, error) {
 func (s *Storage) FindSessionByPeer(pubKey []byte) (string, error) {
 	var sessionID string
 	err := s.engine.Query(func(b engine.Namespace) error {
-		sessions := b.Sub([]byte(engine.SessionsNamespace)).ListSubNamespaces()
-		for _, sid := range sessions {
-			meta := sessionMeta(b, sid)
+		sessions := b.Sub([]byte(engine.SessionsNamespace))
+		for _, name := range sessions.ListSubNamespaces() {
+			meta := sessions.Sub([]byte(name)).Sub([]byte("meta"))
 			data, err := meta.GetEncrypted([]byte(PeerKey))
-			if err != nil {
+			if err != nil || !bytes.Equal(data, pubKey) {
 				continue
 			}
-			if bytes.Equal(data, pubKey) {
-				sessionID = sid
+			if id, ok := s.sessionID(sessions, name); ok {
+				sessionID = id
 				return nil
 			}
 		}
@@ -492,7 +548,7 @@ func (s *Storage) SessionTimestamps(sessionID string) (
 	first, last time.Time, count int, err error,
 ) {
 	err = s.engine.Query(func(b engine.Namespace) error {
-		first, last, count, _ = sessionTimestamps(b, sessionID)
+		first, last, count, _ = s.sessionTimestamps(b, sessionID)
 		return nil
 	})
 	return
@@ -501,14 +557,14 @@ func (s *Storage) SessionTimestamps(sessionID string) (
 // sessionTimestamps implements [Storage.SessionTimestamps]. counted reports
 // that the count was taken by counting entries, as the session has no
 // stored counter.
-func sessionTimestamps(b engine.Namespace, sessionID string) (
+func (s *Storage) sessionTimestamps(b engine.Namespace, sessionID string) (
 	first, last time.Time, count int, counted bool,
 ) {
-	chat := sessionChat(b, sessionID)
+	chat := s.sessionChat(b, sessionID)
 	firstKey := chat.FirstKey()
 	first = chatEntryTime(chat, firstKey)
 	last = chatEntryTime(chat, chat.LastKey())
-	count, ok := messageCount(sessionMeta(b, sessionID))
+	count, ok := messageCount(s.sessionMeta(b, sessionID))
 	if !ok && firstKey != nil {
 		count, counted = chat.KeyCount(), true
 	}
@@ -559,9 +615,8 @@ func putMessageCount(meta engine.Namespace, n int) error {
 // read their whole chat bucket.
 func (s *Storage) storeMessageCounts(ids []string) error {
 	return s.engine.Command(func(b engine.Namespace) error {
-		sessions := b.Sub([]byte(engine.SessionsNamespace))
 		for _, id := range ids {
-			session := sessions.Sub([]byte(id))
+			session := s.session(b, id)
 			meta := session.Ensure([]byte("meta"))
 			if _, ok := messageCount(meta); ok {
 				continue
@@ -598,7 +653,7 @@ func (s *Storage) ListSessionsByRecent() ([]SessionSummary, error) {
 			counted     bool
 		)
 		err := s.engine.Query(func(b engine.Namespace) error {
-			first, last, count, counted = sessionTimestamps(b, id)
+			first, last, count, counted = s.sessionTimestamps(b, id)
 			return nil
 		})
 		if err != nil {
@@ -642,7 +697,7 @@ func (s *Storage) ListSessionsByRecent() ([]SessionSummary, error) {
 func (s *Storage) GetSessionName(sessionID string) (string, error) {
 	var name string
 	err := s.engine.Query(func(b engine.Namespace) error {
-		meta := sessionMeta(b, sessionID)
+		meta := s.sessionMeta(b, sessionID)
 		data, err := meta.GetEncrypted(sessionMetaKey)
 		if err != nil {
 			return err
@@ -666,7 +721,7 @@ func (s *Storage) SetSessionName(sessionID, name string) error {
 	if name == "" {
 		// Remove the key (and tolerate a missing namespace).
 		err := s.engine.Command(func(b engine.Namespace) error {
-			meta := sessionMeta(b, sessionID)
+			meta := s.sessionMeta(b, sessionID)
 			return meta.Delete(sessionMetaKey)
 		})
 		if err != nil && !errors.Is(err, engine.ErrMissingNamespace) {
@@ -675,7 +730,7 @@ func (s *Storage) SetSessionName(sessionID, name string) error {
 		return nil
 	}
 	err := s.engine.Command(func(b engine.Namespace) error {
-		meta := sessionMeta(b, sessionID)
+		meta := s.sessionMeta(b, sessionID)
 		return meta.PutEncrypted(sessionMetaKey, []byte(name))
 	})
 	if err != nil {
@@ -695,11 +750,15 @@ func (s *Storage) GetSettings(app, key string) (string, error) {
 	fullKey := app + ":" + key
 	err := s.engine.Query(func(b engine.Namespace) error {
 		settings := b.Sub([]byte(engine.SettingsNamespace))
-		data, err := settings.GetEncrypted([]byte(fullKey))
+		data, err := settings.GetEncrypted(s.settingName(fullKey))
 		if err != nil {
 			return err
 		}
-		val = string(data)
+		v, ok := decodeSetting(data)
+		if !ok {
+			return errors.New("malformed setting value")
+		}
+		val = string(v)
 		return nil
 	})
 	if err != nil {
@@ -713,13 +772,15 @@ func (s *Storage) GetSettings(app, key string) (string, error) {
 
 // SetSettings stores a settings value under the given app and key. Pass an
 // empty string to delete the key. The app namespace prevents collisions when
-// multiple apps share the same database.
+// multiple apps share the same database. The setting is stored under a
+// keyed name (see [Storage.settingName]), with its value padded to a
+// multiple of 64 bytes.
 func (s *Storage) SetSettings(app, key, value string) error {
 	if app == "" {
 		return ErrEmptyAppName
 	}
 	fullKey := app + ":" + key
-	k := []byte(fullKey)
+	k := s.settingName(fullKey)
 	if value == "" {
 		err := s.engine.Command(func(b engine.Namespace) error {
 			settings := b.Ensure([]byte(engine.SettingsNamespace))
@@ -732,7 +793,7 @@ func (s *Storage) SetSettings(app, key, value string) error {
 	}
 	err := s.engine.Command(func(b engine.Namespace) error {
 		settings := b.Ensure([]byte(engine.SettingsNamespace))
-		return settings.PutEncrypted(k, []byte(value))
+		return settings.PutEncrypted(k, encodeSetting([]byte(value)))
 	})
 	if err != nil {
 		return fmt.Errorf("set settings %q: %w", key, err)
@@ -752,8 +813,8 @@ func (s *Storage) SetSettings(app, key, value string) error {
 func (s *Storage) DeleteSession(sessionID string) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
 		sessions := b.Sub([]byte(engine.SessionsNamespace))
-		if err := sessions.DeleteNamespace([]byte(sessionID)); err != nil &&
-			!errors.Is(err, engine.ErrMissingNamespace) {
+		err := sessions.DeleteNamespace(s.sessionName(sessionID))
+		if err != nil && !errors.Is(err, engine.ErrMissingNamespace) {
 			return err
 		}
 		return nil
@@ -768,10 +829,10 @@ func (s *Storage) DeleteSession(sessionID string) error {
 }
 
 // AddChatEntry stores a chat message for the given session ID. The message
-// is stored in sessions/<sessionID>/chat/, which is created if needed, so
-// it does not depend on [Storage.CreateSession] having run, nor on the
-// peer being stored. The session's message counter is updated in the same
-// transaction.
+// is stored in the chat namespace of the session, which is created if
+// needed, so it does not depend on [Storage.CreateSession] having run, nor
+// on the peer being stored. The session's message counter is updated in
+// the same transaction.
 //
 // The entry is keyed by the next index of the session (see
 // [chatKeyPrefix]), so its key holds neither its time nor its sender. Its
@@ -791,8 +852,10 @@ func (s *Storage) AddChatEntry(
 		Sender:    sender,
 	})
 	err := s.engine.Command(func(b engine.Namespace) error {
-		session := b.Ensure([]byte(engine.SessionsNamespace)).
-			Ensure([]byte(sessionID))
+		session, err := s.ensureSession(b, sessionID)
+		if err != nil {
+			return err
+		}
 		chat := session.Ensure([]byte("chat"))
 		meta := session.Ensure([]byte("meta"))
 		// Count the stored entries once for a session that has none.

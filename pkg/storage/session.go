@@ -54,19 +54,22 @@ var (
 	ErrNotFound        = errors.New("not found")
 )
 
-// CreateSession creates a new session record under sessions/<id>/meta/ with
-// peer key, peer name, and establishment timestamp. Idle sessions with the
-// same peer beyond the limit of [WithIdleSessionLimit] are deleted.
+// CreateSession creates a new session record in the meta namespace of the
+// session with peer key, peer name, and establishment timestamp. Idle
+// sessions with the same peer beyond the limit of [WithIdleSessionLimit]
+// are deleted.
 func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
-		peer, err := s.findPeer(b, peerKey(publicKey))
+		peer, err := s.findPeer(b, s.peerKey(publicKey))
 		if err != nil {
 			return fmt.Errorf("find peer: %w", err)
 		}
 
 		// Ensure all namespaces exist for this session.
-		sessions := b.Ensure([]byte(engine.SessionsNamespace))
-		session := sessions.Ensure([]byte(sessionID))
+		session, err := s.ensureSession(b, sessionID)
+		if err != nil {
+			return err
+		}
 		meta := session.Ensure([]byte("meta"))
 		_ = session.Ensure([]byte("chat"))
 
@@ -93,7 +96,7 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 		return s.pruneIdleSessions(b, peer.PublicKey, sessionID)
 	})
 	if errors.Is(err, ErrPeerExpired) {
-		s.removeExpiredPeer(peerKey(publicKey))
+		s.removeExpiredPeer(s.peerKey(publicKey))
 	}
 	if err != nil {
 		return fmt.Errorf("create session %s: %w", sessionID, err)
@@ -106,7 +109,7 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 func (s *Storage) GetMeta(sessionID, key string) (Meta, error) {
 	var val []byte
 	err := s.engine.Query(func(b engine.Namespace) error {
-		meta := sessionMeta(b, sessionID)
+		meta := s.sessionMeta(b, sessionID)
 		data, err := meta.GetEncrypted([]byte(key))
 		if err != nil {
 			return err
@@ -131,9 +134,7 @@ func (s *Storage) GetMeta(sessionID, key string) (Meta, error) {
 // session that closes later, does not bring the session back.
 func (s *Storage) SetMeta(sessionID string, m Meta) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
-		meta := b.Sub([]byte(engine.SessionsNamespace)).
-			Sub([]byte(sessionID)).
-			Ensure([]byte("meta"))
+		meta := s.session(b, sessionID).Ensure([]byte("meta"))
 		err := meta.PutEncrypted(m.key, m.value)
 		if errors.Is(err, engine.ErrMissingNamespace) {
 			return ErrSessionNotFound
@@ -161,14 +162,18 @@ func (s *Storage) PutSessionResumption(
 	setEstablished bool,
 ) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
-		meta := sessionMetaEnsure(b, sessionID)
+		session, err := s.ensureSession(b, sessionID)
+		if err != nil {
+			return err
+		}
+		meta := session.Ensure([]byte("meta"))
 		if len(peerPublicKey) > 0 {
 			err := meta.PutEncrypted([]byte(PeerKey), peerPublicKey)
 			if err != nil {
 				return fmt.Errorf("store peer key: %w", err)
 			}
-			err = setPeerLastSeen(
-				b, peerKey(peerPublicKey), s.clock.Now(),
+			err = s.setPeerLastSeen(
+				b, s.peerKey(peerPublicKey), s.clock.Now(),
 			)
 			if err != nil {
 				// The session state matters more than the peer's
@@ -196,7 +201,7 @@ func (s *Storage) PutSessionResumption(
 				}
 			}
 		}
-		err := meta.PutEncrypted(
+		err = meta.PutEncrypted(
 			[]byte(ResumptionTokensKey), serializeList(tokens),
 		)
 		if err != nil || !setEstablished || len(peerPublicKey) == 0 {
@@ -224,16 +229,17 @@ func (s *Storage) pruneIdleSessions(
 		return nil
 	}
 	type idle struct {
-		at time.Time
-		id string
+		at   time.Time
+		name string
 	}
 	var found []idle
 	sessions := b.Sub([]byte(engine.SessionsNamespace))
-	for _, id := range sessions.ListSubNamespaces() {
-		if id == keep {
+	keepName := string(s.sessionName(keep))
+	for _, name := range sessions.ListSubNamespaces() {
+		if name == keepName {
 			continue
 		}
-		session := sessions.Sub([]byte(id))
+		session := sessions.Sub([]byte(name))
 		if session.Sub([]byte("chat")).FirstKey() != nil {
 			continue
 		}
@@ -250,7 +256,7 @@ func (s *Storage) pruneIdleSessions(
 		if err == nil && len(ts) >= 8 {
 			at = time.Unix(0, int64(binary.BigEndian.Uint64(ts[:8])))
 		}
-		found = append(found, idle{at: at, id: id})
+		found = append(found, idle{at: at, name: name})
 	}
 
 	excess := len(found) - (s.idleSessionLimit - 1)
@@ -258,12 +264,11 @@ func (s *Storage) pruneIdleSessions(
 		return nil
 	}
 	slices.SortFunc(found, func(x, y idle) int {
-		return cmp.Or(x.at.Compare(y.at), cmp.Compare(x.id, y.id))
+		return cmp.Or(x.at.Compare(y.at), cmp.Compare(x.name, y.name))
 	})
 	for _, old := range found[:excess] {
-		err := sessions.DeleteNamespace([]byte(old.id))
-		if err != nil {
-			return fmt.Errorf("delete idle session %s: %w", old.id, err)
+		if err := sessions.DeleteNamespace([]byte(old.name)); err != nil {
+			return fmt.Errorf("delete idle session: %w", err)
 		}
 	}
 	return nil
@@ -272,7 +277,7 @@ func (s *Storage) pruneIdleSessions(
 // DeleteMeta removes a key from a session's meta namespace.
 func (s *Storage) DeleteMeta(sessionID, key string) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
-		meta := sessionMeta(b, sessionID)
+		meta := s.sessionMeta(b, sessionID)
 		return meta.Delete([]byte(key))
 	})
 	if err != nil {
@@ -290,7 +295,7 @@ func (s *Storage) GetPeer(sessionID string) (*Peer, error) {
 	if m.Value() == nil {
 		return nil, ErrSessionNotFound
 	}
-	key := peerKey(m.Value())
+	key := s.peerKey(m.Value())
 	var peer *Peer
 	err = s.engine.Query(func(b engine.Namespace) error {
 		p, findErr := s.findPeer(b, key)
@@ -327,7 +332,7 @@ func (s *Storage) GetEstablishedAt(sessionID string) (time.Time, error) {
 func (s *Storage) PopList(sessionID, key string) ([]byte, error) {
 	var entry []byte
 	err := s.engine.Command(func(b engine.Namespace) error {
-		meta := sessionMeta(b, sessionID)
+		meta := s.sessionMeta(b, sessionID)
 		data, err := meta.GetEncrypted([]byte(key))
 		if err != nil {
 			return err
@@ -356,7 +361,7 @@ func (s *Storage) PopList(sessionID, key string) ([]byte, error) {
 // given key. Returns ErrNotFound when the entry is not present.
 func (s *Storage) RemoveListItem(sessionID, key string, entry []byte) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
-		meta := sessionMeta(b, sessionID)
+		meta := s.sessionMeta(b, sessionID)
 		data, err := meta.GetEncrypted([]byte(key))
 		if err != nil {
 			return err
