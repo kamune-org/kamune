@@ -18,6 +18,18 @@ var ErrPeerKeyMismatch = errors.New(
 	"peer key does not match the peer selected for this connection",
 )
 
+// ErrTooManyVerifications rejects a peer that would need a prompt while
+// maxPendingVerifications prompts are already open.
+var ErrTooManyVerifications = errors.New(
+	"too many verification requests are waiting for an answer",
+)
+
+// maxPendingVerifications caps the prompts that may wait for the user at
+// once. Anyone who can reach a listener can start a handshake with a new
+// key, and each prompt holds a server goroutine until the user answers or
+// verificationTimeout passes.
+const maxPendingVerifications = 3
+
 // currentVerifMode returns the verification mode that new servers and
 // dialers use.
 func (a *App) currentVerifMode() VerificationMode {
@@ -92,6 +104,13 @@ func (a *App) createQuickVerifier() kamune.RemoteVerifier {
 
 // promptVerification asks the user whether to admit the peer id, whose
 // key is key, and waits for the answer.
+//
+// Each request gets its own ID, and the frontend queues requests and
+// shows them one at a time, so a new request never replaces the one the
+// user is looking at. At most maxPendingVerifications requests wait at
+// once; a peer that would need another is rejected without a prompt.
+// Every request ends with a verify-peer-closed event, whether it was
+// answered or timed out, so the frontend can drop it from its queue.
 func (a *App) promptVerification(
 	id peerIdentity, key []byte, mode string,
 ) error {
@@ -103,16 +122,25 @@ func (a *App) promptVerification(
 	prevMsg := a.statusMsg
 	a.mu.RUnlock()
 
-	reqID := a.verifIDCounter.Add(1)
 	result := make(chan error, 1)
 
 	a.verifMu.Lock()
+	if len(a.verifRequests) >= maxPendingVerifications {
+		a.verifMu.Unlock()
+		a.addLogEntry("WARN", fmt.Sprintf(
+			"Rejected peer %s: %d verification requests are already waiting",
+			id.logName(), maxPendingVerifications,
+		))
+		return ErrTooManyVerifications
+	}
+	reqID := a.verifIDCounter.Add(1)
 	a.verifRequests[reqID] = &pendingVerification{
 		result: result,
 		peerID: id.Label,
 		hex:    hex,
 	}
 	a.verifMu.Unlock()
+	defer a.emitEvent("verify-peer-closed", reqID)
 
 	a.setStatus(StatusVerifying, "Verifying fingerprint of "+id.Label+"...")
 	a.addLogEntry("INFO", "Verifying peer: "+id.logName())
@@ -149,10 +177,21 @@ func (a *App) createAutoAcceptVerifier() kamune.RemoteVerifier {
 	}
 }
 
+// verificationTimeout is how long a prompt waits for the user. It stays
+// below the core's default verify limit of 150 s, past which the
+// handshake counts an accept as a rejection.
 const verificationTimeout = 2 * time.Minute
 
+func (a *App) verificationTimeout() time.Duration {
+	if a.verifTimeout > 0 {
+		return a.verifTimeout
+	}
+	return verificationTimeout
+}
+
 func (a *App) awaitVerification(reqID int64, result chan error) error {
-	timer := time.NewTimer(verificationTimeout)
+	timeout := a.verificationTimeout()
+	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
 	select {
@@ -167,7 +206,7 @@ func (a *App) awaitVerification(reqID int64, result chan error) error {
 		a.verifMu.Unlock()
 		a.setStatus(StatusError, "Verification timed out")
 		a.addLogEntry("WARN", "Verification timed out for request: "+fmt.Sprintf("%d", reqID))
-		return fmt.Errorf("verification timed out after %v", verificationTimeout)
+		return fmt.Errorf("verification timed out after %v", timeout)
 	}
 }
 

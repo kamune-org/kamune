@@ -1,17 +1,34 @@
 <script>
   import { VerifyResponse } from './go.js';
 
-  let { data, onClose } = $props();
+  // data is one verification request; App keys this component by its
+  // requestID, so a new request always mounts a fresh dialog. waiting is
+  // how many more requests are queued behind it.
+  let { data, waiting = 0, onClose } = $props();
 
-  async function accept() {
-    await VerifyResponse(data.requestID, true);
-    onClose?.();
+  // Accept stays disabled for a moment after the dialog appears, so a
+  // click meant for the previous request cannot accept this one.
+  const ARM_DELAY_MS = 1000;
+  let armed = $state(false);
+  let busy = $state(false);
+
+  $effect(() => {
+    const timer = setTimeout(() => (armed = true), ARM_DELAY_MS);
+    return () => clearTimeout(timer);
+  });
+
+  async function answer(accepted) {
+    if (busy || (accepted && !armed)) return;
+    busy = true;
+    try {
+      await VerifyResponse(data.requestID, accepted);
+    } finally {
+      onClose?.(data.requestID);
+    }
   }
 
-  async function reject() {
-    await VerifyResponse(data.requestID, false);
-    onClose?.();
-  }
+  const accept = () => answer(true);
+  const reject = () => answer(false);
 </script>
 
 <div class="overlay" onclick={reject}>
@@ -37,6 +54,11 @@
         </svg>
       </div>
       <h3>Verify Peer</h3>
+      {#if waiting > 0}
+        <span class="verify-queue" title="More verification requests are waiting">
+          {waiting} more waiting
+        </span>
+      {/if}
     </div>
 
     <div class="dialog-body">
@@ -133,7 +155,9 @@
 
     <div class="dialog-actions">
       <button class="dialog-btn dialog-btn-secondary" onclick={reject}>Reject</button>
-      <button class="dialog-btn dialog-btn-primary" onclick={accept}>Accept</button>
+      <button class="dialog-btn dialog-btn-primary" onclick={accept} disabled={!armed || busy}
+        >Accept</button
+      >
     </div>
   </div>
 </div>
@@ -177,6 +201,19 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+  }
+  .verify-queue {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    color: var(--warning);
+    background: var(--warning-dim);
+  }
+  .dialog-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .dialog-header h3 {
     font-size: 16px;

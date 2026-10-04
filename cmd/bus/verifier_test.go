@@ -2,11 +2,13 @@ package main
 
 import (
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -66,6 +68,58 @@ func waitVerdict(t *testing.T, errCh <-chan error) error {
 		require.New(t).FailNow("verifier did not return")
 		return nil
 	}
+}
+
+// eventLog records the events an App emits.
+type eventLog struct {
+	mu     sync.Mutex
+	events []recordedEvent
+}
+
+type recordedEvent struct {
+	name string
+	data []any
+}
+
+func recordEvents(app *App) *eventLog {
+	l := &eventLog{}
+	app.onEvent = func(name string, data ...any) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.events = append(l.events, recordedEvent{name, data})
+	}
+	return l
+}
+
+// named returns the data of every event called name, in order.
+func (l *eventLog) named(name string) [][]any {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out [][]any
+	for _, e := range l.events {
+		if e.name == name {
+			out = append(out, e.data)
+		}
+	}
+	return out
+}
+
+// promptIDs returns the request IDs of the verify-peer events, in order.
+func (l *eventLog) promptIDs() []int64 {
+	var ids []int64
+	for _, d := range l.named("verify-peer") {
+		ids = append(ids, d[0].(map[string]any)["requestID"].(int64))
+	}
+	return ids
+}
+
+// closedIDs returns the request IDs of the verify-peer-closed events.
+func (l *eventLog) closedIDs() []int64 {
+	var ids []int64
+	for _, d := range l.named("verify-peer-closed") {
+		ids = append(ids, d[0].(int64))
+	}
+	return ids
 }
 
 func TestVerifiersDoNotStorePeers(t *testing.T) {
@@ -173,4 +227,72 @@ func TestRememberPeer(t *testing.T) {
 			a.Equal(want, got.Name)
 		})
 	}
+}
+
+// TestPromptsQueueUpToCap checks that each prompt is a request of its own,
+// that an answer reaches only the request it names, and that a peer
+// arriving while maxPendingVerifications prompts wait is rejected without
+// a prompt instead of replacing one.
+func TestPromptsQueueUpToCap(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	app.verifMode = VerificationModeStrict
+	events := recordEvents(app)
+	rv := app.getVerifier()
+
+	var errChs []<-chan error
+	var peers []*storage.Peer
+	for i := range maxPendingVerifications {
+		p := newTestPeer(t, "Alice")
+		peers = append(peers, p)
+		errChs = append(errChs, runVerifier(app, rv, p))
+		waitPending(t, app, i+1)
+	}
+	ids := pendingIDs(app)
+	a.Equal(ids, events.promptIDs())
+	for i, d := range events.named("verify-peer") {
+		a.Equal(unknownPeerLabel(peers[i].PublicKey),
+			d[0].(map[string]any)["peerName"])
+	}
+
+	extra := newTestPeer(t, "Alice")
+	a.ErrorIs(waitVerdict(t, runVerifier(app, rv, extra)),
+		ErrTooManyVerifications)
+	a.Equal(ids, pendingIDs(app), "a capped request must not replace one")
+	a.Len(events.named("verify-peer"), maxPendingVerifications)
+
+	app.VerifyResponse(ids[1], false)
+	a.ErrorIs(waitVerdict(t, errChs[1]), kamune.ErrVerificationFailed)
+	a.Equal([]int64{ids[0], ids[2]}, pendingIDs(app))
+
+	app.VerifyResponse(ids[0], true)
+	a.NoError(waitVerdict(t, errChs[0]))
+	app.VerifyResponse(ids[2], true)
+	a.NoError(waitVerdict(t, errChs[2]))
+
+	a.ElementsMatch(ids, events.closedIDs())
+	a.Empty(pendingIDs(app))
+
+	// With the queue drained, a new peer is prompted for again.
+	errCh := runVerifier(app, rv, extra)
+	next := waitPending(t, app, 1)
+	app.VerifyResponse(next[0], false)
+	a.ErrorIs(waitVerdict(t, errCh), kamune.ErrVerificationFailed)
+}
+
+func TestPromptTimeoutClosesRequest(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	app.verifMode = VerificationModeQuick
+	app.verifTimeout = 10 * time.Millisecond
+	events := recordEvents(app)
+
+	err := waitVerdict(t,
+		runVerifier(app, app.getVerifier(), newTestPeer(t, "Alice")))
+	a.Error(err)
+	a.Empty(pendingIDs(app))
+	a.Len(events.promptIDs(), 1)
+	a.Equal(events.promptIDs(), events.closedIDs())
 }

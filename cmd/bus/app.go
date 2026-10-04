@@ -324,6 +324,8 @@ type App struct {
 	verifMu        sync.Mutex
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
+	// verifTimeout overrides verificationTimeout when positive.
+	verifTimeout time.Duration
 
 	verifRadioItems []*application.MenuItem
 
@@ -331,6 +333,10 @@ type App struct {
 	incognitoMenuItem *application.MenuItem
 
 	peers []PeerInfo
+
+	// onEvent, when set, receives every event the app emits, so tests can
+	// observe events without a Wails runtime.
+	onEvent func(name string, data ...any)
 }
 
 func NewApp() *App {
@@ -506,6 +512,9 @@ func (a *App) ServiceShutdown() error {
 }
 
 func (a *App) emitEvent(eventName string, data ...any) {
+	if a.onEvent != nil {
+		a.onEvent(eventName, data...)
+	}
 	if a.wails == nil {
 		return
 	}

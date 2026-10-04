@@ -48,7 +48,7 @@
     activeSessionId,
     sidebarTab,
     logPanelOpen,
-    verificationDialog,
+    verificationQueue,
     shareDialog,
     dialogs,
     toast,
@@ -211,6 +211,7 @@
     EventsOff('message-sent');
     EventsOff('message-received');
     EventsOff('verify-peer');
+    EventsOff('verify-peer-closed');
     EventsOff('log-entry');
     EventsOff('notification');
     EventsOff('storage-ready');
@@ -274,7 +275,12 @@
       });
     });
     EventsOn('verify-peer', (data) => {
-      verificationDialog.set(data);
+      verificationQueue.update((q) =>
+        q.some((r) => r.requestID === data.requestID) ? q : [...q, data]
+      );
+    });
+    EventsOn('verify-peer-closed', (requestID) => {
+      dropVerification(requestID);
     });
     EventsOn('log-entry', (entry) => {
       logEntries.update((e) => {
@@ -469,6 +475,7 @@
     EventsOff('message-sent');
     EventsOff('message-received');
     EventsOff('verify-peer');
+    EventsOff('verify-peer-closed');
     EventsOff('log-entry');
     EventsOff('notification');
     EventsOff('storage-ready');
@@ -491,6 +498,10 @@
     EventsOff('log-level-changed');
     EventsOff('theme-changed');
   });
+
+  function dropVerification(requestID) {
+    verificationQueue.update((q) => q.filter((r) => r.requestID !== requestID));
+  }
 
   async function loadSessions() {
     const s = await GetSessions();
@@ -852,8 +863,14 @@
     />
   {/if}
 
-  {#if $verificationDialog}
-    <VerifyDialog data={$verificationDialog} onClose={() => verificationDialog.set(null)} />
+  {#if $verificationQueue.length > 0}
+    {#key $verificationQueue[0].requestID}
+      <VerifyDialog
+        data={$verificationQueue[0]}
+        waiting={$verificationQueue.length - 1}
+        onClose={dropVerification}
+      />
+    {/key}
   {/if}
 
   <!-- Dialogs -->

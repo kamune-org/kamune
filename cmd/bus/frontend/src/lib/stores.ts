@@ -103,7 +103,10 @@ export const relayToken = writable('');
 export const relayTokens = writable<RelayToken[]>([]);
 export const p2pTokens = writable<P2PToken[]>([]);
 
-export const verificationDialog = writable<VerificationRequest | null>(null);
+// verificationQueue holds the open verification requests, oldest first.
+// The dialog shows the first one; a new request joins the end and never
+// replaces the request the user is looking at.
+export const verificationQueue = writable<VerificationRequest[]>([]);
 export const shareDialog = writable<ShareInfo | null>(null);
 export const versionWarnings = writable<Record<string, string>>({});
 export const dialogs = writable<DialogsState>({
