@@ -104,7 +104,9 @@ README.
 ## Verifying a peer
 
 Every new connection, in any mode, opens a verify screen before the chat,
-also for a peer you have chatted with before. From the top, it shows:
+also for a peer you have chatted with before, unless it resumes an earlier
+session (see [Resumed sessions](#resumed-sessions)). From the top, it
+shows:
 
 1. The numeric fingerprint of the peer's key, 40 digits in eight groups of
    five, and that of your own key.
@@ -129,6 +131,23 @@ is rejected at once. After a rejection, Start Server goes on waiting for
 another peer; the other modes end and return to the menu. The TUI stores
 a peer you accept once its session is established. When the chat opens,
 it shows a line that names the peer and gives its numeric fingerprint.
+
+### Resumed sessions
+
+A peer whose app resumes dropped sessions, as bus and the daemon do, can
+resume a session it had with a TUI server (Start Server or Start Relay
+Server) within 24 hours of that session's first, cold handshake; resuming
+does not extend the 24 hours. Resumption does not run the verifier on
+either side ([SPEC §6.8.4](../../docs/SPEC.md#684-resumption-asymmetry)),
+so no verify screen appears and the chat opens at once. A line in the chat
+then warns that no prompt was shown, and gives the peer's stored name and
+numeric fingerprint. Check that it is the peer you expect, and press Esc if
+it is not. A resumed session that arrives while a prompt is open starts its
+chat, and the peer of the prompt is rejected.
+
+A session can be resumed only if the TUI did not close it: leaving its
+chat with Esc, or quitting with Ctrl+C, ends it for good. The TUI never
+resumes a session when it dials.
 
 ## Controls
 
