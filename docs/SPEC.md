@@ -950,6 +950,16 @@ The server MAY disable resumption, in which case incoming `ROUTE_RESUME_REQUEST`
 messages are treated as unexpected-route conditions, forcing a full Introduction
 from the dialer. Resumption is enabled by default.
 
+Resumption does not run the remote verifier on either side. The responder
+accepts an initiator that signs its request with the peer key stored for the
+session and presents an unused token, as long as that peer is still stored.
+A peer that the verifier accepted once can therefore reconnect without being
+verified again until the session's resumption window closes (§6.8.1). An
+application whose verifier must run for every connection, for example one that
+promises to ask its user each time, SHOULD disable resumption on its server.
+Deleting the peer, or the session, from storage stops the session from being
+resumed.
+
 #### 6.8.5 Session ID Semantics
 
 The session ID continues to mean exactly what it means in a cold session: the

@@ -263,6 +263,12 @@ DB encryption hierarchy remains the actual security boundary — this RFC doesn'
 change that, and no further mitigation is proposed here beyond what §11.2
 already provides.
 
+**Skipped verification.** A resumption runs no remote verifier on either
+side. A peer that the verifier accepted once can therefore reconnect without
+being verified again until its session's window closes (§5). An application
+that promises to verify every connection, for example by asking its user each
+time, should disable resumption with `ServeWithResumeEnabled(false)`.
+
 **Forward secrecy of tokens.** Regenerating the entire token set on every
 successful resumption (§7) means a token compromised from session _k_ cannot be
 used once session _k+1_ exists, since it isn't derivable from the new shared
