@@ -6,8 +6,11 @@ history browsing.
 
 ## Usage
 
+`cmd/tui` is a Go module of its own, so run it from its directory:
+
 ```
-go run ./cmd/tui
+cd cmd/tui
+go run .
 ```
 
 On first launch you'll be prompted for:
