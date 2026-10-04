@@ -254,13 +254,87 @@ On macOS, use Cmd in place of Ctrl.
 
 ## Peer Verification
 
-When connecting to peers, verification dialogs ensure secure communication:
+The verification mode decides which peers Bus admits without asking you.
+The handshake authenticates a peer's public key, not its name, so every
+decision rests on the key.
 
 | Mode | Description |
 |------|-------------|
-| **Strict** | Always shows a verification dialog for every connection |
-| **Quick** | Auto-accepts known peers, shows dialog only for new peers |
-| **Auto-Accept** | Accepts all connections without verification (testing only) |
+| **Strict** | Shows a verification dialog for every new session, whether or not the peer's key is saved. A resumed session gets none (see [Resumed Sessions](#resumed-sessions)) |
+| **Quick** | The default. Admits a peer whose key is saved without a dialog, whatever name it claims, and shows a dialog for any other key |
+| **Auto-Accept** | Admits every peer without a dialog and, outside incognito mode, saves new ones (testing only) |
+
+Choose the mode under **Connection > Verification Mode** (`Ctrl+0`,
+`Ctrl+1`, `Ctrl+2`). Bus saves it in the database, so it changes only once
+the database is unlocked, and treats a saved value it does not know as
+Strict. A new mode applies to the next connection you make. A server uses
+the mode it started with, so while one runs, changing the mode restarts it
+once you confirm, which disconnects all sessions; if you decline, the mode
+stays as it was. Switching to Auto-Accept always asks first, also through
+its shortcut, and while it is on the status bar shows a red "Auto-Accept:
+not verifying peers" badge.
+
+### Saved Peers
+
+A key is saved once it is in the **Peers** tab: a peer you accepted in a
+dialog, a peer that Auto-Accept admitted outside incognito mode, or a key
+you added there by hand (the peer's **Identity > Copy as Base64**). Bus
+saves a newly admitted peer only once its session is established. It keeps
+the name the peer introduced itself with when you accepted it in a dialog
+and no other saved peer has that name; otherwise, and for every peer that
+Auto-Accept admitted, it uses a pseudonym derived from the key. Quick mode
+admits every saved key without asking, including those Auto-Accept saved.
+
+### Peer Names
+
+A peer chooses the name it introduces itself with, so that name proves
+nothing. Bus labels sessions and dialogs with the name saved for the peer's
+key, or with "Unknown peer" and the first two groups of the key's numeric
+fingerprint for a key that is not saved, and shows the introduced name only
+as the peer's claim. The Sessions tab flags a session "not saved" for an
+unknown key, "other name" when a saved key introduces itself under another
+name, and "name clash" when a peer claims, or is saved under, another saved
+peer's name; the chat panel shows a matching note. Names you type for peers
+and sessions may be at most 64 bytes long, with no control, line-separator
+or format characters such as bidirectional overrides. Your own name may be
+at most 32 bytes long.
+
+### Connecting to a Chosen Peer
+
+When you connect through a relay or a broker with a saved peer selected,
+Bus rejects any other key that answers, before any dialog, and the connect
+fails with "peer key does not match the peer selected for this connection".
+A server listener opened with a static relay or broker token, which is
+derived from your key and one peer's, drops sessions from any other key.
+Anyone who knows both public keys can compute such a token, so the token
+alone does not show who connects.
+
+### Verification Dialogs
+
+A dialog waits 2 minutes for an answer and then rejects the peer.
+**Accept** stays disabled for 1 second after a dialog appears, and a click
+outside the dialog rejects the peer. Dialogs queue rather than replace each
+other; at most 3 wait at once, and a peer that would need another is
+rejected without one. Stopping or restarting the server, or cancelling a
+connect, closes its open dialogs and rejects their peers.
+
+### Resumed Sessions
+
+A session whose connection drops can be resumed on a new connection with
+tokens from its handshake. A resumption runs no verifier on either side, in
+any mode, Strict included ([SPEC §6.8.4](../../docs/SPEC.md#684-resumption-asymmetry)).
+The server accepts a resumption signed with the key stored for the session
+until 24 hours after the session's first handshake; resuming does not extend
+that window. Bus resumes a session it dialed when its connection drops,
+except a P2P session through a broker or an incognito one, and its server
+accepts resumptions unless it runs in incognito mode. Bus does not turn
+resumption off in Strict mode, so a peer you accepted once can reconnect
+within that window without a new dialog. A resumption that Bus dials must
+reach the key stored for the session.
+
+To make a peer pass the verifier again, disconnect the session (a session
+closed on purpose, by either side, cannot be resumed), or delete the peer in
+the Peers tab or the session in the History tab.
 
 ### Verifying Peers
 
@@ -273,7 +347,7 @@ When connecting to peers, verification dialogs ensure secure communication:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Database path | `~/.config/kamune/db` | Override with `KAMUNE_DB_PATH` env var, or pick another directory in the passphrase dialog |
-| Verification mode | Quick | Change via Settings menu |
+| Verification mode | Quick | Connection > Verification Mode; saved in the database |
 | Passphrase | asked at startup | Entered in the passphrase dialog or read from the system keychain. Bus ignores `KAMUNE_DB_PASSPHRASE`, which the TUI and the daemon read |
 
 ## Security Notes
@@ -283,7 +357,9 @@ When connecting to peers, verification dialogs ensure secure communication:
 - The database is encrypted at rest under a key derived from its passphrase
   with Argon2id. A database without a passphrase is not protected: anyone
   who can read its file can read your identity key, peers and history
-- Use **Strict** mode for sensitive communications
+- Use **Strict** mode to be asked about every new session, saved peer or
+  not; a resumed session is not verified again within 24 hours of its first
+  handshake
 - Never use **Auto-Accept** mode in production or untrusted networks
 
 ## Testing
