@@ -267,6 +267,78 @@ func TestSessionUpdatesPeerLastSeen(t *testing.T) {
 	a.Error(err)
 }
 
+// TestUpdatePeerLastSeenDoesNotRestoreDeletedPeer runs DeletePeer and
+// UpdatePeerLastSeen at the same time and checks that the peer is gone
+// afterwards, whichever ran first.
+func TestUpdatePeerLastSeenDoesNotRestoreDeletedPeer(t *testing.T) {
+	a := require.New(t)
+	storage, cleanup := newTestStorage(t)
+	defer cleanup()
+
+	att, err := attest.New()
+	a.NoError(err)
+	pub := att.MarshalPublicKey()
+	for round := range 20 {
+		a.NoError(storage.StorePeer(&Peer{Name: "frank", PublicKey: pub}))
+
+		var (
+			wg                   sync.WaitGroup
+			start                = make(chan struct{})
+			updateErr, deleteErr error
+		)
+		wg.Go(func() {
+			<-start
+			updateErr = storage.UpdatePeerLastSeen(pub, time.Time{})
+		})
+		wg.Go(func() {
+			<-start
+			deleteErr = storage.DeletePeer(pub)
+		})
+		close(start)
+		wg.Wait()
+		a.NoError(updateErr)
+		a.NoError(deleteErr)
+
+		_, err := storage.FindPeer(pub)
+		a.Error(err, "round %d: deleted peer came back", round)
+	}
+}
+
+// TestRemoveExpiredPeerKeepsRestoredPeer finds a peer expired, stores it
+// again before the expired record is removed, and checks that the new
+// record is kept.
+func TestRemoveExpiredPeerKeepsRestoredPeer(t *testing.T) {
+	a := require.New(t)
+	now := time.Unix(1_700_000_000, 0)
+	s, err := OpenStorage(
+		WithDBPath(filepath.Join(t.TempDir(), "db")),
+		WithNoPassphrase(),
+		WithClock(clock.NewFake(now)),
+		WithExpiryDuration(time.Hour),
+	)
+	a.NoError(err)
+	defer s.Close()
+
+	att, err := attest.New()
+	a.NoError(err)
+	pub := att.MarshalPublicKey()
+	a.NoError(s.StorePeer(&Peer{
+		Name: "old", PublicKey: pub, FirstSeen: now.Add(-2 * time.Hour),
+	}))
+	a.NoError(s.engine.Query(func(b Namespace) error {
+		_, err := s.findPeer(b, peerKey(pub))
+		a.ErrorIs(err, ErrPeerExpired)
+		return nil
+	}))
+
+	a.NoError(s.StorePeer(&Peer{Name: "new", PublicKey: pub}))
+	s.removeExpiredPeer(peerKey(pub))
+
+	found, err := s.FindPeer(pub)
+	a.NoError(err)
+	a.Equal("new", found.Name)
+}
+
 func TestListPeers(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)

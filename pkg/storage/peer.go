@@ -76,7 +76,7 @@ func (s *Storage) findPeer(b engine.Namespace, key []byte) (*Peer, error) {
 		return nil, ErrPeerMismatch
 	}
 
-	if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(s.clock.Now()) {
+	if s.expired(&p) {
 		return nil, ErrPeerExpired
 	}
 
@@ -100,14 +100,38 @@ func matchesKey(p *pb.Peer, key []byte) bool {
 	return bytes.Equal(peerKey(p.GetPublicKey()), key)
 }
 
+// removeExpiredPeer deletes the peer stored under key if it is still
+// expired. The record is read again in the transaction that deletes it,
+// so a peer stored again since it was found expired is kept.
 func (s *Storage) removeExpiredPeer(key []byte) {
 	err := s.engine.Command(func(b engine.Namespace) error {
 		peers := b.Sub([]byte(engine.PeersNamespace))
+		data, err := peers.GetEncrypted(key)
+		if err != nil {
+			if isMissing(err) {
+				return nil
+			}
+			return err
+		}
+		var p pb.Peer
+		if err := proto.Unmarshal(data, &p); err != nil {
+			return fmt.Errorf("unmarshaling peer: %w", err)
+		}
+		if !s.expired(&p) {
+			return nil
+		}
 		return peers.Delete(key)
 	})
 	if err != nil {
 		slog.Warn("failed to remove expired peer", slog.Any("error", err))
 	}
+}
+
+// expired reports whether p was first seen longer than the expiry
+// duration ago.
+func (s *Storage) expired(p *pb.Peer) bool {
+	return p.GetFirstSeen().AsTime().Add(s.expiryDuration).
+		Before(s.clock.Now())
 }
 
 func (s *Storage) StorePeer(peer *Peer) error {
@@ -152,48 +176,19 @@ func (s *Storage) StorePeer(peer *Peer) error {
 }
 
 // UpdatePeerLastSeen updates the LastSeen timestamp for a peer identified by
-// its public key claim. If the peer does not exist, the call is a no-op and
-// returns nil.
+// its public key claim; a zero t means now. If the peer does not exist, the
+// call is a no-op and returns nil. The record is read and written in one
+// transaction, so a peer deleted concurrently stays deleted.
 func (s *Storage) UpdatePeerLastSeen(claim []byte, t time.Time) error {
-	key := peerKey(claim)
-
-	var data []byte
-	err := s.engine.Query(func(b engine.Namespace) error {
-		peers := b.Sub([]byte(engine.PeersNamespace))
-		var err error
-		data, err = peers.GetEncrypted(key)
-		return err
-	})
-	if err != nil {
-		if isMissing(err) {
-			return nil
-		}
-		return fmt.Errorf("reading peer for LastSeen update: %w", err)
-	}
-
-	var p pb.Peer
-	if err = proto.Unmarshal(data, &p); err != nil {
-		return fmt.Errorf("unmarshaling peer: %w", err)
-	}
-
 	if t.IsZero() {
 		t = s.clock.Now()
 	}
-	p.LastSeen = timestamppb.New(t)
-
-	updated, err := proto.Marshal(&p)
-	if err != nil {
-		return fmt.Errorf("marshaling peer: %w", err)
-	}
-
-	err = s.engine.Command(func(b engine.Namespace) error {
-		peers := b.Sub([]byte(engine.PeersNamespace))
-		return peers.PutEncrypted(key, updated)
+	err := s.engine.Command(func(b engine.Namespace) error {
+		return setPeerLastSeen(b, peerKey(claim), t)
 	})
 	if err != nil {
-		return fmt.Errorf("persisting LastSeen update: %w", err)
+		return fmt.Errorf("updating peer LastSeen: %w", err)
 	}
-
 	return nil
 }
 
@@ -249,7 +244,7 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 				continue
 			}
 
-			if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(s.clock.Now()) {
+			if s.expired(&p) {
 				keyCopy := make([]byte, len(key))
 				copy(keyCopy, key)
 				expiredKeys = append(expiredKeys, keyCopy)
@@ -277,12 +272,7 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 
 	// Clean up expired entries outside the read transaction.
 	for _, key := range expiredKeys {
-		if err := s.engine.Command(func(b engine.Namespace) error {
-			peers := b.Sub([]byte(engine.PeersNamespace))
-			return peers.Delete(key)
-		}); err != nil {
-			slog.Warn("failed to remove expired peer", slog.Any("error", err))
-		}
+		s.removeExpiredPeer(key)
 	}
 
 	return peers, nil
