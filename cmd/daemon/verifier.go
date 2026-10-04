@@ -147,18 +147,12 @@ func (d *Daemon) createQuickVerifier() kamune.RemoteVerifier {
 	}
 }
 
+// createAutoAcceptVerifier accepts every peer without asking. It does not
+// store new peers: nobody verified them, and Quick mode accepts a stored
+// peer without asking. A session with a peer that is not stored cannot be
+// resumed.
 func (d *Daemon) createAutoAcceptVerifier() kamune.RemoteVerifier {
-	return func(store *storage.Storage, peer *storage.Peer) error {
-		key := peer.PublicKey
-
-		if _, err := store.FindPeer(key); err != nil &&
-			!d.isIncognito() {
-			peer.FirstSeen = time.Now()
-			if err := store.StorePeer(peer); err != nil {
-				d.addLogEntry("WARN", "Failed to save peer: "+err.Error())
-			}
-		}
-
+	return func(_ *storage.Storage, peer *storage.Peer) error {
 		d.addLogEntry("INFO", "Auto-accepted peer: "+peer.Name)
 		return nil
 	}
