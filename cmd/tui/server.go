@@ -7,13 +7,17 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
+// serve starts a server on addr that hands each session it establishes to
+// deliver, with a release channel. The handler then waits until release
+// is closed, since the session's connection is closed when it returns.
 func serve(addr string, store *storage.Storage, verifyFn kamune.RemoteVerifier,
-	connCh chan<- *kamune.Transport, doneCh <-chan struct{},
+	deliver func(t *kamune.Transport, release chan struct{}),
 	opts ...kamune.ServerOptions,
 ) (*kamune.Server, error) {
 	handler := func(t *kamune.Transport) error {
-		connCh <- t
-		<-doneCh
+		release := make(chan struct{})
+		deliver(t, release)
+		<-release
 		return nil
 	}
 

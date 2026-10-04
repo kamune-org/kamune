@@ -42,9 +42,26 @@ const (
 	modeRelayServe
 )
 
+// attempt is one connection attempt: a dial, or a server waiting for a
+// peer. The sessions it delivers name it, so that Update can tell them
+// from those of an attempt that is over.
+type attempt struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+func newAttempt() *attempt {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &attempt{ctx: ctx, cancel: cancel}
+}
+
 type connectedMsg struct {
-	transport  *kamune.Transport
-	isServer   bool
+	att       *attempt
+	transport *kamune.Transport
+	// release, when set, is closed once the session is over. The server
+	// handler that delivered transport waits for it, since the
+	// connection is closed when the handler returns.
+	release    chan struct{}
 	sessionTTL time.Duration
 }
 
@@ -185,12 +202,10 @@ type model struct {
 	inputs []textinput.Model
 
 	// Connecting
-	connectErr      error
-	connCtx         context.Context
-	connCancel      context.CancelFunc
+	connectErr error
+	// att is the connection attempt in progress, if any.
+	att             *attempt
 	srv             *kamune.Server
-	doneCh          chan struct{}
-	connCh          chan *kamune.Transport
 	relayToken      []byte
 	relaySessionTTL time.Duration
 	sessionExpiry   time.Time
@@ -229,13 +244,17 @@ type chatSession struct {
 	// stop is closed when the chat ends.
 	stop   chan struct{}
 	pongCh chan []byte
+	// release is the release channel of the connectedMsg that delivered
+	// t, if it had one.
+	release chan struct{}
 }
 
-func newChatSession(t *kamune.Transport) *chatSession {
+func newChatSession(t *kamune.Transport, release chan struct{}) *chatSession {
 	return &chatSession{
-		t:      t,
-		stop:   make(chan struct{}),
-		pongCh: make(chan []byte, 1),
+		t:       t,
+		stop:    make(chan struct{}),
+		pongCh:  make(chan []byte, 1),
+		release: release,
 	}
 }
 
@@ -243,7 +262,17 @@ func newChatSession(t *kamune.Transport) *chatSession {
 // Transport.Close waits a few seconds at most for the close frame.
 func (s *chatSession) end() {
 	close(s.stop)
-	_ = s.t.Close()
+	closeSession(s.t, s.release)
+}
+
+// closeSession closes t and then release, if it is set. A server handler
+// that waits for release returns only once the close frame has gone out,
+// since its return closes the connection.
+func closeSession(t *kamune.Transport, release chan struct{}) {
+	_ = t.Close()
+	if release != nil {
+		close(release)
+	}
 }
 
 func (m *model) Init() tea.Cmd {
@@ -253,10 +282,25 @@ func (m *model) Init() tea.Cmd {
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case connectedMsg:
+		if msg.att == nil || msg.att != m.att ||
+			(m.state != stateConnecting && m.state != stateVerify) {
+			// Nobody waits for this session: its attempt is over, or a
+			// chat has started already. End it rather than let it take
+			// the place of the chat on screen. Closing it sends a frame,
+			// so it is not done on the event loop.
+			go closeSession(msg.transport, msg.release)
+			return m, nil
+		}
+		if m.state == stateVerify {
+			// A peer accepted earlier, or one that resumed its session,
+			// got through while the prompt for another was open.
+			answer(m.verifyReq.responseCh, errPromptNotShown)
+			m.verifyReq = nil
+		}
 		if msg.sessionTTL > 0 {
 			m.relaySessionTTL = msg.sessionTTL
 		}
-		return m.enterChat(msg.transport)
+		return m.enterChat(msg)
 	case connectFailedMsg:
 		if m.state != stateConnecting {
 			return m, nil
@@ -472,8 +516,14 @@ func answer(ch chan<- error, err error) {
 }
 
 func (m *model) startConnect() tea.Cmd {
-	m.connCtx, m.connCancel = context.WithCancel(context.Background())
-	vfn := m.mkVerifier(m.connCtx)
+	att := newAttempt()
+	m.att = att
+	vfn := m.mkVerifier(att.ctx)
+	send := m.send
+	// deliver hands a session of the attempt's server to Update.
+	deliver := func(t *kamune.Transport, release chan struct{}) {
+		send(connectedMsg{att: att, transport: t, release: release})
+	}
 
 	switch m.mode {
 	case modeDirectDial:
@@ -485,21 +535,17 @@ func (m *model) startConnect() tea.Cmd {
 			}
 			warn, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
 			m.versionWarn = warn
-			m.send(connectedMsg{transport: t})
+			m.send(connectedMsg{att: att, transport: t})
 		}()
 		return nil
 
 	case modeDirectServe:
-		connCh := make(chan *kamune.Transport, 1)
-		doneCh := make(chan struct{})
-		m.connCh = connCh
-		m.doneCh = doneCh
-		srv, err := serve(m.inputs[0].Value(), m.store, vfn, connCh, doneCh)
+		srv, err := serve(m.inputs[0].Value(), m.store, vfn, deliver)
 		if err != nil {
 			return func() tea.Msg { return connectFailedMsg{err} }
 		}
 		m.srv = srv
-		return waitConn(m.connCtx, connCh, true)
+		return nil
 
 	case modeRelayDial:
 		addr := m.inputs[0].Value()
@@ -512,18 +558,18 @@ func (m *model) startConnect() tea.Cmd {
 			}
 			warn, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
 			m.versionWarn = warn
-			m.send(connectedMsg{transport: t, sessionTTL: sessionTTL})
+			m.send(connectedMsg{
+				att: att, transport: t, sessionTTL: sessionTTL,
+			})
 		}()
 		return nil
 
 	case modeRelayServe:
-		connCh := make(chan *kamune.Transport, 1)
-		doneCh := make(chan struct{})
-		m.connCh = connCh
-		m.doneCh = doneCh
 		addr := m.inputs[0].Value()
 		go func() {
-			srv, token, sessionTTL, err := relayServe(addr, "", m.store, vfn, connCh, doneCh)
+			srv, token, sessionTTL, err := relayServe(
+				addr, "", m.store, vfn, deliver,
+			)
 			if err != nil {
 				m.send(connectFailedMsg{err})
 				return
@@ -531,20 +577,9 @@ func (m *model) startConnect() tea.Cmd {
 			m.srv = srv
 			m.send(relayReadyMsg{token: token, sessionTTL: sessionTTL})
 		}()
-		return waitConn(m.connCtx, connCh, true)
+		return nil
 	}
 	return nil
-}
-
-func waitConn(ctx context.Context, connCh <-chan *kamune.Transport, isServer bool) tea.Cmd {
-	return func() tea.Msg {
-		select {
-		case t := <-connCh:
-			return connectedMsg{transport: t, isServer: isServer}
-		case <-ctx.Done():
-			return nil
-		}
-	}
 }
 
 func tickCountdown() tea.Cmd {
@@ -553,9 +588,10 @@ func tickCountdown() tea.Cmd {
 	})
 }
 
-func (m *model) enterChat(t *kamune.Transport) (tea.Model, tea.Cmd) {
+func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
+	t := msg.transport
 	m.state = stateChat
-	m.sess = newChatSession(t)
+	m.sess = newChatSession(t, msg.release)
 	if m.mode == modeDirectServe && m.srv != nil {
 		// The TUI shows one chat at a time, so stop taking peers: a
 		// handshake that reached the server now would wait for a prompt
@@ -565,6 +601,9 @@ func (m *model) enterChat(t *kamune.Transport) (tea.Model, tea.Cmd) {
 		_ = m.srv.Close()
 		m.srv = nil
 	}
+	// The attempt is over; this stops the verifier of any other peer.
+	m.att.cancel()
+	m.att = nil
 	if m.mode == modeRelayServe && m.relaySessionTTL > 0 {
 		m.sessionExpiry = time.Now().Add(m.relaySessionTTL)
 	}
@@ -796,41 +835,34 @@ func (m *model) handleChatMessage(msg chatMessageMsg) *model {
 }
 
 func (m *model) cancelConnect() {
-	if m.connCancel != nil {
-		m.connCancel()
-		m.connCancel = nil
+	if m.att != nil {
+		m.att.cancel()
+		m.att = nil
 	}
 	if m.srv != nil {
 		m.srv.Close()
 		m.srv = nil
 	}
-	m.connCh = nil
-	m.doneCh = nil
 	m.relayToken = nil
 	m.relaySessionTTL = 0
 	m.sessionExpiry = time.Time{}
 }
 
 func (m *model) cleanup() {
-	if m.connCancel != nil {
-		m.connCancel()
-		m.connCancel = nil
+	if m.att != nil {
+		m.att.cancel()
+		m.att = nil
 	}
 	if m.sess != nil {
 		m.sess.end()
 		m.sess = nil
 	}
-	if m.doneCh != nil {
-		// Only now that the transport has sent its close frame may the
-		// server handler return, which closes the connection.
-		close(m.doneCh)
-		m.doneCh = nil
-	}
 	if m.srv != nil {
+		// A relay listener outlives the attempt: closing it would have
+		// ended the session it took.
 		m.srv.Close()
 		m.srv = nil
 	}
-	m.connCh = nil
 	m.relayToken = nil
 	m.relaySessionTTL = 0
 	m.sessionExpiry = time.Time{}

@@ -263,18 +263,16 @@ func (m *model) updateVerify(msg tea.Msg) (tea.Model, tea.Cmd) {
 		answer(m.verifyReq.responseCh, nil)
 		m.verifyReq = nil
 		m.state = stateConnecting
-		if m.srv != nil {
-			return m, waitConn(m.connCtx, m.connCh, true)
-		}
 		return m, nil
 	}
 
 	err := fmt.Errorf("peer verification rejected")
 	answer(m.verifyReq.responseCh, err)
 	m.verifyReq = nil
-	if m.srv != nil {
+	if m.mode == modeDirectServe || m.mode == modeRelayServe {
+		// A server goes on waiting for a peer.
 		m.state = stateConnecting
-		return m, waitConn(m.connCtx, m.connCh, true)
+		return m, nil
 	}
 	m.state = stateWelcome
 	m.connectErr = err

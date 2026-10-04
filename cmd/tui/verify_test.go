@@ -309,12 +309,13 @@ func TestEnterChat_StopsDirectServer(t *testing.T) {
 	)
 	a.NoError(err)
 	m.srv = srv
+	m.att = newAttempt()
 
 	tr := dialPipe(t, func(t *kamune.Transport) error {
 		_, _, err := t.ReceivePayload()
 		return err
 	})
-	m.Update(connectedMsg{transport: tr, isServer: true})
+	m.Update(connectedMsg{att: m.att, transport: tr})
 	a.Equal(stateChat, m.state)
 	select {
 	case <-l.closed:

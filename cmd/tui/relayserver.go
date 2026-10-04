@@ -11,7 +11,7 @@ import (
 )
 
 func relayServe(relayAddr, password string, store *storage.Storage, verifyFn kamune.RemoteVerifier,
-	connCh chan<- *kamune.Transport, doneCh <-chan struct{},
+	deliver func(t *kamune.Transport, release chan struct{}),
 ) (*kamune.Server, []byte, time.Duration, error) {
 	ctx := context.Background()
 	var relayOpts []relayconn.Option
@@ -24,7 +24,7 @@ func relayServe(relayAddr, password string, store *storage.Storage, verifyFn kam
 		return nil, nil, 0, fmt.Errorf("relay listen: %w", err)
 	}
 
-	srv, err := serve("", store, verifyFn, connCh, doneCh,
+	srv, err := serve("", store, verifyFn, deliver,
 		kamune.ServeWithListener(result.Listener),
 	)
 	if err != nil {

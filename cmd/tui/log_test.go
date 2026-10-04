@@ -90,7 +90,7 @@ func TestHandleChatMessage_ReportsUnsavedMessage(t *testing.T) {
 	m := newTestModel()
 	m.state = stateChat
 	m.sess = newChatSession(
-		dialPipe(t, func(*kamune.Transport) error { return nil }),
+		dialPipe(t, func(*kamune.Transport) error { return nil }), nil,
 	)
 	m.store = openTestStore(t)
 	a.NoError(m.store.Close())
