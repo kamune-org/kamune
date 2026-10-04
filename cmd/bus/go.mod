@@ -11,6 +11,7 @@ require (
 	github.com/xtaci/kcp-go/v5 v5.6.72
 	github.com/zalando/go-keyring v0.2.8
 	go.etcd.io/bbolt v1.5.0
+	golang.org/x/text v0.42.0
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -32,7 +33,6 @@ require (
 	github.com/tjfoc/gmsm v1.4.1 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect

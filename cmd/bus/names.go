@@ -21,10 +21,11 @@ var errNameRequired = errors.New("name is required")
 // checks it with kamune.ValidatePeerName, the rule peers' introductions
 // must pass: at most kamune.MaxPeerNameLength bytes of valid UTF-8, with
 // no control, line-separator or format characters such as bidirectional
-// overrides.
+// overrides. A name that reads as nothing, such as one made only of
+// U+3164 HANGUL FILLER, is no name; see nameSkeleton.
 func validateLabel(name string) (string, error) {
 	name = strings.TrimSpace(name)
-	if name == "" {
+	if nameSkeleton(name) == "" {
 		return "", errNameRequired
 	}
 	if err := kamune.ValidatePeerName(name); err != nil {

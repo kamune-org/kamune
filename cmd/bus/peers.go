@@ -67,8 +67,9 @@ var ErrInvalidPeerKey = errors.New("not a valid Ed25519 public key")
 
 // AddPeer inserts a peer manually. publicKeyB64 is the raw URL-safe
 // base64 (no padding) of the ed25519 public key bytes — the same
-// form returned by fingerprint.Base64. name is optional; when empty,
-// the bus uses the fingerprint pseudonym. The new peer's FirstSeen
+// form returned by fingerprint.Base64. name is optional; when empty, or
+// when it reads as nothing (see nameSkeleton), the bus uses the
+// fingerprint pseudonym. The new peer's FirstSeen
 // and LastSeen are set to now. A key that attest.IsValidPublicKey
 // rejects is refused with ErrInvalidPeerKey.
 func (a *App) AddPeer(publicKeyB64, name string) error {
@@ -79,10 +80,10 @@ func (a *App) AddPeer(publicKeyB64, name string) error {
 	if !attest.IsValidPublicKey(pub) {
 		return ErrInvalidPeerKey
 	}
-	if strings.TrimSpace(name) != "" {
-		if name, err = validateLabel(name); err != nil {
-			return err
-		}
+	if nameSkeleton(name) == "" {
+		name = ""
+	} else if name, err = validateLabel(name); err != nil {
+		return err
 	}
 
 	store := a.store()
@@ -191,7 +192,9 @@ func (a *App) RenamePeer(publicKeyB64, name string) error {
 // claimed name is kept only when the user accepted the peer in a prompt
 // that showed it, and only when no other stored peer has that name. A
 // peer that Auto-Accept admitted, or that claims another peer's name or
-// no name, is saved under the pseudonym of its key.
+// no name, is saved under the pseudonym of its key. A name that reads as
+// nothing, whose nameSkeleton is empty, counts as no name, so two keys
+// cannot both be saved under blank names.
 func (a *App) rememberPeer(
 	store *storage.Storage, peer *storage.Peer, mode VerificationMode,
 	incognito bool,
@@ -206,7 +209,8 @@ func (a *App) rememberPeer(
 	name := strings.TrimSpace(peer.Name)
 	prompted := mode != VerificationModeAutoAccept
 	keyB64 := fingerprint.Base64(peer.PublicKey)
-	if !prompted || name == "" || a.isOtherPeersName(keyB64, name) {
+	if !prompted || nameSkeleton(name) == "" ||
+		a.isOtherPeersName(keyB64, name) {
 		name = fingerprint.Pseudonym(peer.PublicKey)
 	}
 

@@ -19,6 +19,9 @@ func TestIdentifyPeer(t *testing.T) {
 		wantKnown    bool
 		wantMismatch bool
 		wantConflict bool
+		// noClaim is set when the claim reads as nothing, which
+		// identifyPeer reports as no claim.
+		noClaim bool
 	}{
 		{name: "known peer under its own name",
 			claimed: "Bob", stored: "Bob",
@@ -36,6 +39,23 @@ func TestIdentifyPeer(t *testing.T) {
 		{name: "unknown peer claiming a contact's name",
 			claimed: "bob", other: "Bob",
 			wantLabel: "<unknown>", wantConflict: true},
+		{name: "unknown peer claiming a contact's name with a ZWJ",
+			claimed: "Bob\u200d", other: "Bob",
+			wantLabel: "<unknown>", wantConflict: true},
+		{name: "unknown peer claiming a contact's name with a filler",
+			claimed: "Bob\u3164", other: "Bob",
+			wantLabel: "<unknown>", wantConflict: true},
+		{name: "known peer stored under a look-alike name",
+			claimed: "Bob\u200d", stored: "Bob\u200d", other: "Bob",
+			wantLabel: "Bob\u200d", wantKnown: true, wantConflict: true},
+		{name: "known peer whose claim differs only by a ZWJ",
+			claimed: "Bob\u200d", stored: "Bob",
+			wantLabel: "Bob", wantKnown: true},
+		{name: "unknown peer claiming a blank name",
+			claimed: "\u3164", wantLabel: "<unknown>", noClaim: true},
+		{name: "known peer stored under a blank name",
+			claimed: "Bob", stored: "\u2800", wantLabel: "<pseudonym>",
+			wantKnown: true, wantMismatch: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,18 +80,95 @@ func TestIdentifyPeer(t *testing.T) {
 			id := app.identifyPeer(store, peer)
 
 			want := tc.wantLabel
-			if want == "<unknown>" {
+			switch want {
+			case "<unknown>":
 				want = unknownPeerLabel(peer.PublicKey)
 				a.NotContains(want, tc.claimed)
+			case "<pseudonym>":
+				want = fingerprint.Pseudonym(peer.PublicKey)
 			}
 			a.Equal(want, id.Label)
-			a.Equal(tc.claimed, id.ClaimedName)
+			wantClaimed := tc.claimed
+			if tc.noClaim {
+				wantClaimed = ""
+			}
+			a.Equal(wantClaimed, id.ClaimedName)
 			a.Equal(tc.wantKnown, id.Known)
 			a.Equal(tc.wantMismatch, id.NameMismatch)
 			a.Equal(tc.wantConflict, id.NameConflict)
 			a.Equal(fingerprint.Base64(peer.PublicKey), id.KeyB64)
 		})
 	}
+}
+
+// TestSameNameIgnoresInvisibleCodePoints checks that names which read
+// the same compare equal, however they are spelled, and that names which
+// read differently do not.
+func TestSameNameIgnoresInvisibleCodePoints(t *testing.T) {
+	cases := []struct {
+		name string
+		x, y string
+		same bool
+	}{
+		{"identical", "Bob", "Bob", true},
+		{"case", "Bob", "bOB", true},
+		{"surrounding space", " Bob ", "Bob", true},
+		{"inner space runs", "Bob  Smith", "Bob Smith", true},
+		{"zero width joiner", "Bob\u200d", "Bob", true},
+		{"zero width non-joiner inside", "B\u200cob", "Bob", true},
+		{"zero width space", "\u200bBob", "Bob", true},
+		{"word joiner", "Bo\u2060b", "Bob", true},
+		{"soft hyphen", "Bo\u00adb", "Bob", true},
+		{"hangul filler", "Bob\u3164", "Bob", true},
+		{"halfwidth hangul filler", "Bob\uffa0", "Bob", true},
+		{"hangul choseong filler", "\u115fBob", "Bob", true},
+		{"braille blank", "Bob\u2800", "Bob", true},
+		{"combining grapheme joiner", "Bo\u034fb", "Bob", true},
+		{"variation selector", "Bob\ufe0f", "Bob", true},
+		{"ideographic space", "Bob\u3000Smith", "Bob Smith", true},
+		{"no-break space", "Bob\u00a0Smith", "Bob Smith", true},
+		{"full-width letters", "\uff22\uff4f\uff42", "Bob", true},
+		{"styled letters", "\U0001d401\U0001d428\U0001d41b", "Bob", true},
+		{"composed and decomposed", "Jos\u00e9", "Jose\u0301", true},
+		{"full case folding", "Stra\u00dfe", "STRASSE", true},
+		{"other name", "Bob", "Bobby", false},
+		{"space inside a name", "Bob", "B ob", false},
+		{"accent", "Jos\u00e9", "Jose", false},
+		{"invisible only", "\u200d\u3164", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			a.Equal(tc.same, sameName(tc.x, tc.y))
+			a.Equal(tc.same, sameName(tc.y, tc.x))
+		})
+	}
+}
+
+// TestIsOtherPeersNameSeesLookAlikes checks that a name which reads as a
+// stored contact's name counts as that contact's, so a new key cannot
+// pass the name-conflict check by adding invisible code points, and that
+// a name that reads as nothing matches no contact.
+func TestIsOtherPeersNameSeesLookAlikes(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	bob := newTestPubKey(t)
+	a.NoError(app.store().StorePeer(&storage.Peer{
+		Name: "Bob", PublicKey: bob,
+	}))
+	app.refreshPeersCache()
+
+	other := fingerprint.Base64(newTestPubKey(t))
+	for _, claim := range []string{
+		"Bob", "bob", "Bob\u200d", "Bob\u3164", "B\u00adob", "\uff22ob",
+	} {
+		a.True(app.isOtherPeersName(other, claim), "%q", claim)
+	}
+	a.False(app.isOtherPeersName(fingerprint.Base64(bob), "Bob\u200d"),
+		"a peer's own name is not another peer's")
+	a.False(app.isOtherPeersName(other, "Bobby"))
+	a.False(app.isOtherPeersName(other, "\u200d\u3164"))
 }
 
 func TestUnknownPeerLabel(t *testing.T) {

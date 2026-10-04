@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"slices"
 	"sync"
@@ -82,20 +83,23 @@ func TestAddPeer_Success(t *testing.T) {
 	a.NotEmpty(list[0].FingerprintEmoji)
 }
 
+// TestAddPeer_DefaultsNameFromFingerprint checks that a peer added with
+// no name, or with one that reads as nothing, gets its pseudonym.
 func TestAddPeer_DefaultsNameFromFingerprint(t *testing.T) {
-	a := require.New(t)
-	app, cleanup := newTestAppWithStorage(t)
-	defer cleanup()
+	for _, name := range []string{"", "  ", "\u3164", "\u2800\u200b"} {
+		t.Run(fmt.Sprintf("%q", name), func(t *testing.T) {
+			a := require.New(t)
+			app, cleanup := newTestAppWithStorage(t)
+			defer cleanup()
 
-	pub := newTestPubKey(t)
-	b64Key := fingerprint.Base64(pub)
+			pub := newTestPubKey(t)
+			a.NoError(app.AddPeer(fingerprint.Base64(pub), name))
 
-	err := app.AddPeer(b64Key, "")
-	a.NoError(err)
-
-	list := app.ListKnownPeers()
-	a.Len(list, 1)
-	a.NotEmpty(list[0].Name, "name should default to fingerprint pseudonym")
+			list := app.ListKnownPeers()
+			a.Len(list, 1)
+			a.Equal(fingerprint.Pseudonym(pub), list[0].Name)
+		})
+	}
 }
 
 func TestAddPeer_InvalidBase64(t *testing.T) {

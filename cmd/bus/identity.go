@@ -3,6 +3,10 @@ package main
 import (
 	"fmt"
 	"strings"
+	"unicode"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
@@ -38,7 +42,9 @@ type peerIdentity struct {
 }
 
 // identifyPeer describes peer, whose key the handshake authenticated,
-// using the peer store and the cached peer list.
+// using the peer store and the cached peer list. A name that reads as
+// nothing, whose nameSkeleton is empty, counts as no name, whether the
+// peer claims it or it is stored for the key.
 func (a *App) identifyPeer(
 	store *storage.Storage, peer *storage.Peer,
 ) peerIdentity {
@@ -47,13 +53,16 @@ func (a *App) identifyPeer(
 		KeyB64:      fingerprint.Base64(peer.PublicKey),
 		Fingerprint: fingerprint.Numeric(peer.PublicKey),
 	}
+	if nameSkeleton(id.ClaimedName) == "" {
+		id.ClaimedName = ""
+	}
 	if store != nil {
 		if stored, err := store.FindPeer(peer.PublicKey); err == nil {
 			id.Known = true
 			id.Label = sanitizeName(stored.Name)
 		}
 	}
-	if id.Label == "" {
+	if nameSkeleton(id.Label) == "" {
 		if id.Known {
 			id.Label = fingerprint.Pseudonym(peer.PublicKey)
 		} else {
@@ -84,22 +93,66 @@ func unknownPeerLabel(key []byte) string {
 	return "Unknown peer " + digits[:groups*6-1]
 }
 
-// sameName reports whether two peer names read the same, ignoring case
-// and surrounding space.
+// sameName reports whether two peer names read the same: whether their
+// nameSkeleton forms are equal.
 func sameName(x, y string) bool {
-	return strings.EqualFold(strings.TrimSpace(x), strings.TrimSpace(y))
+	return nameSkeleton(x) == nameSkeleton(y)
 }
 
-// isOtherPeersName reports whether name is the stored name of a peer whose
-// key is not keyB64.
+// nameSkeleton returns the form of name that the name-conflict checks
+// compare, so that a peer cannot claim a contact's name by adding code
+// points that show as nothing, or by spelling it with others that read
+// the same. kamune.ValidatePeerName lets some invisible code points
+// through, such as U+200D ZERO WIDTH JOINER, which names in some scripts
+// need, and U+3164 HANGUL FILLER, which shows as a blank.
+//
+// The skeleton drops every code point that blankRune reports, applies
+// Unicode compatibility normalization (NFKC), which maps look-alikes
+// such as full-width or styled letters to the plain ones, folds case,
+// and collapses each run of white space into one space, with none at
+// either end. The checks only compare skeletons; names are stored and
+// shown as they are.
+func nameSkeleton(name string) string {
+	s := norm.NFKC.String(dropBlankRunes(name))
+	s = norm.NFKC.String(cases.Fold().String(s))
+	return strings.Join(strings.Fields(dropBlankRunes(s)), " ")
+}
+
+// dropBlankRunes returns s without the code points that blankRune
+// reports.
+func dropBlankRunes(s string) string {
+	return strings.Map(func(r rune) rune {
+		if blankRune(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// blankRune reports whether r shows as nothing, or as a blank that is
+// not white space: a control or format character (Cf, which holds the
+// zero-width joiners and spaces and the bidirectional controls), a
+// variation selector, another default-ignorable code point, such as
+// U+034F COMBINING GRAPHEME JOINER and the Hangul fillers U+115F, U+1160,
+// U+3164 and U+FFA0, or U+2800 BRAILLE PATTERN BLANK.
+func blankRune(r rune) bool {
+	return r == '\u2800' || unicode.IsControl(r) ||
+		unicode.In(r, unicode.Cf, unicode.Variation_Selector,
+			unicode.Other_Default_Ignorable_Code_Point)
+}
+
+// isOtherPeersName reports whether name reads the same as the stored name
+// of a peer whose key is not keyB64; see sameName. A name that reads as
+// nothing matches no peer.
 func (a *App) isOtherPeersName(keyB64, name string) bool {
-	if strings.TrimSpace(name) == "" {
+	skeleton := nameSkeleton(name)
+	if skeleton == "" {
 		return false
 	}
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	for _, p := range a.peers {
-		if p.PublicKeyBase64 != keyB64 && sameName(p.Name, name) {
+		if p.PublicKeyBase64 != keyB64 && nameSkeleton(p.Name) == skeleton {
 			return true
 		}
 	}

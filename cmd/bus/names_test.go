@@ -67,6 +67,7 @@ func TestValidateLabel(t *testing.T) {
 		{"plain", "Bob", "Bob", nil},
 		{"trimmed", "  Bob  ", "Bob", nil},
 		{"empty", "   ", "", errNameRequired},
+		{"blank", "\u3164\u2800", "", errNameRequired},
 		{"newline", "Bob\nAlice", "", kamune.ErrInvalidPeerName},
 		{"bidi", "\u202EboB", "", kamune.ErrInvalidPeerName},
 		{"too long", strings.Repeat("x", kamune.MaxPeerNameLength+1), "",
