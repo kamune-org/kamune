@@ -118,16 +118,16 @@ func TestWebSocketLargeFrame(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		wss     bool
 		connect func(
 			context.Context, string, *tls.Config, bool,
 		) (kamune.Conn, error)
+		name string
+		wss  bool
 	}{
-		{"dial ws", false, dial},
-		{"dial wss", true, dial},
-		{"listen ws", false, listen},
-		{"listen wss", true, listen},
+		{name: "dial ws", connect: dial},
+		{name: "dial wss", wss: true, connect: dial},
+		{name: "listen ws", connect: listen},
+		{name: "listen wss", wss: true, connect: listen},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

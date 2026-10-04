@@ -203,8 +203,8 @@ func TestBeginRelayTokenExchange_LeavesTheNextFrame(t *testing.T) {
 func TestRelayTokenPending_BothSidesMatch(t *testing.T) {
 	a := require.New(t)
 	type result struct {
-		tokens [tokenPoolSize][32]byte
 		err    error
+		tokens [tokenPoolSize][32]byte
 	}
 	serverRes := make(chan result, 1)
 	tr := dialEstablished(t, func(peer *kamune.Transport) error {

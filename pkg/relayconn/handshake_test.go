@@ -115,12 +115,12 @@ func TestHandshakeRegisteredToken(t *testing.T) {
 	}
 
 	tests := []struct {
+		wantErr error
 		reply   func(*pb.Register) *pb.Frame
 		run     func(context.Context, net.Conn, ...Option) error
-		wantErr error
 		name    string
-		opts    []Option
 		errText string
+		opts    []Option
 	}{
 		{
 			name:  "listen static echoed",
