@@ -210,8 +210,10 @@ session is live or still closing.
 ### Starting a Server
 
 1. Click **Start Server** in the sidebar or press `Ctrl+S`
-2. Enter the listen address (e.g., `:8443`)
-3. Click **Start**
+2. Pick the transport: **TCP**, **UDP** or **Relay** (see
+   [Relay Connections](#relay-connections))
+3. For TCP and UDP, enter the listen address (e.g., `:8443`)
+4. Click **Start Server**
 
 The **Fingerprint** card at the bottom of the sidebar shows your emoji
 fingerprint and, under it, your numeric fingerprint, the one peers compare
@@ -221,8 +223,14 @@ numeric fingerprint.
 ### Connecting to a Peer
 
 1. Click **Connect** in the sidebar or press `Ctrl+N`
-2. Enter the server address (e.g., `192.168.1.100:8443`)
+2. Pick the transport the server uses, then enter the server address (e.g.,
+   `192.168.1.100:8443`) or the relay details
 3. Click **Connect**
+
+**Connection > Import Connection** (`Ctrl+I`) fills the Connect dialog from
+a connection URL that you paste, that a QR code in an image holds, or that
+the camera scans; `Ctrl+Shift+I` imports the URL on the clipboard. See
+[Connection Cards and Imports](#connection-cards-and-imports).
 
 ### Sending Messages
 
@@ -255,6 +263,79 @@ On macOS, use Cmd in place of Ctrl.
 | `Ctrl+0` / `Ctrl+1` / `Ctrl+2` | Verification mode Strict / Quick / Auto-Accept (Connection menu) |
 | `F11` | Toggle full screen (View menu) |
 | `Esc` | Close dialogs and the log panel |
+
+## Relay Connections
+
+A relay pairs two peers that present the same token and forwards their
+traffic unchanged. It sees the token, the relay password and the size and
+timing of the frames. The messages of a session stay encrypted end to end,
+and stay private from the relay as long as each side has checked the other's
+key.
+
+**Server.** Start a server with the **Relay** transport, choose the scheme,
+enter the relay's `host:port` and its password, if it has one, and select a
+saved peer or leave the peer empty. With a peer, the token is static:
+derived from your key and the peer's, so the peer computes it without being
+told, and the server drops sessions from any other key on it. Without a
+peer, the relay assigns a random token, which admits any peer. The **Relay
+Tokens** panel in the sidebar lists the tokens with their expiry and makes
+more, random or static. Removing a token ends its registration with the
+relay; a session that already joined on it carries on.
+
+**Connect.** Connect with the **Relay** transport and the same scheme,
+address and password. Either select the saved peer, which derives the same
+static token and pins the peer's key, or paste a relay token from the
+peer's share card or Relay Tokens panel.
+
+When a relay session drops, the server keeps one of the session's relay
+reconnect tokens registered with the relay for up to 10 minutes, so that the
+side that dialed can resume the session through it.
+
+### Relay Addresses
+
+The Start Server and Connect dialogs take a scheme (`tcp`, `tls`, `ws` or
+`wss`) and the relay's `host:port`. Only `tls` and `wss` authenticate the
+relay. Over `tcp` or `ws`, or with TLS verification skipped, anyone on the
+path can pose as the relay and learn its password and your token. Both
+dialogs start on `tcp`. An imported URL selects `wss` unless it names
+another scheme, and the backend takes a relay address without a scheme as
+`wss`.
+
+For a relay with a self-signed certificate, enter its certificate's SHA-256
+fingerprint in the pin field instead of skipping verification. The relay
+logs it at startup as `sha256` on its `tls certificate` line; it is 64 hex
+digits, with or without the colons that `openssl x509 -noout -fingerprint
+-sha256` prints. Bus then trusts exactly that certificate, whatever **Skip
+TLS verification** says. While verification is skipped without a pin, the
+dialog shows a warning. The dialogs pass the relay address to the backend
+as `scheme://host:port?pin=<sha256>` or `scheme://host:port?insecure=true`;
+a pin on `tcp` or `ws` is an error.
+
+### Connection Cards and Imports
+
+**Connection > Share Connection** (`Ctrl+E`) shows a card with your
+fingerprints, a QR code and a connection URL. For a TCP or UDP server the
+URL is `tcp://` or `udp://` with your address and port, using your first
+non-loopback IPv4 address when the listen address names no host or
+`0.0.0.0`. For a relay server it is `relay://host:port?token=…&scheme=…`,
+plus `&password=1` when the relay needs a password. The card never carries
+the relay password, the pin or a request to skip TLS verification. A relay
+card shows the same random token until a peer uses it, it has less than a
+minute left, or you replace it: **Regenerate Token** revokes the shown token
+first. A P2P server has no card; share the broker address and a signaling
+token, or your address for direct P2P.
+
+An import fills the Connect dialog with the URL's transport, address, scheme
+and token, and for a relay URL clears the selected peer. It never turns on
+**Skip TLS verification** and clears the pin field; when the URL asks to
+skip verification, a warning says that the request was ignored. A missing
+or unknown scheme selects `wss`. **Import from Clipboard** (`Ctrl+Shift+I`)
+also turns off **Hole punching** and **Use broker**, and for a relay URL
+selects the peer key in the URL's `peer` parameter, if it has one. As with
+a saved peer, the dialog then sends no token: Bus derives the static token
+from both keys and pins that key. The camera of **Scan with Camera** turns
+off however the import dialog closes, and on macOS the app asks for camera
+access the first time.
 
 ## Peer Verification
 
@@ -410,6 +491,9 @@ change while a server is starting or a connect is in progress.
   not; a resumed session is not verified again within 24 hours of its first
   handshake
 - Never use **Auto-Accept** mode in production or untrusted networks
+- Use `wss` or `tls` relay addresses, with a pin for a relay whose
+  certificate is self-signed; over `tcp` or `ws`, or with TLS verification
+  skipped, anyone on the path can pose as the relay
 
 ## Testing
 
