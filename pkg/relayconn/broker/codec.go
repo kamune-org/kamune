@@ -309,7 +309,7 @@ func ParseNotifyPayload(plaintext []byte) (NotifyPayload, error) {
 // SealNotify encrypts plaintext with the per-REGISTER AEAD key and AAD. The
 // AEAD key is SHA-256(shared_secret)[:32]; the AAD binds the ciphertext to the
 // broker's ephemeral public key so a captured NOTIFY cannot be re-targeted.
-// Returns a random 12-byte nonce and the sealed bytes (ciphertext || tag).
+// Returns a random 24-byte nonce and the sealed bytes (ciphertext || tag).
 func SealNotify(aeadKey, brokerEphPub, plaintext []byte) (nonce, sealed []byte) {
 	aead, err := chacha20poly1305.NewX(aeadKey)
 	if err != nil {

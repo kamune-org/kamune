@@ -218,9 +218,11 @@ func (*Frame_Auth) isFrame_Kind() {}
 
 type Register struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	Token []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"` // 16 bytes in MODE_JOIN; empty in MODE_CREATE = ask relay
-	// to generate a random token; 16 bytes in MODE_CREATE =
-	// precomputed static token (relay must accept it)
+	Token []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"` // MODE_CREATE: empty asks the relay to generate a
+	// random 16-byte token; otherwise a 32-byte token chosen
+	// by the listener, which the relay validates. MODE_JOIN:
+	// the session's token, 16 bytes if the relay generated
+	// it, 32 bytes if the listener chose it
 	Mode          Register_Mode `protobuf:"varint,2,opt,name=mode,proto3,enum=relayconn.Register_Mode" json:"mode,omitempty"` // required: MODE_CREATE or MODE_JOIN
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -272,7 +274,7 @@ func (x *Register) GetMode() Register_Mode {
 
 type Registered struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
-	Token             []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`                                                     // session token assigned by relay
+	Token             []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`                                                     // token from Register, or relay-generated
 	TtlSeconds        uint32                 `protobuf:"varint,2,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`                        // token validity duration in seconds (0 = unknown)
 	SessionTtlSeconds uint32                 `protobuf:"varint,3,opt,name=session_ttl_seconds,json=sessionTtlSeconds,proto3" json:"session_ttl_seconds,omitempty"` // paired session max lifetime (0 = no limit)
 	unknownFields     protoimpl.UnknownFields

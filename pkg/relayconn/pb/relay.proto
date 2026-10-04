@@ -15,9 +15,11 @@ message Frame {
 }
 
 message Register {
-  bytes token = 1;  // 16 bytes in MODE_JOIN; empty in MODE_CREATE = ask relay
-                    // to generate a random token; 16 bytes in MODE_CREATE =
-                    // precomputed static token (relay must accept it)
+  bytes token = 1;  // MODE_CREATE: empty asks the relay to generate a
+                    // random 16-byte token; otherwise a 32-byte token chosen
+                    // by the listener, which the relay validates. MODE_JOIN:
+                    // the session's token, 16 bytes if the relay generated
+                    // it, 32 bytes if the listener chose it
   Mode  mode  = 2;  // required: MODE_CREATE or MODE_JOIN
 
   enum Mode {
@@ -28,7 +30,7 @@ message Register {
 }
 
 message Registered {
-  bytes  token                = 1;  // session token assigned by relay
+  bytes  token                = 1;  // token from Register, or relay-generated
   uint32 ttl_seconds          = 2;  // token validity duration in seconds (0 = unknown)
   uint32 session_ttl_seconds  = 3;  // paired session max lifetime (0 = no limit)
 }

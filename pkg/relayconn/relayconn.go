@@ -1,20 +1,20 @@
 // Package relayconn is the transport layer for the Kamune relay.
 //
-// The relay forwards opaque, end-to-end-encrypted frames between two
-// peers using a token-based rendezvous. The transport layer is the
+// The relay forwards opaque frames between two peers using a
+// token-based rendezvous. The transport layer is the
 // set of primitives that both sides must agree on for any of that to
 // work: the on-wire framing, the protobuf frame types, and the
 // transport adapters that carry them.
 //
 // # Wire format
 //
-// Every frame exchanged by the relay is a length-prefixed payload:
-// two big-endian bytes of length followed by exactly that many bytes
-// of payload. The length is an unsigned 16-bit integer, so the maximum
-// frame size is 64 KB. Framing implements this format for any
-// io.ReadWriteCloser. The default and recommended maximum is
-// DefaultMaxFrameSize (64 KB); both sides of a connection should use
-// the same value to avoid one side accepting frames the other rejects.
+// On the TCP and TLS transports every frame is a length-prefixed
+// payload: two big-endian bytes of length followed by exactly that many
+// bytes of payload. The length is an unsigned 16-bit integer, so a frame
+// carries at most 65535 bytes. Framing implements this format for any
+// io.ReadWriteCloser and rejects frames longer than its maximum;
+// DefaultMaxFrameSize matches the relay's default max_message_size. The
+// WebSocket transports carry one frame per binary message instead.
 //
 // The protobuf sub-package (relayconn/pb) defines the frame types
 // themselves: Register, Registered, Message, Ping, Pong, and Auth.
@@ -55,10 +55,20 @@
 //
 // # Protocol design
 //
-// The relay is intentionally "blind": it sees only the framing and
-// the protobuf types, not the contents of Message frames. End-to-end
-// encryption happens inside the relay's wire format (via HPKE in
-// pkg/exchange) and is opaque to the transport layer. The transport
-// layer's job is to move bytes; the cryptographic layer's job is to
-// protect them.
+// Each client runs its own HPKE exchange (pkg/exchange) with the relay,
+// and that channel ends at the relay. The relay decrypts every frame on
+// it, so it sees the Auth PSK, the Register token and the size and
+// timing of Message frames. The exchange does not prove the relay's
+// identity: over ws:// or tcp://, or over TLS without certificate
+// verification, an active on-path attacker can pose as the relay. The
+// relay is "blind" only to the payload of Message frames, which it
+// forwards unchanged between the two peers.
+//
+// That payload is the kamune protocol the peers run with each other,
+// and its protection comes from kamune, not from this package. Its
+// opening HPKE exchange is not authenticated either, so the relay, or
+// an attacker posing as it, can read what the peers send before the
+// kamune handshake completes, such as their introductions. The messages
+// of an established session stay confidential as long as each peer
+// checks the other's identity key.
 package relayconn
