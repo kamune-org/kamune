@@ -306,10 +306,6 @@ func decodePeerPubKey(publicKeyB64 string) ([]byte, error) {
 	return pub, nil
 }
 
-func peerKeyMatches(p PeerInfo, pub []byte) bool {
-	return p.PublicKey == fingerprint.Base64(pub)
-}
-
 func parsePeerPubB64ToRaw(s string) (ed25519.PublicKey, error) {
 	pub, err := decodePeerPubKey(s)
 	if err != nil {

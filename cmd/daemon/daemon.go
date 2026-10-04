@@ -117,7 +117,6 @@ type Daemon struct {
 	histSessions  []*historySession
 	server        *kamune.Server
 	serverDone    chan struct{}
-	serverRunning bool
 	pubKey        []byte
 	myName        string
 	dbPath        string

@@ -382,13 +382,6 @@ func registerSent(err error) bool {
 	return strings.Contains(msg, "register")
 }
 
-func dialRelayFunc(relayAddr, tokenHex, password string, insecureSkipVerify bool) (func(string) (kamune.Conn, error), error) {
-	return dialRelayFuncWithSessionTTL(
-		context.Background(), defaultRelayTimeout,
-		relayAddr, tokenHex, password, insecureSkipVerify, nil,
-	)
-}
-
 // dialRelayFuncMultiToken returns a dial function that tries each of the given
 // relay tokens in order, returning the first successful connection. All
 // the tries together end after timeout, or when ctx does, so a stalled
