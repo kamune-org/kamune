@@ -23,14 +23,6 @@ import (
 // codec.go for the constants — duplicated here to avoid a new exported helper).
 var echoRequest = []byte{'K', 'B', 'R', 'K', 0x01, 0x01}
 
-// ErrHolePunchFailed is returned by HolePunch when the peer's KCP packets
-// never arrive on the punch socket within the configured timeout.
-var ErrHolePunchFailed = errors.New("hole-punch failed")
-
-// DefaultHolePunchTimeout is how long HolePunch waits for the peer's first
-// KCP packet before giving up.
-const DefaultHolePunchTimeout = 5 * time.Second
-
 // BrokerClient wraps the kamune broker client with a stable X25519 identity
 // that survives across broker-address changes. The X25519 key is created
 // eagerly (in NewBrokerClient) so the broker sees the same identity for every
@@ -316,33 +308,29 @@ func sendNATKick(ctx context.Context, conn *net.UDPConn, peerAddr *net.UDPAddr) 
 	}
 }
 
-// HolePunch sends a burst of empty UDP packets from punchConn to
-// peerIP:peerPort (a best-effort kick to open the local NAT mapping),
-// then immediately returns a *kcp.UDPSession in client mode bound to the
-// punch socket. The kamune handshake that follows drives the KCP SYN/ACK
-// exchange — if the peer is unreachable, the handshake will fail with a
-// transport-level error.
+// HolePunch returns a *kcp.UDPSession in client mode bound to punchConn
+// that talks to peerIP:peerPort, and sends a burst of NAT kicks to that
+// address from punchConn in the background, to open the local NAT
+// mapping for it on routers that need a few outbound packets first. The
+// burst goes on after HolePunch returns, until it ends or ctx does.
 //
-// The background burst is fire-and-forget: the listener's kcp.Listener
-// drops non-KCP frames, so we don't wait for a reply. The burst is kept
-// for NAT-tickling on routers that need a few outbound packets before
-// creating a mapping.
+// HolePunch does not wait for the peer: the kamune handshake that follows
+// drives the KCP exchange, and fails with a transport-level error if the
+// peer is unreachable. The listener's filter drops the kicks, which are
+// too short for KCP.
 //
 // KCP parameters are 0/0 (no FEC) to match the kamune library's default
 // DialWithUDP and ServeWithUDP.
 func (b *BrokerClient) HolePunch(
 	ctx context.Context, punchConn *net.UDPConn,
-	peerIP net.IP, peerPort uint16, _ time.Duration,
+	peerIP net.IP, peerPort uint16,
 ) (*kcp.UDPSession, error) {
 	peerAddr := &net.UDPAddr{IP: peerIP, Port: int(peerPort)}
-
-	punchCtx, punchCancel := context.WithCancel(ctx)
-	defer punchCancel()
-	go sendNATKick(punchCtx, punchConn, peerAddr)
+	go sendNATKick(ctx, punchConn, peerAddr)
 
 	// Create a kcp client session on the punch socket. The kamune
-	// handshake's first Write triggers the KCP SYN; the listener's
-	// kcp.ServeConn accepts it.
+	// handshake's first Write sends the first KCP segment; the
+	// listener's kcp.ServeConn accepts it.
 	var convid uint32
 	binary.Read(rand.Reader, binary.LittleEndian, &convid)
 	sess, err := kcp.NewConn4(convid, peerAddr, nil, 0, 0, true, punchConn)

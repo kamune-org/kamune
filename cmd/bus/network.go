@@ -778,15 +778,15 @@ func (a *App) ConnectToServer(
 				fmt.Sprintf(":%d", payload.Port))
 
 		kcpSess, err := a.brokerClient.HolePunch(
-			attempt.ctx, punchConn,
-			payload.IP, payload.Port, 0,
+			attempt.ctx, punchConn, payload.IP, payload.Port,
 		)
 		if err != nil {
 			punchConn.Close()
 			return failed("hole_punch_failed",
 				fmt.Errorf("hole-punch: %w", err))
 		}
-		a.addLogEntry("INFO", "Hole-punch succeeded")
+		// The handshake that follows tells whether the punch worked.
+		a.addLogEntry("INFO", "Hole-punch started")
 
 		// Wrap the KCP session in a kamune.Conn and pass it to
 		// NewDialer via DialWithFunc. The kamune handshake runs on

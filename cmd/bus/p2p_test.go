@@ -10,7 +10,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -734,7 +733,7 @@ func TestHolePunch_HappyPath(t *testing.T) {
 	sess, err := bc.HolePunch(
 		context.Background(), punchConn,
 		peerUDP.LocalAddr().(*net.UDPAddr).IP,
-		uint16(peerUDP.LocalAddr().(*net.UDPAddr).Port), 0,
+		uint16(peerUDP.LocalAddr().(*net.UDPAddr).Port),
 	)
 	a.NoError(err)
 	a.NotNil(sess)
@@ -745,15 +744,40 @@ func TestHolePunch_HappyPath(t *testing.T) {
 	a.Equal(peerUDP.LocalAddr().(*net.UDPAddr).String(), sess.RemoteAddr().String())
 }
 
-// TestHolePunch_Failure verifies that ErrHolePunchFailed is a valid
-// sentinel. HolePunch itself no longer fails for unreachable peers
-// (kcp.NewConn2 creates a session immediately); failure is surfaced
-// by the kamune handshake's timeout.
-func TestHolePunch_Failure(t *testing.T) {
+// TestHolePunch_KicksAfterReturn checks that the NAT kicks HolePunch
+// starts go on after it returns: the peer gets more than the first one.
+func TestHolePunch_KicksAfterReturn(t *testing.T) {
 	a := require.New(t)
-	// The sentinel is usable as an error value.
-	a.Error(ErrHolePunchFailed)
-	a.True(errors.Is(fmt.Errorf("%w: timeout", ErrHolePunchFailed), ErrHolePunchFailed))
+	punchConn, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+	)
+	a.NoError(err)
+	defer punchConn.Close()
+	peer, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+	)
+	a.NoError(err)
+	defer peer.Close()
+	peerAddr := peer.LocalAddr().(*net.UDPAddr)
+
+	bc, err := NewBrokerClient()
+	a.NoError(err)
+	sess, err := bc.HolePunch(
+		context.Background(), punchConn, peerAddr.IP,
+		uint16(peerAddr.Port),
+	)
+	a.NoError(err)
+	defer sess.Close()
+
+	a.NoError(peer.SetReadDeadline(time.Now().Add(testWait)))
+	buf := make([]byte, 1500)
+	for kicks := 0; kicks < 2; {
+		n, _, err := peer.ReadFromUDP(buf)
+		a.NoError(err, "the peer got %d kicks", kicks)
+		if n == 1 {
+			kicks++
+		}
+	}
 }
 
 // TestParseEchoResponse verifies the bus's echo response parser handles
