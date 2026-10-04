@@ -225,6 +225,16 @@ func listenRelayTracked(ctx context.Context, a *Daemon, relayAddr, password stri
 	return tracker, tokenHex, ttl, sessionTTL, nil
 }
 
+// defaultRelayScheme is the scheme of a relay address that names none.
+// It is TLS: the relay handshake does not authenticate the relay, so
+// over plain ws or tcp an on-path attacker can pose as the relay and
+// read the relay password and tokens.
+const defaultRelayScheme = "wss"
+
+// parseRelayAddr splits a relay address into its scheme, tcp, ws, wss
+// or tls, defaultRelayScheme when it names none, and its host. A
+// trailing ?insecure=true or ?insecure=false overrides whether the TLS
+// certificate is verified.
 func parseRelayAddr(addr string) (scheme, host string, insecureOverride *bool) {
 	addr = strings.TrimSpace(addr)
 	for _, s := range []string{"tcp://", "ws://", "wss://", "tls://"} {
@@ -236,7 +246,34 @@ func parseRelayAddr(addr string) (scheme, host string, insecureOverride *bool) {
 		}
 	}
 	host, insecureOverride = parseInsecureFlag(addr)
-	return "ws", host, insecureOverride
+	return defaultRelayScheme, host, insecureOverride
+}
+
+// relayAddrWarning returns a warning about relayAddr when its connection
+// does not authenticate the relay, or an empty string. Over plain ws or
+// tcp, or TLS whose certificate is not verified, an on-path attacker can
+// pose as the relay, read the relay password and the tokens, and join
+// or take over relay sessions.
+func relayAddrWarning(relayAddr string) string {
+	scheme, host, insecure := parseRelayAddr(relayAddr)
+	switch {
+	case scheme == "ws" || scheme == "tcp":
+		return "relay " + host + " is reached over " + scheme +
+			" without TLS: an on-path attacker can read the relay " +
+			"password and tokens; use wss:// or tls://"
+	case insecure != nil && *insecure:
+		return "relay " + host + " is reached without verifying its " +
+			"TLS certificate: an on-path attacker can read the relay " +
+			"password and tokens"
+	}
+	return ""
+}
+
+// warnRelayAddr logs the warning of relayAddrWarning, if any.
+func (d *Daemon) warnRelayAddr(relayAddr string) {
+	if w := relayAddrWarning(relayAddr); w != "" {
+		d.addLogEntry("WARN", w)
+	}
 }
 
 func parseInsecureFlag(s string) (host string, override *bool) {

@@ -131,6 +131,7 @@ func (d *Daemon) startServer(
 		if ctx.Err() != nil {
 			return
 		}
+		d.warnRelayAddr(params.RelayAddr)
 		ml := newMultiListener()
 		listener, token, ttl, sessionTTL, err := listenRelayTracked(
 			ctx, d, params.RelayAddr, params.Password, false, nil,
@@ -622,6 +623,7 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	var sessionTTL time.Duration
 	switch params.Transport {
 	case "relay":
+		d.warnRelayAddr(params.RelayAddr)
 		fn, err := dialRelayFuncWithSessionTTL(
 			ctx, d.relayTimeout, params.RelayAddr, params.Token,
 			params.Password, false, &sessionTTL,

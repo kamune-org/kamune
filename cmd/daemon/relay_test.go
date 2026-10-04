@@ -211,3 +211,74 @@ func TestRelayMultiTokenDialHasOneTimeLimit(t *testing.T) {
 	}
 	a.Equal(1, relay.acceptedConns())
 }
+
+func TestParseRelayAddr(t *testing.T) {
+	yes, no := true, false
+	tests := []struct {
+		addr     string
+		scheme   string
+		host     string
+		insecure *bool
+	}{
+		{addr: "relay.example.com:443", scheme: "wss", host: "relay.example.com:443"},
+		{addr: " relay:443 ", scheme: "wss", host: "relay:443"},
+		{addr: "wss://relay:443", scheme: "wss", host: "relay:443"},
+		{addr: "ws://relay:80", scheme: "ws", host: "relay:80"},
+		{addr: "tcp://relay:9000", scheme: "tcp", host: "relay:9000"},
+		{addr: "tls://relay:9443", scheme: "tls", host: "relay:9443"},
+		{
+			addr: "relay:443?insecure=true", scheme: "wss", host: "relay:443",
+			insecure: &yes,
+		},
+		{
+			addr: "tls://relay:9443?insecure=false", scheme: "tls",
+			host: "relay:9443", insecure: &no,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.addr, func(t *testing.T) {
+			a := require.New(t)
+			scheme, host, insecure := parseRelayAddr(tt.addr)
+			a.Equal(tt.scheme, scheme)
+			a.Equal(tt.host, host)
+			a.Equal(tt.insecure, insecure)
+		})
+	}
+}
+
+func TestRelayAddrWarning(t *testing.T) {
+	tests := []struct {
+		addr string
+		warn string
+	}{
+		{addr: "relay:443"},
+		{addr: "wss://relay:443"},
+		{addr: "tls://relay:9443?insecure=false"},
+		{addr: "ws://relay:80", warn: "without TLS"},
+		{addr: "tcp://relay:9000", warn: "without TLS"},
+		{addr: "relay:443?insecure=true", warn: "without verifying"},
+		{addr: "tls://relay:9443?insecure=true", warn: "without verifying"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.addr, func(t *testing.T) {
+			a := require.New(t)
+			got := relayAddrWarning(tt.addr)
+			if tt.warn == "" {
+				a.Empty(got)
+				return
+			}
+			a.Contains(got, tt.warn)
+		})
+	}
+}
+
+func TestPlaintextRelayIsLogged(t *testing.T) {
+	relay := newFakeRelay(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	startRelayServer(t, d, rec, relay)
+	rec.waitFor(t, func(e recordedEvent) bool {
+		msg, _ := e.Data["message"].(string)
+		return e.Evt == EvtLogEntry && e.Data["level"] == "WARN" &&
+			strings.Contains(msg, "without TLS")
+	})
+}

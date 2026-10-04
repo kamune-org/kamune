@@ -7,7 +7,7 @@
   "properties": {
     "addr":              { "type": "string", "description": "Listen address (e.g. \"127.0.0.1:9000\")." },
     "transport":         { "type": "string", "enum": ["tcp", "udp", "relay", "p2p", "direct-p2p"], "description": "Transport protocol. Defaults to \"tcp\"." },
-    "relay_addr":        { "type": "string", "description": "Relay server address. Required when transport is \"relay\"." },
+    "relay_addr":        { "type": "string", "description": "Relay server address, host:port with an optional scheme: wss:// (the default), tls://, ws:// or tcp://. A trailing ?insecure=true turns off TLS certificate checks. ws://, tcp:// and ?insecure=true let an on-path attacker read the relay password and tokens, and are logged as a warning. Required when transport is \"relay\"." },
     "password":          { "type": "string", "description": "Pre-shared key for relay authentication." },
     "name":              { "type": "string", "description": "Server display name. Defaults to a fingerprint pseudonym." },
     "broker_addr":       { "type": "string", "description": "Broker address for P2P relay. Required for transport \"p2p\"." },
