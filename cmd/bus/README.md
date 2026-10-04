@@ -74,14 +74,22 @@ cmd/bus/
 ## Prerequisites
 
 - Go 1.26 or later
-- Node.js 18+ and npm
-- Wails v3 CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.23`
+- Node.js 20 (20.19 or later), 22 (22.12 or later) or 24 and later, with
+  npm: the versions Vite 8 and its Svelte plugin support
+- Wails v3 CLI, at the version in `go.mod`:
+  `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.23`
 
-Platform-specific WebView dependencies (see [Wails docs](https://wails.io/docs/next/installation)):
+Platform-specific WebView dependencies (`wails3 doctor` reports what is
+missing):
 
 - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
 - **Windows**: WebView2 runtime (included in Windows 11)
-- **Linux**: `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev`
+- **Linux**: a C compiler, pkg-config, and the development packages of GTK 4
+  (4.14 or later) and WebKitGTK 6.0, which Wails v3 links unless it is built
+  with the `gtk3` tag; the bus build tasks do not set it. On Debian 13 or
+  Ubuntu 24.04 and later:
+  `sudo apt install build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev`.
+  The built app needs `libgtk-4-1` and `libwebkitgtk-6.0-4` at run time.
 
 ## Development
 
@@ -92,6 +100,11 @@ cd cmd/bus
 wails3 dev
 ```
 
+`wails3 dev` builds the app with `wails3 build DEV=true`, which also
+generates the frontend bindings. It then starts the Vite dev server on port
+9245 (`-port` or `WAILS_VITE_PORT` changes it) and runs the app, rebuilding
+it when Go files change.
+
 ### Build
 
 ```bash
@@ -99,18 +112,46 @@ cd cmd/bus
 wails3 build
 ```
 
-The binary is output to `build/bin/`. On macOS, `wails3 package`
-produces `build/bin/bus.app`.
+`wails3 build` runs `go mod tidy`, installs the frontend packages with npm,
+generates the Go bindings in `frontend/bindings`, builds the frontend into
+`frontend/dist` and compiles a production binary to `build/bin/bus`
+(`build/bin/bus.exe` on Windows). On Linux it builds natively only when gcc
+or clang is installed. On macOS, `wails3 package` produces
+`build/bin/bus.app`.
 
 ### Frontend only (dev server)
 
 ```bash
-cd cmd/bus/frontend
-npm install
+cd cmd/bus
+wails3 task common:generate:bindings
+cd frontend
+npm ci
 npm run dev
 ```
 
-The Vite dev server runs on port 9245. Use `wails3 dev` from `cmd/bus`.
+The frontend imports the Go bindings from `frontend/bindings`, which the
+Wails CLI generates and git does not track, so Vite cannot build or serve
+the page before they exist. The Vite dev server listens on 127.0.0.1:9245.
+Its page calls the Go backend through the Wails runtime, so run the app with
+`wails3 dev` from `cmd/bus`, which starts this server itself. Unlike the
+built page, the dev server's page has no Content Security Policy.
+
+### Release builds
+
+```bash
+make bus    # from the repository root, runs cmd/bus/scripts/build.sh
+```
+
+`scripts/build.sh` builds every platform in `BUS_PLATFORMS` (default
+`darwin/amd64 darwin/arm64 linux/amd64 windows/amd64 windows/arm64`) with
+`wails3 build`, stamped with the version from `VERSION` (or `BUS_VERSION`)
+and the commit hash. When `zip` is installed, it zips each binary with this
+README and the license into `dist/bus/` at the repository root
+(`BUS_DIST_DIR` changes it). The linux/amd64 binary is built in a Docker
+image made from `scripts/Dockerfile.linux`: Debian 13 with the GTK 4 and
+WebKitGTK 6.0 development packages and a Node.js release tarball checked
+against its SHA-256; the frontend packages come from `npm ci`. Without
+Docker, the Linux build is skipped.
 
 ## Usage
 
@@ -196,8 +237,16 @@ When connecting to peers, verification dialogs ensure secure communication:
 
 ```bash
 cd cmd/bus
+mkdir -p frontend/dist && touch frontend/dist/index.html
 go test ./... -v
 ```
+
+`main.go` embeds `frontend/dist`, so the package does not compile until the
+frontend has been built, by `wails3 build` for example; for the tests, the
+placeholder above is enough. On Linux, `go test` also needs the GTK 4 and
+WebKitGTK 6.0 development packages. Without them, run the tests against
+Wails's server mode, which has no native window:
+`CGO_ENABLED=0 go test -tags server ./...`.
 
 ## Related
 
