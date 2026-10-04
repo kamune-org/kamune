@@ -273,6 +273,11 @@ type liveSession struct {
 	reconnectCtx    context.Context
 	reconnectCancel context.CancelFunc
 	keepAliveDone   chan struct{}
+
+	// sendMu guards sendQueue and sending; see Daemon.queueSend.
+	sendMu    sync.Mutex
+	sendQueue []queuedSend
+	sending   bool
 }
 
 // historySession is the daemon's cached view of a past chat session.

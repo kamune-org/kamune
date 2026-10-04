@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-send-message",
   "title": "send_message params",
-  "description": "Sends a message on an established session.",
+  "description": "Sends a message on an established session. The send runs after the command is read, and messages on one session are sent, stored and reported with message_sent in the order of their commands.",
   "type": "object",
   "properties": {
     "session_id":  { "type": "string" },

@@ -63,9 +63,10 @@ func (s *liveSession) stop() *kamune.Transport {
 	return transport
 }
 
-// handleSendMessage sends a message on an existing session and persists it
 // handleSendMessage sends an encrypted message on an active session and adds it
-// to the chat history (mirrors cmd/bus/messaging.go:13-62).
+// to the chat history (mirrors cmd/bus/messaging.go:13-62). The send runs
+// after the command returns, in the order the commands arrived on the
+// session; see queueSend.
 func (d *Daemon) handleSendMessage(cmd Command) {
 	var params SendMessageParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
@@ -102,18 +103,62 @@ func (d *Daemon) handleSendMessage(cmd Command) {
 		return
 	}
 
-	d.wg.Go(func() {
-		defer func() {
-			if msg := recover(); msg != nil {
-				d.emitError(
-					cmd.ID,
-					"goroutine_panic",
-					fmt.Sprintf("goroutine panic: %v", msg),
-				)
-			}
-		}()
-		d.sendMessage(cmd, session, params.SessionID, data)
-	})
+	d.queueSend(session, queuedSend{cmd: cmd, data: data})
+}
+
+// queuedSend is a send_message command waiting to be sent.
+type queuedSend struct {
+	cmd  Command
+	data []byte
+}
+
+// queueSend queues job on session without waiting for it to be sent.
+// One goroutine per session sends the queued messages one at a time, so
+// they go out, are stored and are reported in the order they were
+// queued. The goroutine runs while the queue has messages.
+func (d *Daemon) queueSend(session *liveSession, job queuedSend) {
+	session.sendMu.Lock()
+	session.sendQueue = append(session.sendQueue, job)
+	start := !session.sending
+	session.sending = true
+	session.sendMu.Unlock()
+	if start {
+		d.wg.Go(func() { d.drainSends(session) })
+	}
+}
+
+// drainSends sends the messages queued on session until none is left.
+func (d *Daemon) drainSends(session *liveSession) {
+	for {
+		session.sendMu.Lock()
+		if len(session.sendQueue) == 0 {
+			session.sendQueue = nil
+			session.sending = false
+			session.sendMu.Unlock()
+			return
+		}
+		job := session.sendQueue[0]
+		session.sendQueue[0] = queuedSend{}
+		session.sendQueue = session.sendQueue[1:]
+		session.sendMu.Unlock()
+
+		d.sendQueued(session, job)
+	}
+}
+
+// sendQueued sends job on session and reports a panic as an error on
+// job's command.
+func (d *Daemon) sendQueued(session *liveSession, job queuedSend) {
+	defer func() {
+		if msg := recover(); msg != nil {
+			d.emitError(
+				job.cmd.ID,
+				"goroutine_panic",
+				fmt.Sprintf("goroutine panic: %v", msg),
+			)
+		}
+	}()
+	d.sendMessage(job.cmd, session, session.ID, job.data)
 }
 
 func (d *Daemon) sendMessage(
