@@ -1075,67 +1075,6 @@ func (d *Daemon) finishRelayToken(session *liveSession, payload []byte) {
 	session.mu.Unlock()
 }
 
-// deriveAndStoreRelayTokensForPeers derives relay tokens for existing sessions
-// using static peer keys and stores them.
-func (d *Daemon) deriveAndStoreRelayTokensForPeers(peerPubB64 ...string) error {
-	store := d.store()
-	if store == nil {
-		return errors.New("storage is not available")
-	}
-	myPubPKIX, err := store.PublicKey()
-	if err != nil {
-		return fmt.Errorf("get identity: %w", err)
-	}
-	myPubB64 := fingerprint.Base64(myPubPKIX)
-	myPubRaw, err := parsePeerPubB64ToRaw(myPubB64)
-	if err != nil {
-		return fmt.Errorf("parse local key: %w", err)
-	}
-	for _, pubB64 := range peerPubB64 {
-		if pubB64 == "" {
-			continue
-		}
-		peerPubRaw, err := parsePeerPubB64ToRaw(pubB64)
-		if err != nil {
-			d.addLogEntry("WARN", "Skipping peer (bad key): "+err.Error())
-			continue
-		}
-		t, err := relayconn.TokenFromKeys(myPubRaw, peerPubRaw)
-		if err != nil {
-			d.addLogEntry("WARN",
-				"Derive token for "+pubB64+": "+err.Error())
-			continue
-		}
-		pubPKIX, err := decodePeerPubKey(pubB64)
-		if err != nil {
-			d.addLogEntry("WARN", "Skipping peer (bad key): "+err.Error())
-			continue
-		}
-		sessionID, err := store.FindSessionByPeer(pubPKIX)
-		if err != nil {
-			d.addLogEntry("WARN",
-				"Find session for peer: "+err.Error())
-			continue
-		}
-		if sessionID == "" {
-			continue
-		}
-		existing, err := store.GetMeta(sessionID, storage.RelayTokensKey)
-		if err != nil || existing.Value() == nil {
-			d.addLogEntry("INFO",
-				"Storing derived relay token for session: "+sessionID)
-			if err := store.SetMeta(
-				sessionID,
-				storage.NewByteSlicesMeta(storage.RelayTokensKey, [][]byte{t}),
-			); err != nil {
-				d.addLogEntry("WARN",
-					"Store token for "+sessionID+": "+err.Error())
-			}
-		}
-	}
-	return nil
-}
-
 // makeReconnectFn returns a reconnect function that re-dials with resumption
 // tokens, trying stored ECDH tokens for relay connections (mirrors
 // cmd/bus/network.go:687-723). The function fails with an error wrapping
