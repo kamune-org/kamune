@@ -3,6 +3,7 @@ package relayconn
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -47,7 +48,9 @@ func (l *RelayListener) SessionTTL() time.Duration { return l.sessionTTL }
 func ListenRelay(
 	ctx context.Context, relayAddr string, opts ...Option,
 ) (*ListenResult, error) {
-	ws, err := dialWS(ctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
+	dctx, cancel, opts := startHandshake(ctx, opts)
+	defer cancel()
+	ws, err := dialWS(dctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
 	if err != nil {
 		return nil, fmt.Errorf("relay ws dial: %w", err)
 	}
@@ -69,7 +72,9 @@ func ListenRelayWSS(
 			},
 		},
 	}
-	ws, err := dialWS(ctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
+	dctx, cancel, opts := startHandshake(ctx, opts)
+	defer cancel()
+	ws, err := dialWS(dctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
 	if err != nil {
 		return nil, fmt.Errorf("relay wss dial: %w", err)
 	}
@@ -84,8 +89,10 @@ func ListenRelayWSS(
 func ListenRelayTCP(
 	ctx context.Context, relayAddr string, opts ...Option,
 ) (*ListenResult, error) {
+	dctx, cancel, opts := startHandshake(ctx, opts)
+	defer cancel()
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", relayAddr)
+	conn, err := d.DialContext(dctx, "tcp", relayAddr)
 	if err != nil {
 		return nil, fmt.Errorf("tcp dial: %w", err)
 	}
@@ -96,24 +103,33 @@ func ListenRelayTCP(
 func ListenRelayTLS(
 	ctx context.Context, relayAddr string, tlsCfg *tls.Config, opts ...Option,
 ) (*ListenResult, error) {
-	var d net.Dialer
-	conn, err := tls.DialWithDialer(&d, "tcp", relayAddr, tlsCfg)
+	dctx, cancel, opts := startHandshake(ctx, opts)
+	defer cancel()
+	conn, err := dialTLS(dctx, relayAddr, tlsCfg)
 	if err != nil {
 		return nil, fmt.Errorf("tls dial: %w", err)
 	}
 	adapter := newTLSAdapter(conn)
 	return listenHandshake(ctx, adapter, func() { conn.Close() }, opts...)
 }
+
+// listenHandshake performs the listener side of the relay protocol:
+// HPKE key exchange, optional PSK auth and registration. When ctx ends
+// or the handshake deadline in opts passes first, closeFn closes the
+// socket so that a relay that stops answering cannot block the
+// handshake.
 func listenHandshake(
 	ctx context.Context,
 	rw exchange.ReadWriter,
 	closeFn func(),
 	opts ...Option,
 ) (_ *ListenResult, retErr error) {
-	var o options
-	for _, opt := range opts {
-		opt(&o)
-	}
+	o := buildOptions(opts)
+	hctx, cancel := o.handshakeContext(ctx)
+	defer cancel()
+	stop := context.AfterFunc(hctx, closeFn)
+	defer stop()
+	defer func() { retErr = handshakeErr(hctx, retErr) }()
 
 	ch, err := exchange.Initiate(rw)
 	if err != nil {
@@ -165,15 +181,19 @@ func listenHandshake(
 		return nil, err
 	}
 
+	if !stop() {
+		return nil, errors.New("handshake ended while registering")
+	}
+
 	ttl := time.Duration(reg.GetTtlSeconds()) * time.Second
 	sessionTTL := time.Duration(reg.GetSessionTtlSeconds()) * time.Second
 
-	ctx, cancel := context.WithCancel(ctx)
+	lctx, lcancel := context.WithCancel(ctx)
 	l := &RelayListener{
 		channel:    ch,
 		accept:     make(chan *RelayConn, 1),
-		ctx:        ctx,
-		cancel:     cancel,
+		ctx:        lctx,
+		cancel:     lcancel,
 		closeFn:    func() { ch.Close() },
 		ttl:        ttl,
 		sessionTTL: sessionTTL,

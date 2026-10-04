@@ -3,7 +3,9 @@ package relayconn
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -164,6 +166,135 @@ func TestHandshakeRegisteredToken(t *testing.T) {
 				a.ErrorContains(err, tc.errText)
 			default:
 				a.NoError(err)
+			}
+		})
+	}
+}
+
+// tarpit returns the address of a TCP server that accepts connections
+// and never writes to them.
+func tarpit(t *testing.T) string {
+	t.Helper()
+	a := require.New(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	var (
+		mu    sync.Mutex
+		conns []net.Conn
+	)
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	})
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+		}
+	}()
+	return ln.Addr().String()
+}
+
+// TestHandshakeStalledRelay checks that every helper gives up on a
+// relay that accepts the connection and then never answers, both when
+// the caller's context ends and when only the handshake timeout bounds
+// the handshake.
+func TestHandshakeStalledRelay(t *testing.T) {
+	token := bytes.Repeat([]byte{0x21}, peerTokenSize)
+	insecure := &tls.Config{InsecureSkipVerify: true}
+	short := WithHandshakeTimeout(300 * time.Millisecond)
+
+	tests := []struct {
+		run    func(ctx context.Context, addr string) error
+		name   string
+		ctxEnd bool
+	}{
+		{
+			name: "listen tcp ctx", ctxEnd: true,
+			run: func(ctx context.Context, addr string) error {
+				_, err := ListenRelayTCP(ctx, addr)
+				return err
+			},
+		},
+		{
+			name: "listen tls ctx", ctxEnd: true,
+			run: func(ctx context.Context, addr string) error {
+				_, err := ListenRelayTLS(ctx, addr, insecure)
+				return err
+			},
+		},
+		{
+			name: "dial tls ctx", ctxEnd: true,
+			run: func(ctx context.Context, addr string) error {
+				_, err := DialRelayTLS(ctx, addr, token, insecure)
+				return err
+			},
+		},
+		{
+			name: "listen tcp timeout",
+			run: func(ctx context.Context, addr string) error {
+				_, err := ListenRelayTCP(ctx, addr, short)
+				return err
+			},
+		},
+		{
+			name: "dial tcp timeout",
+			run: func(ctx context.Context, addr string) error {
+				_, err := DialRelayTCP(ctx, addr, token, short)
+				return err
+			},
+		},
+		{
+			name: "listen tls timeout",
+			run: func(ctx context.Context, addr string) error {
+				_, err := ListenRelayTLS(ctx, addr, insecure, short)
+				return err
+			},
+		},
+		{
+			name: "listen ws timeout",
+			run: func(ctx context.Context, addr string) error {
+				_, err := ListenRelay(ctx, addr, short)
+				return err
+			},
+		},
+		{
+			name: "dial ws timeout",
+			run: func(ctx context.Context, addr string) error {
+				_, err := DialRelay(ctx, addr, token, short)
+				return err
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			addr := tarpit(t)
+			ctx := context.Background()
+			if tc.ctxEnd {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(
+					ctx, 300*time.Millisecond,
+				)
+				defer cancel()
+			}
+
+			errCh := make(chan error, 1)
+			go func() { errCh <- tc.run(ctx, addr) }()
+			select {
+			case err := <-errCh:
+				a.ErrorIs(err, context.DeadlineExceeded)
+			case <-time.After(3 * time.Second):
+				a.Fail("handshake with a stalled relay did not return")
 			}
 		})
 	}

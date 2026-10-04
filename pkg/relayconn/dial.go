@@ -3,6 +3,7 @@ package relayconn
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -19,7 +20,9 @@ import (
 func DialRelay(
 	ctx context.Context, relayAddr string, token []byte, opts ...Option,
 ) (*RelayConn, error) {
-	ws, err := dialWS(ctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
+	dctx, cancel, opts := startHandshake(ctx, opts)
+	defer cancel()
+	ws, err := dialWS(dctx, fmt.Sprintf("ws://%s/ws", relayAddr), nil)
 	if err != nil {
 		return nil, fmt.Errorf("relay ws dial: %w", err)
 	}
@@ -44,7 +47,9 @@ func DialRelayWSS(
 			Transport: &http.Transport{TLSClientConfig: tlsCfg},
 		},
 	}
-	ws, err := dialWS(ctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
+	dctx, cancel, opts := startHandshake(ctx, opts)
+	defer cancel()
+	ws, err := dialWS(dctx, fmt.Sprintf("wss://%s/ws", relayAddr), dopts)
 	if err != nil {
 		return nil, fmt.Errorf("relay wss dial: %w", err)
 	}
@@ -60,8 +65,10 @@ func DialRelayWSS(
 func DialRelayTCP(
 	ctx context.Context, relayAddr string, token []byte, opts ...Option,
 ) (*RelayConn, error) {
+	dctx, cancel, opts := startHandshake(ctx, opts)
+	defer cancel()
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", relayAddr)
+	conn, err := d.DialContext(dctx, "tcp", relayAddr)
 	if err != nil {
 		return nil, fmt.Errorf("tcp dial: %w", err)
 	}
@@ -76,8 +83,9 @@ func DialRelayTLS(
 	tlsCfg *tls.Config,
 	opts ...Option,
 ) (*RelayConn, error) {
-	var d net.Dialer
-	conn, err := tls.DialWithDialer(&d, "tcp", relayAddr, tlsCfg)
+	dctx, cancel, opts := startHandshake(ctx, opts)
+	defer cancel()
+	conn, err := dialTLS(dctx, relayAddr, tlsCfg)
 	if err != nil {
 		return nil, fmt.Errorf("tls dial: %w", err)
 	}
@@ -87,7 +95,9 @@ func DialRelayTLS(
 
 // relayHandshake performs the dialer side of the relay protocol:
 // HPKE key exchange, optional PSK auth, registration with token,
-// and starting the readPump goroutine.
+// and starting the readPump goroutine. When ctx ends or the handshake
+// deadline in opts passes first, closeFn closes the socket so that a
+// relay that stops answering cannot block the handshake.
 func relayHandshake(
 	ctx context.Context,
 	rw exchange.ReadWriter,
@@ -95,13 +105,12 @@ func relayHandshake(
 	closeFn func(),
 	opts ...Option,
 ) (_ *RelayConn, retErr error) {
-	stop := context.AfterFunc(ctx, closeFn)
+	o := buildOptions(opts)
+	hctx, cancel := o.handshakeContext(ctx)
+	defer cancel()
+	stop := context.AfterFunc(hctx, closeFn)
 	defer stop()
-
-	var o options
-	for _, opt := range opts {
-		opt(&o)
-	}
+	defer func() { retErr = handshakeErr(hctx, retErr) }()
 
 	ch, err := exchange.Initiate(rw)
 	if err != nil {
@@ -152,6 +161,10 @@ func relayHandshake(
 		return nil, err
 	}
 
+	if !stop() {
+		return nil, errors.New("handshake ended while registering")
+	}
+
 	var mu sync.Mutex
 	rc := newRelayConn(ctx, ch, &mu)
 	rc.ttl = time.Duration(reg.GetTtlSeconds()) * time.Second
@@ -160,4 +173,27 @@ func relayHandshake(
 
 	go rc.readPump()
 	return rc, nil
+}
+
+// dialTLS connects to addr over TLS. Both the TCP connect and the TLS
+// handshake end when ctx does.
+func dialTLS(
+	ctx context.Context, addr string, cfg *tls.Config,
+) (*tls.Conn, error) {
+	d := tls.Dialer{Config: cfg}
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return conn.(*tls.Conn), nil
+}
+
+// handshakeErr reports why a relay handshake failed. When its context
+// ended, closing the socket is what broke the handshake, so the
+// context's error is returned with the I/O error.
+func handshakeErr(hctx context.Context, err error) error {
+	if err == nil || hctx.Err() == nil {
+		return err
+	}
+	return fmt.Errorf("relay handshake: %w: %w", context.Cause(hctx), err)
 }
