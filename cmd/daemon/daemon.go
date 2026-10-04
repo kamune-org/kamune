@@ -265,6 +265,42 @@ func (d *Daemon) emitError(correlationID ID, code string, errMsg string) {
 	d.emit(EvtError, correlationID, MapS{"error": errMsg, "code": code})
 }
 
+// emitErrorReason sends an error event with code, and with reason when it
+// is not empty. reason tells apart failures that share code.
+func (d *Daemon) emitErrorReason(
+	correlationID ID, code, reason, errMsg string,
+) {
+	data := MapS{"error": errMsg, "code": code}
+	if reason != "" {
+		data["reason"] = reason
+	}
+	d.emit(EvtError, correlationID, data)
+}
+
+// storageErrorReasons name the storage errors that a client can act on,
+// for the reason field of a storage_open_failed error.
+var storageErrorReasons = []struct {
+	err    error
+	reason string
+}{
+	{storage.ErrWrongPassphrase, "wrong_passphrase"},
+	{storage.ErrCorruptMetadata, "corrupt_metadata"},
+	{storage.ErrInsecurePermissions, "insecure_permissions"},
+	{storage.ErrUnsupportedFormat, "unsupported_format"},
+	{errPassphraseRequired, "passphrase_required"},
+}
+
+// storageErrorReason returns the reason that storageErrorReasons gives
+// err, or an empty string.
+func storageErrorReason(err error) string {
+	for _, r := range storageErrorReasons {
+		if errors.Is(err, r.err) {
+			return r.reason
+		}
+	}
+	return ""
+}
+
 // addLogEntry logs a message at the given level and stores it in the in-memory
 // log buffer for retrieval via get_logs. Also emits evt_log_entry for live
 // subscribers. A message below the level that set_log_level chose is
@@ -756,7 +792,9 @@ func (d *Daemon) handleOpenStorage(cmd Command) {
 			d.emitError(cmd.ID, "storage_busy", err.Error())
 			return
 		}
-		d.emitError(cmd.ID, "storage_open_failed", fmt.Sprintf("failed to open storage: %v", err))
+		d.emitErrorReason(cmd.ID, "storage_open_failed",
+			storageErrorReason(err),
+			fmt.Sprintf("failed to open storage: %v", err))
 		return
 	}
 
@@ -804,7 +842,9 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 		dbPath, storageUnlock{passphrase: []byte(params.Passphrase)},
 	)
 	if err != nil {
-		d.emitError(cmd.ID, "storage_open_failed", fmt.Sprintf("failed to open storage: %v", err))
+		d.emitErrorReason(cmd.ID, "storage_open_failed",
+			storageErrorReason(err),
+			fmt.Sprintf("failed to open storage: %v", err))
 		return
 	}
 

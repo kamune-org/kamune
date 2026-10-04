@@ -6,7 +6,8 @@
   "type": "object",
   "properties": {
     "error": { "type": "string", "description": "Human-readable error message." },
-    "code":  { "type": "string", "description": "Stable machine-readable error code." }
+    "code":  { "type": "string", "description": "Stable machine-readable error code." },
+    "reason": { "type": "string", "description": "Present on some errors to tell apart failures that share a code. storage_open_failed from open_storage and submit_passphrase carries wrong_passphrase, passphrase_required (no passphrase was given), corrupt_metadata, insecure_permissions (the database file is open to other users and its mode cannot be restricted) or unsupported_format (the database was written by a newer version), and none for other failures." }
   },
   "required": ["error", "code"]
 }
