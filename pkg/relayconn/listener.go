@@ -358,8 +358,12 @@ func (l *RelayListener) deliver(msg *pb.Message) {
 		l.mu.Unlock()
 		l.release()
 	}
-	// The buffer is empty, so this does not block.
-	rc.pushData(data)
+	// The buffer is empty, so this does not block. It fails only when
+	// the listener has been released meanwhile.
+	if !rc.pushData(data) {
+		l.mu.Unlock()
+		return
+	}
 
 	// Publish the connection and queue it for Accept under l.mu, so
 	// Stop sees either both or neither.

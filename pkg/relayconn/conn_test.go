@@ -213,3 +213,16 @@ func TestRelayConnSetDeadlineWakesReader(t *testing.T) {
 		}
 	})
 }
+
+// TestRelayConnPushAfterClose checks that a frame delivered to a
+// connection that has already closed is dropped, not buffered.
+func TestRelayConnPushAfterClose(t *testing.T) {
+	a := require.New(t)
+	rc := newRelayConn(t.Context(), nil, &sync.Mutex{})
+	a.NoError(rc.Close())
+
+	a.False(rc.pushData([]byte("late")))
+	frames, size := rc.buffered()
+	a.Zero(frames)
+	a.Zero(size)
+}

@@ -177,10 +177,15 @@ func (rc *RelayConn) Close() error {
 
 // pushData appends data to the receive buffer. While the buffer is
 // full it blocks until ReadBytes makes room. It returns false, dropping
-// data, if the connection is closed first.
+// data, if the connection is closed first, including when it was
+// already closed on entry.
 func (rc *RelayConn) pushData(data []byte) bool {
 	for {
 		rc.bufMu.Lock()
+		if rc.ctx.Err() != nil {
+			rc.bufMu.Unlock()
+			return false
+		}
 		if rc.hasRoomLocked(len(data)) {
 			rc.buf = append(rc.buf, data)
 			rc.bufBytes += len(data)
