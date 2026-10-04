@@ -20,6 +20,8 @@ func (d *Daemon) loadIdentityAndHistory() {
 		return
 	}
 
+	d.resetStorageState()
+
 	if pubKey, err := store.PublicKey(); err == nil {
 		emoji := strings.Join(fingerprint.Emoji(pubKey), " • ")
 		b64 := fingerprint.Base64(pubKey)
@@ -82,6 +84,32 @@ func (d *Daemon) loadIdentityAndHistory() {
 	}
 
 	d.loadHistorySessions()
+}
+
+// resetStorageState drops the identity, history and settings taken from a
+// storage loaded earlier. The settings return to the values they had before
+// the first storage was loaded, so a storage that lacks a setting does not
+// inherit it from another storage.
+func (d *Daemon) resetStorageState() {
+	d.mu.Lock()
+	if d.baseSettings == nil {
+		d.baseSettings = &storageSettings{
+			fingerprintFmt: d.fingerprintFmt,
+			logLevel:       d.logLevel,
+			verifMode:      d.verifMode,
+			incognito:      d.incognito,
+		}
+	}
+	base := *d.baseSettings
+	d.fingerprintFmt = base.fingerprintFmt
+	d.logLevel = base.logLevel
+	d.verifMode = base.verifMode
+	d.incognito = base.incognito
+	d.pubKey = nil
+	d.myName = ""
+	d.histSessions = make([]*historySession, 0)
+	d.mu.Unlock()
+	applySlogLevel(base.logLevel)
 }
 
 // loadHistorySessions refreshes the history cache from the store.

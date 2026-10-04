@@ -90,6 +90,14 @@ func validFingerprintFormat(format string) bool {
 	}
 }
 
+// storageSettings are the settings that an opened storage may override.
+type storageSettings struct {
+	fingerprintFmt string
+	logLevel       string
+	verifMode      VerificationMode
+	incognito      bool
+}
+
 // Daemon manages the kamune server and client connections
 type Daemon struct {
 	ctx    context.Context
@@ -107,6 +115,11 @@ type Daemon struct {
 	pendingDBPath string
 	verifMode     VerificationMode
 	incognito     bool
+
+	// baseSettings holds the settings in effect before the first storage
+	// was loaded. Every storage that is loaded starts from them, so no
+	// setting carries over from a storage opened earlier.
+	baseSettings *storageSettings
 
 	verifMu        sync.Mutex
 	verifRequests  map[int64]*pendingVerification
