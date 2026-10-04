@@ -254,6 +254,9 @@ type relayToken struct {
 	// peer's name alongside the token).
 	PeerPubB64 string `json:"peerPubB64,omitempty"`
 	listener   kamune.Listener
+	// share is set on a token made for a share card; see
+	// App.shareRelayToken.
+	share bool
 }
 
 type ShareInfo struct {
@@ -299,6 +302,8 @@ type App struct {
 	// the relay server that relayListeners serves. They write to the
 	// database, so StopServer waits for them.
 	relayResumes *sync.WaitGroup
+	// shareMu serializes App.shareRelayToken.
+	shareMu sync.Mutex
 	// relayResumeWindow overrides defaultRelayResumeWindow when positive.
 	relayResumeWindow time.Duration
 	// relayResumeWait, when set, replaces the wait between the relay

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -357,7 +358,7 @@ func (a *App) StartServer(
 		tokens := a.getRelayTokens()
 		a.emitEvent("relay-token", firstToken)
 		a.emitEvent("relay-tokens", tokens)
-		a.addLogEntry("INFO", "Relay token: "+firstToken)
+		a.addLogEntry("INFO", "Relay token: "+logToken(firstToken))
 	}
 
 	started = true
@@ -551,10 +552,13 @@ func (a *App) GenerateRelayToken(peerPubB64 string) (string, error) {
 		return "", err
 	}
 
-	a.addLogEntry("INFO", "Generated relay token: "+rt.Token)
+	a.addLogEntry("INFO", "Generated relay token: "+logToken(rt.Token))
 	return rt.Token, nil
 }
 
+// RemoveRelayToken takes token off the relay token list and ends its
+// registration with the relay. A peer that already joined it keeps its
+// session.
 func (a *App) RemoveRelayToken(token string) error {
 	a.mu.Lock()
 	idx := -1
@@ -577,11 +581,18 @@ func (a *App) RemoveRelayToken(token string) error {
 	}
 	a.mu.Unlock()
 
-	rt.listener.Close()
+	// Stop rather than Close: the relay drops the token, while a peer
+	// that already joined it, in the moments before a used token leaves
+	// the list, keeps its session.
+	if s, ok := rt.listener.(interface{ Stop() }); ok {
+		s.Stop()
+	} else {
+		_ = rt.listener.Close()
+	}
 
 	tokens := a.getRelayTokens()
 	a.emitEvent("relay-tokens", tokens)
-	a.addLogEntry("INFO", "Removed relay token: "+token)
+	a.addLogEntry("INFO", "Removed relay token: "+logToken(token))
 	return nil
 }
 
@@ -1294,29 +1305,10 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 		urlStr = fmt.Sprintf("%s://%s:%s", transport, address, port)
 
 	case "relay":
-		listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, relayPassword, false, nil)
+		token, err := a.shareRelayToken()
 		if err != nil {
-			return nil, fmt.Errorf("generate relay token: %w", err)
+			return nil, err
 		}
-
-		a.mu.Lock()
-		if a.relayListeners == nil {
-			a.mu.Unlock()
-			listener.Close()
-			return nil, fmt.Errorf("server stopped while generating token")
-		}
-		if err := a.relayListeners.Add(listener); err != nil {
-			a.mu.Unlock()
-			listener.Close()
-			return nil, fmt.Errorf("add listener: %w", err)
-		}
-		a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), Mode: "random", listener: listener})
-		tokens := make([]relayToken, len(a.relayTokens))
-		copy(tokens, a.relayTokens)
-		a.mu.Unlock()
-
-		a.emitEvent("relay-tokens", tokens)
-		a.addLogEntry("INFO", "Share card: generated relay token: "+token)
 
 		scheme, host, _ := parseRelayAddr(relayAddr)
 		relayInfo = &ShareRelayInfo{
@@ -1345,6 +1337,61 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 		FingerprintHex:   hexFP,
 		RelayInfo:        relayInfo,
 	}, nil
+}
+
+// shareTokenMinLife is how long a share card's relay token must still be
+// valid for a new card to show it again; one closer to its expiry is
+// replaced.
+const shareTokenMinLife = time.Minute
+
+// shareRelayToken returns the relay token for a share card: the last one
+// made for a share card while no peer has used it, its listener is up and
+// it is valid for shareTokenMinLife yet, or else a new one. Opening the
+// card again does not give out another token; to replace one, remove it
+// first.
+func (a *App) shareRelayToken() (string, error) {
+	// Cards opened at once must not each make a token.
+	a.shareMu.Lock()
+	defer a.shareMu.Unlock()
+	a.mu.RLock()
+	for _, rt := range slices.Backward(a.relayTokens) {
+		if rt.share && !rt.Consumed && relayListenerUp(rt.listener) &&
+			time.Until(rt.ExpiresAt) > shareTokenMinLife {
+			a.mu.RUnlock()
+			return rt.Token, nil
+		}
+	}
+	a.mu.RUnlock()
+
+	target, ok := a.currentRelayTarget()
+	if !ok {
+		return "", fmt.Errorf("server is not running")
+	}
+	rt, err := a.addRelayToken(
+		a.lifeCtx(), target, nil,
+		relayToken{Mode: "random", share: true}, "",
+	)
+	if err != nil {
+		return "", fmt.Errorf("generate relay token: %w", err)
+	}
+	a.addLogEntry("INFO",
+		"Share card: generated relay token "+logToken(rt.Token))
+	return rt.Token, nil
+}
+
+// relayListenerUp reports whether the relay listener l is still
+// registered: its tracker has not ended.
+func relayListenerUp(l kamune.Listener) bool {
+	tt, ok := l.(*tokenTracker)
+	if !ok {
+		return false
+	}
+	select {
+	case <-tt.Dead():
+		return false
+	default:
+		return true
+	}
 }
 
 func parseServerAddr(addr string) (host, port string, autoDetect bool) {

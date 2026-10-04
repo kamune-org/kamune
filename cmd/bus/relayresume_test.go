@@ -3,12 +3,17 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"net"
 	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/relayconn"
 )
@@ -438,5 +443,134 @@ func TestClosedRelaySessionDropsReconnectTokens(t *testing.T) {
 			}, testWait, 10*time.Millisecond)
 			a.Len(relay.created(), registered)
 		})
+	}
+}
+
+// TestShareInfoReusesRelayToken checks that opening the share card again
+// shows the same relay token without registering another, and that a
+// new one is made once that token is removed or used.
+func TestShareInfoReusesRelayToken(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	server := newRelayTestApp(t)
+	startRelayTestServer(t, server, relay)
+
+	first, err := server.GetShareInfo()
+	a.NoError(err)
+	again, err := server.GetShareInfo()
+	a.NoError(err)
+	a.Equal(first.RelayInfo.Token, again.RelayInfo.Token)
+	a.Len(server.GetRelayTokens(), 2, "the startup and the card's token")
+
+	a.NoError(server.RemoveRelayToken(first.RelayInfo.Token))
+	fresh, err := server.GetShareInfo()
+	a.NoError(err)
+	a.NotEqual(first.RelayInfo.Token, fresh.RelayInfo.Token)
+
+	server.markRelayTokenConsumed(fresh.RelayInfo.Token)
+	next, err := server.GetShareInfo()
+	a.NoError(err)
+	a.NotEqual(fresh.RelayInfo.Token, next.RelayInfo.Token)
+	relay.waitCreated(t, 4)
+}
+
+// TestShareInfoMakesOneTokenAtOnce checks that share cards opened at the
+// same time get one relay token between them.
+func TestShareInfoMakesOneTokenAtOnce(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	server := newRelayTestApp(t)
+	startRelayTestServer(t, server, relay)
+
+	const cards = 4
+	tokens := make([]string, cards)
+	errs := make([]error, cards)
+	var wg sync.WaitGroup
+	for i := range cards {
+		wg.Go(func() {
+			info, err := server.GetShareInfo()
+			errs[i] = err
+			if err == nil {
+				tokens[i] = info.RelayInfo.Token
+			}
+		})
+	}
+	wg.Wait()
+	for i := range cards {
+		a.NoError(errs[i])
+		a.Equal(tokens[0], tokens[i])
+	}
+	a.Len(server.GetRelayTokens(), 2, "the startup and the card's token")
+}
+
+// stopCloseListener is a relay listener that records whether it was
+// stopped or closed.
+type stopCloseListener struct {
+	stopped, closed atomic.Bool
+}
+
+func (l *stopCloseListener) Accept() (kamune.Conn, error) {
+	return nil, net.ErrClosed
+}
+
+func (l *stopCloseListener) Close() error {
+	l.closed.Store(true)
+	return nil
+}
+
+func (l *stopCloseListener) Stop() { l.stopped.Store(true) }
+
+// TestRemoveUsedRelayTokenKeepsSession checks that removing a relay token
+// that a peer has just used, such as by regenerating the share card,
+// stops its listener rather than closing it, which would end the peer's
+// session.
+func TestRemoveUsedRelayTokenKeepsSession(t *testing.T) {
+	a := require.New(t)
+	app := &App{}
+	inner := &stopCloseListener{}
+	tt := &tokenTracker{
+		Listener: inner, token: "ab", app: app, dead: make(chan struct{}),
+	}
+	tt.consumed.Store(true)
+	app.relayTokens = []relayToken{{Token: "ab", Consumed: true, listener: tt}}
+
+	a.NoError(app.RemoveRelayToken("ab"))
+	a.True(inner.stopped.Load())
+	a.False(inner.closed.Load())
+	a.Empty(app.GetRelayTokens())
+}
+
+// TestRelayTokenLogsNameOnlyAPrefix checks that the log names relay
+// tokens by a short prefix, whether it reports them generated, shared,
+// removed or expired.
+func TestRelayTokenLogsNameOnlyAPrefix(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	relay.ttl.Store(1)
+	server := newRelayTestApp(t)
+	events := recordEvents(server)
+	first := startRelayTestServer(t, server, relay)
+	generated, err := server.GenerateRelayToken("")
+	a.NoError(err)
+	card, err := server.GetShareInfo()
+	a.NoError(err)
+	a.NoError(server.RemoveRelayToken(generated))
+	logs := func() []string {
+		var out []string
+		for _, d := range events.named("log-entry") {
+			out = append(out, d[0].(LogEntryInfo).Message)
+		}
+		return out
+	}
+	a.Eventually(func() bool {
+		return slices.ContainsFunc(logs(), func(msg string) bool {
+			return strings.Contains(msg, "Relay token expired")
+		})
+	}, testWait, 10*time.Millisecond)
+
+	for _, msg := range logs() {
+		for _, tok := range []string{first, generated, card.RelayInfo.Token} {
+			a.NotContains(msg, tok)
+		}
 	}
 }

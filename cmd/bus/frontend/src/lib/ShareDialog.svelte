@@ -6,6 +6,9 @@
   let address = $state(data.address || '');
   let url = $state(data.url);
   let qrCanvas = $state();
+  // revoked holds why no new token came after Regenerate revoked the
+  // card's token, or is empty while the card's token works.
+  let revoked = $state('');
 
   function buildURL() {
     if (data.transport === 'relay') {
@@ -20,6 +23,8 @@
     if (!qrCanvas || !url) return;
     const ctx = qrCanvas.getContext('2d');
     if (ctx) ctx.clearRect(0, 0, qrCanvas.width, qrCanvas.height);
+    // A revoked token must not stay scannable.
+    if (revoked) return;
     const s = getComputedStyle(document.documentElement);
     const qrDark = s.getPropertyValue('--export-qr-dark').trim() || '#1a1d27';
     toCanvas(qrCanvas, url, {
@@ -37,14 +42,23 @@
   });
 
   async function handleRefresh() {
-    const { GetShareInfo } = await import('./go.js');
+    const { GetShareInfo, RemoveRelayToken } = await import('./go.js');
+    // Revoke the token on the card first: the server would show it
+    // again while it is still valid.
+    const old = data.relayInfo?.token;
+    if (old) {
+      await RemoveRelayToken(old).catch(() => {});
+    }
     try {
       const info = await GetShareInfo();
+      revoked = '';
       data = info;
       address = info.address || '';
       url = info.url;
     } catch (e) {
-      console.error('Failed to refresh share info:', e);
+      // The old token no longer works: the card must not offer it.
+      revoked = String(e?.message || e);
+      onToast?.({ message: 'No new token: ' + revoked, type: 'error' });
     }
   }
 
@@ -285,8 +299,13 @@
           </div>
           <div class="detail-row">
             <span class="detail-label">Token</span>
-            <span class="detail-value mono token-value">{data.relayInfo.token}</span>
+            <span class="detail-value mono token-value" class:revoked>{data.relayInfo.token}</span>
           </div>
+          {#if revoked}
+            <p class="refresh-error">
+              This token was revoked and no new one could be made: {revoked}
+            </p>
+          {/if}
           {#if data.relayInfo.password}
             <div class="detail-row">
               <span class="detail-label">Password</span>
@@ -310,10 +329,12 @@
     </div>
 
     <div class="dialog-actions share-actions">
-      <button class="dialog-btn dialog-btn-secondary" onclick={handleSavePNG}
+      <button class="dialog-btn dialog-btn-secondary" onclick={handleSavePNG} disabled={!!revoked}
         >Save Card as PNG</button
       >
-      <button class="dialog-btn dialog-btn-primary" onclick={handleCopyURL}>Copy URL</button>
+      <button class="dialog-btn dialog-btn-primary" onclick={handleCopyURL} disabled={!!revoked}
+        >Copy URL</button
+      >
     </div>
   </div>
 </div>
@@ -475,6 +496,22 @@
 
   .token-value {
     font-size: 11px;
+  }
+
+  .token-value.revoked {
+    text-decoration: line-through;
+    opacity: 0.6;
+  }
+
+  .refresh-error {
+    margin: 0 0 8px;
+    font-size: 11px;
+    color: var(--danger);
+  }
+
+  .dialog-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .detail-input {

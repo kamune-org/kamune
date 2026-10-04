@@ -119,7 +119,8 @@ func (a *App) GenerateP2PToken(brokerAddr, peerPubB64 string) (string, error) {
 	a.mu.Unlock()
 
 	a.emitEvent("p2p-tokens", snapshot)
-	a.addLogEntry("INFO", "Generated "+mode+" p2p token: "+hexToken)
+	a.addLogEntry("INFO",
+		"Generated "+mode+" p2p token: "+logToken(hexToken))
 	return hexToken, nil
 }
 
@@ -196,7 +197,7 @@ func (a *App) RemoveP2PToken(token string) error {
 		l.UnregisterToken(raw)
 	}
 	a.emitEvent("p2p-tokens", snapshot)
-	a.addLogEntry("INFO", "Removed p2p token: "+token)
+	a.addLogEntry("INFO", "Removed p2p token: "+logToken(token))
 	return nil
 }
 

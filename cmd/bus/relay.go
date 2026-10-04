@@ -33,6 +33,16 @@ func wrapRelayError(scheme, host string, password bool, err error) error {
 	return fmt.Errorf("%s://%s%s: %w", scheme, host, hint, err)
 }
 
+// logToken names the relay or broker token tok in the log by its first
+// eight hex characters: whoever reads a full token in the log could use
+// it.
+func logToken(tok string) string {
+	if len(tok) <= 8 {
+		return tok
+	}
+	return tok[:8] + "…"
+}
+
 type tokenTracker struct {
 	kamune.Listener
 	token      string
@@ -184,7 +194,7 @@ func startExpiryTimer(t *tokenTracker) {
 	}
 	timer := time.AfterFunc(t.ttl, func() {
 		t.Stop()
-		t.app.addLogEntry("INFO", "Relay token expired: "+t.token)
+		t.app.addLogEntry("INFO", "Relay token expired: "+logToken(t.token))
 	})
 	t.expiryFn = func() { timer.Stop() }
 }
