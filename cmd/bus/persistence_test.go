@@ -1,12 +1,15 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -149,4 +152,65 @@ func TestDeleteHistoryOfLiveSession(t *testing.T) {
 	a.NoError(err)
 	a.NotContains(sessions, id)
 	a.Empty(app.GetHistorySessions())
+}
+
+// TestDeleteWhenCompactionFails deletes a history and a peer while the
+// database cannot be compacted, because its directory cannot be written,
+// and checks that the record is deleted all the same and the user is
+// warned that the deleted data may stay in the file.
+func TestDeleteWhenCompactionFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to a read-only directory")
+	}
+	cases := []struct {
+		name   string
+		delete func(t *testing.T, app *App)
+	}{
+		{"history", func(t *testing.T, app *App) {
+			a := require.New(t)
+			peer := newTestPeer(t, "carol")
+			a.NoError(app.store().StorePeer(peer))
+			a.NoError(app.store().CreateSession("S1", peer.PublicKey))
+			app.RefreshHistory()
+			a.Len(app.GetHistorySessions(), 1)
+
+			a.NoError(app.DeleteHistorySession("S1"))
+			a.Empty(app.GetHistorySessions())
+			sessions, err := app.store().ListSessions()
+			a.NoError(err)
+			a.Empty(sessions)
+		}},
+		{"peer", func(t *testing.T, app *App) {
+			a := require.New(t)
+			key := fingerprint.Base64(newTestPubKey(t))
+			a.NoError(app.AddPeer(key, "carol"))
+
+			a.NoError(app.DeletePeer(key))
+			a.Empty(app.ListKnownPeers())
+			peers, err := app.store().ListPeers()
+			a.NoError(err)
+			a.Empty(peers)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, path := newUnlockedApp(t, "secret")
+			var toasts []string
+			app.onEvent = func(name string, data ...any) {
+				if name == "toast" {
+					toasts = append(toasts, data[0].(string))
+				}
+			}
+			dir := filepath.Dir(path)
+			a.NoError(os.Chmod(dir, 0o500))
+			t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+			tc.delete(t, app)
+
+			a.Len(toasts, 1)
+			a.Contains(toasts[0], "may stay in the database file")
+			a.NotNil(app.store(), "the database stays open")
+		})
+	}
 }

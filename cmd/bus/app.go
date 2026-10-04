@@ -2016,7 +2016,9 @@ func (a *App) RenameHistorySession(sessionID string, name string) error {
 
 // DeleteHistorySession deletes the stored history of sessionID. A
 // session that is still live is closed first, as DisconnectSession does:
-// a message stored for it afterwards would bring its history back.
+// a message stored for it afterwards would bring its history back. When
+// the database cannot be compacted afterwards, the history is deleted
+// all the same and the user is warned; see deletedButNotCompacted.
 func (a *App) DeleteHistorySession(sessionID string) error {
 	store := a.store()
 	if store == nil {
@@ -2033,8 +2035,9 @@ func (a *App) DeleteHistorySession(sessionID string) error {
 		_ = a.DisconnectSession(sessionID)
 	}
 
+	// A failed compaction leaves the session deleted all the same.
 	err := store.DeleteSession(sessionID)
-	if err != nil {
+	if err != nil && !errors.Is(err, storage.ErrCompactFailed) {
 		a.addLogEntry("ERROR", "Failed to delete history session: "+err.Error())
 		return err
 	}
@@ -2050,7 +2053,65 @@ func (a *App) DeleteHistorySession(sessionID string) error {
 
 	a.emitEvent("history-updated")
 	a.addLogEntry("INFO", "Deleted history session: "+sessionID)
+	if err != nil {
+		a.deletedButNotCompacted(store, "The session's history", err)
+	}
 	return nil
+}
+
+// deletedButNotCompacted reports a deletion whose record is gone, but
+// after which the database could not be compacted
+// (storage.ErrCompactFailed): the deleted data may stay in the database
+// file until a later compaction succeeds. what names the deleted data.
+// When the file was replaced but could not be opened again
+// (storage.ErrReopen), store is no longer usable; see dropUnusableStore.
+func (a *App) deletedButNotCompacted(
+	store *storage.Storage, what string, err error,
+) {
+	a.addLogEntry("WARN", what+" was deleted, but the database could "+
+		"not be compacted, so the deleted data may stay in its file: "+
+		err.Error())
+	a.emitEvent("toast", what+" was deleted, but the deleted data may "+
+		"stay in the database file until it is compacted", "warning")
+	if errors.Is(err, storage.ErrReopen) {
+		a.dropUnusableStore(store, err)
+	}
+}
+
+// dropUnusableStore closes store, the open database, after a rewrite of
+// its file left it unusable (storage.ErrReopen), so that the user unlocks
+// the database again, as at startup. While the server, a dial or a
+// session still holds store, it is left to them, and the user is told to
+// restart.
+func (a *App) dropUnusableStore(store *storage.Storage, cause error) {
+	a.unlockMu.Lock()
+	defer a.unlockMu.Unlock()
+
+	a.mu.Lock()
+	if a.storageBusyLocked() {
+		a.mu.Unlock()
+		a.addLogEntry("ERROR", "The database must be opened again, "+
+			"but it is in use: "+cause.Error())
+		a.emitEvent("toast", "The database must be opened again: stop "+
+			"the server, close every session and restart Bus", "error")
+		return
+	}
+	a.storeMu.Lock()
+	if a.db == store {
+		a.db = nil
+	}
+	a.storeMu.Unlock()
+	a.pubKey = nil
+	a.storageReady = false
+	a.mu.Unlock()
+
+	if err := store.Close(); err != nil {
+		a.addLogEntry("WARN", "Failed to close database: "+err.Error())
+	}
+	msg := "The database must be opened again: " + cause.Error()
+	a.setStorageError(msg)
+	a.addLogEntry("ERROR", msg)
+	a.emitEvent("storage-locked")
 }
 
 func (a *App) RefreshHistory() {

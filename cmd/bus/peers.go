@@ -116,7 +116,9 @@ func (a *App) AddPeer(publicKeyB64, name string) error {
 }
 
 // DeletePeer removes a peer from the storage layer by base64 public
-// key and refreshes the cache.
+// key and refreshes the cache. When the database cannot be compacted
+// afterwards, the peer is deleted all the same and the user is warned;
+// see deletedButNotCompacted.
 func (a *App) DeletePeer(publicKeyB64 string) error {
 	pub, err := decodePeerPubKey(publicKeyB64)
 	if err != nil {
@@ -128,12 +130,17 @@ func (a *App) DeletePeer(publicKeyB64 string) error {
 		return errors.New("storage is not available")
 	}
 
-	if err := store.DeletePeer(pub); err != nil {
+	// A failed compaction leaves the peer deleted all the same.
+	err = store.DeletePeer(pub)
+	if err != nil && !errors.Is(err, storage.ErrCompactFailed) {
 		return fmt.Errorf("delete peer: %w", err)
 	}
 
 	a.refreshPeersCache()
 	a.addLogEntry("INFO", "Deleted peer: "+publicKeyB64)
+	if err != nil {
+		a.deletedButNotCompacted(store, "The peer", err)
+	}
 	return nil
 }
 
