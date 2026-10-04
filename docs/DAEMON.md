@@ -670,17 +670,19 @@ When the connection of a dialed session drops, the daemon tries to resume the
 session, except for p2p and incognito sessions, and reports that with
 `session_reconnecting` and, once it works, `session_reconnected` (see
 [Push Events](#push-events)). When the session ends, `session_closed` fires
-and the history is refreshed (`history_updated`). A session that ends on a
-receive error other than a dropped connection or a peer close is closed with a
-close frame, so the peer sees it end and it cannot be resumed.
+and the history is refreshed (`history_updated`). See
+[Connection Drops](#connection-drops) for how the daemon tells a dropped
+connection from the other ways a session ends.
 
 #### `close_session`
 
 Closes a live session, incoming or dialed, for good. The daemon sends the peer
 a close frame and deletes the session's resumption and relay reconnect tokens,
 so neither side can resume it, and waits up to 5 seconds for the session's
-receive loop to end. Fails with `session_not_found` for a session that is not
-live.
+receive loop to end. The kamune library waits at most 5 seconds for the close
+frame to go out; a peer that does not get it sees the connection drop, and
+cannot resume the session either. Fails with `session_not_found` for a session
+that is not live.
 
 **Input:**
 
@@ -2282,9 +2284,11 @@ the session's peer to be a stored peer and its resumption state to be in the
 storage, so a session with a peer accepted in Auto-Accept mode gets one
 attempt that fails. A resume that the server rejects, missing storage or
 resumption state, or a panic ends the attempts at once; other errors are
-retried. Through a relay, each attempt tries the session's stored reconnect
-tokens in turn, all within 15 seconds. When the attempts end without success,
-`session_closed` follows.
+retried. A server that refuses resumption, as one started in incognito mode
+does, closes the connection instead of rejecting the resume, so the attempts
+go on until they run out. Through a relay, each attempt tries the session's
+stored reconnect tokens in turn, all within 15 seconds. When the attempts end
+without success, `session_closed` follows.
 
 ```json
 {
@@ -2669,6 +2673,44 @@ peers that connected to the server.
 `request_id` is distinct from the command `id` correlation field because
 verification is triggered by the protocol, not by a client command. Match
 `verify_response.request_id` to the `request_id` in the `verify_peer` event.
+
+## Connection Drops
+
+The daemon reads the messages of each live session until the kamune library
+returns an error, and the error decides what becomes of the session:
+
+- `ErrPeerDisconnected`: the peer closed the session with a close frame. The
+  session ends with `session_closed` and is not resumed.
+- `ErrConnClosed`: the connection dropped. The peer or the network closed or
+  reset it, it broke off in the middle of a frame, or the daemon closed it
+  after missed keepalives. A dialed session tries to resume, except for p2p
+  and incognito sessions (see [`session_reconnecting`](#session_reconnecting)),
+  and ends with `session_closed` when it cannot. A session on the server ends
+  with `session_closed`, and its peer may resume it (see
+  [Verification Flow](#verification-flow)): the resumed session is reported
+  with a new `session_started` for the same `session_id`, without
+  `verify_peer`. For a session that came through the relay, the server
+  registers a reconnect listener for the peer to resume through (see
+  [`list_relay_tokens`](#list_relay_tokens)).
+- Any other error, such as a message that fails decryption or its signature
+  check, comes out of sequence or carries a route that is not allowed at that
+  point: the kamune library closes the connection and deletes the session's
+  resumption tokens, and the session ends with `session_closed`. The peer sees
+  the connection drop, and an attempt to resume the session fails. After an
+  error that leaves the connection open, such as a message with an unknown
+  route, the daemon closes a dialed session with a close frame, which deletes
+  its tokens too, while a session on the server has its connection closed
+  without one, so that its peer sees a dropped connection.
+
+The daemon pings the peer of each live session every 30 seconds. When 3 pings
+in a row cannot be sent or get no answer within 10 seconds, it closes the
+connection without a close frame, which keeps the session resumable, and the
+session goes on as after any dropped connection.
+
+The kamune library waits at most 5 seconds for a close frame to go out. When
+the peer's close frame does not get through in that time, the daemon sees a
+dropped connection, and the session cannot be resumed, since the peer deleted
+its resumption tokens when it closed the session.
 
 ## Transports
 
