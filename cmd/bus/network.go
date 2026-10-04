@@ -127,8 +127,15 @@ func (a *App) StartServer(
 			a.addLogEntry("INFO", "Server start cancelled")
 			return "", "", fmt.Errorf("cancelled")
 		}
+		// A peer was chosen: a token it cannot derive must not be
+		// replaced by a random one it never learns.
+		relayStaticToken, err := a.deriveP2PToken(peerPubB64)
+		if err != nil {
+			a.addLogEntry("ERROR",
+				"Failed to derive the relay token: "+err.Error())
+			return "", "", fmt.Errorf("derive static relay token: %w", err)
+		}
 		ml := newMultiListener()
-		relayStaticToken, _ := a.deriveP2PToken(peerPubB64)
 		relayMode := "random"
 		if len(relayStaticToken) > 0 {
 			relayMode = "static"
@@ -512,7 +519,10 @@ func (a *App) GenerateRelayToken(peerPubB64 string) (string, error) {
 	password := a.relayPassword
 	a.mu.Unlock()
 
-	staticToken, _ := a.deriveP2PToken(peerPubB64)
+	staticToken, err := a.deriveP2PToken(peerPubB64)
+	if err != nil {
+		return "", fmt.Errorf("derive static relay token: %w", err)
+	}
 	listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, password, false, staticToken)
 	if err != nil {
 		return "", err

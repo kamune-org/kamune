@@ -342,3 +342,48 @@ func TestServerHandlerDropsSessionOfStoppedServer(t *testing.T) {
 	a.ErrorIs(err, kamune.ErrPeerDisconnected)
 	a.Empty(app.GetSessions())
 }
+
+// TestRelayRejectsBadPeerKey checks that a relay server or relay token
+// asked for a peer whose key cannot be used fails, instead of falling
+// back to a random token that peer never learns.
+func TestRelayRejectsBadPeerKey(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.New(t).NoError(err)
+	// Nothing listens on the relay address any more, so a fallback to a
+	// random token would fail differently.
+	relayAddr := "tcp://" + ln.Addr().String()
+	require.New(t).NoError(ln.Close())
+	badKey := fingerprint.Base64(make([]byte, 44))
+
+	cases := []struct {
+		name string
+		run  func(app *App) error
+	}{
+		{name: "start server", run: func(app *App) error {
+			_, _, err := app.StartServer(
+				"", "relay", relayAddr, "", "", "", badKey,
+				false, false, "",
+			)
+			return err
+		}},
+		{name: "generate token", run: func(app *App) error {
+			app.mu.Lock()
+			app.relayListeners = newMultiListener()
+			app.relayAddr = relayAddr
+			app.mu.Unlock()
+			_, err := app.GenerateRelayToken(badKey)
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, cleanup := newTestAppWithStorage(t)
+			defer cleanup()
+			err := tc.run(app)
+			a.ErrorContains(err, "derive static relay token")
+			a.Empty(app.GetRelayTokens())
+			a.False(app.GetServerStatus().Running)
+		})
+	}
+}
