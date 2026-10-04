@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"bufio"
 	"crypto/subtle"
 	"io"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"sync/atomic"
@@ -38,9 +40,11 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-	})
+	conn, err := websocket.Accept(
+		clearingHijacker{w}, r, &websocket.AcceptOptions{
+			InsecureSkipVerify: true,
+		},
+	)
 	if err != nil {
 		slog.Error("ws: failed to accept", slog.Any("error", err))
 		return
@@ -83,6 +87,22 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	handleRelayConn(h.service.Hub(), adapter, remoteAddr, cancelHandshake)
+}
+
+// clearingHijacker clears the deadlines of the connection it hijacks. The
+// server's read and write timeouts are for the HTTP request, and
+// http.Hijacker leaves any it set on the connection to the caller. Once
+// upgraded, the handshake timer bounds registration and the session
+// manager's TTLs bound the session.
+type clearingHijacker struct{ http.ResponseWriter }
+
+func (w clearingHijacker) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, brw, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err != nil {
+		return nil, nil, err
+	}
+	_ = conn.SetDeadline(time.Time{})
+	return conn, brw, nil
 }
 
 func handleRelayConn(

@@ -1,23 +1,30 @@
 package run
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
+	"github.com/kamune-org/kamune/cmd/relay/internal/handlers"
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
 )
 
@@ -286,4 +293,151 @@ func TestNewBrokerLimits(t *testing.T) {
 		)
 		a.True(limits.Echo(victim), "echo has its own budget")
 	})
+}
+
+// TestNewWSServer_OneRequestPerConnection checks that a ws or wss server
+// closes a connection after its first response instead of holding it open
+// for further requests, and that wss does not negotiate HTTP/2.
+func TestNewWSServer_OneRequestPerConnection(t *testing.T) {
+	for _, useTLS := range []bool{false, true} {
+		name := "ws"
+		if useTLS {
+			name = "wss"
+		}
+		t.Run(name, func(t *testing.T) {
+			a := require.New(t)
+			var tlsCfg *tls.Config
+			if useTLS {
+				var err error
+				tlsCfg, err = loadTLSConfig("", "")
+				a.NoError(err)
+			}
+			srv := newWSServer("127.0.0.1:0", http.NewServeMux(), tlsCfg)
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			a.NoError(err)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				if useTLS {
+					_ = srv.ServeTLS(ln, "", "")
+				} else {
+					_ = srv.Serve(ln)
+				}
+			}()
+			t.Cleanup(func() {
+				_ = srv.Close()
+				<-done
+			})
+
+			var conn net.Conn
+			if useTLS {
+				tc, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{
+					InsecureSkipVerify: true,
+					NextProtos:         []string{"h2", "http/1.1"},
+				})
+				a.NoError(err)
+				a.Equal(
+					"http/1.1", tc.ConnectionState().NegotiatedProtocol,
+				)
+				conn = tc
+			} else {
+				conn, err = net.Dial("tcp", ln.Addr().String())
+				a.NoError(err)
+			}
+			defer conn.Close()
+
+			_, err = io.WriteString(
+				conn, "GET / HTTP/1.1\r\nHost: relay\r\n\r\n",
+			)
+			a.NoError(err)
+			a.NoError(conn.SetReadDeadline(time.Now().Add(10 * time.Second)))
+			br := bufio.NewReader(conn)
+			resp, err := http.ReadResponse(br, nil)
+			a.NoError(err)
+			a.Equal(http.StatusNotFound, resp.StatusCode)
+			a.True(resp.Close, "response must announce the close")
+			_, err = io.Copy(io.Discard, resp.Body)
+			a.NoError(err)
+			a.NoError(resp.Body.Close())
+
+			_, err = br.ReadByte()
+			a.Error(err)
+			var ne net.Error
+			a.False(
+				errors.As(err, &ne) && ne.Timeout(),
+				"server must close the connection, not leave it idle",
+			)
+		})
+	}
+}
+
+// TestNewWSServer_Upgrades checks that /ws still upgrades on a ws and a wss
+// server with keep-alives off: the 101 response must keep its
+// Connection: Upgrade header.
+func TestNewWSServer_Upgrades(t *testing.T) {
+	for _, useTLS := range []bool{false, true} {
+		name := "ws"
+		if useTLS {
+			name = "wss"
+		}
+		t.Run(name, func(t *testing.T) {
+			a := require.New(t)
+			cfg := config.Config{
+				WS: config.WS{Enabled: true, Address: "127.0.0.1:0"},
+				Session: config.Session{
+					TokenTTL:              time.Minute,
+					MaxConcurrentSessions: 10,
+					HandshakeTimeout:      time.Minute,
+				},
+				RateLimit: config.RateLimit{Disabled: true},
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			srvc, err := services.New(ctx, cfg)
+			a.NoError(err)
+			mux := http.NewServeMux()
+			mux.HandleFunc("/ws", handlers.New(srvc, cfg).WebSocketHandler)
+
+			var tlsCfg *tls.Config
+			if useTLS {
+				tlsCfg, err = loadTLSConfig("", "")
+				a.NoError(err)
+			}
+			srv := newWSServer("127.0.0.1:0", mux, tlsCfg)
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			a.NoError(err)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				if useTLS {
+					_ = srv.ServeTLS(ln, "", "")
+				} else {
+					_ = srv.Serve(ln)
+				}
+			}()
+			t.Cleanup(func() {
+				_ = srv.Close()
+				<-done
+			})
+
+			scheme := "ws"
+			opts := &websocket.DialOptions{}
+			if useTLS {
+				scheme = "wss"
+				opts.HTTPClient = &http.Client{Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				}}
+			}
+			dialCtx, dialCancel := context.WithTimeout(
+				context.Background(), 10*time.Second,
+			)
+			defer dialCancel()
+			conn, resp, err := websocket.Dial(
+				dialCtx, scheme+"://"+ln.Addr().String()+"/ws", opts,
+			)
+			a.NoError(err)
+			a.Equal(http.StatusSwitchingProtocols, resp.StatusCode)
+			a.NoError(conn.Close(websocket.StatusNormalClosure, ""))
+		})
+	}
 }

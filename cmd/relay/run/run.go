@@ -106,11 +106,7 @@ func Run(cfgPath string) error {
 		wsMux.HandleFunc("/ws", h.WebSocketHandler)
 	}
 	if cfg.WS.Enabled {
-		wsServer := &http.Server{
-			Addr:              cfg.WS.Address,
-			Handler:           wsMux,
-			ReadHeaderTimeout: 30 * time.Second,
-		}
+		wsServer := newWSServer(cfg.WS.Address, wsMux, nil)
 		httpServers = append(httpServers, wsServer)
 		wg.Go(func() {
 			slog.Info(
@@ -147,12 +143,8 @@ func Run(cfgPath string) error {
 
 	// 5. WSS server (WebSocket over TLS).
 	if cfg.WSS.Enabled {
-		wssServer := &http.Server{
-			Addr:              cfg.WSS.Address,
-			Handler:           wsMux, // shared with [ws] when both are enabled
-			ReadHeaderTimeout: 30 * time.Second,
-			TLSConfig:         wssCfg,
-		}
+		// wsMux is shared with [ws] when both are enabled.
+		wssServer := newWSServer(cfg.WSS.Address, wsMux, wssCfg)
 		httpServers = append(httpServers, wssServer)
 		wg.Go(func() {
 			slog.Info(
@@ -221,6 +213,46 @@ func Run(cfgPath string) error {
 		}
 		return nil
 	}
+}
+
+const (
+	// wsRequestTimeout bounds reading a ws or wss request and writing a
+	// response that is not an upgrade. WebSocketHandler clears both
+	// deadlines on a connection it upgrades, so a session is not cut
+	// short.
+	wsRequestTimeout = 30 * time.Second
+	// wsIdleTimeout closes an idle connection. Keep-alives are off, so it
+	// is only a backstop.
+	wsIdleTimeout = 60 * time.Second
+	// wsMaxHeaderBytes caps a request's header block. An upgrade request,
+	// even with a CDN's headers added, is a few KiB.
+	wsMaxHeaderBytes = 32 << 10
+)
+
+// newWSServer returns the HTTP server for a [ws] listener, or for a [wss]
+// listener when tlsCfg is set. Its one route, /ws, hijacks the connection
+// on success, so a connection only ever needs one request: keep-alives are
+// off and HTTP/2 is not offered. Without that, a client could keep a
+// socket open indefinitely after a response, or send request after
+// request on it.
+func newWSServer(
+	addr string, handler http.Handler, tlsCfg *tls.Config,
+) *http.Server {
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		TLSConfig:         tlsCfg,
+		Protocols:         &protocols,
+		ReadHeaderTimeout: wsRequestTimeout,
+		ReadTimeout:       wsRequestTimeout,
+		WriteTimeout:      wsRequestTimeout,
+		IdleTimeout:       wsIdleTimeout,
+		MaxHeaderBytes:    wsMaxHeaderBytes,
+	}
+	srv.SetKeepAlivesEnabled(false)
+	return srv
 }
 
 // newBroker binds the UDP broker with its own rate limiters.

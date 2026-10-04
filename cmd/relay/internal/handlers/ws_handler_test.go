@@ -4,13 +4,17 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
+	"github.com/kamune-org/kamune/pkg/exchange"
+	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 )
 
 // testConfig returns a config that passes Validate, with the rate limiter
@@ -98,5 +102,55 @@ func TestWebSocketHandler_RateLimitsIPv6ByPrefix(t *testing.T) {
 		} else {
 			a.NotEqual(http.StatusTooManyRequests, w.Code, tc.client)
 		}
+	}
+}
+
+// dialWS opens a WebSocket to the /ws route of srv.
+func dialWS(t *testing.T, srv *httptest.Server) *wsAdapter {
+	t.Helper()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, url, nil)
+	require.New(t).NoError(err)
+	t.Cleanup(func() { _ = conn.CloseNow() })
+	return &wsAdapter{conn: conn}
+}
+
+func TestWebSocketHandler_UpgradeOutlivesRequestTimeouts(t *testing.T) {
+	a := require.New(t)
+	h := newTestHandler(t, testConfig(0))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", h.WebSocketHandler)
+	srv := httptest.NewUnstartedServer(mux)
+	// The request timeouts must not carry over to the hijacked socket.
+	const timeout = 300 * time.Millisecond
+	srv.Config.ReadTimeout = timeout
+	srv.Config.WriteTimeout = timeout
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	listener, reg := dialClientRW(
+		t, dialWS(t, srv), "", "", pb.Register_MODE_CREATE, nil,
+	)
+	dialer, _ := dialClientRW(
+		t, dialWS(t, srv), "", "", pb.Register_MODE_JOIN, reg.GetToken(),
+	)
+
+	time.Sleep(3 * timeout)
+
+	for _, dir := range []struct {
+		from, to *exchange.Channel
+		data     string
+	}{
+		{from: listener, to: dialer, data: "listener to dialer"},
+		{from: dialer, to: listener, data: "dialer to listener"},
+	} {
+		sendFrame(t, dir.from, &pb.Frame{
+			Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: []byte(dir.data)}},
+		})
+		got := readFrame(t, dir.to)
+		a.NotNil(got.GetMsg(), "expected Msg frame, got %T", got.Kind)
+		a.Equal(dir.data, string(got.GetMsg().GetData()))
 	}
 }

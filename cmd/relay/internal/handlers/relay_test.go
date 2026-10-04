@@ -39,9 +39,24 @@ func dialClient(
 	token []byte,
 ) (*exchange.Channel, *pb.Registered) {
 	t.Helper()
+	return dialClientRW(
+		t, newRawTCPAdapter(conn, 0), password, authPassword, mode, token,
+	)
+}
+
+// dialClientRW is dialClient over any framed transport, such as a
+// client-side wsAdapter.
+func dialClientRW(
+	t *testing.T,
+	rw exchange.ReadWriter,
+	password, authPassword string,
+	mode pb.Register_Mode,
+	token []byte,
+) (*exchange.Channel, *pb.Registered) {
+	t.Helper()
 	a := require.New(t)
 
-	ch, err := exchange.Initiate(newRawTCPAdapter(conn, 0))
+	ch, err := exchange.Initiate(rw)
 	a.NoError(err, "Initiate")
 
 	if password != "" {
