@@ -804,3 +804,128 @@ func TestNewBoltDB_RestrictsFileMode(t *testing.T) {
 	a.NoError(db.Close())
 	a.Equal(os.FileMode(0o600), mode())
 }
+
+// TestNewBoltDB_WrongPassphrase checks that reopening a store with any
+// passphrase but its own fails with ErrWrongPassphrase, leaves the key
+// wrapping as it was, and that the right passphrase then opens the data.
+func TestNewBoltDB_WrongPassphrase(t *testing.T) {
+	pass := []byte("test-pass")
+	tests := []struct {
+		name string
+		pass []byte
+	}{
+		{"other", []byte("wrong")},
+		{"empty", nil},
+		{"prefix", pass[:len(pass)-1]},
+		{"extra byte", append(slices.Clone(pass), 0)},
+		{"other case", []byte("Test-pass")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			path := filepath.Join(t.TempDir(), "db")
+			db, err := NewBoltDB(path, pass)
+			a.NoError(err)
+			a.NoError(db.Command(func(b Namespace) error {
+				return b.Sub([]byte(PeersNamespace)).PutEncrypted(
+					[]byte("peer"), []byte("peer-record"),
+				)
+			}))
+			a.NoError(db.Close())
+			before := readMeta(t, path)
+
+			db, err = NewBoltDB(path, tc.pass)
+			a.ErrorIs(err, ErrWrongPassphrase)
+			a.Nil(db)
+			a.Equal(before, readMeta(t, path))
+
+			db, err = NewBoltDB(path, pass)
+			a.NoError(err)
+			defer db.Close()
+			a.NoError(db.Query(func(b Namespace) error {
+				v, err := b.Sub([]byte(PeersNamespace)).
+					GetEncrypted([]byte("peer"))
+				a.NoError(err)
+				a.Equal([]byte("peer-record"), v)
+				return nil
+			}))
+		})
+	}
+}
+
+// TestGetEncrypted_TamperedValue checks that a stored value changed by
+// someone without the data key does not decrypt: GetEncrypted fails and
+// IterateEncrypted skips it, while the values next to it still open.
+func TestGetEncrypted_TamperedValue(t *testing.T) {
+	tests := []struct {
+		tamper func([]byte) []byte
+		name   string
+	}{
+		{name: "nonce bit", tamper: func(v []byte) []byte {
+			v[0] ^= 1
+			return v
+		}},
+		{name: "ciphertext bit", tamper: func(v []byte) []byte {
+			v[24] ^= 0x80
+			return v
+		}},
+		{name: "tag bit", tamper: func(v []byte) []byte {
+			v[len(v)-1] ^= 1
+			return v
+		}},
+		{name: "truncated", tamper: func(v []byte) []byte {
+			return v[:len(v)-1]
+		}},
+		{name: "shorter than a nonce", tamper: func(v []byte) []byte {
+			return v[:10]
+		}},
+		{name: "extended", tamper: func(v []byte) []byte {
+			return append(v, 0)
+		}},
+	}
+	bucket := []string{PeersNamespace}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			path := filepath.Join(t.TempDir(), "db")
+			pass := []byte("pass")
+			db, err := NewBoltDB(path, pass)
+			a.NoError(err)
+			a.NoError(db.Command(func(b Namespace) error {
+				peers := b.Sub([]byte(PeersNamespace))
+				for _, k := range []string{"alice", "bob"} {
+					err := peers.PutEncrypted([]byte(k), []byte(k+"-record"))
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			}))
+			a.NoError(db.Close())
+
+			raw := rawValue(t, path, "alice", bucket...)
+			putRaw(t, path, bucket, "alice", tc.tamper(raw))
+
+			db, err = NewBoltDB(path, pass)
+			a.NoError(err)
+			defer db.Close()
+			a.NoError(db.Query(func(b Namespace) error {
+				peers := b.Sub([]byte(PeersNamespace))
+				_, err := peers.GetEncrypted([]byte("alice"))
+				a.Error(err)
+				a.NotErrorIs(err, ErrMissingItem)
+
+				var keys []string
+				for k := range peers.IterateEncrypted() {
+					keys = append(keys, string(k))
+				}
+				a.Equal([]string{"bob"}, keys)
+
+				v, err := peers.GetEncrypted([]byte("bob"))
+				a.NoError(err)
+				a.Equal([]byte("bob-record"), v)
+				return nil
+			}))
+		})
+	}
+}
