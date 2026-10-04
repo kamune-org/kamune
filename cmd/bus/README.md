@@ -612,6 +612,9 @@ empties the panel and the buffer.
 - Use `wss` or `tls` relay addresses, with a pin for a relay whose
   certificate is self-signed; over `tcp` or `ws`, or with TLS verification
   skipped, anyone on the path can pose as the relay
+- The built window page has a Content Security Policy that runs only the
+  app's own scripts and fetches only from its own origin, so text from a
+  peer cannot run as script even if it reaches an HTML sink
 
 ## Testing
 
