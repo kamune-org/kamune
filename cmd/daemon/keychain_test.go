@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -94,6 +95,66 @@ func TestKeychainIgnoresBaseNameAccount(t *testing.T) {
 	a.NoError(err)
 	a.Equal("legacy", secret)
 	secret, err = keyring.Get(keychainService, keychainAccount(other))
+	a.NoError(err)
+	a.Equal("other", secret)
+}
+
+// has_keychain_passphrase and clear_keychain_passphrase act on the
+// passphrase saved for the open storage's full path, and on no other.
+func TestKeychainHasAndClear(t *testing.T) {
+	a := require.New(t)
+	d := newQuietDaemon()
+	rec := newEventRecorder()
+	d.output = json.NewEncoder(rec)
+	t.Cleanup(func() {
+		d.cancel()
+		d.closeStore()
+	})
+	dir := t.TempDir()
+	path := filepath.Join(dir, "kamune.db")
+	other := filepath.Join(dir, "other", "kamune.db")
+	a.NoError(keyring.Set(keychainService, keychainAccount(other), "other"))
+	t.Cleanup(func() {
+		_ = keyring.Delete(keychainService, keychainAccount(path))
+		_ = keyring.Delete(keychainService, keychainAccount(other))
+	})
+
+	n := 0
+	run := func(handle func(Command), params any) recordedEvent {
+		t.Helper()
+		n++
+		id := ID("cmd-" + strconv.Itoa(n))
+		handle(Command{ID: id, Params: mustJSON(params)})
+		return rec.waitFor(t, func(e recordedEvent) bool { return e.ID == id })
+	}
+	has := func() any {
+		t.Helper()
+		evt := run(d.handleHasKeychainPassphrase, nil)
+		a.Equal(EvtResponse, evt.Evt)
+		return evt.Data["has_passphrase"]
+	}
+
+	t.Setenv("KAMUNE_DB_PASSPHRASE", "")
+	err := d.openStorage(OpenStorageParams{StoragePath: path})
+	a.ErrorIs(err, errPassphraseRequired)
+	evt := run(d.handleSubmitPassphrase, SubmitPassphraseParams{
+		Passphrase: "secret", SaveToKeychain: true,
+	})
+	a.Equal(EvtResponse, evt.Evt, "submit_passphrase: %v", evt.Data)
+	a.Equal(true, has())
+
+	evt = run(d.handleClearKeychainPassphrase, nil)
+	a.Equal(EvtResponse, evt.Evt, "clear: %v", evt.Data)
+	a.Equal("cleared", evt.Data["status"])
+	_, err = keyring.Get(keychainService, keychainAccount(path))
+	a.ErrorIs(err, keyring.ErrNotFound)
+	a.Equal(false, has())
+
+	evt = run(d.handleClearKeychainPassphrase, nil)
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("keychain_clear_failed", evt.Data["code"])
+
+	secret, err := keyring.Get(keychainService, keychainAccount(other))
 	a.NoError(err)
 	a.Equal("other", secret)
 }
