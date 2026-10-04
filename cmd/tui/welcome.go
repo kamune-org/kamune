@@ -230,36 +230,46 @@ func (m *model) viewConnecting() string {
 	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
 }
 
+// updateVerify answers the verify prompt. Only "y" or "Y" accepts the
+// peer; "n", "N" and Esc reject it. Every other key, Enter among them, is
+// ignored, so an Enter meant for the previous screen cannot approve a key
+// the user has not looked at.
 func (m *model) updateVerify(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyEnter, tea.KeyRunes:
-			ch := msg.String()
-			if msg.Type == tea.KeyEnter || ch == "y" || ch == "Y" {
-				m.verifyReq.responseCh <- nil
-				m.verifyReq = nil
-				if m.srv != nil {
-					m.state = stateConnecting
-					return m, waitConn(m.connCtx, m.connCh, true)
-				}
-				m.state = stateConnecting
-				return m, nil
-			}
-			if msg.Type == tea.KeyEsc || ch == "n" || ch == "N" {
-				err := fmt.Errorf("peer verification rejected")
-				m.verifyReq.responseCh <- err
-				m.verifyReq = nil
-				if m.srv != nil {
-					m.state = stateConnecting
-					return m, waitConn(m.connCtx, m.connCh, true)
-				}
-				m.state = stateWelcome
-				m.connectErr = err
-				return m, nil
-			}
-		}
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
 	}
+	var accept bool
+	switch {
+	case key.Type == tea.KeyEsc:
+	case key.Type != tea.KeyRunes || key.Paste:
+		return m, nil
+	case key.String() == "y" || key.String() == "Y":
+		accept = true
+	case key.String() == "n" || key.String() == "N":
+	default:
+		return m, nil
+	}
+
+	if accept {
+		m.verifyReq.responseCh <- nil
+		m.verifyReq = nil
+		m.state = stateConnecting
+		if m.srv != nil {
+			return m, waitConn(m.connCtx, m.connCh, true)
+		}
+		return m, nil
+	}
+
+	err := fmt.Errorf("peer verification rejected")
+	m.verifyReq.responseCh <- err
+	m.verifyReq = nil
+	if m.srv != nil {
+		m.state = stateConnecting
+		return m, waitConn(m.connCtx, m.connCh, true)
+	}
+	m.state = stateWelcome
+	m.connectErr = err
 	return m, nil
 }
 
@@ -310,7 +320,7 @@ func (m *model) viewVerify() string {
 	))
 	b.WriteString("\nApp version: " + displayVersion(req.peer.AppVersion))
 
-	b.WriteString("\n\n  [Y] Accept  [N] Reject  [Esc] Back")
+	b.WriteString("\n\n  [Y] Accept  [N/Esc] Reject")
 	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
 }
 

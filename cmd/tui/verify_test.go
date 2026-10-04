@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
@@ -116,4 +117,60 @@ func TestViewVerify_KnownPeerShowsStoredName(t *testing.T) {
 	a.Contains(view, "connected before")
 	a.Contains(view, "Stored name: Alice")
 	a.Contains(view, "Claimed name (unverified): Mallory")
+}
+
+func TestUpdateVerify_Keys(t *testing.T) {
+	runes := func(s string) tea.KeyMsg {
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+	}
+	tests := []struct {
+		name      string
+		key       tea.KeyMsg
+		answered  bool
+		accepted  bool
+		wantState appState
+	}{
+		{"enter is ignored", tea.KeyMsg{Type: tea.KeyEnter}, false, false,
+			stateVerify},
+		{"space is ignored", tea.KeyMsg{Type: tea.KeySpace}, false, false,
+			stateVerify},
+		{"other rune is ignored", runes("x"), false, false, stateVerify},
+		{"pasted y is ignored",
+			tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y"), Paste: true},
+			false, false, stateVerify},
+		{"y accepts", runes("y"), true, true, stateConnecting},
+		{"Y accepts", runes("Y"), true, true, stateConnecting},
+		{"n rejects", runes("n"), true, false, stateWelcome},
+		{"N rejects", runes("N"), true, false, stateWelcome},
+		{"esc rejects", tea.KeyMsg{Type: tea.KeyEsc}, true, false,
+			stateWelcome},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			m := newTestModel()
+			m.state = stateVerify
+			respCh := make(chan error, 1)
+			m.verifyReq = &verifyRequest{
+				peer:       &storage.Peer{Name: "alice"},
+				responseCh: respCh,
+			}
+
+			m.Update(tt.key)
+			a.Equal(tt.wantState, m.state)
+			if !tt.answered {
+				a.Empty(respCh)
+				a.NotNil(m.verifyReq)
+				return
+			}
+			a.Len(respCh, 1)
+			err := <-respCh
+			if tt.accepted {
+				a.NoError(err)
+				return
+			}
+			a.Error(err)
+			a.Equal(err, m.connectErr)
+		})
+	}
 }
