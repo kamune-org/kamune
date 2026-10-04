@@ -172,3 +172,15 @@ it gets no mouse wheel events; scroll with the keys.
   and the TUI exits if it does not open the database. The passphrase sits in
   the process environment, so the prompt is the safer choice. An empty value
   counts as unset; use `-no-passphrase` for a database without a passphrase.
+- `KAMUNE_TUI_LOG`: file to append the log to while the UI runs (see
+  [Logs](#logs))
+
+## Logs
+
+While the UI runs, the TUI drops the log records of the TUI and the kamune
+library, since a record written to the terminal would land in the middle of
+the screen. Set `KAMUNE_TUI_LOG` to a file path to keep them: records at
+info level and above are appended to that file in slog's text format. A
+file the TUI creates gets mode 0600, since the log names peers and
+sessions. If the file cannot be opened, the UI does not start. Before the
+UI starts and after it exits, records go to stderr.
