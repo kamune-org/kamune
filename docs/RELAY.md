@@ -565,23 +565,38 @@ are an implementation detail of the Go ecosystem.
 
 ### Security Considerations
 
-Static tokens trade privacy for convenience. The deterministic derivation means
-the token is **not a secret** — it is a routing identifier that anyone with the
-right inputs can compute.
+Static tokens trade privacy for convenience. The token is a SHA-256 of the two
+public keys, with no secret input and no key agreement, so it is **not a
+secret**: it is a routing identifier that anyone who knows both public keys can
+compute. Public keys are not secret either: peers hand them out to be verified,
+and an active relay reads them from the kamune introductions (see
+[Threat Model](#threat-model)).
 
 - **Session probing.** Anyone who knows both peers' public keys can compute the
   same token and send `Register{MODE_JOIN, token: T}` to the relay. If the relay
-  accepts the registration, a session exists; if it rejects with "token not
-  found," no session exists. This leaks whether two specific peers are
+  answers with `Registered`, a session exists; if it closes the connection, no
+  session is waiting for a dialer. This leaks whether two specific peers are
   communicating via this relay.
+- **Taking or blocking the session.** A probe is not passive. A successful
+  `MODE_JOIN` pairs the prober with the waiting listener, so the real dialer is
+  refused; when the prober disconnects, the relay ends the session and closes
+  the listener. Registering `MODE_CREATE` with the token first makes the real
+  listener's registration fail, and pairs the real dialer with the squatter.
+  The kamune handshake still stops the squatter from posing as a peer whose
+  identity key is checked, but the pair cannot meet on that relay while it
+  keeps this up.
+- **Broker matching.** The broker carries the same token cut to 16 bytes (see
+  the broker's [Static Tokens](#static-tokens-1)). Anyone who computes it can
+  register with it and is sent the waiting peer's public IP address and port.
 - **Relay correlation.** Because the token is stable across reconnections (by
   design), a relay operator can observe that the same token appears over time,
   even as source IPs change. Random tokens are single-use and unlinkable — each
   new session gets a fresh token that cannot be correlated to a previous one.
-- **Key compromise scope.** If an attacker obtains both peers' public keys
-  (e.g., from a compromised device, a leaked key bundle, or a public key
-  directory), the attacker can probe the relay for all past and future sessions
-  that use those keys with static tokens.
+- **Key exposure scope.** Whoever obtains both peers' public keys (from a
+  compromised device, a leaked key bundle, a public key directory, or the
+  introductions an active relay reads) can probe, take or block every session
+  the pair opens with static tokens, on any relay and broker, for as long as
+  the pair keeps those keys.
 
 **When to use static tokens:** in trusted deployments where both peers' public
 keys are already known to each other and session existence is not sensitive. For
@@ -607,14 +622,14 @@ access to the same long-term public keys.
 
 ## ECDH-Derived Relay Tokens
 
-Static tokens (derived from public keys) are convenient but leak session
-existence — anyone who knows both peers' public keys can compute the token and
-probe the relay. ECDH-derived tokens solve this by deriving tokens from an
-ephemeral key exchange performed _after_ the kamune handshake completes. The
-tokens are not computable from public keys alone, and the ephemeral keys travel
-inside the established kamune session, so a relay that splits the kamune
-Exchange still cannot read them, provided each peer checks the other's identity
-key.
+Static tokens are a SHA-256 of the two public keys, so anyone who knows both
+keys can compute them and then probe, take or block the pair's relay session
+(see [Security Considerations](#security-considerations)). ECDH-derived tokens
+solve this by deriving tokens from an ephemeral key exchange performed _after_
+the kamune handshake completes. The tokens are not computable from public keys
+alone, and the ephemeral keys travel inside the established kamune session, so
+a relay that splits the kamune Exchange still cannot read them, provided each
+peer checks the other's identity key.
 
 ### Derivation
 
