@@ -3,6 +3,7 @@ package relayconn
 import (
 	"encoding/binary"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -143,4 +144,72 @@ func TestRelayConnCloseWhileBufferFull(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		a.Fail("Close blocked while the receive buffer was full")
 	}
+}
+
+// TestRelayConnSetDeadlineWakesReader changes the deadline while
+// ReadBytes is blocked and checks that the read applies it at once, as
+// a net.Conn read does.
+func TestRelayConnSetDeadlineWakesReader(t *testing.T) {
+	t.Run("expire", func(t *testing.T) {
+		a := require.New(t)
+		clientCh, _ := channelPair(t)
+		var mu sync.Mutex
+		rc := newRelayConn(t.Context(), clientCh, &mu)
+		rc.closeFn = func() { clientCh.Close() }
+		go rc.readPump()
+		defer rc.Close()
+
+		done := make(chan error, 1)
+		go func() {
+			_, err := rc.ReadBytes()
+			done <- err
+		}()
+		time.Sleep(50 * time.Millisecond)
+		a.NoError(rc.SetDeadline(time.Now()))
+
+		select {
+		case err := <-done:
+			a.ErrorIs(err, os.ErrDeadlineExceeded)
+		case <-time.After(2 * time.Second):
+			a.Fail("blocked read ignored the new deadline")
+		}
+	})
+
+	t.Run("clear", func(t *testing.T) {
+		a := require.New(t)
+		clientCh, relayCh := channelPair(t)
+		var mu sync.Mutex
+		rc := newRelayConn(t.Context(), clientCh, &mu)
+		rc.closeFn = func() { clientCh.Close() }
+		go rc.readPump()
+		defer rc.Close()
+
+		a.NoError(rc.SetDeadline(time.Now().Add(300 * time.Millisecond)))
+		type result struct {
+			err  error
+			data []byte
+		}
+		done := make(chan result, 1)
+		go func() {
+			data, err := rc.ReadBytes()
+			done <- result{data: data, err: err}
+		}()
+		time.Sleep(50 * time.Millisecond)
+		a.NoError(rc.SetDeadline(time.Time{}))
+
+		select {
+		case res := <-done:
+			a.Failf("read returned after its deadline was cleared",
+				"data %q, err %v", res.data, res.err)
+		case <-time.After(700 * time.Millisecond):
+		}
+		a.NoError(relayCh.WriteBytes(msgFrame([]byte("late"))))
+		select {
+		case res := <-done:
+			a.NoError(res.err)
+			a.Equal("late", string(res.data))
+		case <-time.After(2 * time.Second):
+			a.Fail("read did not return the frame")
+		}
+	})
 }

@@ -27,28 +27,33 @@ const (
 // RelayConn implements Conn for relay-mediated connections. It buffers
 // incoming data from a readPump goroutine and exposes ReadBytes/WriteBytes
 // for the kamune protocol. Deadline support uses a timer+channel pattern
-// to unblock ReadBytes on timeout or cancellation.
+// to unblock ReadBytes on timeout or cancellation, and SetDeadline wakes
+// a blocked ReadBytes so that it applies the new deadline, as with
+// net.Conn.
 //
 // The receive buffer is bounded by maxBufferedFrames and
 // maxBufferedBytes. When it is full the reader blocks until ReadBytes
 // drains it, so a peer or relay that sends faster than the consumer
 // reads is pushed back through the transport instead of growing memory.
 type RelayConn struct {
-	deadline   time.Time
-	ctx        context.Context
-	recv       chan struct{}
-	space      chan struct{}
-	channel    *exchange.Channel
-	channelMu  *sync.Mutex
-	cancel     context.CancelFunc
-	closeFn    func()
-	buf        [][]byte
-	bufBytes   int
-	bufMu      sync.Mutex
-	deadlineMu sync.Mutex
-	closeOnce  sync.Once
-	ttl        time.Duration
-	sessionTTL time.Duration
+	deadline time.Time
+	ctx      context.Context
+	recv     chan struct{}
+	space    chan struct{}
+	// deadlineSet is closed and replaced, under deadlineMu, each time
+	// SetDeadline runs.
+	deadlineSet chan struct{}
+	channel     *exchange.Channel
+	channelMu   *sync.Mutex
+	cancel      context.CancelFunc
+	closeFn     func()
+	buf         [][]byte
+	bufBytes    int
+	bufMu       sync.Mutex
+	deadlineMu  sync.Mutex
+	closeOnce   sync.Once
+	ttl         time.Duration
+	sessionTTL  time.Duration
 }
 
 func (c *RelayConn) TTL() time.Duration        { return c.ttl }
@@ -59,12 +64,13 @@ func newRelayConn(
 ) *RelayConn {
 	ctx, cancel := context.WithCancel(ctx)
 	return &RelayConn{
-		recv:      make(chan struct{}, 1),
-		space:     make(chan struct{}, 1),
-		channel:   ch,
-		channelMu: channelMu,
-		ctx:       ctx,
-		cancel:    cancel,
+		recv:        make(chan struct{}, 1),
+		space:       make(chan struct{}, 1),
+		deadlineSet: make(chan struct{}),
+		channel:     ch,
+		channelMu:   channelMu,
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 }
 
@@ -87,6 +93,7 @@ func (rc *RelayConn) ReadBytes() ([]byte, error) {
 
 		rc.deadlineMu.Lock()
 		dl := rc.deadline
+		deadlineSet := rc.deadlineSet
 		rc.deadlineMu.Unlock()
 
 		var timer *time.Timer
@@ -107,6 +114,11 @@ func (rc *RelayConn) ReadBytes() ([]byte, error) {
 			}
 		case <-timeout:
 			return nil, os.ErrDeadlineExceeded
+		case <-deadlineSet:
+			// Apply the new deadline.
+			if timer != nil {
+				timer.Stop()
+			}
 		case <-rc.ctx.Done():
 			if timer != nil {
 				timer.Stop()
@@ -135,12 +147,18 @@ func (rc *RelayConn) WriteBytes(data []byte) error {
 	return rc.channel.WriteBytes(b)
 }
 
+// SetDeadline sets the read and write deadline. A zero t removes it. A
+// ReadBytes call that is already blocked applies the new deadline at
+// once: it returns os.ErrDeadlineExceeded if t has passed and stops
+// waiting for an earlier deadline that t replaces.
 func (rc *RelayConn) SetDeadline(t time.Time) error {
 	if err := rc.channel.SetWriteDeadline(t); err != nil {
 		return err
 	}
 	rc.deadlineMu.Lock()
 	rc.deadline = t
+	close(rc.deadlineSet)
+	rc.deadlineSet = make(chan struct{})
 	rc.deadlineMu.Unlock()
 	return nil
 }
