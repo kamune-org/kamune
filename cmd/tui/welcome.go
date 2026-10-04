@@ -337,6 +337,7 @@ func (m *model) updateVerify(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	m.connectErr = nil
 	if accept {
+		m.accepted = append(m.accepted, m.verifyReq.peer.PublicKey)
 		answer(m.verifyReq.responseCh, nil)
 		m.verifyReq = nil
 		m.state = stateConnecting

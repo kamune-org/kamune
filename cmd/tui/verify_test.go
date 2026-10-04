@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -416,4 +418,101 @@ func TestVerify_TurnedAwayPeer(t *testing.T) {
 			}
 		})
 	}
+}
+
+// peerNotices returns the text of the notices in m's transcript that
+// name the peer by fingerprint.
+func peerNotices(m *model, fp string) []string {
+	var found []string
+	for _, l := range m.messages {
+		if !l.message && strings.Contains(l.text, fp) {
+			found = append(found, l.text)
+		}
+	}
+	return found
+}
+
+func TestEnterChat_NamesAcceptedPeer(t *testing.T) {
+	a := require.New(t)
+	m, msgs, _ := promptModel(t)
+	m.state = stateConnecting
+	tr, _ := peerSession(t)
+	peer := tr.RemotePeer()
+	done := runVerifier(m.mkVerifier(m.att), m.store, peer)
+	m.Update(waitFor(t, msgs))
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	a.NoError(waitFor(t, done))
+
+	m.Update(connectedMsg{att: m.att, transport: tr})
+	a.Equal(stateChat, m.state)
+	notices := peerNotices(m, fingerprint.Numeric(peer.PublicKey))
+	a.Len(notices, 1)
+	a.Contains(notices[0], "Chatting with "+displayName(peer.Name))
+	a.NotContains(notices[0], "resumes")
+	a.NotContains(notices[0], "No verify prompt")
+}
+
+func TestEnterChat_SaysWhenASessionResumed(t *testing.T) {
+	a := require.New(t)
+	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	serverStore, dialerStore := openTestStore(t), openTestStore(t)
+	l := &pipeListener{
+		conns:  make(chan kamune.Conn, 2),
+		closed: make(chan struct{}),
+	}
+	sessions := make(chan connectedMsg, 2)
+	srv, err := serve("", serverStore, accept,
+		func(t *kamune.Transport, release chan struct{}) {
+			sessions <- connectedMsg{transport: t, release: release}
+			<-release
+		},
+		func(error) {}, kamune.ServeWithListener(l),
+	)
+	a.NoError(err)
+	t.Cleanup(func() { _ = srv.Close() })
+	dial := func(opts ...kamune.DialOption) *kamune.Transport {
+		clientNet, serverNet := net.Pipe()
+		l.conns <- kamune.NewConn(serverNet)
+		opts = append(opts, kamune.DialWithFunc(
+			func(string) (kamune.Conn, error) {
+				return kamune.NewConn(clientNet), nil
+			},
+		))
+		dialer, err := kamune.NewDialer("", dialerStore, accept, opts...)
+		a.NoError(err)
+		client, err := dialer.Dial()
+		a.NoError(err)
+		t.Cleanup(func() { _ = client.CloseAbort() })
+		return client
+	}
+
+	// A peer that the TUI took earlier drops off without closing the
+	// session, as when either side stopped abruptly.
+	first := dial()
+	cold := waitFor(t, sessions)
+	rememberPeer(serverStore, cold.transport.RemotePeer())
+	rememberPeer(dialerStore, first.RemotePeer())
+	_ = first.CloseAbort()
+	_ = cold.transport.CloseAbort()
+	close(cold.release)
+
+	// It comes back while the TUI waits for a peer, and resumes.
+	m := newTestModel()
+	m.store = serverStore
+	m.mode = modeDirectServe
+	m.state = stateConnecting
+	m.att = newAttempt()
+	t.Cleanup(func() { m.shutdown(time.Minute) })
+	dial(kamune.DialWithResume(first.SessionID()))
+	resumed := waitFor(t, sessions)
+	resumed.att = m.att
+	m.Update(resumed)
+	a.Equal(stateChat, m.state)
+	a.Equal(first.SessionID(), m.sess.t.SessionID())
+
+	key, err := dialerStore.PublicKey()
+	a.NoError(err)
+	notices := peerNotices(m, fingerprint.Numeric(key))
+	a.Len(notices, 1)
+	a.Contains(notices[0], "No verify prompt: this session resumes one")
 }

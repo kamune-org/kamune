@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -239,6 +241,9 @@ type model struct {
 
 	// Verify
 	verifyReq *verifyRequest
+	// accepted holds the keys of the peers that the user accepted at a
+	// prompt of the connection attempt in progress.
+	accepted [][]byte
 	// promptTimeout overrides verifyPromptTimeout when it is positive.
 	promptTimeout time.Duration
 
@@ -721,6 +726,7 @@ func answer(ch chan<- error, err error) {
 func (m *model) startConnect() tea.Cmd {
 	att := newAttempt()
 	m.att = att
+	m.accepted = nil
 	vfn := m.mkVerifier(att)
 	send := m.send
 	store := m.store
@@ -893,11 +899,15 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 
 	m.clearTranscript()
 	if peer := t.RemotePeer(); peer != nil {
+		m.messages = append(m.messages, m.peerNotice(peer))
 		warn, _ := checkMinorMismatch(kamune.AppVersion, peer.AppVersion)
 		if warn != "" {
-			m.messages = []chatLine{noticeLine(m.s.highlight, "⚠ "+warn)}
+			m.messages = append(m.messages,
+				noticeLine(m.s.highlight, "⚠ "+warn),
+			)
 		}
 	}
+	m.accepted = nil
 	m.vp = vp
 	m.vp.SetContent("Session ID is " + t.SessionID() + ". Loading history…")
 
@@ -913,6 +923,31 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(load, tickCountdown())
 	}
 	return m, load
+}
+
+// peerNotice returns the notice that names peer, the peer of the chat
+// that starts, with its stored name and its numeric fingerprint. A peer
+// that the user did not accept at a prompt of this attempt resumed an
+// earlier session, which does not run the verifier, and the notice says
+// so.
+func (m *model) peerNotice(peer *storage.Peer) chatLine {
+	name := peer.Name
+	if known, err := m.store.FindPeer(peer.PublicKey); err == nil {
+		name = known.Name
+	}
+	name = displayName(name)
+	fp := fingerprint.Numeric(peer.PublicKey)
+	if slices.ContainsFunc(m.accepted, func(k []byte) bool {
+		return bytes.Equal(k, peer.PublicKey)
+	}) {
+		return noticeLine(m.s.muted, fmt.Sprintf(
+			"Chatting with %s (numeric fingerprint %s).", name, fp,
+		))
+	}
+	return noticeLine(m.s.highlight, fmt.Sprintf(
+		"⚠ No verify prompt: this session resumes one with %s "+
+			"(numeric fingerprint %s) that was accepted before.", name, fp,
+	))
 }
 
 // rememberPeer stores peer, whose session has been established, unless it

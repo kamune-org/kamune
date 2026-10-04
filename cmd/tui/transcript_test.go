@@ -372,5 +372,7 @@ func TestReceive_SavesBeforeUpdate(t *testing.T) {
 	a.NoError(err)
 	a.Len(history, 1)
 	a.Equal("hi", string(history[0].Data))
-	a.Empty(m.messages)
+	for _, l := range m.messages {
+		a.False(l.message, "Update showed %q", l.text)
+	}
 }
