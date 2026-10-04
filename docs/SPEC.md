@@ -1467,13 +1467,20 @@ the same. The HKDF in step 2 keeps the KEK separate from any other use of
 
 The three salts (`deriveSalt`, `wrappedSalt`, `secretSalt`, 32 random bytes
 each), the wrapped key and the Argon2id parameters (`kdf-params`) are stored as
-plaintext metadata. The passphrase itself is never stored. `kdf-params` is 10
-bytes: an algorithm identifier (1 for Argon2id), the time cost and the memory
-cost in KiB as big-endian uint32 values, and the parallelism as one byte. An
-open rejects stored parameters above 1 GiB of memory or 4 GiB of total work
-(time × memory). It also rejects key metadata that is malformed or partly
-missing, or missing from a database that holds data, instead of writing a new
-key hierarchy over it.
+plaintext metadata. The passphrase itself is not stored in the database.
+`kdf-params` is 10 bytes: an algorithm identifier (1 for Argon2id), the time
+cost and the memory cost in KiB as big-endian uint32 values, and the
+parallelism as one byte. An open rejects stored parameters above 1 GiB of
+memory or 4 GiB of total work (time × memory). It also rejects key metadata
+that is malformed or partly missing, or missing from a database that holds
+data, instead of writing a new key hierarchy over it.
+
+The library keeps the passphrase nowhere else either, but a client may save it
+in the operating system's keychain when the user opts in. The bus offers this
+as Remember in its passphrase dialogs and then opens the database with the
+saved passphrase at startup; the daemon saves it when `submit_passphrase` or
+`change_passphrase` carries `save_to_keychain`. Whoever can read that keychain
+entry can open the database.
 
 Databases written before `kdf-params` existed derived `derivedPass` with
 `HKDF-SHA512(passphrase, deriveSalt, "derived-passphrase-key", 32)`, which has
