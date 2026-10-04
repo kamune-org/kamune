@@ -681,11 +681,25 @@ message is not persisted to chat history.
 
 ### Relay
 
+A relay or p2p server can register a static token for one peer, by passing the
+peer's public key as `peer_pub_b64`. The static token is SHA-256 over the two
+raw 32-byte Ed25519 public keys, the smaller one first: 32 bytes, 64 hex
+characters. The peer computes the same token from the same two keys and dials
+with it, so neither side has to send the other a token.
+
+A static token is not a secret, and it does not limit who can connect. Anyone
+who knows both public keys, which peers hand out to be verified, can compute
+it, and the relay and the broker do not check who registers or joins with it.
+Whoever connects with it still goes through the verification mode, which is
+the only check on who connects. The
+[security considerations](RELAY.md#security-considerations) of static tokens in
+RELAY.md say what a third party can do with one.
+
 #### `generate_relay_token`
 
-Generates a new relay token for the running relay server. When `peer_pub_b64` is
-set, derives a deterministic (static) token via ECDH — only that peer can
-connect using it.
+Generates a new relay token for the running relay server: a random 16-byte
+token (32 hex characters) that the relay picks, or, with `peer_pub_b64`, the
+[static token](#relay) for that peer.
 
 **Input (random token):**
 
@@ -814,7 +828,8 @@ server lets KCP packets in only from hosts that the broker matched with one of
 its tokens, for 10 minutes after the match and after each packet.
 
 A token is either random, 16 bytes (32 hex characters), or static, 32 bytes
-(64 hex characters) derived for a `peer_pub_b64`. A P2P token is not used up by
+(64 hex characters): the [static token](#relay) for the `peer_pub_b64` given
+to `start_server` or `generate_p2p_token`. A P2P token is not used up by
 a match: it stays registered until it is removed or the server stops.
 
 #### `generate_p2p_token`
@@ -823,9 +838,12 @@ Adds a token to the running p2p server, which registers and refreshes it from
 its punch socket, and returns it. `broker_addr` is required and must be the
 `broker_addr` the server was started with. Without `peer_pub_b64` the server's
 random token is returned, or a random token that the daemon picks is added when
-the server has none. When `peer_pub_b64` is set, the token is derived via ECDH
-so only that peer can match. A token that the server already has for the same
-peer is returned as it is.
+the server has none. With `peer_pub_b64` the token is the
+[static token](#relay) for that peer, returned as it is when the server has it
+already. The broker carries the first 16 bytes of a static token, and
+anyone who computes it can register with it and is sent the server's public IP
+address and port (see the broker's
+[Static Tokens](RELAY.md#static-tokens-1) in RELAY.md).
 
 It fails with `p2p_server_not_running` when no p2p server runs,
 `broker_addr_mismatch` when `broker_addr` is not the server's broker, and
