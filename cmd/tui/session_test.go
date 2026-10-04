@@ -354,3 +354,129 @@ func TestShutdown_WaitsForSessionsToClose(t *testing.T) {
 	a.Nil(m.sess)
 	a.ErrorIs(waitFor(t, peerErr), kamune.ErrPeerDisconnected)
 }
+
+func TestChat_EscInServeModeClosesGracefully(t *testing.T) {
+	a := require.New(t)
+	m := newTestModel()
+	m.store = openTestStore(t)
+	m.mode = modeDirectServe
+	m.state = stateConnecting
+	m.att = newAttempt()
+	att := m.att
+	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	clientNet, serverNet := net.Pipe()
+	delivered := make(chan connectedMsg, 1)
+	handlerDone := make(chan struct{})
+	srv, err := serve("", m.store, accept,
+		func(t *kamune.Transport, release chan struct{}) {
+			delivered <- connectedMsg{
+				att: att, transport: t, release: release,
+			}
+			go func() {
+				<-release
+				close(handlerDone)
+			}()
+		},
+		kamune.ServeWithListener(newPipeListener(serverNet)),
+	)
+	a.NoError(err)
+	m.srv = srv
+	dialer, err := kamune.NewDialer(
+		"", openTestStore(t), accept,
+		kamune.DialWithFunc(func(string) (kamune.Conn, error) {
+			return kamune.NewConn(clientNet), nil
+		}),
+	)
+	a.NoError(err)
+	client, err := dialer.Dial()
+	a.NoError(err)
+	t.Cleanup(func() { _ = client.CloseAbort() })
+
+	m.Update(waitFor(t, delivered))
+	a.Equal(stateChat, m.state)
+	sid := m.sess.t.SessionID()
+	_, err = m.store.PopList(sid, storage.ResumptionTokensKey)
+	a.NoError(err, "the session has no resumption tokens to begin with")
+
+	peerErr := make(chan error, 1)
+	go func() {
+		_, _, err := client.ReceivePayload()
+		peerErr <- err
+	}()
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	a.Equal(stateWelcome, m.state)
+	// The close frame goes out before the handler lets the connection
+	// go, so the peer sees a graceful close.
+	a.ErrorIs(waitFor(t, peerErr), kamune.ErrPeerDisconnected)
+	waitFor(t, handlerDone)
+	a.True(m.shutdown(time.Minute))
+	_, err = m.store.PopList(sid, storage.ResumptionTokensKey)
+	a.Error(err, "the closed session can still be resumed")
+}
+
+func TestSendPing(t *testing.T) {
+	tests := []struct {
+		name string
+		// peer runs on the other side of the session.
+		peer    func(*kamune.Transport) error
+		timeout time.Duration
+		wantErr error
+	}{
+		{
+			name: "answered",
+			peer: func(t *kamune.Transport) error {
+				receiveLoop(t, make(chan []byte, 1), func(tea.Msg) {})
+				return nil
+			},
+			timeout: time.Minute,
+		},
+		{
+			name: "not answered",
+			peer: func(t *kamune.Transport) error {
+				for {
+					if _, _, err := t.ReceivePayload(); err != nil {
+						return nil
+					}
+				}
+			},
+			timeout: 100 * time.Millisecond,
+			wantErr: kamune.ErrReceiveTimeout,
+		},
+		{
+			name: "answered with other data",
+			peer: func(t *kamune.Transport) error {
+				if _, _, err := t.ReceivePayload(); err != nil {
+					return err
+				}
+				_, err := t.Send(
+					kamune.Bytes([]byte("other")), kamune.RoutePong,
+				)
+				if err != nil {
+					return err
+				}
+				for {
+					if _, _, err := t.ReceivePayload(); err != nil {
+						return nil
+					}
+				}
+			},
+			timeout: time.Minute,
+			wantErr: kamune.ErrVerificationFailed,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			tr := dialPipe(t, tt.peer)
+			pongCh := make(chan []byte, 1)
+			go receiveLoop(tr, pongCh, func(tea.Msg) {})
+
+			err := tuiSendPing(tr, pongCh, tt.timeout)
+			if tt.wantErr == nil {
+				a.NoError(err)
+				return
+			}
+			a.ErrorIs(err, tt.wantErr)
+		})
+	}
+}

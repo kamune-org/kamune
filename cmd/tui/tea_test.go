@@ -49,32 +49,75 @@ func TestViewChat_NoCountdownWhenZero(t *testing.T) {
 	a.NotContains(view, "Session")
 }
 
-func TestEnterChat_SetsExpiryForRelayServe(t *testing.T) {
+// connectInMode starts a chat in mode for a session that a connection
+// attempt delivers with msg, after the relay server of the attempt, if
+// ready is set, has registered. It returns the model, and the times just
+// before and just after the session was delivered.
+func connectInMode(
+	t *testing.T, mode inputMode, ready *relayReadyMsg, msg connectedMsg,
+) (m *model, before, after time.Time) {
+	t.Helper()
 	a := require.New(t)
-	m := newTestModel()
-	m.mode = modeRelayServe
-	m.relaySessionTTL = 30 * time.Minute
-
-	if m.mode == modeRelayServe && m.relaySessionTTL > 0 {
-		m.sessionExpiry = time.Now().Add(m.relaySessionTTL)
+	m = newTestModel()
+	m.store = openTestStore(t)
+	m.mode = mode
+	m.state = stateConnecting
+	m.att = newAttempt()
+	if ready != nil {
+		srv, _ := idleServer(t, m.store)
+		t.Cleanup(func() { _ = srv.Close() })
+		ready.att = m.att
+		ready.srv = srv
+		m.Update(*ready)
 	}
-
-	a.False(m.sessionExpiry.IsZero(), "expected sessionExpiry to be set")
-	remaining := time.Until(m.sessionExpiry)
-	a.True(remaining >= 29*time.Minute && remaining <= 31*time.Minute, "expected ~30m remaining, got %v", remaining)
+	msg.att = m.att
+	msg.transport, _ = peerSession(t)
+	before = time.Now()
+	m.Update(msg)
+	after = time.Now()
+	a.Equal(stateChat, m.state)
+	return m, before, after
 }
 
-func TestEnterChat_NoExpiryForDirectMode(t *testing.T) {
-	a := require.New(t)
-	m := newTestModel()
-	m.mode = modeDirectDial
-	m.relaySessionTTL = 30 * time.Minute
-
-	if m.mode == modeRelayServe && m.relaySessionTTL > 0 {
-		m.sessionExpiry = time.Now().Add(m.relaySessionTTL)
+func TestConnected_SessionTTLAndExpiry(t *testing.T) {
+	tests := []struct {
+		name  string
+		mode  inputMode
+		ready *relayReadyMsg
+		msg   connectedMsg
+		// ttl is the session TTL that the model should keep, and
+		// expires whether the chat should show a countdown.
+		ttl     time.Duration
+		expires bool
+	}{
+		{
+			name:    "relay serve",
+			mode:    modeRelayServe,
+			ready:   &relayReadyMsg{sessionTTL: 30 * time.Minute},
+			ttl:     30 * time.Minute,
+			expires: true,
+		},
+		{
+			name: "relay dial",
+			mode: modeRelayDial,
+			msg:  connectedMsg{sessionTTL: 15 * time.Minute},
+			ttl:  15 * time.Minute,
+		},
+		{name: "direct dial", mode: modeDirectDial},
+		{name: "direct serve", mode: modeDirectServe},
 	}
-
-	a.True(m.sessionExpiry.IsZero(), "expected sessionExpiry to remain zero for direct mode")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			m, before, after := connectInMode(t, tt.mode, tt.ready, tt.msg)
+			a.Equal(tt.ttl, m.relaySessionTTL)
+			if !tt.expires {
+				a.True(m.sessionExpiry.IsZero(), "expiry %v", m.sessionExpiry)
+				return
+			}
+			a.WithinRange(m.sessionExpiry, before.Add(tt.ttl), after.Add(tt.ttl))
+		})
+	}
 }
 
 // --- State transitions ---
@@ -109,34 +152,6 @@ func TestUpdate_RelayReadySetsTokenAndTTL(t *testing.T) {
 	s := got.(*model)
 	a.Equal("abc123", string(s.relayToken))
 	a.Equal(10*time.Minute, s.relaySessionTTL)
-}
-
-func TestUpdate_ConnectedSetsSessionTTL(t *testing.T) {
-	a := require.New(t)
-	m := newTestModel()
-	m.state = stateConnecting
-	m.mode = modeRelayDial
-	m.relaySessionTTL = 5 * time.Minute
-
-	msg := connectedMsg{sessionTTL: 15 * time.Minute}
-	if msg.sessionTTL > 0 {
-		m.relaySessionTTL = msg.sessionTTL
-	}
-	a.Equal(15*time.Minute, m.relaySessionTTL)
-}
-
-func TestUpdate_ConnectedPreservesExistingTTL(t *testing.T) {
-	a := require.New(t)
-	m := newTestModel()
-	m.state = stateConnecting
-	m.mode = modeRelayServe
-	m.relaySessionTTL = 30 * time.Minute
-
-	msg := connectedMsg{sessionTTL: 0}
-	if msg.sessionTTL > 0 {
-		m.relaySessionTTL = msg.sessionTTL
-	}
-	a.Equal(30*time.Minute, m.relaySessionTTL)
 }
 
 // --- Welcome menu ---
