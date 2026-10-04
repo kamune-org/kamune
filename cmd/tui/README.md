@@ -135,19 +135,27 @@ it shows a line that names the peer and gives its numeric fingerprint.
 ### Resumed sessions
 
 A peer whose app resumes dropped sessions, as bus and the daemon do, can
-resume a session it had with a TUI server (Start Server or Start Relay
-Server) within 24 hours of that session's first, cold handshake; resuming
-does not extend the 24 hours. Resumption does not run the verifier on
-either side ([SPEC §6.8.4](../../docs/SPEC.md#684-resumption-asymmetry)),
-so no verify screen appears and the chat opens at once. A line in the chat
-then warns that no prompt was shown, and gives the peer's stored name and
-numeric fingerprint. Check that it is the peer you expect, and press Esc if
-it is not. A resumed session that arrives while a prompt is open starts its
+resume a session it had with a TUI Start Server (TCP) within 24 hours of
+that session's first, cold handshake; resuming does not extend the 24
+hours. Resumption does not run the verifier on either side
+([SPEC §6.8.4](../../docs/SPEC.md#684-resumption-asymmetry)), so no verify
+screen appears and the chat opens at once. A line in the chat then warns
+that no prompt was shown, and gives the peer's stored name and numeric
+fingerprint. Check that it is the peer you expect, and press Esc if it is
+not. A resumed session that arrives while a prompt is open starts its
 chat, and the peer of the prompt is rejected.
 
 A session can be resumed only if the TUI did not close it: leaving its
-chat with Esc, or quitting with Ctrl+C, ends it for good. The TUI never
-resumes a session when it dials.
+chat with Esc, or quitting with Ctrl+C, ends it for good, even after the
+peer has dropped off. Start Server also stops taking peers once its chat
+starts. In practice, then, a peer can resume a session only after the TUI
+stopped without closing it, as when its process was killed, and was
+started again with Start Server on the same address.
+
+A session with Start Relay Server cannot be resumed: the TUI does not give
+the peer the relay tokens it would need to reach the TUI again, and a
+relay registration takes a single peer. The TUI never resumes a session
+when it dials.
 
 ## Controls
 
