@@ -13,6 +13,12 @@ import (
 // without it was written before versions were recorded, and is version 0.
 const formatKey = "storage-format"
 
+// compactPendingKey, in the default namespace, marks a database that was
+// upgraded but not compacted since, so its old layout may still be in
+// free pages. It is recorded with the new version and removed once a
+// compaction succeeds (see [Storage.compactAfterUpgrade]).
+const compactPendingKey = "compact-pending"
+
 // storageFormat is the version of the layout this package writes. Each
 // version adds to the one before it:
 //   - 1: chat entries are keyed by index, and hold their receive time and
@@ -26,10 +32,11 @@ const storageFormat = 2
 // it already converted, so a step that is interrupted, by a crash or an
 // error, is completed on the next open. When a step changed anything, the
 // database is compacted afterwards, so that the old layout does not stay
-// in free pages.
+// in free pages. A compaction that is interrupted or fails is tried
+// again on every later open until it succeeds.
 func (s *Storage) upgradeFormat(version byte) error {
 	if version >= storageFormat {
-		return nil
+		return s.compactAfterUpgrade()
 	}
 
 	var changed int
@@ -48,31 +55,65 @@ func (s *Storage) upgradeFormat(version byte) error {
 		changed += n
 	}
 	err := s.engine.Command(func(b engine.Namespace) error {
-		return b.Ensure([]byte(engine.DefaultNamespace)).PutEncrypted(
-			[]byte(formatKey), []byte{storageFormat},
-		)
+		def := b.Ensure([]byte(engine.DefaultNamespace))
+		if changed > 0 {
+			err := def.PutEncrypted([]byte(compactPendingKey), []byte{1})
+			if err != nil {
+				return err
+			}
+		}
+		return def.PutEncrypted([]byte(formatKey), []byte{storageFormat})
 	})
 	if err != nil {
 		return fmt.Errorf("record format version: %w", err)
 	}
-	if changed == 0 {
+	if changed > 0 {
+		slog.Info(
+			"upgraded database format",
+			slog.Int("from", int(version)),
+			slog.Int("to", storageFormat),
+		)
+	}
+	return s.compactAfterUpgrade()
+}
+
+// compactAfterUpgrade compacts the database when [compactPendingKey] says
+// an upgrade left its old layout in free pages, and then removes the
+// mark. A compaction that fails, such as on a full disk or without the
+// lock file, is logged and tried again on the next open.
+func (s *Storage) compactAfterUpgrade() error {
+	key := []byte(compactPendingKey)
+	var pending bool
+	err := s.engine.Query(func(b engine.Namespace) error {
+		_, err := b.Sub([]byte(engine.DefaultNamespace)).GetEncrypted(key)
+		// A mark that does not open is still a mark.
+		pending = !isMissing(err)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("read compaction mark: %w", err)
+	}
+	if !pending {
 		return nil
 	}
 
-	slog.Info(
-		"upgraded database format",
-		slog.Int("from", int(version)),
-		slog.Int("to", storageFormat),
-	)
 	if err := s.Compact(); err != nil {
 		if errors.Is(err, ErrReopen) {
 			return err
 		}
 		slog.Warn(
 			"could not compact the database after upgrading it; "+
-				"its old layout stays in free pages",
+				"its old layout stays in free pages until an open "+
+				"compacts it",
 			slog.Any("error", err),
 		)
+		return nil
+	}
+	err = s.engine.Command(func(b engine.Namespace) error {
+		return b.Sub([]byte(engine.DefaultNamespace)).Delete(key)
+	})
+	if err != nil {
+		return fmt.Errorf("clear compaction mark: %w", err)
 	}
 	return nil
 }

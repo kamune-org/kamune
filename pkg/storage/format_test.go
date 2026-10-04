@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha3"
 	"errors"
@@ -222,4 +223,69 @@ func TestOpenStorageChecksBackendUpgrade(t *testing.T) {
 	theme, err := s.GetSettings("bus", "theme")
 	a.NoError(err)
 	a.Equal("dark", theme)
+}
+
+// compactPending reports whether s has an upgrade that was not compacted.
+func compactPending(t *testing.T, s *Storage) bool {
+	t.Helper()
+	var pending bool
+	require.New(t).NoError(s.engine.Query(func(b Namespace) error {
+		_, err := b.Sub([]byte(engine.DefaultNamespace)).
+			GetEncrypted([]byte(compactPendingKey))
+		pending = err == nil
+		return nil
+	}))
+	return pending
+}
+
+// TestOpenStorageRetriesCompactionAfterUpgrade upgrades a database while
+// it cannot be compacted, as its lock file cannot be created, and checks
+// that the next open compacts it, so that its old names leave the file.
+func TestOpenStorageRetriesCompactionAfterUpgrade(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	open := func() *Storage {
+		s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
+		a.NoError(err)
+		return s
+	}
+	keys := map[string][]byte{}
+	for _, name := range []string{"alice", "mallory"} {
+		att, err := attest.New()
+		a.NoError(err)
+		keys[name] = att.MarshalPublicKey()
+	}
+	const sessionID = "QWERTYUIOPASDFGHJKLZXCVB"
+	s := open()
+	writeLegacyLayout(
+		t, s, sessionID, map[string][]byte{"alice": keys["alice"]},
+		keys["alice"], keys["mallory"], [][]byte{makeToken(1, 32)},
+	)
+	a.NoError(s.Close())
+
+	// A directory where the lock file belongs cannot be opened as a file.
+	a.NoError(os.Remove(path + ".lock"))
+	a.NoError(os.Mkdir(path+".lock", 0700))
+	s = open()
+	version, err := s.formatVersion()
+	a.NoError(err)
+	a.Equal(byte(storageFormat), version)
+	a.True(compactPending(t, s), "compaction not left pending")
+	a.NoError(s.Close())
+
+	a.NoError(os.Remove(path + ".lock"))
+	s = open()
+	a.False(compactPending(t, s), "compaction still pending")
+	sessions, err := s.ListSessions()
+	a.NoError(err)
+	a.Equal([]string{sessionID}, sessions)
+	a.NoError(s.Close())
+
+	raw, err := os.ReadFile(path)
+	a.NoError(err)
+	a.False(bytes.Contains(raw, []byte(sessionID)), "session ID in file")
+	a.False(
+		bytes.Contains(raw, []byte("daemon:incognito")),
+		"setting name in file",
+	)
 }

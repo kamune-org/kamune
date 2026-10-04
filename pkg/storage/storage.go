@@ -136,7 +136,8 @@ type Storage struct {
 // OpenStorage opens the database, creating it unless [WithCreateDB] says
 // otherwise. A database written by an older version is brought up to the
 // current layout first, and then compacted (see [Storage.Compact]), so the
-// first open after an upgrade can take a while. Older versions cannot read
+// first open after an upgrade can take a while; a compaction that fails is
+// logged and tried again on every later open. Older versions cannot read
 // a database after it has been upgraded. Its key wrapping and values are
 // upgraded before its layout; if that fails, OpenStorage returns
 // [ErrUpgradeFailed] and leaves the database as the older version wrote
