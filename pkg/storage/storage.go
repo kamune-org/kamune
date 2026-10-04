@@ -54,6 +54,10 @@ var (
 	valueMagic = []byte("KMNE\x01")
 )
 
+// messageCountKey holds, in a session's meta namespace, the number of
+// entries in its chat namespace as a big-endian uint64.
+const messageCountKey = "message_count"
+
 // SessionSummary holds a session ID together with its first and last message
 // timestamps, as read from the database. It is returned by ListSessionsByRecent
 // so callers don't need to load full chat histories.
@@ -420,34 +424,95 @@ func (s *Storage) FindSessionByPeer(pubKey []byte) (string, error) {
 }
 
 // SessionTimestamps returns the first and last message timestamps for the
-// given session by reading only the first and last keys in its chat bucket.
-// Note that these are local receive timestamps from the key, not the sender's
-// original timestamps. This is an O(1) operation per session (two cursor
-// seeks) and avoids loading every entry. If the bucket is empty or does not
-// exist both timestamps are zero-valued.
+// given session by reading only the first and last keys in its chat bucket,
+// and its message count. Note that these are local receive timestamps from
+// the key, not the sender's original timestamps. The count comes from a
+// counter that [Storage.AddChatEntry] keeps in the session's meta
+// namespace, so this takes two cursor seeks and one read and does not load
+// the entries. A session whose entries were all stored before the counter
+// existed has its entries counted instead, which reads every page of its
+// chat bucket; [Storage.ListSessionsByRecent] stores the counter for such
+// sessions. If the bucket is empty or does not exist both timestamps are
+// zero-valued.
 func (s *Storage) SessionTimestamps(sessionID string) (
 	first, last time.Time, count int, err error,
 ) {
 	err = s.engine.Query(func(b engine.Namespace) error {
-		chat := sessionChat(b, sessionID)
-		firstKey := chat.FirstKey()
-		lastKey := chat.LastKey()
-		if l := len(firstKey); l != 0 && l >= 8 {
-			first = time.Unix(0, int64(binary.BigEndian.Uint64(firstKey[:8])))
-		}
-		if l := len(lastKey); l != 0 && l >= 8 {
-			last = time.Unix(0, int64(binary.BigEndian.Uint64(lastKey[:8])))
-		}
-		count = chat.KeyCount()
+		first, last, count, _ = sessionTimestamps(b, sessionID)
 		return nil
 	})
 	return
 }
 
+// sessionTimestamps implements [Storage.SessionTimestamps]. counted reports
+// that the count was taken by counting entries, as the session has no
+// stored counter.
+func sessionTimestamps(b engine.Namespace, sessionID string) (
+	first, last time.Time, count int, counted bool,
+) {
+	chat := sessionChat(b, sessionID)
+	firstKey := chat.FirstKey()
+	lastKey := chat.LastKey()
+	if l := len(firstKey); l != 0 && l >= 8 {
+		first = time.Unix(0, int64(binary.BigEndian.Uint64(firstKey[:8])))
+	}
+	if l := len(lastKey); l != 0 && l >= 8 {
+		last = time.Unix(0, int64(binary.BigEndian.Uint64(lastKey[:8])))
+	}
+	count, ok := messageCount(sessionMeta(b, sessionID))
+	if !ok && firstKey != nil {
+		count, counted = chat.KeyCount(), true
+	}
+	return first, last, count, counted
+}
+
+// messageCount returns the number of chat entries stored in the counter
+// of a session's meta namespace, and whether there is a counter.
+func messageCount(meta engine.Namespace) (int, bool) {
+	v, err := meta.GetEncrypted([]byte(messageCountKey))
+	if err != nil || len(v) != 8 {
+		return 0, false
+	}
+	return int(binary.BigEndian.Uint64(v)), true
+}
+
+// putMessageCount stores n as the number of chat entries of a session in
+// its meta namespace.
+func putMessageCount(meta engine.Namespace, n int) error {
+	var v [8]byte
+	binary.BigEndian.PutUint64(v[:], uint64(n))
+	return meta.PutEncrypted([]byte(messageCountKey), v[:])
+}
+
+// storeMessageCounts stores a message counter for each of the sessions
+// that has chat entries but no counter, so later counts do not have to
+// read their whole chat bucket.
+func (s *Storage) storeMessageCounts(ids []string) error {
+	return s.engine.Command(func(b engine.Namespace) error {
+		sessions := b.Sub([]byte(engine.SessionsNamespace))
+		for _, id := range ids {
+			session := sessions.Sub([]byte(id))
+			meta := session.Ensure([]byte("meta"))
+			if _, ok := messageCount(meta); ok {
+				continue
+			}
+			chat := session.Sub([]byte("chat"))
+			if chat.FirstKey() == nil {
+				continue
+			}
+			if err := putMessageCount(meta, chat.KeyCount()); err != nil {
+				return fmt.Errorf("session %s: %w", id, err)
+			}
+		}
+		return nil
+	})
+}
+
 // ListSessionsByRecent returns summaries for every stored session, sorted by
 // the most recent message first (descending LastMessage). Timestamps and
-// counts are obtained via cursor seeks and key iteration — no chat payloads
-// are decrypted.
+// counts are obtained as [Storage.SessionTimestamps] does — no chat
+// payloads are decrypted. Sessions that had to have their entries counted
+// get a stored counter afterwards.
 func (s *Storage) ListSessionsByRecent() ([]SessionSummary, error) {
 	ids, err := s.ListSessions()
 	if err != nil {
@@ -455,14 +520,26 @@ func (s *Storage) ListSessionsByRecent() ([]SessionSummary, error) {
 	}
 
 	summaries := make([]SessionSummary, 0, len(ids))
+	var uncounted []string
 	for _, id := range ids {
-		first, last, count, err := s.SessionTimestamps(id)
+		var (
+			first, last time.Time
+			count       int
+			counted     bool
+		)
+		err := s.engine.Query(func(b engine.Namespace) error {
+			first, last, count, counted = sessionTimestamps(b, id)
+			return nil
+		})
 		if err != nil {
 			slog.Warn(
 				"skipping session with unreadable timestamps",
 				slog.String("session_id", id), slog.Any("error", err),
 			)
 			continue
+		}
+		if counted {
+			uncounted = append(uncounted, id)
 		}
 		name, _ := s.GetSessionName(id)
 		summaries = append(summaries, SessionSummary{
@@ -477,6 +554,15 @@ func (s *Storage) ListSessionsByRecent() ([]SessionSummary, error) {
 	slices.SortFunc(summaries, func(a, b SessionSummary) int {
 		return b.LastMessage.Compare(a.LastMessage)
 	})
+
+	if len(uncounted) > 0 {
+		if err := s.storeMessageCounts(uncounted); err != nil {
+			slog.Warn(
+				"could not store session message counts",
+				slog.Any("error", err),
+			)
+		}
+	}
 
 	return summaries, nil
 }
@@ -606,7 +692,8 @@ func (s *Storage) DeleteSession(sessionID string) error {
 // AddChatEntry stores a chat message for the given session ID. The message
 // is stored in sessions/<sessionID>/chat/, which is created if needed, so
 // it does not depend on [Storage.CreateSession] having run, nor on the
-// peer being stored.
+// peer being stored. The session's message counter is updated in the same
+// transaction.
 //
 // Key (14 bytes, ordered by local receive time):
 //   - 8 bytes: local UnixNano timestamp (big-endian) — uses the local clock
@@ -641,10 +728,20 @@ func (s *Storage) AddChatEntry(
 	copy(enc[13:], payload)
 
 	err := s.engine.Command(func(b engine.Namespace) error {
-		chat := b.Ensure([]byte(engine.SessionsNamespace)).
-			Ensure([]byte(sessionID)).
-			Ensure([]byte("chat"))
-		return chat.PutEncrypted(key, enc)
+		session := b.Ensure([]byte(engine.SessionsNamespace)).
+			Ensure([]byte(sessionID))
+		chat := session.Ensure([]byte("chat"))
+		meta := session.Ensure([]byte("meta"))
+		// Count the stored entries once for a session that has none.
+		// Nothing else in this transaction has changed chat yet.
+		count, ok := messageCount(meta)
+		if !ok {
+			count = chat.KeyCount()
+		}
+		if err := chat.PutEncrypted(key, enc); err != nil {
+			return err
+		}
+		return putMessageCount(meta, count+1)
 	})
 	if err != nil {
 		return fmt.Errorf("store chat entry: %w", err)

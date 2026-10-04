@@ -189,6 +189,9 @@ func (b *boltNamespace) LastKey() []byte {
 	return out
 }
 
+// KeyCount returns the number of keys in the namespace, nested namespaces
+// included. It reads every page of the bucket, so its cost grows with the
+// size of the namespace.
 func (b *boltNamespace) KeyCount() int {
 	if b == nil || b.buck == nil {
 		return 0

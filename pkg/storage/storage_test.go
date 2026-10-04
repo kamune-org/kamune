@@ -785,6 +785,72 @@ func TestGetChatHistoryIgnoresSenderTimestampForOrder(t *testing.T) {
 	a.True(entries[1].SentAt.Equal(forged))
 }
 
+// TestSessionMessageCount checks that session summaries take their message
+// count from the counter AddChatEntry keeps, and that sessions written
+// before the counter existed are counted and then get one.
+func TestSessionMessageCount(t *testing.T) {
+	a := require.New(t)
+	store, cleanup := newTestStorage(t)
+	defer cleanup()
+	counter := func(id string) []byte {
+		m, err := store.GetMeta(id, messageCountKey)
+		a.NoError(err)
+		return m.Value()
+	}
+	be := func(n uint64) []byte {
+		return binary.BigEndian.AppendUint64(nil, n)
+	}
+
+	for range 3 {
+		a.NoError(store.AddChatEntry(
+			"new", []byte("m"), time.Now(), SenderLocal,
+		))
+	}
+	a.Equal(be(3), counter("new"))
+	_, _, count, err := store.SessionTimestamps("new")
+	a.NoError(err)
+	a.Equal(3, count)
+
+	// The count is read from the counter, not by walking the bucket.
+	a.NoError(store.SetMeta("new", NewBytesMeta(messageCountKey, be(42))))
+	_, _, count, err = store.SessionTimestamps("new")
+	a.NoError(err)
+	a.Equal(42, count)
+
+	// A session stored without a counter is counted, and listing the
+	// sessions stores its counter.
+	a.NoError(store.engine.Command(func(b Namespace) error {
+		chat := b.Ensure([]byte("sessions")).
+			Ensure([]byte("old")).
+			Ensure([]byte("chat"))
+		for i := range 5 {
+			err := chat.PutEncrypted(
+				chatKey(time.Unix(0, int64(i+1)), SenderPeer, 1), []byte("m"),
+			)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+	a.Nil(counter("old"))
+	_, _, count, err = store.SessionTimestamps("old")
+	a.NoError(err)
+	a.Equal(5, count)
+
+	summaries, err := store.ListSessionsByRecent()
+	a.NoError(err)
+	counts := map[string]int{}
+	for _, sum := range summaries {
+		counts[sum.ID] = sum.MessageCount
+	}
+	a.Equal(map[string]int{"new": 42, "old": 5}, counts)
+	a.Equal(be(5), counter("old"))
+
+	a.NoError(store.AddChatEntry("old", []byte("m"), time.Now(), SenderPeer))
+	a.Equal(be(6), counter("old"))
+}
+
 func chatKey(timestamp time.Time, sender Sender, suffix uint32) []byte {
 	key := make([]byte, 14)
 	binary.BigEndian.PutUint64(key[:8], uint64(timestamp.UnixNano()))
