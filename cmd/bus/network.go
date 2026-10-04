@@ -80,6 +80,7 @@ func (a *App) StartServer(
 		a.startCancel = nil
 		a.startCtx = nil
 		a.mu.Unlock()
+		cancel()
 	}
 	defer cleanupStart()
 
@@ -171,7 +172,6 @@ func (a *App) StartServer(
 		a.relayListeners = ml
 		a.relayTokens = []relayToken{{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), Mode: relayMode, PeerPubB64: peerPubB64, listener: listener}}
 		a.mu.Unlock()
-		go a.relayReconnectLoop(ctx, ml)
 	case "udp":
 		if useP2P && useBroker && brokerAddr != "" {
 			// P2P mode: build a p2pListener that registers on the
@@ -510,49 +510,29 @@ func (a *App) CancelStartServer() {
 }
 
 func (a *App) GenerateRelayToken(peerPubB64 string) (string, error) {
-	a.mu.Lock()
-	if a.relayListeners == nil {
-		a.mu.Unlock()
+	target, ok := a.currentRelayTarget()
+	if !ok {
 		return "", fmt.Errorf("relay is not configured — start a relay server first")
 	}
-	relayAddr := a.relayAddr
-	password := a.relayPassword
-	a.mu.Unlock()
 
 	staticToken, err := a.deriveP2PToken(peerPubB64)
 	if err != nil {
 		return "", fmt.Errorf("derive static relay token: %w", err)
 	}
-	listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, password, false, staticToken)
-	if err != nil {
-		return "", err
-	}
-
 	relayMode := "random"
 	if len(staticToken) > 0 {
 		relayMode = "static"
 	}
-
-	pinRelayListener(listener, staticPeerKey(peerPubB64, staticToken))
-
-	a.mu.Lock()
-	if a.relayListeners == nil {
-		a.mu.Unlock()
-		listener.Close()
-		return "", fmt.Errorf("server stopped while generating token")
+	rt, err := a.addRelayToken(
+		a.lifeCtx(), target, staticToken,
+		relayToken{Mode: relayMode, PeerPubB64: peerPubB64}, "",
+	)
+	if err != nil {
+		return "", err
 	}
-	if err := a.relayListeners.Add(listener); err != nil {
-		a.mu.Unlock()
-		return "", fmt.Errorf("add listener: %w", err)
-	}
-	a.relayTokens = append(a.relayTokens, relayToken{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), Mode: relayMode, PeerPubB64: peerPubB64, listener: listener})
-	tokens := make([]relayToken, len(a.relayTokens))
-	copy(tokens, a.relayTokens)
-	a.mu.Unlock()
 
-	a.emitEvent("relay-tokens", tokens)
-	a.addLogEntry("INFO", "Generated relay token: "+token)
-	return token, nil
+	a.addLogEntry("INFO", "Generated relay token: "+rt.Token)
+	return rt.Token, nil
 }
 
 func (a *App) RemoveRelayToken(token string) error {
@@ -1062,8 +1042,15 @@ func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 		_ = t.Close()
 		return ErrPeerKeyMismatch
 	}
+	if !admitsSession(t.AcceptedMeta(), sessionID) {
+		a.addLogEntry("WARN", "Rejected incoming session from "+
+			a.identifyPeer(a.store(), peer).logName()+
+			": it used the relay reconnect token of another session")
+		_ = t.Close()
+		return ErrNotResumed
+	}
 	a.mu.Lock()
-	stampRelaySession(a.relayTokens, t.AcceptedMeta(), sessionID)
+	stampRelaySession(t.AcceptedMeta(), sessionID)
 	a.mu.Unlock()
 
 	a.mu.RLock()
@@ -1119,7 +1106,11 @@ func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 	a.addLogEntry("INFO", "New incoming connection: "+sessionID)
 
 	go a.keepAliveLoop(session, session.keepAliveDone)
-	a.receiveMessages(session)
+	if a.receiveMessages(session) {
+		// The connection dropped: the peer may resume the session
+		// through the relay.
+		a.resumeRelaySession(t.AcceptedMeta(), session)
+	}
 	return nil
 }
 

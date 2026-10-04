@@ -544,34 +544,20 @@ func TestReconnectDial_SingleTokenUsesSessionContext(t *testing.T) {
 	a.ErrorIs(err, context.Canceled)
 }
 
-func TestStampRelaySession_TwoConsumedTokens(t *testing.T) {
+func TestStampRelaySession(t *testing.T) {
 	a := require.New(t)
 	first := &tokenTracker{}
 	second := &tokenTracker{}
-	tokens := []relayToken{
-		{Consumed: true, listener: first},
-		{Consumed: true, listener: second},
-	}
-	stampRelaySession(tokens, second, "session-b")
+	stampRelaySession(second, "session-b")
 	a.Empty(first.sessionID)
 	a.Equal("session-b", second.sessionID)
-	a.Empty(tokens[0].sessionID)
-	a.Equal("session-b", tokens[1].sessionID)
+	// A session that did not come through the relay has no tracker.
+	stampRelaySession(nil, "session-c")
+	stampRelaySession(&gatedConn{}, "session-c")
 }
 
-func TestStampRelaySession_AfterSliceRemoval(t *testing.T) {
-	a := require.New(t)
-	tt := &tokenTracker{}
-	stampRelaySession(nil, tt, "session-a")
-	a.Equal("session-a", tt.sessionID)
-}
-
-func TestRelayReconnectLoop_EmptySessionDoesNotQueryRoot(t *testing.T) {
-	a := require.New(t)
-	id := relaySessionID(&tokenTracker{}, nil)
-	a.Empty(id)
-	_, ok := loadRelayPool(nil, id)
-	a.False(ok)
+func TestLoadRelayPool_NoSession(t *testing.T) {
+	require.New(t).Empty(loadRelayPool(nil, ""))
 }
 
 // ---------------------------------------------------------------------------

@@ -73,16 +73,21 @@ func (a *App) SendMessage(sessionID string, text string) error {
 // receiveMessages runs the receive loop for a session. On involuntary
 // disconnect (ErrConnClosed) it attempts transparent resumption when
 // reconnectFn is available. When the loop exits, it cleans up the session and
-// emits session-closed.
-func (a *App) receiveMessages(session *liveSession) {
+// emits session-closed. It reports whether the session ended because its
+// connection dropped, rather than because either side closed it; it
+// reports false for a session that DisconnectSession or StopServer took
+// out of the app.
+func (a *App) receiveMessages(session *liveSession) (dropped bool) {
 	defer close(session.ReceiveDone)
 
+	var endErr error
 	for {
 		session.mu.Lock()
 		transport := session.Transport
 		session.mu.Unlock()
 		metadata, payload, err := transport.ReceivePayload()
 		if err != nil {
+			endErr = err
 			switch {
 			case errors.Is(err, kamune.ErrPeerDisconnected):
 				a.addLogEntry("INFO", "Peer disconnected: "+session.ID)
@@ -168,7 +173,7 @@ func (a *App) receiveMessages(session *liveSession) {
 
 	sessionsRemaining, removed := a.removeSession(session.ID)
 	if !removed {
-		return
+		return false
 	}
 
 	if store := a.store(); store != nil {
@@ -181,6 +186,7 @@ func (a *App) receiveMessages(session *liveSession) {
 		a.setStatus(StatusDisconnected, "Not connected")
 		a.addLogEntry("INFO", "All sessions disconnected")
 	}
+	return errors.Is(endErr, kamune.ErrConnClosed)
 }
 
 // notificationPreviewRunes caps how much of a message a notification

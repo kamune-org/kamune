@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math/rand"
 	"strings"
 	"sync"
@@ -44,8 +43,15 @@ type tokenTracker struct {
 	expiryFn   func()
 	dead       chan struct{}
 	deadOnce   sync.Once
-	sessionID  string
-	consumed   atomic.Bool
+	// sessionID is the session that ran on the token's connection. It is
+	// written and read under app.mu.
+	sessionID string
+	// resumeOf is the session that the token was registered for, so that
+	// its peer can resume it, or empty. Only that session may run on the
+	// listener; see admitsSession. It is set before the listener is in use
+	// and not changed after.
+	resumeOf string
+	consumed atomic.Bool
 	// peers holds the key of the peer a static token was derived for.
 	peers peerKeySet
 }
@@ -110,50 +116,43 @@ func (t *tokenTracker) Dead() <-chan struct{} {
 	return t.dead
 }
 
-// stampRelaySession records sessionID on the accepting tracker and on
-// the slice entry that still points at it. Other tokens are left alone.
-func stampRelaySession(
-	tokens []relayToken, meta any, sessionID string,
-) {
+// ErrNotResumed is returned by the server handler for a session that came
+// in through a relay listener registered for another session's peer to
+// resume it on: only a resumption of that session may run on it.
+var ErrNotResumed = errors.New(
+	"the relay reconnect token is for resuming another session",
+)
+
+// admitsSession reports whether the session sessionID may run on the
+// listener that its conn came in through, meta. A resume listener admits
+// only the session it was registered for, which only that session's peer
+// can resume, so a fresh handshake by whoever else learned the token, such
+// as the relay operator, is turned away. Any other listener admits every
+// session.
+func admitsSession(meta any, sessionID string) bool {
 	tt, ok := meta.(*tokenTracker)
-	if !ok || tt == nil {
-		return
-	}
-	tt.sessionID = sessionID
-	for i := range tokens {
-		if tokens[i].listener == tt {
-			tokens[i].sessionID = sessionID
-		}
+	return !ok || tt == nil || tt.resumeOf == "" ||
+		tt.resumeOf == sessionID
+}
+
+// stampRelaySession records sessionID on the tracker that accepted the
+// session's connection, if any. The caller holds a.mu.
+func stampRelaySession(meta any, sessionID string) {
+	if tt, ok := meta.(*tokenTracker); ok && tt != nil {
+		tt.sessionID = sessionID
 	}
 }
 
-func relaySessionID(tracker *tokenTracker, tokens []relayToken) string {
-	if tracker != nil && tracker.sessionID != "" {
-		return tracker.sessionID
-	}
-	for i := len(tokens) - 1; i >= 0; i-- {
-		if tokens[i].sessionID != "" {
-			return tokens[i].sessionID
-		}
-		tt, ok := tokens[i].listener.(*tokenTracker)
-		if ok && tt.sessionID != "" {
-			return tt.sessionID
-		}
-	}
-	return ""
-}
-
-func loadRelayPool(
-	store *storage.Storage, sessionID string,
-) ([][]byte, bool) {
+// loadRelayPool returns the relay reconnect tokens stored for sessionID.
+func loadRelayPool(store *storage.Storage, sessionID string) [][]byte {
 	if sessionID == "" || store == nil {
-		return nil, false
+		return nil
 	}
 	m, err := store.GetMeta(sessionID, storage.RelayTokensKey)
 	if err != nil || m.Value() == nil {
-		return nil, false
+		return nil
 	}
-	return decodeTokenList(m.Value()), true
+	return decodeTokenList(m.Value())
 }
 
 func (t *tokenTracker) cancelExpiry() {
@@ -388,156 +387,172 @@ func dialRelayFuncWithSessionTTL(
 	}, nil
 }
 
-// relayReconnectLoop monitors the relay listener for death and automatically
-// re-registers with the next available token from the stored pool. It exits
-// when the context is cancelled, the server stops, or the token pool is
-// exhausted (cold-start required).
-func (a *App) relayReconnectLoop(
-	ctx context.Context, ml *multiListener,
-) {
+// relayTarget is a running relay server's relay and the multiListener
+// that its relay listeners join.
+type relayTarget struct {
+	addr      string
+	password  string
+	listeners *multiListener
+}
+
+// currentRelayTarget returns the running relay server's target, and false
+// when no relay server runs.
+func (a *App) currentRelayTarget() (relayTarget, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.relayListeners == nil {
+		return relayTarget{}, false
+	}
+	return relayTarget{
+		addr:      a.relayAddr,
+		password:  a.relayPassword,
+		listeners: a.relayListeners,
+	}, true
+}
+
+// errServerStopped is returned by addRelayToken when the server that the
+// new listener was to join stopped while it registered.
+var errServerStopped = errors.New(
+	"the server stopped while registering the token",
+)
+
+// addRelayToken registers a token with target's relay, staticToken or
+// one the relay assigns when it is nil, adds its listener to target's
+// server and lists it. tmpl gives the listed token's mode and peer.
+// resumeOf names the session that the token is registered for, so that
+// its peer can resume it, or is empty. It returns errServerStopped when
+// the server stopped meanwhile.
+func (a *App) addRelayToken(
+	ctx context.Context,
+	target relayTarget,
+	staticToken []byte,
+	tmpl relayToken,
+	resumeOf string,
+) (relayToken, error) {
+	listener, token, ttl, sessionTTL, err := listenRelayTracked(
+		ctx, a, target.addr, target.password, false, staticToken,
+	)
+	if err != nil {
+		return relayToken{}, err
+	}
+	if tt, ok := listener.(*tokenTracker); ok {
+		// Set before the listener is in use.
+		tt.resumeOf = resumeOf
+	}
+	pinRelayListener(listener, staticPeerKey(tmpl.PeerPubB64, staticToken))
+
+	rt := tmpl
+	rt.Token = token
+	rt.TTL = ttl
+	rt.SessionTTL = sessionTTL
+	rt.ExpiresAt = time.Now().Add(ttl)
+	rt.listener = listener
+
+	a.mu.Lock()
+	if a.relayListeners != target.listeners ||
+		target.listeners.Add(listener) != nil {
+		a.mu.Unlock()
+		_ = listener.Close()
+		return relayToken{}, errServerStopped
+	}
+	a.relayTokens = append(a.relayTokens, rt)
+	tokens := a.relayTokensSnapshotLocked()
+	a.mu.Unlock()
+
+	a.emitEvent("relay-tokens", tokens)
+	return rt, nil
+}
+
+// resumeRelaySession starts keeping a relay listener registered for
+// session, a server session that came in through the relay listener meta
+// and whose connection dropped, so that its peer can resume it; see
+// awaitRelayResume. It does nothing for a session that did not come
+// through the relay or that cannot be resumed.
+func (a *App) resumeRelaySession(meta any, session *liveSession) {
+	if _, ok := meta.(*tokenTracker); !ok || a.sessionIncognito(session) {
+		return
+	}
+	target, ok := a.currentRelayTarget()
+	if !ok || a.lifeCtx().Err() != nil {
+		return
+	}
+	go a.awaitRelayResume(target, session.ID)
+}
+
+// awaitRelayResume keeps a relay listener registered with one of the
+// reconnect tokens of sessionID, a relay session of target's server whose
+// connection dropped, so that its peer can resume the session through the
+// relay. When the listener ends before a session has run on it, it
+// registers another one after a short wait. It returns once a session has
+// run on such a listener, when the server stops, or when no reconnect
+// token is stored for the session or the relay takes none.
+func (a *App) awaitRelayResume(target relayTarget, sessionID string) {
 	const (
 		minBackoff = 1 * time.Second
 		maxBackoff = 5 * time.Second
 	)
-
-	// Find the current tracker's dead channel.
-	a.mu.RLock()
-	var currentDead <-chan struct{}
-	var currentTracker *tokenTracker
-	for i := len(a.relayTokens) - 1; i >= 0; i-- {
-		if tt, ok := a.relayTokens[i].listener.(*tokenTracker); ok {
-			currentDead = tt.Dead()
-			currentTracker = tt
-			break
+	// Registering stops with the server, or when the app shuts down.
+	ctx, cancel := context.WithCancel(a.lifeCtx())
+	defer cancel()
+	go func() {
+		select {
+		case <-target.listeners.Done():
+			cancel()
+		case <-ctx.Done():
 		}
-	}
-	a.mu.RUnlock()
-
-	if currentDead == nil {
-		slog.Warn("relay reconnect: no tracker found")
-		return
-	}
+	}()
 
 	for {
-		// Wait for the current listener to die or context cancellation.
-		select {
-		case <-ctx.Done():
-			return
-		case <-currentDead:
-		}
-
-		// Jittered back-off before re-registering.
-		jitter := time.Duration(
-			rand.Int63n(int64(maxBackoff - minBackoff)),
-		)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(minBackoff + jitter):
-		}
-
-		// Server stopped while we waited.
-		a.mu.RLock()
-		server := a.server
-		a.mu.RUnlock()
-		if server == nil {
-			return
-		}
-
-		// Resolve session ID from tracker or tokens after connection death.
-		a.mu.RLock()
-		sessionID := relaySessionID(currentTracker, a.relayTokens)
-		a.mu.RUnlock()
-		if sessionID == "" {
-			slog.Warn(
-				"relay reconnect: no stored tokens, cold start required",
-				"session", sessionID,
-			)
-			return
-		}
-
-		// Read stored ECDH tokens from BoltDB.
-		st := a.store()
-		tokens, ok := loadRelayPool(st, sessionID)
-		if !ok {
-			slog.Warn(
-				"relay reconnect: no stored tokens, cold start required",
-				"session", sessionID,
-			)
-			return
-		}
+		tokens := loadRelayPool(a.store(), sessionID)
 		if len(tokens) == 0 {
-			slog.Warn(
-				"relay reconnect: empty token pool, cold start required",
-				"session", sessionID,
-			)
+			a.addLogEntry("INFO",
+				"No relay reconnect tokens for session "+sessionID+
+					"; it cannot resume through the relay")
 			return
 		}
 
-		// Get relay connection config.
-		a.mu.RLock()
-		relayAddr := a.relayAddr
-		password := a.relayPassword
-		a.mu.RUnlock()
-
-		// Try each token in the pool until one succeeds.
-		var registered bool
+		var tt *tokenTracker
 		for _, token := range tokens {
-			listener, tokenHex, ttl, sessTTL, listenErr :=
-				listenRelayTracked(
-					ctx, a, relayAddr, password,
-					false, token,
-				)
-			if listenErr != nil {
-				slog.Warn(
-					"relay reconnect: attempt failed",
-					"err", listenErr,
-				)
-				continue
-			}
-			if addErr := ml.Add(listener); addErr != nil {
-				listener.Close()
-				slog.Warn(
-					"relay reconnect: add to multi-listener failed",
-					"err", addErr,
-				)
-				continue
-			}
-
-			a.mu.Lock()
-			a.relayTokens = append(a.relayTokens, relayToken{
-				Token:      tokenHex,
-				TTL:        ttl,
-				SessionTTL: sessTTL,
-				ExpiresAt:  time.Now().Add(ttl),
-				Mode:       "ecdh",
-				sessionID:  sessionID,
-				listener:   listener,
-			})
-			a.mu.Unlock()
-
-			slog.Info(
-				"relay reconnect: listener re-registered",
-				"token_prefix", tokenHex[:8],
+			rt, err := a.addRelayToken(
+				ctx, target, token, relayToken{Mode: "ecdh"}, sessionID,
 			)
-
-			// Track the new listener's death for the next cycle.
-			if tt, ok := listener.(*tokenTracker); ok {
-				currentDead = tt.Dead()
-				currentTracker = tt
-				tt.sessionID = sessionID
+			if errors.Is(err, errServerStopped) || ctx.Err() != nil {
+				return
 			}
-			registered = true
+			if err != nil {
+				a.addLogEntry("WARN",
+					"Relay reconnect registration failed: "+err.Error())
+				continue
+			}
+			tt, _ = rt.listener.(*tokenTracker)
+			a.addLogEntry("INFO",
+				"Relay reconnect listener registered for session "+
+					sessionID)
 			break
 		}
+		if tt == nil {
+			a.addLogEntry("WARN",
+				"The relay took no reconnect token for session "+
+					sessionID+"; it cannot resume through the relay")
+			return
+		}
 
-		if !registered {
-			slog.Warn(
-				"relay reconnect: all tokens exhausted, cold start required",
-				"session", sessionID,
-				"pool_size", len(tokens),
-			)
-			a.emitEvent("relay-pool-exhausted", sessionID)
+		select {
+		case <-tt.Dead():
+		case <-ctx.Done():
+			return
+		}
+		a.mu.RLock()
+		resumed := tt.sessionID != ""
+		a.mu.RUnlock()
+		if resumed {
+			return
+		}
+
+		jitter := time.Duration(rand.Int63n(int64(maxBackoff - minBackoff)))
+		select {
+		case <-time.After(minBackoff + jitter):
+		case <-ctx.Done():
 			return
 		}
 	}

@@ -52,6 +52,9 @@ func (m *multiListener) Add(l kamune.Listener) error {
 	return nil
 }
 
+// Done is closed once the listener is closed.
+func (m *multiListener) Done() <-chan struct{} { return m.done }
+
 func (m *multiListener) Accept() (kamune.Conn, error) {
 	select {
 	case cn := <-m.connCh:

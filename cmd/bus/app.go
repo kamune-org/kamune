@@ -254,7 +254,6 @@ type relayToken struct {
 	// peer's name alongside the token).
 	PeerPubB64 string `json:"peerPubB64,omitempty"`
 	listener   kamune.Listener
-	sessionID  string
 }
 
 type ShareInfo struct {
