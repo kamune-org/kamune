@@ -155,10 +155,9 @@ type Daemon struct {
 	output   *json.Encoder
 	outputMu sync.Mutex
 
-	storeMu sync.Mutex
-	db      *storage.Storage
-
-	passphrase atomic.Value
+	storeMu  sync.Mutex
+	db       *storage.Storage
+	dbUnlock storageUnlock
 
 	logEntries    []LogEntryInfo
 	logMu         sync.RWMutex
@@ -275,6 +274,7 @@ func (d *Daemon) closeStore() {
 	d.storeMu.Lock()
 	store := d.db
 	d.db = nil
+	d.dbUnlock = storageUnlock{}
 	d.storeMu.Unlock()
 	if store != nil {
 		if err := store.Close(); err != nil {
@@ -300,10 +300,85 @@ func (d *Daemon) storageBusy() bool {
 		len(d.sessions) > 0
 }
 
-func (d *Daemon) installStore(store *storage.Storage, path string) {
+// storageUnlock says how a storage is unlocked: with passphrase, or with
+// none when noPassphrase is set.
+type storageUnlock struct {
+	passphrase   []byte
+	noPassphrase bool
+}
+
+func (u storageUnlock) options(path string) []storage.StorageOption {
+	var opts []storage.StorageOption
+	if path != "" {
+		opts = append(opts, storage.WithDBPath(path))
+	}
+	if u.noPassphrase {
+		return append(opts, storage.WithNoPassphrase())
+	}
+	pass := u.passphrase
+	return append(opts, storage.WithPassphraseHandler(
+		func() ([]byte, error) { return pass, nil },
+	))
+}
+
+// samePath reports whether a and b name the same existing file.
+func samePath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
+}
+
+// replaceStore opens the storage at path and installs it in place of the
+// current one, which is closed. bbolt locks a database file while it is
+// open, so a second open of the open file would wait for the lock and
+// fail. When path is the open file, the current store is therefore closed
+// first, and opened again as it was if the new open fails.
+func (d *Daemon) replaceStore(path string, unlock storageUnlock) error {
+	d.mu.RLock()
+	curPath := d.dbPath
+	d.mu.RUnlock()
+	d.storeMu.Lock()
+	reopen := d.db != nil && samePath(curPath, path)
+	curUnlock := d.dbUnlock
+	d.storeMu.Unlock()
+
+	if reopen {
+		d.closeStore()
+	}
+	store, err := storage.OpenStorage(unlock.options(path)...)
+	if err == nil {
+		d.installStore(store, path, unlock)
+		return nil
+	}
+	if !reopen {
+		return err
+	}
+	prev, prevErr := storage.OpenStorage(curUnlock.options(curPath)...)
+	if prevErr != nil {
+		return fmt.Errorf(
+			"%w; reopening the previous storage failed: %v", err, prevErr,
+		)
+	}
+	d.installStore(prev, curPath, curUnlock)
+	return err
+}
+
+func (d *Daemon) installStore(
+	store *storage.Storage, path string, unlock storageUnlock,
+) {
 	d.storeMu.Lock()
 	old := d.db
 	d.db = store
+	d.dbUnlock = unlock
 	d.storeMu.Unlock()
 
 	d.mu.Lock()
@@ -318,22 +393,17 @@ func (d *Daemon) installStore(store *storage.Storage, path string) {
 	}
 }
 
-// openStorage opens storage at the given path and only replaces the current
-// store after the new store has opened successfully. A passphrase from
-// KAMUNE_DB_PASSPHRASE is never saved to the keychain.
+// openStorage opens storage at the given path and replaces the current
+// store with it. When the new storage fails to open, the current store is
+// kept; see replaceStore. A passphrase from KAMUNE_DB_PASSPHRASE is never
+// saved to the keychain.
 func (d *Daemon) openStorage(params OpenStorageParams) error {
 	if d.storageBusy() {
 		return errStorageBusy
 	}
 
-	var opts []storage.StorageOption
-	if params.StoragePath != "" {
-		opts = append(opts, storage.WithDBPath(params.StoragePath))
-	}
-
-	if params.DBNoPassphrase {
-		opts = append(opts, storage.WithNoPassphrase())
-	} else {
+	unlock := storageUnlock{noPassphrase: params.DBNoPassphrase}
+	if !params.DBNoPassphrase {
 		d.mu.Lock()
 		d.pendingDBPath = params.StoragePath
 		d.mu.Unlock()
@@ -342,20 +412,10 @@ func (d *Daemon) openStorage(params OpenStorageParams) error {
 		if pass == "" {
 			return errPassphraseRequired
 		}
-		d.passphrase.Store([]byte(pass))
-		opts = append(opts, storage.WithPassphraseHandler(func() ([]byte, error) {
-			p, _ := d.passphrase.Load().([]byte)
-			return p, nil
-		}))
+		unlock.passphrase = []byte(pass)
 	}
 
-	store, err := storage.OpenStorage(opts...)
-	if err != nil {
-		return err
-	}
-
-	d.installStore(store, params.StoragePath)
-	return nil
+	return d.replaceStore(params.StoragePath, unlock)
 }
 
 // Run starts the daemon's main loop
@@ -603,21 +663,15 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 		d.emitError(cmd.ID, "storage_busy", errStorageBusy.Error())
 		return
 	}
-	d.passphrase.Store([]byte(params.Passphrase))
 
-	store, err := storage.OpenStorage(
-		storage.WithDBPath(dbPath),
-		storage.WithPassphraseHandler(func() ([]byte, error) {
-			p, _ := d.passphrase.Load().([]byte)
-			return p, nil
-		}),
+	err := d.replaceStore(
+		dbPath, storageUnlock{passphrase: []byte(params.Passphrase)},
 	)
 	if err != nil {
 		d.emitError(cmd.ID, "storage_open_failed", fmt.Sprintf("failed to open storage: %v", err))
 		return
 	}
 
-	d.installStore(store, dbPath)
 	if params.SaveToKeychain {
 		if err := keyring.Set(
 			keychainService, keychainAccount(dbPath), params.Passphrase,

@@ -438,3 +438,89 @@ func TestSubmitPassphraseRejectsEmptyPassphrase(t *testing.T) {
 	a.Nil(d.store())
 	a.NoFileExists(path)
 }
+
+func TestReopenOpenStoragePath(t *testing.T) {
+	// step opens the path again, with open or by submitting submit.
+	type step struct {
+		open       *OpenStorageParams
+		submit     string
+		wantFailed bool
+	}
+	tests := []struct {
+		name    string
+		first   OpenStorageParams
+		envPass string
+		again   step
+	}{
+		{
+			name:  "open_storage again",
+			first: OpenStorageParams{DBNoPassphrase: true},
+			again: step{open: &OpenStorageParams{DBNoPassphrase: true}},
+		},
+		{
+			name:    "submit_passphrase again",
+			first:   OpenStorageParams{},
+			envPass: "right",
+			again:   step{submit: "right"},
+		},
+		{
+			name:    "submit_passphrase with a wrong passphrase",
+			first:   OpenStorageParams{},
+			envPass: "right",
+			again:   step{submit: "wrong", wantFailed: true},
+		},
+		{
+			name:    "open_storage without the passphrase it needs",
+			first:   OpenStorageParams{},
+			envPass: "right",
+			again: step{
+				open:       &OpenStorageParams{DBNoPassphrase: true},
+				wantFailed: true,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			d := NewDaemon()
+			rec := newEventRecorder()
+			d.output = json.NewEncoder(rec)
+			t.Cleanup(func() {
+				d.cancel()
+				d.closeStore()
+			})
+			t.Setenv("KAMUNE_DB_PASSPHRASE", tt.envPass)
+			dir := t.TempDir()
+			path := filepath.Join(dir, "kamune.db")
+			tt.first.StoragePath = path
+			a.NoError(d.openStorage(tt.first))
+			pub, err := d.store().PublicKey()
+			a.NoError(err)
+
+			var failed bool
+			if tt.again.open != nil {
+				params := *tt.again.open
+				// Another spelling of the same file.
+				params.StoragePath = filepath.Join(dir, ".", "kamune.db")
+				failed = d.openStorage(params) != nil
+			} else {
+				d.handleSubmitPassphrase(Command{
+					ID: "submit",
+					Params: mustJSON(SubmitPassphraseParams{
+						Passphrase: tt.again.submit,
+					}),
+				})
+				evt := rec.waitFor(t, func(e recordedEvent) bool {
+					return e.ID == "submit"
+				})
+				failed = evt.Evt == EvtError
+			}
+
+			a.Equal(tt.again.wantFailed, failed)
+			a.NotNil(d.store(), "no storage open")
+			got, err := d.store().PublicKey()
+			a.NoError(err)
+			a.Equal(pub, got)
+		})
+	}
+}
