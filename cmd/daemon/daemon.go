@@ -142,6 +142,7 @@ type Daemon struct {
 	relayAddr       string
 	relayPassword   string
 	relaySessionTTL time.Duration
+	relayTimeout    time.Duration
 	relayTokens     []relayToken
 	relayListeners  *multiListener
 
@@ -185,6 +186,7 @@ func NewDaemon() *Daemon {
 		ctx:            ctx,
 		cancel:         cancel,
 		verifMode:      VerificationModeQuick,
+		relayTimeout:   defaultRelayTimeout,
 		status:         StatusDisconnected,
 		statusMsg:      "Not connected",
 		verifRequests:  make(map[int64]*pendingVerification),

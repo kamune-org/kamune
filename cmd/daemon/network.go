@@ -1300,7 +1300,9 @@ func (d *Daemon) relayReconnectLoop(ctx context.Context, ml *multiListener) {
 
 // handleGenerateRelayToken creates a new relay token for the running server.
 // When peer_pub_b64 is provided, it derives a deterministic (static) token
-// using ECDH (mirrors cmd/bus/network.go:427-466).
+// using ECDH (mirrors cmd/bus/network.go:427-466). The token is registered
+// with the relay after the command returns, so that a slow relay does not
+// hold up other commands; the response follows once it is registered.
 func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 	var params struct {
 		PeerPubB64 string `json:"peer_pub_b64,omitempty"`
@@ -1309,15 +1311,11 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 		_ = json.Unmarshal(cmd.Params, &params)
 	}
 
-	d.mu.Lock()
-	if d.relayListeners == nil {
-		d.mu.Unlock()
+	target, ok := d.currentRelayTarget()
+	if !ok {
 		d.emitError(cmd.ID, "relay_not_configured", "relay is not configured — start a relay server first")
 		return
 	}
-	relayAddr := d.relayAddr
-	relayPassword := d.relayPassword
-	d.mu.Unlock()
 
 	var staticToken []byte
 	relayMode := "random"
@@ -1329,43 +1327,87 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 		}
 	}
 
+	d.wg.Go(func() {
+		rt, code, err := d.addRelayToken(
+			target, staticToken, relayMode, params.PeerPubB64,
+		)
+		if err != nil {
+			d.emitError(cmd.ID, code, err.Error())
+			return
+		}
+		d.addLogEntry("INFO", "Generated relay token: "+rt.Token)
+		d.emit(EvtResponse, cmd.ID, MapA{
+			"token": rt.Token, "ttl_ns": rt.TTL,
+			"session_ttl_ns": rt.SessionTTL, "expires_at": rt.ExpiresAt,
+		})
+	})
+}
+
+// relayTarget is the relay of a running relay server, and the listeners
+// that the server accepts its connections from.
+type relayTarget struct {
+	listeners *multiListener
+	addr      string
+	password  string
+}
+
+// currentRelayTarget returns the relay of the running relay server, and
+// false when no relay server is running.
+func (d *Daemon) currentRelayTarget() (relayTarget, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return relayTarget{
+		listeners: d.relayListeners,
+		addr:      d.relayAddr,
+		password:  d.relayPassword,
+	}, d.relayListeners != nil
+}
+
+// addRelayToken registers a new token with target's relay and adds its
+// listener to target's server, unless that server has stopped since. The
+// registration may take up to d.relayTimeout, so addRelayToken must not
+// run on the command loop. On failure it returns the error code to
+// report: relay_listen_failed, server_stopped or listener_failed.
+func (d *Daemon) addRelayToken(
+	target relayTarget, staticToken []byte, mode, peerPubB64 string,
+) (relayToken, string, error) {
+	ctx, cancel := context.WithTimeout(d.ctx, d.relayTimeout)
+	defer cancel()
 	listener, token, ttl, sessionTTL, err := listenRelayTracked(
-		d.ctx, d, relayAddr, relayPassword, false, staticToken,
+		ctx, d, target.addr, target.password, false, staticToken,
 	)
 	if err != nil {
-		d.emitError(cmd.ID, "relay_listen_failed", err.Error())
-		return
+		return relayToken{}, "relay_listen_failed", err
 	}
 
-	d.mu.Lock()
-	if d.relayListeners == nil {
-		d.mu.Unlock()
-		_ = listener.Close()
-		d.emitError(cmd.ID, "server_stopped", "server stopped while generating token")
-		return
-	}
-	if err := d.relayListeners.Add(listener); err != nil {
-		d.mu.Unlock()
-		_ = listener.Close()
-		d.emitError(cmd.ID, "listener_failed", fmt.Sprintf("add listener: %v", err))
-		return
-	}
-	d.relayTokens = append(d.relayTokens, relayToken{
+	rt := relayToken{
 		Token: token, TTL: ttl, SessionTTL: sessionTTL,
-		ExpiresAt: time.Now().Add(ttl), Mode: relayMode,
-		PeerPubB64: params.PeerPubB64,
+		ExpiresAt: time.Now().Add(ttl), Mode: mode,
+		PeerPubB64: peerPubB64,
 		listener:   listener,
-	})
+	}
+	d.mu.Lock()
+	// A server that stopped, or stopped and started again, has other
+	// listeners or none.
+	if d.relayListeners != target.listeners {
+		d.mu.Unlock()
+		_ = listener.Close()
+		return relayToken{}, "server_stopped",
+			errors.New("server stopped while generating token")
+	}
+	if err := target.listeners.Add(listener); err != nil {
+		d.mu.Unlock()
+		_ = listener.Close()
+		return relayToken{}, "listener_failed",
+			fmt.Errorf("add listener: %w", err)
+	}
+	d.relayTokens = append(d.relayTokens, rt)
 	tokens := make([]relayToken, len(d.relayTokens))
 	copy(tokens, d.relayTokens)
 	d.mu.Unlock()
 
 	d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})
-	d.addLogEntry("INFO", "Generated relay token: "+token)
-	d.emit(EvtResponse, cmd.ID, MapA{
-		"token": token, "ttl_ns": ttl, "session_ttl_ns": sessionTTL,
-		"expires_at": time.Now().Add(ttl),
-	})
+	return rt, "", nil
 }
 
 // handleRemoveRelayToken removes an active relay token.
@@ -1411,7 +1453,9 @@ func (d *Daemon) handleListRelayTokens(cmd Command) {
 	d.emit(EvtResponse, cmd.ID, MapA{"tokens": tokens})
 }
 
-// handleGetShareInfo returns a share card for the running server.
+// handleGetShareInfo returns a share card for the running server. For a
+// relay server it registers a new relay token for the card, after the
+// command returns; see addRelayToken.
 func (d *Daemon) handleGetShareInfo(cmd Command) {
 	d.mu.RLock()
 	if d.server == nil {
@@ -1422,8 +1466,6 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 	transport := d.serverTransport
 	serverAddr := d.serverAddr
 	pubKey := d.pubKey
-	relayAddr := d.relayAddr
-	relayPassword := d.relayPassword
 	brokerAddr := d.serverBrokerAddr
 	p2pTokens := d.p2pTokensSnapshot()
 	d.mu.RUnlock()
@@ -1458,47 +1500,13 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 		}
 		urlStr = fmt.Sprintf("%s://%s:%s", scheme, address, port)
 	case "relay":
-		listener, token, ttl, sessionTTL, err := listenRelayTracked(
-			d.ctx, d, relayAddr, relayPassword, false, nil,
-		)
-		if err != nil {
-			d.emitError(cmd.ID, "relay_token_failed", fmt.Sprintf("generate relay token: %v", err))
-			return
-		}
-
-		d.mu.Lock()
-		if d.relayListeners == nil {
-			d.mu.Unlock()
-			listener.Close()
+		target, ok := d.currentRelayTarget()
+		if !ok {
 			d.emitError(cmd.ID, "server_stopped", "server stopped while generating token")
 			return
 		}
-		if err := d.relayListeners.Add(listener); err != nil {
-			d.mu.Unlock()
-			listener.Close()
-			d.emitError(cmd.ID, "listener_failed", fmt.Sprintf("add listener: %v", err))
-			return
-		}
-		d.relayTokens = append(d.relayTokens, relayToken{
-			Token: token, TTL: ttl, SessionTTL: sessionTTL,
-			ExpiresAt: time.Now().Add(ttl), listener: listener,
-		})
-		tokens := make([]relayToken, len(d.relayTokens))
-		copy(tokens, d.relayTokens)
-		d.mu.Unlock()
-
-		d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})
-		d.addLogEntry("INFO", "Share card: generated relay token: "+token)
-
-		scheme, host, _ := parseRelayAddr(relayAddr)
-		relayInfo = &relayShareInfo{
-			Address: host, Scheme: scheme, Token: token,
-			Password: relayPassword != "",
-		}
-		urlStr = fmt.Sprintf("relay://%s?token=%s&scheme=%s", host, token, scheme)
-		if relayPassword != "" {
-			urlStr += "&password=1"
-		}
+		d.wg.Go(func() { d.shareRelayInfo(cmd, target, emoji, hexFP) })
+		return
 	case "p2p":
 		var token string
 		if len(p2pTokens) > 0 {
@@ -1522,6 +1530,43 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 		"fingerprint_emoji": emoji,
 		"fingerprint_hex":   hexFP,
 		"relay_info":        relayInfo,
+	})
+}
+
+// shareRelayInfo answers get_share_info for a relay server with a card
+// that carries a newly registered relay token.
+func (d *Daemon) shareRelayInfo(
+	cmd Command, target relayTarget, emoji, hexFP string,
+) {
+	rt, code, err := d.addRelayToken(target, nil, "random", "")
+	if err != nil {
+		if code == "relay_listen_failed" {
+			code = "relay_token_failed"
+			err = fmt.Errorf("generate relay token: %w", err)
+		}
+		d.emitError(cmd.ID, code, err.Error())
+		return
+	}
+	d.addLogEntry("INFO", "Share card: generated relay token: "+rt.Token)
+
+	scheme, host, _ := parseRelayAddr(target.addr)
+	urlStr := fmt.Sprintf(
+		"relay://%s?token=%s&scheme=%s", host, rt.Token, scheme,
+	)
+	if target.password != "" {
+		urlStr += "&password=1"
+	}
+	d.emit(EvtResponse, cmd.ID, MapA{
+		"url":               urlStr,
+		"transport":         "relay",
+		"address":           "",
+		"port":              "",
+		"fingerprint_emoji": emoji,
+		"fingerprint_hex":   hexFP,
+		"relay_info": &relayShareInfo{
+			Address: host, Scheme: scheme, Token: rt.Token,
+			Password: target.password != "",
+		},
 	})
 }
 

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-generate-relay-token",
   "title": "generate_relay_token params",
-  "description": "Generates a new relay token for the running relay server.",
+  "description": "Generates a new relay token for the running relay server. The token is registered with the relay after the command is read, for at most 15 seconds, and the response follows; other commands are handled meanwhile.",
   "type": "object",
   "properties": {
     "peer_pub_b64": { "type": "string", "description": "Base64-encoded public key for static token derivation." }

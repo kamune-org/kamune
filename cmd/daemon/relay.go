@@ -16,6 +16,11 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
+// defaultRelayTimeout bounds one relay registration or relay dial:
+// connecting to the relay, TLS, the HPKE exchange, PSK auth and the
+// relay's Registered reply.
+const defaultRelayTimeout = 15 * time.Second
+
 func wrapRelayError(scheme, host string, password bool, err error) error {
 	var hint string
 	if strings.Contains(err.Error(), "received close frame") {
