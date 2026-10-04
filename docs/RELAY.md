@@ -271,21 +271,32 @@ A single TTL would force a compromise that hurts one of these.
 
 ### Backpressure and Message Drops
 
-The relay applies **no back-pressure, no queuing, no retry**. If the recipient
-is absent or slow, the message is silently dropped. The end-to-end Kamune
-protocol layer above the relay is responsible for reliability, ordering, and
-retransmission.
+The relay keeps **no queue and does not retry**. It forwards each `Message`
+frame from the sender's read loop: it reads a frame, writes it to the other
+peer, and only then reads the sender's next frame.
 
-**Design decision: drop, not queue.** Queuing would require:
+- **Absent recipient.** A frame sent before the other peer has joined is
+  dropped.
+- **Slow recipient.** The relay waits up to 15 seconds for each write to the
+  recipient. Meanwhile it reads nothing more from the sender, its pings
+  included, so a slow recipient holds the sender back through the transport's
+  flow control. When a write does not complete within 15 seconds, the relay
+  closes both peers. A frame is never dropped because the recipient is slow.
+
+Kamune does not retransmit, and a missing frame ends a kamune session (SPEC 8.2
+and 9.4). A dropped frame would therefore end the session too, only later and
+less clearly than closing both connections does.
+
+**Design decision: no queue.** Queuing would require:
 
 - Persistent storage (violates the stateless goal).
 - A notion of "session mailbox" (introduces replay windows).
 - Per-recipient ordering state (CPU and memory cost per session).
 
 The chosen design is simpler, more predictable, and has bounded resource cost
-per session. The cost is that messages sent before both peers are connected — or
-while the recipient is processing — are lost. Callers above the relay handle
-this.
+per session. The costs are that messages sent before both peers are connected
+are lost, and that a slow peer holds up the other one and can end the session.
+Callers above the relay handle this.
 
 ### Forward Secrecy
 
