@@ -531,16 +531,42 @@ Returns the current connection status.
 
 #### `dial`
 
-Connects to a remote kamune server. `transport` is `"tcp"` (default), `"udp"`,
-`"relay"`, `"p2p"`, or `"direct-p2p"`. For relay, `token` is the hex-encoded
-token from the server.
+Connects to a remote kamune server. The command is checked at once, and the
+dial then runs in the background; `session_started`, or an error event, carries
+the command's `id`.
 
-For p2p, `broker_addr` is the broker's UDP `host:port` and `p2p_token` the
-server's token in hex: 32 characters for a random token, 64 for a static one
-(anything else fails with `invalid_p2p_token`). The dial waits at most 30
-seconds for the broker to match the token (`p2p_match_failed`), then sends 5
-packets to the server's address over about 400 ms to open the NATs on the way
-before it starts KCP (`hole_punch_failed` when it cannot send any).
+| Param                                 | Transports | Description                                                                                                                                                                                                   |
+| ------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`                           | all        | `"tcp"` (the default, when empty or absent), `"udp"`, `"relay"`, `"p2p"` or `"direct-p2p"`. Any other value fails with `invalid_transport`.                                                                   |
+| `addr`                                | tcp, udp   | Required (`addr_required`). The server's address. Ignored for the other transports.                                                                                                                           |
+| `relay_addr`, `relay_pin`, `password` | relay      | As for [`start_server`](#start_server). `relay_addr` is required.                                                                                                                                             |
+| `token`                               | relay      | Required. The server's relay token in hex: 32 characters for a random token, 64 for a [static token](#relay), which the dialing side computes itself.                                                         |
+| `name`                                | all        | The display name sent to the server and saved as the local name. Defaults to the fingerprint pseudonym, which incognito mode always uses (and does not save). Checked as for `start_server` (`invalid_name`). |
+| `broker_addr`                         | p2p        | Required. The broker's UDP `host:port`.                                                                                                                                                                       |
+| `p2p_token`                           | p2p        | Required. The server's P2P token in hex: 32 characters for a random token, 64 for a static one. Anything else fails with `invalid_p2p_token`.                                                                 |
+| `direct_peer_addr`                    | direct-p2p | Required. The peer's UDP `host:port`.                                                                                                                                                                         |
+| `peer_pub_b64`                        | none       | Not used by `dial`.                                                                                                                                                                                           |
+
+For relay, connecting to the relay and the relay handshake are limited to 15
+seconds. For p2p, the dial waits at most 30 seconds for the broker to match the
+token (`p2p_match_failed`), then sends 5 packets to the server's address over
+about 400 ms to open the NATs on the way before it starts KCP
+(`hole_punch_failed` when it cannot send any).
+
+Before the dial starts, the command fails with `invalid_params`,
+`invalid_name`, `invalid_transport`, `addr_required`, `invalid_relay_pin` or
+`storage_not_opened`. A dial that fails later sets the status to `error` and
+reports one of `storage_unavailable`, `identity_unavailable`,
+`relay_dial_failed` (for example a missing `relay_addr` or `token`),
+`broker_client_failed`, `invalid_p2p_token`, `p2p_match_failed`,
+`hole_punch_failed`, `direct_p2p_failed`, `create_dialer_failed`,
+`dial_failed` (the handshake failed or the peer was rejected) or
+`goroutine_panic`.
+
+There is no command to cancel a dial. A server that accepts the connection but
+stops answering keeps the dial waiting until the kamune library's handshake
+limits run out: up to about 3 minutes, the 30-second handshake timeout plus
+the 150 seconds allowed for the server's verifier.
 
 **Input (TCP):**
 
@@ -633,11 +659,20 @@ before it starts KCP (`hole_punch_failed` when it cannot send any).
 }
 ```
 
-If a new peer connects and the verification mode is Strict or Quick, you'll
-also receive a `verify_peer` event (see [Push Events](#push-events)). If
-the peer has a different minor version, also a `version_warning` event.
-When the dial session ends, a `session_closed` event fires and the history
-is refreshed (`history_updated`).
+In Strict mode, and in Quick mode for a server that is not a known peer, a
+`verify_peer` event comes before `session_started`, and the dial waits for
+`verify_response` (see [Verification Flow](#verification-flow)). If the peer
+has a different minor version, a `version_warning` event comes too. The second
+`status_changed` names the relay address for relay, `p2p` for p2p and the
+peer's address for direct-p2p.
+
+When the connection of a dialed session drops, the daemon tries to resume the
+session, except for p2p and incognito sessions, and reports that with
+`session_reconnecting` and, once it works, `session_reconnected` (see
+[Push Events](#push-events)). When the session ends, `session_closed` fires
+and the history is refreshed (`history_updated`). A session that ends on a
+receive error other than a dropped connection or a peer close is closed with a
+close frame, so the peer sees it end and it cannot be resumed.
 
 #### `close_session`
 
