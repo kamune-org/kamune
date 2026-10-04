@@ -20,6 +20,13 @@ import (
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 )
 
+// RelayListener is the listening side of one relay registration. The
+// relay pairs it with a single dialer, so it yields a single connection:
+// Accept returns it when the peer's first frame arrives, and closing that
+// connection releases the relay session. Later Accept calls return
+// net.ErrClosed. A peer that the kamune server rejects therefore cannot
+// start another handshake over the same pairing; listen again for a new
+// session.
 type RelayListener struct {
 	ctx        context.Context
 	channel    *exchange.Channel
@@ -33,6 +40,8 @@ type RelayListener struct {
 	stopped    atomic.Bool
 	ttl        time.Duration
 	sessionTTL time.Duration
+	// delivered is set, under mu, once the connection has been created.
+	delivered bool
 }
 
 type ListenResult struct {
@@ -208,9 +217,11 @@ func listenHandshake(
 	}, nil
 }
 
-// Accept waits for the first frame of a new session from the relay. It
-// returns net.ErrClosed once the listener has been stopped or released.
-// A call that is already blocked when Stop runs returns when the relay
+// Accept waits for the peer's first frame and returns the listener's
+// connection. It returns net.ErrClosed once the listener has been
+// stopped or released, which includes every call after the connection
+// has been accepted and closed. A call that is already blocked when the
+// connection is accepted, or when Stop runs, returns when the relay
 // session is released: at once if no connection is active, otherwise
 // when the active connection closes.
 func (l *RelayListener) Accept() (kamune.Conn, error) {
@@ -314,23 +325,23 @@ func (l *RelayListener) deliver(msg *pb.Message) {
 		return
 	}
 
-	// If stopped and no active connection, drop the data.
-	if l.stopped.Load() {
+	// After Stop, or once the only connection has been created, drop
+	// the data: a peer whose session ended or was rejected must not
+	// start a new one on this pairing.
+	if l.stopped.Load() || l.delivered {
 		l.mu.Unlock()
 		return
 	}
 
 	rc := newRelayConn(l.ctx, l.channel, &l.channelMu)
+	// Closing the connection ends the relay session.
 	rc.closeFn = func() {
 		l.mu.Lock()
 		if l.conn == rc {
 			l.conn = nil
 		}
-		stopped := l.stopped.Load()
 		l.mu.Unlock()
-		if stopped {
-			l.release()
-		}
+		l.release()
 	}
 	// The buffer is empty, so this does not block.
 	rc.pushData(data)
@@ -340,6 +351,7 @@ func (l *RelayListener) deliver(msg *pb.Message) {
 	select {
 	case l.accept <- rc:
 		l.conn = rc
+		l.delivered = true
 		l.mu.Unlock()
 	default:
 		l.mu.Unlock()

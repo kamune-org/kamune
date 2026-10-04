@@ -99,13 +99,13 @@ func TestListenerReadPumpExitReleasesRelaySession(t *testing.T) {
 	}
 }
 
-// TestListenerRepeatedCloseKeepsNewerConn closes an old connection a
-// second time after the relay has started a new one, and checks that
-// the new connection keeps receiving frames and that the old one can
-// no longer write to the shared channel.
-func TestListenerRepeatedCloseKeepsNewerConn(t *testing.T) {
+// TestListenerSingleConnection closes the listener's connection, as the
+// kamune server does after rejecting a peer, and checks that the relay
+// session ends: the peer's next frame starts no new connection, Accept
+// reports net.ErrClosed and the closed connection cannot write.
+func TestListenerSingleConnection(t *testing.T) {
 	a := require.New(t)
-	listener, serverCh := setupListener(t)
+	listener, serverCh, spy := setupListenerSpy(t)
 
 	// Everything the listener writes reaches the relay here.
 	relayGot := make(chan []byte, 16)
@@ -122,31 +122,30 @@ func TestListenerRepeatedCloseKeepsNewerConn(t *testing.T) {
 	a.NoError(serverCh.WriteBytes(msgFrame([]byte("a"))))
 	c1, err := listener.Accept()
 	a.NoError(err)
-	a.NoError(c1.Close())
 
-	a.NoError(serverCh.WriteBytes(msgFrame([]byte("b"))))
-	c2, err := listener.Accept()
-	a.NoError(err)
-	defer c2.Close()
+	blocked := make(chan error, 1)
+	go func() {
+		_, err := listener.Accept()
+		blocked <- err
+	}()
 
 	a.NoError(c1.Close())
-	// Even a late close hook of the old conn must leave the new one.
+	waitClosed(t, spy, "closing the only conn kept the relay socket")
+
+	// A frame the relay already queued must not become a new session.
+	_ = serverCh.WriteBytes(msgFrame([]byte("b")))
+	select {
+	case err := <-blocked:
+		a.ErrorIs(err, net.ErrClosed)
+	case <-time.After(2 * time.Second):
+		a.Fail("blocked Accept did not return after the conn closed")
+	}
+	_, err = listener.Accept()
+	a.ErrorIs(err, net.ErrClosed)
+
+	// A late close hook of the old conn is harmless.
 	c1.(*RelayConn).closeFn()
 	a.ErrorIs(c1.WriteBytes([]byte("stale")), net.ErrClosed)
-
-	a.NoError(serverCh.WriteBytes(msgFrame([]byte("c"))))
-	a.NoError(c2.SetDeadline(time.Now().Add(2 * time.Second)))
-	for _, want := range []string{"b", "c"} {
-		got, err := c2.ReadBytes()
-		a.NoError(err)
-		a.Equal(want, string(got))
-	}
-
-	listener.mu.Lock()
-	current := listener.conn
-	listener.mu.Unlock()
-	a.Same(c2, current)
-
 	select {
 	case data := <-relayGot:
 		a.Failf("closed conn wrote to the relay", "frame %x", data)
