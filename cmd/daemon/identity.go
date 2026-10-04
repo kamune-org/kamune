@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -10,6 +11,12 @@ import (
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
+)
+
+// errPeerKeyMismatch rejects a peer whose key is not the key of the peer
+// that a dial, or the token a session came in on, was made for.
+var errPeerKeyMismatch = errors.New(
+	"the peer's key is not the key of the peer this connection is for",
 )
 
 // peerIdentity is how the daemon names the remote side of a session or
@@ -203,4 +210,27 @@ func sanitizeName(name string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// pinPeer returns a verifier that rejects a peer whose key is not want
+// with errPeerKeyMismatch, before rv sees it: such a peer answered a
+// connection made for another peer, so it is neither asked about nor
+// admitted, whatever name it claims and whether or not it is stored. A
+// nil want returns rv.
+func (d *Daemon) pinPeer(
+	want []byte, rv kamune.RemoteVerifier,
+) kamune.RemoteVerifier {
+	if want == nil {
+		return rv
+	}
+	return func(store *storage.Storage, peer *storage.Peer) error {
+		if !bytes.Equal(peer.PublicKey, want) {
+			d.forgetAdmitted(peer.PublicKey)
+			d.addLogEntry("WARN", "Rejected peer "+
+				identifyPeer(store, peer).logName()+
+				": its key is not the key of the peer that was dialed")
+			return errPeerKeyMismatch
+		}
+		return rv(store, peer)
+	}
 }

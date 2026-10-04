@@ -337,3 +337,121 @@ func TestUnknownPeerClaimingStoredName(t *testing.T) {
 	a.NoError(err)
 	a.Equal(pseudonym, stored.Name)
 }
+
+func TestPinPeer(t *testing.T) {
+	tests := []struct {
+		name    string
+		pinned  bool
+		match   bool
+		wantErr error
+		wantRun bool
+	}{
+		{name: "no pin", wantRun: true},
+		{name: "matching key", pinned: true, match: true, wantRun: true},
+		{name: "other key", pinned: true, wantErr: errPeerKeyMismatch},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			d, _ := newTestDaemon(t, VerificationModeQuick, false)
+			peer := &storage.Peer{Name: "Bob", PublicKey: newTestPeerKey(t)}
+			var want []byte
+			if tt.pinned {
+				want = newTestPeerKey(t)
+				if tt.match {
+					want = peer.PublicKey
+				}
+			}
+			ran := false
+			rv := d.pinPeer(want, func(*storage.Storage, *storage.Peer) error {
+				ran = true
+				return nil
+			})
+
+			err := rv(d.store(), peer)
+			if tt.wantErr != nil {
+				a.ErrorIs(err, tt.wantErr)
+			} else {
+				a.NoError(err)
+			}
+			a.Equal(tt.wantRun, ran)
+		})
+	}
+}
+
+// The BUS-01 scenario: Mallory is a stored peer, and her server answers
+// a dial that the user made for Bob, introducing herself as Bob. Quick
+// mode used to admit her silently. With Bob's key in peer_pub_b64 the
+// dial fails before she is verified.
+func TestDialRejectsAnotherPeersKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     VerificationMode
+		toBob    bool
+		wantCode string
+	}{
+		{
+			name: "quick, another key", mode: VerificationModeQuick,
+			wantCode: "peer_key_mismatch",
+		},
+		{
+			name: "strict, another key", mode: VerificationModeStrict,
+			wantCode: "peer_key_mismatch",
+		},
+		{name: "quick, the pinned key", mode: VerificationModeQuick, toBob: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			mallory, malloryRec := newTestDaemon(
+				t, VerificationModeAutoAccept, false,
+			)
+			alice, aliceRec := newTestDaemon(t, tt.mode, false)
+			malloryKey := storeAs(t, alice, mallory, "Mallory")
+			bobKey := newTestPeerKey(t)
+			if tt.toBob {
+				bobKey = malloryKey
+			} else {
+				a.NoError(alice.store().StorePeer(&storage.Peer{
+					Name: "Bob", PublicKey: bobKey,
+				}))
+			}
+
+			addr := startNamedServer(t, mallory, malloryRec, "Bob")
+			alice.handleDial(Command{
+				ID: "dial",
+				Params: mustJSON(DialParams{
+					Addr: addr, PeerPubB64: fingerprint.Base64(bobKey),
+				}),
+			})
+			evt := aliceRec.waitFor(t, func(e recordedEvent) bool {
+				return e.ID == "dial" &&
+					(e.Evt == EvtSessionStarted || e.Evt == EvtError) ||
+					e.Evt == EvtVerifyPeer
+			})
+			if tt.wantCode == "" {
+				a.Equal(EvtSessionStarted, evt.Evt, "dial: %v", evt.Data)
+				return
+			}
+			a.Equal(EvtError, evt.Evt, "got %s: %v", evt.Evt, evt.Data)
+			a.Equal(tt.wantCode, evt.Data["code"])
+			alice.mu.RLock()
+			a.Empty(alice.sessions)
+			alice.mu.RUnlock()
+		})
+	}
+}
+
+func TestDialRefusesBadPeerKey(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	d.handleDial(Command{
+		ID: "dial",
+		Params: mustJSON(DialParams{
+			Addr: "127.0.0.1:1", PeerPubB64: "not-a-key",
+		}),
+	})
+	evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == "dial" })
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("invalid_peer_key", evt.Data["code"])
+}

@@ -688,6 +688,13 @@ func (d *Daemon) handleDial(cmd Command) {
 	if !d.checkRelayPin(cmd.ID, transport, params.RelayAddr, params.RelayPin) {
 		return
 	}
+	if params.PeerPubB64 != "" {
+		if _, err := decodeValidPeerKey(params.PeerPubB64); err != nil {
+			d.emitError(cmd.ID, "invalid_peer_key",
+				fmt.Sprintf("invalid peer_pub_b64: %v", err))
+			return
+		}
+	}
 
 	if !d.requireStorage(cmd.ID) {
 		return
@@ -715,6 +722,11 @@ func (d *Daemon) handleDial(cmd Command) {
 	})
 }
 
+// dial connects to the server that params name. With params.PeerPubB64,
+// which handleDial checked, the session must reach that key: the static
+// relay and broker tokens are hashes of both peers' public keys, so
+// anyone who knows them can answer, and the relay or broker picks who
+// does. The verifier rejects any other key; see pinPeer.
 func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	connected := false
 	defer func() {
@@ -843,8 +855,13 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		return
 	}
 
+	var wantKey []byte
+	if params.PeerPubB64 != "" {
+		wantKey, _ = decodeValidPeerKey(params.PeerPubB64)
+	}
 	dialer, err := kamune.NewDialer(
-		params.Addr, store, d.outboundVerifier(), opts...,
+		params.Addr, store, d.pinPeer(wantKey, d.outboundVerifier()),
+		opts...,
 	)
 	if err != nil {
 		d.setStatus(StatusError, "Failed to create dialer")
@@ -861,7 +878,11 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	if err != nil {
 		d.setStatus(StatusError, "Connection failed")
 		d.addLogEntry("ERROR", "Dial failed: "+err.Error())
-		d.emitError(cmd.ID, "dial_failed", fmt.Sprintf("dial: %v", err))
+		code := "dial_failed"
+		if errors.Is(err, errPeerKeyMismatch) {
+			code = "peer_key_mismatch"
+		}
+		d.emitError(cmd.ID, code, fmt.Sprintf("dial: %v", err))
 		return
 	}
 
@@ -911,7 +932,7 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	session.reconnectCancel = reconnectCancel
 	if !incognito {
 		session.reconnectFn = d.makeReconnectFn(
-			reconnectCtx, session, &params, store, opts,
+			reconnectCtx, session, &params, store, peer.PublicKey, opts,
 		)
 	}
 	session.mu.Unlock()
@@ -1230,11 +1251,14 @@ func (d *Daemon) finishRelayToken(session *liveSession, payload []byte) {
 // tokens, trying stored ECDH tokens for relay connections (mirrors
 // cmd/bus/network.go:687-723). The function fails with an error wrapping
 // errNotResumable, without dialing, when store has no peer for the session.
+// A reconnect must reach peerKey, the key of the session's peer; see
+// pinPeer.
 func (d *Daemon) makeReconnectFn(
 	ctx context.Context,
 	session *liveSession,
 	params *DialParams,
 	store *storage.Storage,
+	peerKey []byte,
 	opts []kamune.DialOption,
 ) func(string) (*kamune.Transport, error) {
 	if params.Transport == "p2p" {
@@ -1286,7 +1310,8 @@ func (d *Daemon) makeReconnectFn(
 			}
 		}
 		dl, err := kamune.NewDialer(
-			addr, store, d.outboundVerifier(), resumeOpts...,
+			addr, store, d.pinPeer(peerKey, d.outboundVerifier()),
+			resumeOpts...,
 		)
 		if err != nil {
 			return nil, err
