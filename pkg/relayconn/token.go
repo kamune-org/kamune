@@ -49,7 +49,8 @@ var (
 	ErrTokenTooShort = errors.New("token must be 32 bytes")
 
 	// ErrTokenInsufficientEntropy is returned by ValidateUserToken when the
-	// token fails the Shannon entropy check (< 3 bits/byte).
+	// token is all zeros, one repeated byte, or has a byte-frequency Shannon
+	// entropy of at most 3 bits per byte.
 	ErrTokenInsufficientEntropy = errors.New("token has insufficient entropy")
 
 	// ErrECDHPeerKeyMissing is returned by DeriveRelayTokens when the peer's
@@ -85,6 +86,12 @@ func checkRegisteredToken(got, sent []byte) error {
 // ValidateUserToken checks that a user-provided token meets the relay's
 // requirements: exactly 32 bytes, non-zero, not all the same byte, and Shannon
 // entropy above 3 bits per byte.
+//
+// The checks are a sanity filter against obviously broken tokens, not a
+// measure of how hard a token is to guess. They look only at how often each
+// byte value occurs, so a counter such as 0x00, 0x01, ..., 0x1f passes, as
+// does the SHA-256 of any guessable string. A token is only as secret as its
+// inputs: derive it from a secret with a KDF or take it from crypto/rand.
 func ValidateUserToken(token []byte) error {
 	if len(token) != peerTokenSize {
 		return ErrTokenTooShort
@@ -148,6 +155,11 @@ func log2(x float64) float64 {
 //
 // Both peers must use ed25519 public keys of the standard 32-byte size to
 // compute the same token.
+//
+// The token is not secret: anyone who knows both public keys can compute it,
+// and anyone who holds it can join the relay session it names or register it
+// first. It passes ValidateUserToken all the same. The peers' identities are
+// proven by the kamune handshake that runs over the session, not by the token.
 func TokenFromKeys(a, b ed25519.PublicKey) ([]byte, error) {
 	if len(a) != ed25519.PublicKeySize || len(b) != ed25519.PublicKeySize {
 		return nil, ErrInvalidKeySize
