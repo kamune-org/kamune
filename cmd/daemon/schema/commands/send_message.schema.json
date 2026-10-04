@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-send-message",
   "title": "send_message params",
-  "description": "Sends a message on an established session. The send runs after the command is read, and messages on one session are sent, stored and reported with message_sent in the order of their commands.",
+  "description": "Sends a message on an established session. The send runs after the command is read, and messages on one session are sent, stored and reported with message_sent in the order of their commands. A send that fails is not tried again and fails with send_message_failed: with reason connection_lost when the connection is gone, so that the message was not delivered (a dialed session then reconnects, see session_reconnecting, and a server session ends), and with reason message_too_large when the message is over the protocol's or the relay's limit, which leaves the session usable.",
   "type": "object",
   "properties": {
     "session_id":  { "type": "string" },

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/storage"
 	"google.golang.org/protobuf/proto"
 )
@@ -161,6 +162,9 @@ func (d *Daemon) sendQueued(session *liveSession, job queuedSend) {
 	d.sendMessage(job.cmd, session, session.ID, job.data)
 }
 
+// sendMessage sends data on session's transport and reports the result
+// on cmd. A failed send is not tried again; its error says why, see
+// sendErrorReason.
 func (d *Daemon) sendMessage(
 	cmd Command, session *liveSession, sessionID string, data []byte,
 ) {
@@ -169,8 +173,8 @@ func (d *Daemon) sendMessage(
 		kamune.Bytes(data), kamune.RouteExchangeMessages,
 	)
 	if err != nil {
-		d.emitError(
-			cmd.ID, "send_message_failed",
+		d.emitErrorReason(
+			cmd.ID, "send_message_failed", sendErrorReason(err),
 			fmt.Sprintf("failed to send message: %v", err),
 		)
 		return
@@ -188,6 +192,28 @@ func (d *Daemon) sendMessage(
 	})
 	d.emit(EvtSessionUpdated, "", MapS{"session_id": sessionID})
 	d.addLogEntry("DEBUG", "Sent message to "+sessionID)
+}
+
+// sendErrorReason returns the reason of a send_message_failed error for
+// err, from Transport.Send, or an empty string.
+//
+// connection_lost: the error wraps kamune.ErrConnClosed, so the
+// connection is gone, for example after a write that failed part-way
+// through the frame. The message was not delivered, and must not be sent
+// again on that transport. The receive loop finds the connection closed,
+// so a dialed session reconnects and a server session ends.
+//
+// message_too_large: the message is over the protocol's or the relay's
+// limit. The session is intact.
+func sendErrorReason(err error) string {
+	switch {
+	case errors.Is(err, kamune.ErrConnClosed):
+		return "connection_lost"
+	case errors.Is(err, kamune.ErrMessageTooLarge),
+		errors.Is(err, exchange.ErrFrameTooLarge):
+		return "message_too_large"
+	}
+	return ""
 }
 
 // receiveMessages is the wrapper for client-side (dialed) sessions. It

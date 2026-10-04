@@ -2,11 +2,14 @@ package main
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"runtime"
 	"testing"
 	"time"
 
+	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/stretchr/testify/require"
 )
@@ -172,4 +175,78 @@ func TestFailedHistorySaveIsReported(t *testing.T) {
 		a.Equal(id, evt.Data["session_id"])
 		a.NotEmpty(evt.Data["error"])
 	}
+}
+
+func TestSendErrorReason(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "partial frame",
+			err: fmt.Errorf("writing: %w",
+				fmt.Errorf("%w: partial frame", kamune.ErrConnClosed)),
+			want: "connection_lost",
+		},
+		{
+			name: "too large",
+			err:  fmt.Errorf("serializing: %w", kamune.ErrMessageTooLarge),
+			want: "message_too_large",
+		},
+		{
+			name: "over the relay's limit",
+			err:  fmt.Errorf("writing: %w", exchange.ErrFrameTooLarge),
+			want: "message_too_large",
+		},
+		{name: "other", err: errors.New("write deadline"), want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.New(t).Equal(tt.want, sendErrorReason(tt.err))
+		})
+	}
+}
+
+// A message that is too large fails with reason message_too_large and
+// leaves the session usable; a send on a connection that is gone fails
+// with reason connection_lost.
+func TestSendFailureReasons(t *testing.T) {
+	a := require.New(t)
+	server, serverRec := newTestDaemon(t, VerificationModeQuick, false)
+	client, clientRec := newTestDaemon(t, VerificationModeQuick, false)
+	trustPeer(t, server, client)
+	trustPeer(t, client, server)
+	addr := startTestServer(t, server, serverRec)
+	id := dialTestServer(t, client, clientRec, addr)
+
+	send := func(cmdID ID, data []byte) recordedEvent {
+		t.Helper()
+		client.handleSendMessage(Command{
+			ID: cmdID,
+			Params: mustJSON(SendMessageParams{
+				SessionID:  id,
+				DataBase64: base64.StdEncoding.EncodeToString(data),
+			}),
+		})
+		return clientRec.waitFor(t, func(e recordedEvent) bool {
+			return e.ID == cmdID
+		})
+	}
+	evt := send("large", make([]byte, 70000))
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("send_message_failed", evt.Data["code"])
+	a.Equal("message_too_large", evt.Data["reason"], evt.Data["error"])
+	evt = send("small", []byte("hi"))
+	a.Equal(EvtMessageSent, evt.Evt, "send after a large message: %v",
+		evt.Data)
+
+	session := waitForSession(t, server, id)
+	a.NoError(session.snapshotTransport().CloseAbort())
+	server.sendMessage(Command{ID: "lost"}, session, id, []byte("hi"))
+	evt = serverRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "lost"
+	})
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("connection_lost", evt.Data["reason"], evt.Data["error"])
 }
