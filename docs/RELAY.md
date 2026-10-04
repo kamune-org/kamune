@@ -554,10 +554,14 @@ are an implementation detail of the Go ecosystem.
   for the relay only; end-to-end authentication and encryption are established
   directly between the two peers after rendezvous, using the kamune protocol
   layer.
-- **Token validation.** User-provided tokens are validated before registration:
-  exactly 32 bytes, not all zeros, not all the same byte, and Shannon entropy
-  greater than 3 bits per byte. This prevents weak tokens that are easy to guess
-  or brute-force.
+- **Token validation.** The relay checks a token the listener chooses before it
+  registers the session: exactly 32 bytes, not all zeros, not all the same
+  byte, and a byte-frequency Shannon entropy above 3 bits per byte. This is a
+  sanity filter against broken tokens, not a measure of how hard a token is to
+  guess: a counter such as `0x00, 0x01, ..., 0x1f` passes, and so does the
+  SHA-256 of any guessable input, static tokens included. A token is only as
+  secret as its inputs; derive it from a secret with a KDF or take it from a
+  cryptographic random source.
 
 ### Security Considerations
 
