@@ -33,7 +33,7 @@ suite.
 
 | Directory                    | Purpose                | Description                                                                                                                      |
 | ---------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `.` (root)                   | Core library           | Protocol, transport, cipher suite, session management, router, and storage abstraction                                           |
+| `.` (root)                   | Core library           | Protocol, transport, cipher suite, session management, and storage abstraction                                                   |
 | [`cmd/bus/`](cmd/bus/)       | Desktop GUI client     | Wails + Svelte desktop app with relay transport UI, session management, and encrypted history                                    |
 | [`cmd/relay/`](cmd/relay/)   | Relay server           | Stateless blind relay that routes encrypted sessions between peers without decrypting traffic — supports WebSocket, TCP, and TLS |
 | [`cmd/daemon/`](cmd/daemon/) | JSON-over-stdio daemon | Headless IPC wrapper for integrating kamune into external applications                                                           |

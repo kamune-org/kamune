@@ -52,7 +52,7 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
   (still performs Handshake and Challenge)
 - Cipher suite: `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X`
 - `pkg/` public packages: `attest`, `exchange`, `fingerprint`, `relayconn`, `storage`
-- `internal/` private packages: `box/pb`, `clock`, `enigma`, `store`
+- `internal/` private packages: `box/pb`, `clock`, `engine`, `enigma`
 - Relay is a stateless blind session switch with optional PSK auth
 
 ## Storage
@@ -68,7 +68,9 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 - CHANGELOG.md is immutable, and entries should only be added or updated when
   **explicitly** stated.
 - Go 1.26 style (no `//go:build` tags needed for tool directives)
-- Error sentinels use `Err` prefix, defined in the package they belong to (e.g. `transport.go`, `router.go`, `pkg/storage/storage.go`, `pkg/attest/attest.go`)
+- Error sentinels use `Err` prefix, defined in the package they belong to
+  (e.g. `errors.go` for the root package, `pkg/storage/storage.go`,
+  `pkg/attest/attest.go`)
 - `ErrPeerDisconnected` returned by `Transport.Receive()` when the remote peer sends `RouteCloseTransport` (graceful close). `ErrConnClosed` indicates an abrupt/network drop.
 - Logging uses `log/slog` with structured attributes (`slog.String`, `slog.Any`)
 - No mock framework — tests use real implementations, interfaces, and standard
