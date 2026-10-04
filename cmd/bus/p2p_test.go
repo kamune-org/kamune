@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ import (
 // package since it needs the bus's App type.
 type fakeBroker struct {
 	conn *net.UDPConn
+	// noEcho makes serveFakeBroker drop STUN_ECHO requests.
+	noEcho atomic.Bool
 }
 
 func newFakeBroker(t *testing.T) *fakeBroker {
@@ -195,8 +198,10 @@ func serveFakeBroker(fb *fakeBroker) <-chan brokerRegistration {
 			}
 			pkt := buf[:n]
 			if relaybroker.ParseEchoRequest(pkt) == nil {
-				resp := relaybroker.BuildEchoResponse(src)
-				_, _ = fb.conn.WriteToUDP(resp, src)
+				if !fb.noEcho.Load() {
+					resp := relaybroker.BuildEchoResponse(src)
+					_, _ = fb.conn.WriteToUDP(resp, src)
+				}
 				continue
 			}
 			token, ephPub, _, _, err := relaybroker.ParseRegister(pkt)
@@ -245,6 +250,16 @@ func startTestP2PServer(
 	t *testing.T, app *App, token, peerKey []byte,
 ) (*p2pListener, string, <-chan brokerRegistration) {
 	t.Helper()
+	l, addr, regs, _ := startTestP2PServerOn(t, app, token, peerKey)
+	return l, addr, regs
+}
+
+// startTestP2PServerOn is startTestP2PServer that also returns the fake
+// broker.
+func startTestP2PServerOn(
+	t *testing.T, app *App, token, peerKey []byte,
+) (*p2pListener, string, <-chan brokerRegistration, *fakeBroker) {
+	t.Helper()
 	a := require.New(t)
 	fb := newFakeBroker(t)
 	regs := serveFakeBroker(fb)
@@ -266,7 +281,29 @@ func startTestP2PServer(
 		Token: l.Token(), Mode: mode,
 	})
 	app.mu.Unlock()
-	return l, addr, regs
+	return l, addr, regs, fb
+}
+
+// TestP2PListener_RegistersWithoutEcho checks that the p2p listener
+// registers a new token and refreshes its tokens from the punch socket
+// while the broker answers no STUN_ECHO.
+func TestP2PListener_RegistersWithoutEcho(t *testing.T) {
+	a := require.New(t)
+	app := newTestAppForP2P(t)
+	l, addr, regs, fb := startTestP2PServerOn(t, app, nil, nil)
+	fb.noEcho.Store(true)
+
+	tok, err := app.GenerateP2PToken(addr, "")
+	a.NoError(err)
+	reg := nextRegistration(t, regs)
+	a.Equal(tok, hex.EncodeToString(reg.token))
+	a.Equal(l.Addr().Port, reg.src.Port)
+
+	a.NoError(l.refreshRegistration())
+	for range 2 {
+		reg := nextRegistration(t, regs)
+		a.Equal(l.Addr().Port, reg.src.Port)
+	}
 }
 
 func TestGenerateP2PToken_RequiresP2PServer(t *testing.T) {

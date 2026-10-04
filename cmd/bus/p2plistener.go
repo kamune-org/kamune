@@ -39,6 +39,13 @@ type p2pListener struct {
 	// the peers they admit; see admitsPeer. tokenMu guards it.
 	tokens  []listenerToken
 	tokenMu sync.RWMutex
+	// brokerUDP is the broker's address. claimIP and claimPort are the
+	// punch socket's address as the broker saw it at start, which every
+	// REGISTER claims. The broker only checks the claim's form: it
+	// records the address the REGISTER came from.
+	brokerUDP *net.UDPAddr
+	claimIP   net.IP
+	claimPort uint16
 
 	conn *net.UDPConn
 	kcp  *kcp.Listener
@@ -105,6 +112,7 @@ func newP2PListener(
 		l.Close()
 		return nil, fmt.Errorf("broker echo: %w", err)
 	}
+	l.brokerUDP, l.claimIP, l.claimPort = brokerUDPAddr, claimIP, claimPort
 
 	// REGISTER on the broker with the punch socket's broker-view as the
 	// claim address. The peer learns this address via the broker's
@@ -284,24 +292,18 @@ func (l *p2pListener) addToken(token, peer []byte) (bool, error) {
 	return true, nil
 }
 
-// sendRegister sends a REGISTER for token from the punch socket.
+// sendRegister sends a REGISTER for token from the punch socket, with the
+// claim address the listener learned at start. It needs no STUN_ECHO, so
+// a broker that drops an echo does not stop a registration or refresh.
 func (l *p2pListener) sendRegister(token []byte) error {
-	brokerUDPAddr, err := net.ResolveUDPAddr("udp4", l.brokerAddr)
-	if err != nil {
-		return fmt.Errorf("resolve broker: %w", err)
-	}
-	claimIP, claimPort, err := l.broker.echoSeparate(l.ctx, l.brokerAddr)
-	if err != nil {
-		return fmt.Errorf("broker echo: %w", err)
-	}
 	client, err := l.broker.Client(l.brokerAddr)
 	if err != nil {
 		return fmt.Errorf("broker client: %w", err)
 	}
 	pkt := relaybroker.BuildRegister(
-		token, client.PublicKey(), claimIP, claimPort,
+		token, client.PublicKey(), l.claimIP, l.claimPort,
 	)
-	if _, err := l.conn.WriteToUDP(pkt, brokerUDPAddr); err != nil {
+	if _, err := l.conn.WriteToUDP(pkt, l.brokerUDP); err != nil {
 		return fmt.Errorf("send register: %w", err)
 	}
 	return nil
@@ -335,34 +337,16 @@ func (l *p2pListener) liveTokens() [][]byte {
 	return out
 }
 
-// refreshRegistration re-sends the REGISTER packet from the punch socket,
-// preserving the same claimIP:claimPort. This keeps the broker's
-// registration active.
+// refreshRegistration re-sends the REGISTER of every token the listener
+// registers from the punch socket, with the same claim address. This
+// keeps the broker's registrations active.
 func (l *p2pListener) refreshRegistration() error {
-	brokerUDPAddr, err := net.ResolveUDPAddr("udp4", l.brokerAddr)
-	if err != nil {
-		return fmt.Errorf("resolve broker: %w", err)
-	}
-	// Use echoSeparate (fresh socket) so the deadline doesn't leak
-	// onto the punch socket (which is shared with kcp-go's monitor).
-	claimIP, claimPort, err := l.broker.echoSeparate(l.ctx, l.brokerAddr)
-	if err != nil {
-		return fmt.Errorf("broker echo: %w", err)
-	}
-	client, err := l.broker.Client(l.brokerAddr)
-	if err != nil {
-		return fmt.Errorf("broker client: %w", err)
-	}
-
 	for _, tok := range l.liveTokens() {
 		if len(tok) == 0 {
 			continue
 		}
-		pkt := relaybroker.BuildRegister(
-			tok, client.PublicKey(), claimIP, claimPort,
-		)
-		if _, err := l.conn.WriteToUDP(pkt, brokerUDPAddr); err != nil {
-			return fmt.Errorf("send register: %w", err)
+		if err := l.sendRegister(tok); err != nil {
+			return err
 		}
 	}
 	return nil

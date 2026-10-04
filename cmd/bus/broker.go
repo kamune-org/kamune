@@ -212,8 +212,8 @@ func (b *BrokerClient) WaitMatch(
 //
 // WARNING: sets a read deadline on conn. If conn is shared with another
 // reader (e.g. the kcp-go monitor on a p2pListener's punch socket),
-// the deadline will affect the other reader too. Prefer echoSeparate
-// when the conn is shared.
+// the deadline will affect the other reader too, so call it only before
+// another reader starts.
 func (b *BrokerClient) echoFrom(
 	ctx context.Context, conn *net.UDPConn, brokerAddr *net.UDPAddr,
 ) (net.IP, uint16, error) {
@@ -225,48 +225,6 @@ func (b *BrokerClient) echoFrom(
 		return nil, 0, fmt.Errorf("set deadline: %w", err)
 	}
 	if _, err := conn.WriteToUDP(echoRequest, brokerAddr); err != nil {
-		return nil, 0, fmt.Errorf("write echo: %w", err)
-	}
-	buf := make([]byte, 64)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return nil, 0, fmt.Errorf("read echo: %w", err)
-	}
-	return parseEchoResponse(buf[:n])
-}
-
-// echoSeparate sends a STUN_ECHO from a fresh ephemeral UDP socket (not
-// from any shared conn). Use this when the caller's conn is shared with
-// another reader (e.g. the kcp-go monitor on a p2pListener's punch
-// socket) — echoFrom would set a deadline on the shared conn and break
-// the other reader.
-//
-// The returned claimIP:claimPort is the broker's view of the
-// ephemeral socket, NOT the shared conn. For cases where the claim
-// address must match the shared conn (e.g. the initial broker
-// registration of a p2pListener), use echoFrom on a dedicated socket
-// instead, or call Register with a claimIP:claimPort captured earlier.
-func (b *BrokerClient) echoSeparate(
-	ctx context.Context, brokerAddr string,
-) (net.IP, uint16, error) {
-	udpAddr, err := net.ResolveUDPAddr("udp4", brokerAddr)
-	if err != nil {
-		return nil, 0, fmt.Errorf("resolve broker: %w", err)
-	}
-	conn, err := net.DialUDP("udp4", nil, udpAddr)
-	if err != nil {
-		return nil, 0, fmt.Errorf("dial broker: %w", err)
-	}
-	defer conn.Close()
-
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		deadline = time.Now().Add(2 * time.Second)
-	}
-	if err := conn.SetDeadline(deadline); err != nil {
-		return nil, 0, fmt.Errorf("set deadline: %w", err)
-	}
-	if _, err := conn.Write(echoRequest); err != nil {
 		return nil, 0, fmt.Errorf("write echo: %w", err)
 	}
 	buf := make([]byte, 64)
