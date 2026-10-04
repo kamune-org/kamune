@@ -19,10 +19,14 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 Each module builds and tests from its own directory. There is no `go.work`,
 so a root command such as `go build ./cmd/daemon` fails.
 
-- **Test any module**: `go test ./... -v` (works in root, cmd/relay/, cmd/tui/, cmd/bus/)
+- **Test any module**: `go test -race ./...` in root, `cmd/relay/`, `cmd/tui/`
+  or `cmd/daemon/` (for `cmd/bus/`, see the bus notes below). `make test`
+  runs it with `-v` in root (root module only) and in `cmd/relay/`
 - **Test single package**: `go test -v ./pkg/storage` (any sub-package)
 - **Benchmarks**: `go test ./... -bench .`
-- **Vet** (root only): `go vet ./...`
+- **Fuzz** (root only): `make fuzz` runs each fuzz target for `FUZZ_TIME`
+  (default `10s`)
+- **Vet**: `go vet ./...` in any module
 - **Format** (root only): `gofmt -s -w .` and `goimports -w .`
 - **Align structs** (fieldalignment only): `make align-structs` in root or `golangci-lint run --fix`
 - **Regenerate protobuf** (root only): `make gen-proto` regenerates
