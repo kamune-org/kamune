@@ -1314,7 +1314,11 @@ Server flow per connection:
 
 Common implementation parameters include:
 
-- **Handshake timeout**: 30 seconds.
+- **Handshake timeout**: 30 seconds for the network steps of the handshake.
+- **Verify timeout**: 150 seconds for the remote verifier (§6.2). After its
+  own verifier, the responder allows the handshake timeout plus the verify
+  timeout for the rest of the handshake, since the initiator runs its verifier
+  before it sends the handshake request.
 - **Transport**: pluggable. The Server accepts TCP connections by default, and
   the same interface accepts a custom listener or connection factory for UDP/KCP,
   relay, or any other transport satisfying the connection contract (§9.4).
@@ -1341,6 +1345,13 @@ Common implementation parameters include:
 
 - **Dial timeout**: 10 seconds.
 - **Handshake timeout**: 30 seconds.
+- **Verify timeout**: 150 seconds for the remote verifier (§6.2). While it
+  waits for the responder's `Introduce`, the dialer allows the handshake
+  timeout plus the verify timeout, since the responder runs its verifier
+  first. A dial to a responder that completes the exchange but never sends
+  its `Introduce` can therefore take about 3 minutes to fail; one to a
+  responder that does not answer the exchange fails within the handshake
+  timeout.
 - **Transport**: pluggable. The Dialer opens a TCP connection by default, and
   the same interface accepts a custom dial function for UDP/KCP, relay, or any
   other transport satisfying the connection contract (§9.4).
@@ -1693,7 +1704,8 @@ is one of `frameTargetSize` − 1 bytes, which no user message reaches (§4.1).
 | `lengthPrefixSize`         | 2 bytes                                | Size of the big-endian message length header                                                                            |
 | `sessionPrefixLength`      | 12 characters                          | Length of the session-ID prefix emitted by the initiator                                                                |
 | `sessionSuffixLength`      | 12 characters                          | Length of the session-ID suffix emitted by the responder                                                                |
-| `handshakeTimeout`         | 30 seconds                             | Maximum time for the complete handshake                                                                                 |
+| `defaultHandshakeTimeout`  | 30 seconds                             | Time allowed for the network steps of a handshake; the remote verifier has its own limit                                |
+| `defaultVerifyTimeout`     | 150 seconds                            | Time allowed for the remote verifier                                                                                    |
 | `pingDataSize`             | 8 bytes                                | Size of the random token in each ping message                                                                           |
 | `resumptionGracePeriod`    | 24 hours                               | Time window after a session's cold handshake during which its resumption tokens are valid; resuming does not extend it  |
 | `resumptionTokenCount`     | 20                                     | Number of resumption tokens derived per session                                                                         |
