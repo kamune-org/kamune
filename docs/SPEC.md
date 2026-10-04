@@ -1117,8 +1117,13 @@ For environments where TCP is unavailable or undesirable, kamune supports
 UDP-based transport using KCP, which provides reliable, ordered delivery over
 UDP. The same framing and protocol messages are used identically over KCP.
 
-KCP provides ARQ for reliability, Reed-Solomon forward error correction, and
-congestion control.
+KCP provides ARQ for reliability and congestion control. The reference
+implementation does not enable kcp-go's Reed-Solomon forward error correction
+(it uses no data or parity shards) or its packet encryption, so lost packets
+are recovered only by retransmission. Kamune encrypts and authenticates its own
+frames, but KCP packets are not authenticated: a sender that forges a peer's
+source address can make the listener start a KCP session, or close the
+listener's session with that peer.
 
 ### 9.3 Relay
 
