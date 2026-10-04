@@ -1253,6 +1253,30 @@ The reference implementation persists its state in an embedded key-value store l
 `~/.config/kamune/db` by default. The location is overridable via the
 `KAMUNE_DB_PATH` environment variable.
 
+A missing database directory is created with mode 0700, and the default
+`~/.config/kamune` directory is restricted to 0700 on every open; a directory
+chosen by the caller is left as it is. The database file is created with mode
+0600, and every open removes group and other permission bits from it, logging
+a warning, or fails when it cannot. These modes are not applied on Windows.
+
+Symbolic links in the database path are resolved when the database is opened.
+While the database is open, the implementation holds an exclusive lock on a
+file next to it, named after the database with a `.lock` suffix (mode 0600).
+Other opens of the same database wait for that lock, up to the open timeout
+(5 seconds by default). The lock file is never deleted; tools that copy or
+clean up the database directory should leave it in place while a client runs.
+Releases up to v0.6.0 do not take this lock, so such a client must not open the
+database while a newer one may rewrite it.
+
+Some operations rewrite the whole database file: the key upgrades described in
+§11.2, a passphrase change, and compaction. The new file is written next to the
+database as `<db>.rewrite-<digits>` and renamed over it, so it is a new file,
+owned by the current user, with mode 0600. Other hard links to the old file,
+and copies such as backups, keep the old contents. A copy left behind by an
+interrupted rewrite is removed on the next open. When the lock file cannot be
+created, for example in a read-only directory, these rewrites fail, and a
+database written by an older release, which needs them, does not open.
+
 ### 11.2 Database Encryption
 
 The database contents are encrypted at rest using a key hierarchy:
