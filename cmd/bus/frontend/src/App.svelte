@@ -68,6 +68,7 @@
   } from './lib/stores';
   import { K, isMac } from './lib/keyboard';
   import { newConnectAttemptId } from './lib/attempts';
+  import { importedRelayScheme, insecureIgnored, relaySchemes } from './lib/importurl';
 
   import Sidebar from './lib/Sidebar.svelte';
   import ChatPanel from './lib/ChatPanel.svelte';
@@ -386,12 +387,16 @@
         connectUseBroker = false;
         if (transport === 'relay') {
           connectRelayAddr = url.host;
-          connectRelayScheme = url.searchParams.get('scheme') || 'ws';
+          connectRelayScheme = importedRelayScheme(url.searchParams.get('scheme'));
           const tokenParam = url.searchParams.get('token') || '';
           const peerParam = url.searchParams.get('peer') || '';
           connectRelayToken = tokenParam;
           connectPeerKey = peerParam;
-          connectRelayInsecure = url.searchParams.get('insecure') === 'true';
+          // An imported URL never turns off TLS verification.
+          connectRelayInsecure = false;
+          if (url.searchParams.get('insecure') === 'true') {
+            warnInsecureIgnored();
+          }
         } else {
           connectServerAddr2 = url.host;
         }
@@ -504,6 +509,11 @@
 
   function dropVerification(requestID) {
     verificationQueue.update((q) => q.filter((r) => r.requestID !== requestID));
+  }
+
+  function warnInsecureIgnored() {
+    toast.set({ message: insecureIgnored, type: 'warning' });
+    setTimeout(() => toast.set(null), 6000);
   }
 
   // Every message and session event reloads the session list. While a
@@ -1210,7 +1220,7 @@
           {:else}
             <div class="relay-addr-row">
               <div class="scheme-pills">
-                {#each ['tcp', 'tls', 'ws', 'wss'] as s}
+                {#each relaySchemes as s}
                   <button
                     class="scheme-btn"
                     class:active={connectRelayScheme === s}
@@ -1478,14 +1488,16 @@
   {#if $dialogs.showImport}
     <ImportDialog
       onImport={(e) => {
-        const { transport, host, scheme, token, insecure } = e;
+        const { transport, host, scheme, token, asksInsecure } = e;
         connectTransport = transport;
         if (transport === 'relay') {
           connectRelayAddr = host;
-          connectRelayScheme = scheme || 'ws';
+          connectRelayScheme = scheme;
           connectRelayToken = token || '';
           connectPeerKey = '';
-          connectRelayInsecure = insecure || false;
+          // An imported URL never turns off TLS verification.
+          connectRelayInsecure = false;
+          if (asksInsecure) warnInsecureIgnored();
         } else {
           connectServerAddr2 = host;
         }

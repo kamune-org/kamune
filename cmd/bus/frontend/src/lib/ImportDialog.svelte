@@ -1,5 +1,6 @@
 <script>
   import jsQR from 'jsqr';
+  import { importedRelayScheme } from './importurl';
 
   let { onImport, onClose } = $props();
 
@@ -18,12 +19,14 @@
       const transport = url.protocol.slice(0, -1);
       if (!transport) throw new Error('Unknown transport');
       stopCamera();
+      // asksInsecure only lets the window warn: an imported URL never
+      // turns off TLS verification.
       onImport?.({
         transport,
         host: url.host,
-        scheme: url.searchParams.get('scheme') || '',
+        scheme: importedRelayScheme(url.searchParams.get('scheme')),
         token: url.searchParams.get('token') || '',
-        insecure: url.searchParams.get('insecure') === 'true',
+        asksInsecure: url.searchParams.get('insecure') === 'true',
       });
     } catch {
       error = 'Invalid connection URL';

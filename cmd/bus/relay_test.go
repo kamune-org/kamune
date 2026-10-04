@@ -118,7 +118,7 @@ func TestParseRelayAddr(t *testing.T) {
 		{
 			name:   "bare_host",
 			addr:   "192.168.1.1:9000",
-			scheme: "ws",
+			scheme: "wss",
 			host:   "192.168.1.1:9000",
 		},
 		{
@@ -169,7 +169,7 @@ func TestParseRelayAddr(t *testing.T) {
 		{
 			name:     "bare_host_with_insecure",
 			addr:     "192.168.1.1:9000?insecure=true",
-			scheme:   "ws",
+			scheme:   "wss",
 			host:     "192.168.1.1:9000",
 			insecure: new(true),
 		},

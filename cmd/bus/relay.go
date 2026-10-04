@@ -217,6 +217,9 @@ func listenRelayTracked(ctx context.Context, a *App, relayAddr, password string,
 	return tracker, tokenHex, ttl, sessionTTL, nil
 }
 
+// parseRelayAddr splits a relay address into its scheme, host and
+// ?insecure= override. An address without a scheme is taken as wss, so
+// that the relay's certificate is checked unless asked otherwise.
 func parseRelayAddr(addr string) (scheme, host string, insecureOverride *bool) {
 	addr = strings.TrimSpace(addr)
 	for _, s := range []string{"tcp://", "ws://", "wss://", "tls://"} {
@@ -228,7 +231,7 @@ func parseRelayAddr(addr string) (scheme, host string, insecureOverride *bool) {
 		}
 	}
 	host, insecureOverride = parseInsecureFlag(addr)
-	return "ws", host, insecureOverride
+	return "wss", host, insecureOverride
 }
 
 func parseInsecureFlag(s string) (host string, override *bool) {
