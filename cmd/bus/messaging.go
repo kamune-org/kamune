@@ -14,6 +14,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// ErrMessageNotSent reports a message that SendMessage could not send
+// because the session's connection was gone. The message is not sent
+// again on its own; the user may send it once the session reconnects.
+var ErrMessageNotSent = errors.New(
+	"message not sent: the connection was lost",
+)
+
+// SendMessage sends text to the session sessionID. When the connection
+// is gone (kamune.ErrConnClosed), possibly with part of the message
+// written, the error wraps ErrMessageNotSent: the message is never sent
+// again on that connection, which the session's receive loop replaces by
+// resuming the session when it can. Any other error leaves the
+// connection usable.
 func (a *App) SendMessage(sessionID string, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -41,6 +54,11 @@ func (a *App) SendMessage(sessionID string, text string) error {
 		kamune.Bytes([]byte(text)),
 		kamune.RouteExchangeMessages,
 	)
+	if errors.Is(err, kamune.ErrConnClosed) {
+		a.addLogEntry("WARN",
+			"Message not sent, connection lost | session_id="+sessionID)
+		return fmt.Errorf("%w: %w", ErrMessageNotSent, err)
+	}
 	if err != nil {
 		return err
 	}

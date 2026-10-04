@@ -269,3 +269,34 @@ func TestFloodRaisesOneNotification(t *testing.T) {
 	}, testWait, 10*time.Millisecond)
 	a.Len(events.named("notification"), 1)
 }
+
+// TestSendOnLostConnection sends on a session whose connection is gone
+// and checks that the message is reported as not sent, and is neither
+// shown nor stored as sent.
+func TestSendOnLostConnection(t *testing.T) {
+	a := require.New(t)
+	app, _ := newUnlockedApp(t, "secret")
+	tr := dialTestTransport(t)
+	id := tr.SessionID()
+	a.NoError(app.store().StorePeer(tr.RemotePeer()))
+	a.NoError(app.store().CreateSession(id, tr.RemotePeer().PublicKey))
+	// No receive loop runs for the session, so it is done already.
+	done := make(chan struct{})
+	close(done)
+	session := &liveSession{ID: id, Transport: tr, ReceiveDone: done}
+	app.mu.Lock()
+	app.sessions = append(app.sessions, session)
+	app.mu.Unlock()
+
+	a.NoError(tr.CloseAbort())
+	err := app.SendMessage(id, "hello")
+	a.ErrorIs(err, ErrMessageNotSent)
+	a.ErrorIs(err, kamune.ErrConnClosed)
+
+	app.mu.RLock()
+	a.Empty(session.Messages)
+	app.mu.RUnlock()
+	history, err := app.store().GetChatHistory(id)
+	a.NoError(err)
+	a.Empty(history)
+}

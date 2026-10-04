@@ -832,17 +832,26 @@
     await handleLoadHistoryMessages(sessionId);
   }
 
+  // handleSendMessage sends text and reports whether it went out, so that
+  // the chat panel can put a message that did not back in its box.
   async function handleSendMessage(sessionId, text) {
-    if (!text.trim()) return;
+    if (!text.trim()) return true;
     try {
       await SendMessage(sessionId, text);
+      return true;
     } catch (e) {
       console.error('Send error:', e);
+      const msg = String(e?.message || e);
+      // The backend never sends a message again on a lost connection
+      // (ErrMessageNotSent); the user does, once the session is back.
       toast.set({
-        message: 'Failed to send message: ' + (e.message || e),
+        message: msg.startsWith('message not sent')
+          ? 'Message not sent: the connection was lost. Send it again once the chat reconnects.'
+          : 'Failed to send message: ' + msg,
         type: 'error',
       });
       setTimeout(() => toast.set(null), 4000);
+      return false;
     }
   }
 

@@ -172,13 +172,16 @@
     editingName = false;
   }
 
-  function handleSend() {
+  async function handleSend() {
     const sessionId = $activeSessionId;
     if (!sessionId) return;
     const text = (drafts[sessionId] || '').trim();
     if (!text) return;
-    onSendMessage?.({ sessionId, text });
     drafts[sessionId] = '';
+    const sent = await onSendMessage?.({ sessionId, text });
+    // A message that did not go out goes back into the box, unless the
+    // user has typed something else there meanwhile.
+    if (sent === false && !drafts[sessionId]) drafts[sessionId] = text;
   }
 
   async function handleCopy(text, key) {
