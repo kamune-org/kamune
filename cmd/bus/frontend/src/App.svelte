@@ -56,6 +56,8 @@
     dialogs,
     toast,
     versionWarnings,
+    historySaveFailed,
+    reconnecting,
     libraryVersion,
     myName,
     theme,
@@ -237,6 +239,9 @@
     EventsOff('storage-ready');
     EventsOff('server-running');
     EventsOff('version-warning');
+    EventsOff('history-save-failed');
+    EventsOff('session-reconnecting');
+    EventsOff('session-reconnected');
     EventsOff('verification-mode-changed');
     EventsOff('fingerprint-changed');
     EventsOff('relay-token');
@@ -280,6 +285,11 @@
       activeSessionId.update((id) => (id === data && $sidebarTab !== 'history' ? null : id));
       versionWarnings.update((w) => {
         const n = { ...w };
+        delete n[data];
+        return n;
+      });
+      reconnecting.update((m) => {
+        const n = { ...m };
         delete n[data];
         return n;
       });
@@ -372,6 +382,21 @@
     });
     EventsOn('version-warning', (sessionId, msg) => {
       versionWarnings.update((w) => ({ ...w, [sessionId]: msg }));
+    });
+    // A message that could not be saved is missing from the history,
+    // which the chat panel says until the user dismisses it.
+    EventsOn('history-save-failed', (sessionId) => {
+      historySaveFailed.update((m) => (m[sessionId] ? m : { ...m, [sessionId]: true }));
+    });
+    EventsOn('session-reconnecting', (sessionId, attempt, max) => {
+      reconnecting.update((m) => ({ ...m, [sessionId]: { attempt, max } }));
+    });
+    EventsOn('session-reconnected', (sessionId) => {
+      reconnecting.update((m) => {
+        const n = { ...m };
+        delete n[sessionId];
+        return n;
+      });
     });
     EventsOn('toast', (message, type) => {
       toast.set({ message, type: type || 'info' });
@@ -512,6 +537,9 @@
     EventsOff('storage-ready');
     EventsOff('server-running');
     EventsOff('version-warning');
+    EventsOff('history-save-failed');
+    EventsOff('session-reconnecting');
+    EventsOff('session-reconnected');
     EventsOff('verification-mode-changed');
     EventsOff('fingerprint-changed');
     EventsOff('local-name-changed');

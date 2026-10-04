@@ -144,6 +144,12 @@ export const p2pTokens = writable<P2PToken[]>([]);
 export const verificationQueue = writable<VerificationRequest[]>([]);
 export const shareDialog = writable<ShareInfo | null>(null);
 export const versionWarnings = writable<Record<string, string>>({});
+// historySaveFailed marks the sessions some of whose messages could not
+// be saved to history.
+export const historySaveFailed = writable<Record<string, boolean>>({});
+// reconnecting holds, for each live session that lost its connection,
+// the reconnect attempt under way and how many it may make.
+export const reconnecting = writable<Record<string, { attempt: number; max: number }>>({});
 export const dialogs = writable<DialogsState>({
   showServer: false,
   showConnect: false,

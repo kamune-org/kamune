@@ -7,6 +7,8 @@
     sidebarTab,
     showWelcome,
     versionWarnings,
+    historySaveFailed,
+    reconnecting,
     toast,
   } from './stores';
   import { CopyToClipboard, RenameSession, RenameHistorySession } from './go.js';
@@ -54,6 +56,9 @@
       null
   );
   let isHistory = $derived($sidebarTab === 'history');
+  // reconnect is the reconnect attempt under way, if the live session
+  // lost its connection.
+  let reconnect = $derived($activeSessionId ? $reconnecting[$activeSessionId] : null);
 
   // identityNote explains who a live session's peer is when its label
   // alone could mislead: the name a peer introduces itself with is only
@@ -249,6 +254,12 @@
             </span>
             {#if !isHistory}
               <span class="info-meta">{activeSession?.msgCount} messages</span>
+              {#if reconnect}
+                <span class="countdown-sep">·</span>
+                <span class="reconnecting">
+                  reconnecting ({reconnect.attempt}/{reconnect.max})
+                </span>
+              {/if}
               {#if activeSession?.sessionTTL > 0}
                 <span class="countdown-sep">·</span>
                 <span class="countdown-ttl" class:expired={remainingMs <= 0}>
@@ -372,6 +383,40 @@
         onclick={() =>
           versionWarnings.update((w) => {
             const n = { ...w };
+            delete n[$activeSessionId];
+            return n;
+          })}
+      >
+        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+          <path
+            fill-rule="evenodd"
+            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+            clip-rule="evenodd"
+          />
+        </svg>
+      </button>
+    </div>
+  {/if}
+
+  {#if $activeSessionId && $historySaveFailed[$activeSessionId]}
+    <div class="version-warning">
+      <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+        <path
+          fill-rule="evenodd"
+          d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+          clip-rule="evenodd"
+        />
+      </svg>
+      <span>
+        Some messages of this session could not be saved and are missing from its history. The logs
+        say why.
+      </span>
+      <button
+        class="warn-dismiss"
+        aria-label="Dismiss"
+        onclick={() =>
+          historySaveFailed.update((m) => {
+            const n = { ...m };
             delete n[$activeSessionId];
             return n;
           })}
@@ -981,6 +1026,10 @@
   }
   .version-warning span {
     flex: 1;
+  }
+  .reconnecting {
+    color: var(--warning);
+    font-weight: 600;
   }
   .identity-note.identity-danger {
     background: var(--danger-dim);
