@@ -21,9 +21,10 @@ func (s *liveSession) snapshotTransport() *kamune.Transport {
 	return s.Transport
 }
 
-func (s *liveSession) appendMessage(msg MessageInfo) {
+// countMessage counts a message sent or received on the session.
+func (s *liveSession) countMessage() {
 	s.mu.Lock()
-	s.Messages = append(s.Messages, msg)
+	s.msgCount++
 	s.LastActivity = time.Now()
 	s.mu.Unlock()
 }
@@ -130,14 +131,7 @@ func (d *Daemon) sendMessage(
 		return
 	}
 
-	msg := MessageInfo{
-		Text:       string(data),
-		DataBase64: base64.StdEncoding.EncodeToString(data),
-		Timestamp:  metadata.Timestamp(),
-		IsLocal:    true,
-	}
-
-	session.appendMessage(msg)
+	session.countMessage()
 
 	if store := d.store(); store != nil && !d.isIncognito() {
 		store.AddChatEntry(
@@ -208,15 +202,7 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 			continue
 		}
 
-		msgText := string(b.GetValue())
-		msg := MessageInfo{
-			Text:       msgText,
-			DataBase64: base64.StdEncoding.EncodeToString(b.GetValue()),
-			Timestamp:  metadata.Timestamp(),
-			IsLocal:    false,
-		}
-
-		session.appendMessage(msg)
+		session.countMessage()
 
 		if store := d.store(); store != nil && !d.isIncognito() {
 			store.AddChatEntry(
@@ -284,15 +270,7 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
 			continue
 		}
 
-		msgText := string(b.GetValue())
-		msg := MessageInfo{
-			Text:       msgText,
-			DataBase64: base64.StdEncoding.EncodeToString(b.GetValue()),
-			Timestamp:  metadata.Timestamp(),
-			IsLocal:    false,
-		}
-
-		session.appendMessage(msg)
+		session.countMessage()
 
 		if store := d.store(); store != nil && !d.isIncognito() {
 			store.AddChatEntry(

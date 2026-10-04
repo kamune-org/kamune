@@ -246,7 +246,9 @@ type relayToken struct {
 }
 
 // liveSession wraps a kamune.Transport with metadata. Mirrors bus.liveSession
-// (cmd/bus/app.go:147-167).
+// (cmd/bus/app.go:147-167), except that it does not keep messages in
+// memory: msgCount counts those stored before the session started and
+// those sent or received since.
 type liveSession struct {
 	mu               sync.Mutex
 	ID               string
@@ -256,7 +258,7 @@ type liveSession struct {
 	Cause            string
 	Transport        *kamune.Transport
 	relayToken       *relayconn.RelayTokenPending
-	Messages         []MessageInfo
+	msgCount         int
 	LastActivity     time.Time
 	ReceiveDone      chan struct{}
 	IsServer         bool

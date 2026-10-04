@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -719,7 +718,6 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		RemoteAddr:       params.Addr,
 		Cause:            "dial",
 		Transport:        t,
-		Messages:         make([]MessageInfo, 0),
 		LastActivity:     time.Now(),
 		ReceiveDone:      make(chan struct{}),
 		IsServer:         false,
@@ -805,7 +803,6 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 		RemoteVersion:    peer.AppVersion,
 		Cause:            "incoming",
 		Transport:        t,
-		Messages:         make([]MessageInfo, 0),
 		LastActivity:     time.Now(),
 		ReceiveDone:      make(chan struct{}),
 		IsServer:         true,
@@ -1528,7 +1525,9 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 	})
 }
 
-// loadChatHistory pre-populates session.Messages from the store.
+// loadChatHistory starts the session's message count and last activity
+// from its stored history. It reads the stored counter and the last
+// entry only, so a long history costs neither time nor memory.
 func (d *Daemon) loadChatHistory(session *liveSession) {
 	if d.isIncognito() {
 		return
@@ -1538,24 +1537,16 @@ func (d *Daemon) loadChatHistory(session *liveSession) {
 		return
 	}
 
-	entries, err := store.GetChatHistory(session.ID)
+	_, last, count, err := store.SessionTimestamps(session.ID)
 	if err != nil {
 		d.addLogEntry("DEBUG", "No history for session: "+session.ID)
 		return
 	}
 
 	session.mu.Lock()
-	session.Messages = make([]MessageInfo, 0, len(entries))
-	for _, e := range entries {
-		session.Messages = append(session.Messages, MessageInfo{
-			Text:       string(e.Data),
-			DataBase64: base64.StdEncoding.EncodeToString(e.Data),
-			Timestamp:  e.Timestamp,
-			IsLocal:    e.Sender == storage.SenderLocal,
-		})
-		if e.Timestamp.After(session.LastActivity) {
-			session.LastActivity = e.Timestamp
-		}
+	session.msgCount = count
+	if last.After(session.LastActivity) {
+		session.LastActivity = last
 	}
 	session.mu.Unlock()
 }
@@ -1599,7 +1590,7 @@ func (d *Daemon) sessionInfoLocked(s *liveSession) SessionInfo {
 		SessionID:        s.ID,
 		PeerName:         s.PeerName,
 		IsServer:         s.IsServer,
-		MsgCount:         len(s.Messages),
+		MsgCount:         s.msgCount,
 		LastActivity:     s.LastActivity,
 		TransportType:    s.TransportType,
 		RemoteVersion:    s.RemoteVersion,
