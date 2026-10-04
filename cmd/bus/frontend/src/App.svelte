@@ -244,10 +244,9 @@
     EventsOn('session-closed', async (data) => {
       await loadSessions();
       await loadHistory();
-      activeSessionId.update((id) => {
-        const s = $sessions;
-        return s.find((ses) => ses.id === data) ? id : null;
-      });
+      // Only the closed session leaves the chat panel, and not while
+      // its history is shown, as after the user disconnects it.
+      activeSessionId.update((id) => (id === data && $sidebarTab !== 'history' ? null : id));
       versionWarnings.update((w) => {
         const n = { ...w };
         delete n[data];
