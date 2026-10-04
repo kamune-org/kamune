@@ -891,6 +891,7 @@ func (d *Daemon) shutdown(cmdID ID) {
 // --- P2: Peer management ---
 
 // handleAddPeer adds a known peer to storage (mirrors cmd/bus/peers.go:67-101).
+// The key must be a valid Ed25519 key; see decodeValidPeerKey.
 func (d *Daemon) handleAddPeer(cmd Command) {
 	var params AddPeerParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
@@ -898,7 +899,7 @@ func (d *Daemon) handleAddPeer(cmd Command) {
 		return
 	}
 
-	pub, err := decodePeerPubKey(params.PublicKey)
+	pub, err := decodeValidPeerKey(params.PublicKey)
 	if err != nil {
 		d.emitError(cmd.ID, "invalid_peer_key", err.Error())
 		return

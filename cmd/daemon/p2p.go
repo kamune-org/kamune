@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/relayconn"
 	relaybroker "github.com/kamune-org/kamune/pkg/relayconn/broker"
@@ -287,6 +288,15 @@ func (d *Daemon) stopP2PResources() {
 	}
 }
 
+// errInvalidPeerKey is returned by decodeValidPeerKey for a key that
+// attest.IsValidPublicKey refuses.
+var errInvalidPeerKey = errors.New(
+	"public key is not a valid Ed25519 key",
+)
+
+// decodePeerPubKey decodes a peer's PKIX public key from base64. It checks
+// only the length, so that a stored peer whose key is not valid can still
+// be looked up, renamed and deleted; decodeValidPeerKey checks the key.
 func decodePeerPubKey(publicKeyB64 string) ([]byte, error) {
 	cleaned := publicKeyB64
 	cleaned = strings.TrimSpace(cleaned)
@@ -306,8 +316,24 @@ func decodePeerPubKey(publicKeyB64 string) ([]byte, error) {
 	return pub, nil
 }
 
+// decodeValidPeerKey decodes a peer's public key as decodePeerPubKey does,
+// and fails with errInvalidPeerKey unless it is a PKIX-encoded Ed25519
+// key that attest.IsValidPublicKey accepts: a canonical point whose order
+// is not small. A small-order key would let anyone forge signatures under
+// it, and a non-canonical one would give one key several fingerprints.
+func decodeValidPeerKey(publicKeyB64 string) ([]byte, error) {
+	pub, err := decodePeerPubKey(publicKeyB64)
+	if err != nil {
+		return nil, err
+	}
+	if !attest.IsValidPublicKey(pub) {
+		return nil, errInvalidPeerKey
+	}
+	return pub, nil
+}
+
 func parsePeerPubB64ToRaw(s string) (ed25519.PublicKey, error) {
-	pub, err := decodePeerPubKey(s)
+	pub, err := decodeValidPeerKey(s)
 	if err != nil {
 		return nil, err
 	}

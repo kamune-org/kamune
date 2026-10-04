@@ -5,7 +5,7 @@
   "description": "Adds a new known peer.",
   "type": "object",
   "properties": {
-    "public_key": { "type": "string", "description": "Base64-encoded public key." },
+    "public_key": { "type": "string", "description": "Base64-encoded PKIX public key. One that is not a valid Ed25519 key, such as a point of small order, fails with invalid_peer_key." },
     "name":       { "type": "string", "description": "Display name for the peer. Defaults to the fingerprint pseudonym of the key. A name longer than 64 bytes, or with a control, format, line separator or paragraph separator character, such as a line break, a bidirectional control or a zero-width space, fails with invalid_name; the zero-width joiner and non-joiner are allowed." }
   },
   "required": ["public_key"]
