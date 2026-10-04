@@ -12,7 +12,9 @@ import (
 )
 
 const (
-	verifTimeout = 2 * time.Minute
+	// defaultVerifTimeout is how long a verify_peer prompt waits for
+	// verify_response before the peer is rejected.
+	defaultVerifTimeout = 2 * time.Minute
 	// maxPendingVerifications caps the verify_peer prompts for unknown
 	// peers that connect to the server and may be open at once.
 	maxPendingVerifications = 8
@@ -154,7 +156,7 @@ func (d *Daemon) createAutoAcceptVerifier() kamune.RemoteVerifier {
 }
 
 // askUser emits verify_peer for peer and waits for the user's verdict, for
-// at most verifTimeout. For a peer that connected to the server it fails
+// at most d.verifTimeout. For a peer that connected to the server it fails
 // closed when beginVerification says so: the peer is rejected at once
 // without asking.
 func (d *Daemon) askUser(
@@ -270,10 +272,10 @@ func (d *Daemon) endVerification(reqID int64) {
 }
 
 // awaitVerification waits for the verdict on reqID, for at most
-// verifTimeout. A verification that times out leaves the status alone: one
-// peer's prompt does not decide the daemon's status.
+// d.verifTimeout. A verification that times out leaves the status alone:
+// one peer's prompt does not decide the daemon's status.
 func (d *Daemon) awaitVerification(reqID int64, result chan error) error {
-	timer := time.NewTimer(verifTimeout)
+	timer := time.NewTimer(d.verifTimeout)
 	defer timer.Stop()
 
 	select {
@@ -282,7 +284,7 @@ func (d *Daemon) awaitVerification(reqID int64, result chan error) error {
 	case <-timer.C:
 		d.addLogEntry("WARN",
 			fmt.Sprintf("Verification timed out for request: %d", reqID))
-		return fmt.Errorf("verification timed out after %v", verifTimeout)
+		return fmt.Errorf("verification timed out after %v", d.verifTimeout)
 	case <-d.ctx.Done():
 		return d.ctx.Err()
 	}

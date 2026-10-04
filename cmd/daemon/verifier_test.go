@@ -369,3 +369,146 @@ func TestSetVerificationModeKeepsSessions(t *testing.T) {
 	client.mu.RUnlock()
 	a.True(live, "the first session was closed")
 }
+
+// A peer that the server does not know is admitted in Strict and Quick
+// mode only when the user accepts it. An accepted peer is stored, except
+// in incognito mode, and a rejected one is neither stored nor given a
+// session.
+func TestVerifyUnknownPeer(t *testing.T) {
+	tests := []struct {
+		name      string
+		mode      VerificationMode
+		incognito bool
+		accept    bool
+	}{
+		{name: "strict accept", mode: VerificationModeStrict, accept: true},
+		{name: "strict reject", mode: VerificationModeStrict},
+		{name: "quick accept", mode: VerificationModeQuick, accept: true},
+		{name: "quick reject", mode: VerificationModeQuick},
+		{
+			name: "incognito accept", mode: VerificationModeQuick,
+			incognito: true, accept: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			server, serverRec := newTestDaemon(t, tt.mode, tt.incognito)
+			client, clientRec := newTestDaemon(
+				t, VerificationModeQuick, false,
+			)
+			trustPeer(t, client, server)
+			clientPub, err := client.store().PublicKey()
+			a.NoError(err)
+
+			addr := startTestServer(t, server, serverRec)
+			client.handleDial(Command{
+				ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
+			})
+			evt := serverRec.waitFor(t, isEvent(EvtVerifyPeer))
+			a.Equal(false, evt.Data["known"])
+			wantMode := map[VerificationMode]string{
+				VerificationModeStrict: "strict",
+				VerificationModeQuick:  "quick",
+			}[tt.mode]
+			a.Equal(wantMode, evt.Data["mode"])
+			id, ok := evt.Data["request_id"].(float64)
+			a.True(ok)
+			server.handleVerifyResponse(Command{
+				ID: "answer",
+				Params: mustJSON(VerifyResponseParams{
+					RequestID: int64(id), Accepted: tt.accept,
+				}),
+			})
+			evt = serverRec.waitFor(t, func(e recordedEvent) bool {
+				return e.ID == "answer"
+			})
+			a.Equal(EvtResponse, evt.Evt, "verify_response: %v", evt.Data)
+
+			evt = clientRec.waitFor(t, func(e recordedEvent) bool {
+				return e.ID == "dial" &&
+					(e.Evt == EvtSessionStarted || e.Evt == EvtError)
+			})
+			if !tt.accept {
+				a.Equal(EvtError, evt.Evt, "rejected peer got a session")
+				a.Equal("dial_failed", evt.Data["code"])
+				server.mu.RLock()
+				a.Empty(server.sessions)
+				server.mu.RUnlock()
+				_, err = server.store().FindPeer(clientPub)
+				a.Error(err, "rejected peer was stored")
+				return
+			}
+			a.Equal(EvtSessionStarted, evt.Evt, "dial failed: %v", evt.Data)
+			sessionID, _ := evt.Data["session_id"].(string)
+			waitForSession(t, server, sessionID)
+			_, err = server.store().FindPeer(clientPub)
+			if tt.incognito {
+				a.Error(err, "incognito server stored the peer")
+			} else {
+				a.NoError(err, "accepted peer was not stored")
+			}
+		})
+	}
+}
+
+// verify_response for a prompt that is over, because it timed out or
+// was answered, fails with verification_not_found and changes nothing.
+func TestLateVerifyResponseIsRefused(t *testing.T) {
+	tests := []struct {
+		name     string
+		answered bool
+	}{
+		{name: "after the timeout"},
+		{name: "after an answer", answered: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			d, rec := newTestDaemon(t, VerificationModeStrict, false)
+			if !tt.answered {
+				d.verifTimeout = 10 * time.Millisecond
+			}
+			peer := &storage.Peer{
+				Name: "stranger", PublicKey: newTestPeerKey(t),
+			}
+			verdict := make(chan error, 1)
+			go func() { verdict <- d.inboundVerifier()(d.store(), peer) }()
+			evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
+			id, ok := evt.Data["request_id"].(float64)
+			a.True(ok)
+			answer := func(cmdID ID, accepted bool) recordedEvent {
+				d.handleVerifyResponse(Command{
+					ID: cmdID,
+					Params: mustJSON(VerifyResponseParams{
+						RequestID: int64(id), Accepted: accepted,
+					}),
+				})
+				return rec.waitFor(t, func(e recordedEvent) bool {
+					return e.ID == cmdID
+				})
+			}
+
+			if tt.answered {
+				evt = answer("reject", false)
+				a.Equal(EvtResponse, evt.Evt)
+			}
+			select {
+			case err := <-verdict:
+				if tt.answered {
+					a.ErrorIs(err, kamune.ErrVerificationFailed)
+				} else {
+					a.ErrorContains(err, "timed out")
+				}
+			case <-time.After(testEventTimeout):
+				a.FailNow("the verifier did not return")
+			}
+
+			evt = answer("late", true)
+			a.Equal(EvtError, evt.Evt)
+			a.Equal("verification_not_found", evt.Data["code"])
+			_, err := d.store().FindPeer(peer.PublicKey)
+			a.Error(err, "a late answer stored the peer")
+		})
+	}
+}
