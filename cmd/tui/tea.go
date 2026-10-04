@@ -522,7 +522,9 @@ func loadChatHistory(m *model) tea.Cmd {
 				slog.String("session_id", m.transport.SessionID()),
 				slog.Any("error", err),
 			)
-			return nil
+			return historyLoadedMsg{messages: []chatLine{noticeLine(
+				m.s.err, "Could not load chat history: "+err.Error(),
+			)}}
 		}
 		sid := m.transport.SessionID()
 		header := "Session ID is " + sid + ". Happy Chatting!"
@@ -656,7 +658,6 @@ func (m *model) handleChatMessage(msg chatMessageMsg) *model {
 	m.messages = append(m.messages,
 		messageLine(storage.SenderPeer, msg.time, msg.text),
 	)
-	m.refreshChat()
 	if m.store != nil {
 		if err := m.store.AddChatEntry(
 			m.transport.SessionID(),
@@ -668,8 +669,10 @@ func (m *model) handleChatMessage(msg chatMessageMsg) *model {
 				slog.String("session_id", m.transport.SessionID()),
 				slog.Any("error", err),
 			)
+			m.messages = append(m.messages, notSavedLine(m.s, err))
 		}
 	}
+	m.refreshChat()
 	return m
 }
 

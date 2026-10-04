@@ -47,6 +47,14 @@ func noticeLine(style lipgloss.Style, text string) chatLine {
 	return chatLine{style: style, text: sanitizeLine(text)}
 }
 
+// notSavedLine returns the notice shown when a message could not be added
+// to chat history.
+func notSavedLine(s styles, err error) chatLine {
+	return noticeLine(
+		s.err, "The message above was not saved to history: "+err.Error(),
+	)
+}
+
 // noticeIndent is how far the lines of a wrapped notice after its first
 // are indented.
 const noticeIndent = 2

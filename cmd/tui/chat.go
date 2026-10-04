@@ -53,6 +53,9 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshChat()
 				return m, tiCmd
 			}
+			m.messages = append(m.messages, messageLine(
+				storage.SenderLocal, metadata.Timestamp(), text,
+			))
 			if err := m.store.AddChatEntry(
 				m.transport.SessionID(),
 				[]byte(text),
@@ -63,10 +66,8 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 					slog.String("session_id", m.transport.SessionID()),
 					slog.Any("error", err),
 				)
+				m.messages = append(m.messages, notSavedLine(m.s, err))
 			}
-			m.messages = append(m.messages, messageLine(
-				storage.SenderLocal, metadata.Timestamp(), text,
-			))
 			m.refreshChat()
 			m.ta.Reset()
 		}

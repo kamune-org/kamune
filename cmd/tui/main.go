@@ -68,7 +68,7 @@ func main() {
 	p := tea.NewProgram(m)
 	m.program = p
 
-	if _, err := p.Run(); err != nil {
+	if err := runUI(p, os.Getenv(logFileEnv)); err != nil {
 		slog.Error("program run", "error", err)
 	}
 }
