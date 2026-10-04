@@ -676,7 +676,11 @@ close frame, so the peer sees it end and it cannot be resumed.
 
 #### `close_session`
 
-Closes a specific session.
+Closes a live session, incoming or dialed, for good. The daemon sends the peer
+a close frame and deletes the session's resumption and relay reconnect tokens,
+so neither side can resume it, and waits up to 5 seconds for the session's
+receive loop to end. Fails with `session_not_found` for a session that is not
+live.
 
 **Input:**
 
@@ -696,12 +700,16 @@ Closes a specific session.
 { "type": "evt", "evt": "response", "id": "1", "data": { "status": "closed", "session_id": "xyz789..." } }
 ```
 
-If this was the last active session, also emits
-`status_changed` → `{ "status": "disconnected", "message": "Not connected" }`.
+If this was the last active session, `status_changed` with
+`{ "status": "disconnected", "message": "Not connected" }` follows the
+response. The history is refreshed last (`history_updated`).
 
 #### `rename_session`
 
-Renames a live session in memory (does not persist to history).
+Sets the `peer_name` of a live session, in memory only; `rename_history_session`
+names a session in the history. Fails with `session_not_found` for a session
+that is not live, and with `invalid_name` for a name that `start_server` would
+refuse.
 
 **Input:**
 
@@ -762,8 +770,25 @@ Returns all active sessions.
 
 #### `send_message`
 
-Sends a message on an established session. When incognito mode is enabled, the
-message is not persisted to chat history.
+Sends a message on a live session and saves it to the session's history,
+except in incognito mode. The send runs after the command is read, so other
+commands are handled meanwhile, and the messages of one session are sent,
+saved and reported with `message_sent` in the order of their commands.
+`message_sent.timestamp` is the time the daemon put on the message.
+
+A send that fails is not tried again, and fails with `send_message_failed`:
+
+- with reason `connection_lost` when the connection is gone, so the message was
+  not delivered. A dialed session then tries to resume (see
+  `session_reconnecting`), and a server session ends;
+- with reason `message_too_large` when the message is over the protocol's or
+  the relay's limit, which leaves the session usable;
+- with no reason for other failures.
+
+Before the send, the command fails with `invalid_params`,
+`session_id_required`, `data_base64_required`, `session_not_found` or
+`invalid_base64`. A message that was sent but could not be saved is reported
+with `history_save_failed` before its `message_sent`.
 
 **Input:**
 
