@@ -512,3 +512,121 @@ func TestLateVerifyResponseIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// The verifiers only decide whether to admit a peer; none of them stores
+// it, so a peer whose handshake fails after the user accepted it does
+// not become a known peer. rememberPeer stores a peer once its session
+// is established, and only one that the user accepted as unknown.
+func TestVerifiersDoNotStorePeers(t *testing.T) {
+	tests := []struct {
+		name       string
+		mode       VerificationMode
+		incognito  bool
+		prompt     bool
+		wantStored bool
+	}{
+		{
+			name: "strict", mode: VerificationModeStrict,
+			prompt: true, wantStored: true,
+		},
+		{
+			name: "quick", mode: VerificationModeQuick,
+			prompt: true, wantStored: true,
+		},
+		{name: "auto-accept", mode: VerificationModeAutoAccept},
+		{
+			name: "incognito", mode: VerificationModeQuick,
+			incognito: true, prompt: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			d, rec := newTestDaemon(t, tt.mode, tt.incognito)
+			peer := &storage.Peer{
+				Name: "carol", PublicKey: newTestPeerKey(t),
+			}
+			verdict := make(chan error, 1)
+			go func() { verdict <- d.inboundVerifier()(d.store(), peer) }()
+			if tt.prompt {
+				evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
+				id, ok := evt.Data["request_id"].(float64)
+				a.True(ok)
+				d.handleVerifyResponse(Command{
+					Params: mustJSON(VerifyResponseParams{
+						RequestID: int64(id), Accepted: true,
+					}),
+				})
+			}
+			a.NoError(<-verdict)
+			_, err := d.store().FindPeer(peer.PublicKey)
+			a.Error(err, "the verifier stored the peer")
+
+			d.rememberPeer(d.store(), peer)
+			_, err = d.store().FindPeer(peer.PublicKey)
+			if tt.wantStored {
+				a.NoError(err, "the established peer was not stored")
+			} else {
+				a.Error(err, "the peer was stored")
+			}
+		})
+	}
+}
+
+// A session that a verifier did not ask the user about stores no peer:
+// an auto-accepted one, and one whose verification was a rejection that
+// rememberPeer never sees.
+func TestRememberPeerNeedsAnAcceptance(t *testing.T) {
+	a := require.New(t)
+	d, _ := newTestDaemon(t, VerificationModeQuick, false)
+	peer := &storage.Peer{Name: "dave", PublicKey: newTestPeerKey(t)}
+	d.rememberPeer(d.store(), peer)
+	_, err := d.store().FindPeer(peer.PublicKey)
+	a.Error(err, "a peer nobody accepted was stored")
+
+	// An acceptance that a later verdict on the key replaced is void.
+	d.noteAdmitted(peer.PublicKey)
+	a.NoError(d.createAutoAcceptVerifier()(d.store(), peer))
+	d.rememberPeer(d.store(), peer)
+	_, err = d.store().FindPeer(peer.PublicKey)
+	a.Error(err, "a stale acceptance stored the peer")
+}
+
+// A client that dials a server it does not know asks the user, and
+// stores the server once the session is established. A server in
+// auto-accept mode stores none of its peers.
+func TestDialedUnknownServerIsStoredOnceConnected(t *testing.T) {
+	a := require.New(t)
+	server, serverRec := newTestDaemon(t, VerificationModeAutoAccept, false)
+	client, clientRec := newTestDaemon(t, VerificationModeQuick, false)
+	serverPub, err := server.store().PublicKey()
+	a.NoError(err)
+	clientPub, err := client.store().PublicKey()
+	a.NoError(err)
+
+	addr := startTestServer(t, server, serverRec)
+	client.handleDial(Command{
+		ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
+	})
+	evt := clientRec.waitFor(t, isEvent(EvtVerifyPeer))
+	a.Equal(false, evt.Data["known"])
+	id, ok := evt.Data["request_id"].(float64)
+	a.True(ok)
+	client.handleVerifyResponse(Command{
+		Params: mustJSON(VerifyResponseParams{
+			RequestID: int64(id), Accepted: true,
+		}),
+	})
+	evt = clientRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "dial" &&
+			(e.Evt == EvtSessionStarted || e.Evt == EvtError)
+	})
+	a.Equal(EvtSessionStarted, evt.Evt, "dial failed: %v", evt.Data)
+	sessionID, _ := evt.Data["session_id"].(string)
+	waitForSession(t, server, sessionID)
+
+	_, err = client.store().FindPeer(serverPub)
+	a.NoError(err, "the accepted server was not stored")
+	_, err = server.store().FindPeer(clientPub)
+	a.Error(err, "the auto-accepted client was stored")
+}

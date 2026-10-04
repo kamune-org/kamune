@@ -820,6 +820,7 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 
 	sessionID := t.SessionID()
 	peer := t.RemotePeer()
+	d.rememberPeer(store, peer)
 
 	session := &liveSession{
 		ID:               sessionID,
@@ -932,6 +933,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 		keepAliveDone:    make(chan struct{}),
 	}
 
+	d.rememberPeer(d.store(), peer)
 	var store *storage.Storage
 	if s := d.store(); s != nil && !d.isIncognito() {
 		store = s

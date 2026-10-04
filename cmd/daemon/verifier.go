@@ -100,8 +100,17 @@ func parseVerificationMode(s string) (VerificationMode, bool) {
 	return VerificationMode(mode), true
 }
 
+// The verifiers below only decide whether to admit a peer, while its
+// handshake is still running. None of them stores the peer: a peer whose
+// handshake fails after the user accepted it must not become a known
+// peer, which Quick mode admits without asking. They note an unknown
+// peer that the user accepted, and rememberPeer stores it once its
+// session is established.
+
+// createStrictVerifier asks the user about every peer, known or not.
 func (d *Daemon) createStrictVerifier(inbound bool) kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
+		d.forgetAdmitted(peer.PublicKey)
 		known := false
 		if _, err := store.FindPeer(peer.PublicKey); err == nil {
 			known = true
@@ -110,20 +119,18 @@ func (d *Daemon) createStrictVerifier(inbound bool) kamune.RemoteVerifier {
 		if err := d.askUser(peer, known, inbound, "strict"); err != nil {
 			return err
 		}
-
-		if !known && !d.isIncognito() {
-			peer.FirstSeen = time.Now()
-			if err := store.StorePeer(peer); err != nil {
-				d.addLogEntry("WARN", "Failed to save peer: "+err.Error())
-			}
+		if !known {
+			d.noteAdmitted(peer.PublicKey)
 		}
-
 		return nil
 	}
 }
 
+// createQuickVerifier admits a stored peer without asking and asks the
+// user about any other peer.
 func (d *Daemon) createQuickVerifier(inbound bool) kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
+		d.forgetAdmitted(peer.PublicKey)
 		if _, err := store.FindPeer(peer.PublicKey); err == nil {
 			d.addLogEntry("INFO", "Auto-accepted known peer: "+peer.Name)
 			return nil
@@ -132,26 +139,68 @@ func (d *Daemon) createQuickVerifier(inbound bool) kamune.RemoteVerifier {
 		if err := d.askUser(peer, false, inbound, "quick"); err != nil {
 			return err
 		}
-
-		if !d.isIncognito() {
-			peer.FirstSeen = time.Now()
-			if err := store.StorePeer(peer); err != nil {
-				d.addLogEntry("WARN", "Failed to save peer: "+err.Error())
-			}
-		}
-
+		d.noteAdmitted(peer.PublicKey)
 		return nil
 	}
 }
 
-// createAutoAcceptVerifier accepts every peer without asking. It does not
-// store new peers: nobody verified them, and Quick mode accepts a stored
+// createAutoAcceptVerifier accepts every peer without asking. Its peers
+// are not stored: nobody verified them, and Quick mode accepts a stored
 // peer without asking. A session with a peer that is not stored cannot be
 // resumed.
 func (d *Daemon) createAutoAcceptVerifier() kamune.RemoteVerifier {
 	return func(_ *storage.Storage, peer *storage.Peer) error {
+		d.forgetAdmitted(peer.PublicKey)
 		d.addLogEntry("INFO", "Auto-accepted peer: "+peer.Name)
 		return nil
+	}
+}
+
+// noteAdmitted records that the user accepted the unknown peer with key,
+// so that rememberPeer stores it once its session is established.
+func (d *Daemon) noteAdmitted(key []byte) {
+	d.verifMu.Lock()
+	defer d.verifMu.Unlock()
+	d.admitted[string(key)] = struct{}{}
+}
+
+// forgetAdmitted drops the note of noteAdmitted for key. Each verification
+// of a key starts with it, so a note left by a handshake that failed does
+// not outlive the next verdict on the key.
+func (d *Daemon) forgetAdmitted(key []byte) {
+	d.verifMu.Lock()
+	defer d.verifMu.Unlock()
+	delete(d.admitted, string(key))
+}
+
+// rememberPeer stores peer, the remote peer of a session that has just
+// been established, when the user accepted it as an unknown peer; see
+// noteAdmitted. It stores nothing in incognito mode, nor a peer that is
+// stored already.
+func (d *Daemon) rememberPeer(store *storage.Storage, peer *storage.Peer) {
+	if store == nil || peer == nil {
+		return
+	}
+	key := string(peer.PublicKey)
+	d.verifMu.Lock()
+	_, ok := d.admitted[key]
+	delete(d.admitted, key)
+	d.verifMu.Unlock()
+	if !ok || d.isIncognito() {
+		return
+	}
+	if _, err := store.FindPeer(peer.PublicKey); err == nil {
+		return
+	}
+	now := time.Now()
+	if err := store.StorePeer(&storage.Peer{
+		Name:       peer.Name,
+		PublicKey:  peer.PublicKey,
+		AppVersion: peer.AppVersion,
+		FirstSeen:  now,
+		LastSeen:   now,
+	}); err != nil {
+		d.addLogEntry("WARN", "Failed to save peer: "+err.Error())
 	}
 }
 

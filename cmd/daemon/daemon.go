@@ -134,6 +134,9 @@ type Daemon struct {
 	verifIDCounter atomic.Int64
 	// verifTimeout is how long a verify_peer prompt waits for an answer.
 	verifTimeout time.Duration
+	// admitted holds, under verifMu, the keys of unknown peers that the
+	// user accepted and that rememberPeer has yet to store.
+	admitted map[string]struct{}
 	// verifPrevStatus and verifPrevMsg hold, under verifMu, the status
 	// that the pending verifications replaced: the last one other than
 	// verifying that was current when one of them began.
@@ -220,6 +223,7 @@ func NewDaemon() *Daemon {
 		statusMsg:         "Not connected",
 		verifRequests:     make(map[int64]*pendingVerification),
 		verifTimeout:      defaultVerifTimeout,
+		admitted:          make(map[string]struct{}),
 		logBufferSize:     200,
 		logEntries:        make([]LogEntryInfo, 0, 200),
 		logLevel:          "INFO",
