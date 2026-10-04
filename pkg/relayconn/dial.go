@@ -17,6 +17,11 @@ import (
 	"github.com/kamune-org/kamune/pkg/relayconn/pb"
 )
 
+// DialRelay joins the relay session named by token over a WebSocket
+// (ws://relayAddr/ws) and returns the connection to the listening peer.
+// ctx and the handshake timeout bound connecting and the relay handshake
+// only: cancelling ctx after DialRelay returns does not affect the
+// connection, which lasts until Close.
 func DialRelay(
 	ctx context.Context, relayAddr string, token []byte, opts ...Option,
 ) (*RelayConn, error) {
@@ -26,15 +31,18 @@ func DialRelay(
 	if err != nil {
 		return nil, fmt.Errorf("relay ws dial: %w", err)
 	}
+	adapter := newWSAdapter(ctx, ws)
 	return relayHandshake(
 		ctx,
-		&wsAdapter{conn: ws, ctx: ctx},
+		adapter,
 		token,
-		func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") },
+		adapter.abort,
 		opts...,
 	)
 }
 
+// DialRelayWSS is DialRelay over a WebSocket on TLS
+// (wss://relayAddr/ws) configured by tlsCfg.
 func DialRelayWSS(
 	ctx context.Context,
 	relayAddr string,
@@ -53,15 +61,18 @@ func DialRelayWSS(
 	if err != nil {
 		return nil, fmt.Errorf("relay wss dial: %w", err)
 	}
+	adapter := newWSAdapter(ctx, ws)
 	return relayHandshake(
 		ctx,
-		&wsAdapter{conn: ws, ctx: ctx},
+		adapter,
 		token,
-		func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") },
+		adapter.abort,
 		opts...,
 	)
 }
 
+// DialRelayTCP is DialRelay over raw TCP with the relay's
+// length-prefixed framing.
 func DialRelayTCP(
 	ctx context.Context, relayAddr string, token []byte, opts ...Option,
 ) (*RelayConn, error) {
@@ -76,6 +87,7 @@ func DialRelayTCP(
 	return relayHandshake(ctx, adapter, token, func() { conn.Close() }, opts...)
 }
 
+// DialRelayTLS is DialRelayTCP over TLS configured by tlsCfg.
 func DialRelayTLS(
 	ctx context.Context,
 	relayAddr string,
@@ -165,8 +177,9 @@ func relayHandshake(
 		return nil, errors.New("handshake ended while registering")
 	}
 
+	// ctx bounds only the handshake; the connection lasts until Close.
 	var mu sync.Mutex
-	rc := newRelayConn(ctx, ch, &mu)
+	rc := newRelayConn(context.WithoutCancel(ctx), ch, &mu)
 	rc.ttl = time.Duration(reg.GetTtlSeconds()) * time.Second
 	rc.sessionTTL = time.Duration(reg.GetSessionTtlSeconds()) * time.Second
 	rc.closeFn = func() { ch.Close() }

@@ -79,13 +79,31 @@ func (a *tlsAdapter) SetWriteDeadline(t time.Time) error {
 }
 
 // wsAdapter wraps a WebSocket connection as an exchange.ReadWriter.
-// It carries a context so the listener's lifecycle (Stop/Close) can
-// cancel in-flight reads and writes.
+// Every read and write runs under ctx; cancelling it ends them and
+// closes the WebSocket.
 type wsAdapter struct {
 	writeDeadline time.Time
 	ctx           context.Context
 	conn          *websocket.Conn
+	cancel        context.CancelFunc
 	deadlineMu    sync.Mutex
+}
+
+// newWSAdapter wraps the client WebSocket ws. Its context keeps the
+// values of ctx but not its cancellation or deadline: the caller's
+// context bounds only the relay handshake, and the connection then
+// lasts until Close.
+func newWSAdapter(ctx context.Context, ws *websocket.Conn) *wsAdapter {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	return &wsAdapter{conn: ws, ctx: ctx, cancel: cancel}
+}
+
+// abort ends a relay handshake that did not complete. Cancelling the
+// context first makes a blocked read close the WebSocket at once
+// rather than leaving Close to wait out the close handshake.
+func (w *wsAdapter) abort() {
+	w.cancel()
+	_ = w.conn.Close(websocket.StatusNormalClosure, "exchange failed")
 }
 
 func (w *wsAdapter) ReadBytes() ([]byte, error) {
@@ -115,7 +133,11 @@ func (w *wsAdapter) WriteBytes(data []byte) error {
 }
 
 func (w *wsAdapter) Close() error {
-	return w.conn.Close(websocket.StatusNormalClosure, "closed")
+	err := w.conn.Close(websocket.StatusNormalClosure, "closed")
+	if w.cancel != nil {
+		w.cancel()
+	}
+	return err
 }
 
 func (w *wsAdapter) SetDeadline(t time.Time) error {

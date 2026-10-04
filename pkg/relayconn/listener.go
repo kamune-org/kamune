@@ -54,6 +54,12 @@ type ListenResult struct {
 func (l *RelayListener) TTL() time.Duration        { return l.ttl }
 func (l *RelayListener) SessionTTL() time.Duration { return l.sessionTTL }
 
+// ListenRelay creates a relay session over a WebSocket
+// (ws://relayAddr/ws) and returns its listener and the token to give the
+// peer. ctx and the handshake timeout bound connecting and the relay
+// handshake only: cancelling ctx after ListenRelay returns does not
+// affect the listener or its connection, which last until Stop, Close
+// or the end of the connection.
 func ListenRelay(
 	ctx context.Context, relayAddr string, opts ...Option,
 ) (*ListenResult, error) {
@@ -63,14 +69,17 @@ func ListenRelay(
 	if err != nil {
 		return nil, fmt.Errorf("relay ws dial: %w", err)
 	}
+	adapter := newWSAdapter(ctx, ws)
 	return listenHandshake(
 		ctx,
-		&wsAdapter{conn: ws, ctx: ctx},
-		func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") },
+		adapter,
+		adapter.abort,
 		opts...,
 	)
 }
 
+// ListenRelayWSS is ListenRelay over a WebSocket on TLS
+// (wss://relayAddr/ws) configured by tlsCfg.
 func ListenRelayWSS(
 	ctx context.Context, relayAddr string, tlsCfg *tls.Config, opts ...Option,
 ) (*ListenResult, error) {
@@ -87,14 +96,17 @@ func ListenRelayWSS(
 	if err != nil {
 		return nil, fmt.Errorf("relay wss dial: %w", err)
 	}
+	adapter := newWSAdapter(ctx, ws)
 	return listenHandshake(
 		ctx,
-		&wsAdapter{conn: ws, ctx: ctx},
-		func() { ws.Close(websocket.StatusNormalClosure, "exchange failed") },
+		adapter,
+		adapter.abort,
 		opts...,
 	)
 }
 
+// ListenRelayTCP is ListenRelay over raw TCP with the relay's
+// length-prefixed framing.
 func ListenRelayTCP(
 	ctx context.Context, relayAddr string, opts ...Option,
 ) (*ListenResult, error) {
@@ -109,6 +121,7 @@ func ListenRelayTCP(
 	return listenHandshake(ctx, adapter, func() { conn.Close() }, opts...)
 }
 
+// ListenRelayTLS is ListenRelayTCP over TLS configured by tlsCfg.
 func ListenRelayTLS(
 	ctx context.Context, relayAddr string, tlsCfg *tls.Config, opts ...Option,
 ) (*ListenResult, error) {
@@ -197,7 +210,9 @@ func listenHandshake(
 	ttl := time.Duration(reg.GetTtlSeconds()) * time.Second
 	sessionTTL := time.Duration(reg.GetSessionTtlSeconds()) * time.Second
 
-	lctx, lcancel := context.WithCancel(ctx)
+	// ctx bounds only the handshake; the listener lasts until it is
+	// stopped, closed or its connection ends.
+	lctx, lcancel := context.WithCancel(context.WithoutCancel(ctx))
 	l := &RelayListener{
 		channel:    ch,
 		accept:     make(chan *RelayConn, 1),
