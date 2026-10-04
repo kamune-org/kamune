@@ -1,6 +1,6 @@
 .PHONY: test
 test:
-	go test ./... -v
+	go test -race ./... -v
 
 FUZZ_TIME ?= 10s
 

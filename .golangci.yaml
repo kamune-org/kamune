@@ -2,6 +2,9 @@ version: "2"
 linters:
   settings:
     govet:
-      disable-all: true
-      enable:
-        - fieldalignment
+      # Run every govet analyzer, fieldalignment included, which
+      # `make align-structs` applies. shadow is left out: it flags the
+      # usual `err :=` in nested scopes.
+      enable-all: true
+      disable:
+        - shadow
