@@ -212,7 +212,7 @@ func TestRememberPeer(t *testing.T) {
 			}
 			app.refreshPeersCache()
 
-			app.rememberPeer(store, peer, tc.mode)
+			app.rememberPeer(store, peer, tc.mode, false)
 
 			got, err := store.FindPeer(peer.PublicKey)
 			if !tc.wantSaved {

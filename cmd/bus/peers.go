@@ -161,8 +161,9 @@ func (a *App) RenamePeer(publicKeyB64, name string) error {
 }
 
 // rememberPeer saves the remote peer of a session that has just been
-// established when its key is not stored yet and incognito mode is off.
-// mode is the verification mode whose verifier admitted the peer. The
+// established when its key is not stored yet, unless incognito, the mode
+// the session started in, or the current incognito mode is on. mode is
+// the verification mode whose verifier admitted the peer. The
 // verifiers only decide whether to admit a peer; saving it here, after
 // the handshake, keeps a peer whose handshake fails after the user
 // accepted it from becoming a known peer.
@@ -174,8 +175,9 @@ func (a *App) RenamePeer(publicKeyB64, name string) error {
 // no name, is saved under the pseudonym of its key.
 func (a *App) rememberPeer(
 	store *storage.Storage, peer *storage.Peer, mode VerificationMode,
+	incognito bool,
 ) {
-	if store == nil || peer == nil || a.GetIncognito() {
+	if store == nil || peer == nil || incognito || a.GetIncognito() {
 		return
 	}
 	if _, err := store.FindPeer(peer.PublicKey); err == nil {

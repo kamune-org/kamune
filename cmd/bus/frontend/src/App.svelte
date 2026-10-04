@@ -1350,6 +1350,7 @@
             <li>New messages are not saved to disk</li>
             <li>Session history is not recorded</li>
             <li>Accepted peers are not stored</li>
+            <li>Sessions started in incognito mode stay incognito until they end</li>
           </ul>
           <p>
             Your identity key and fingerprint do not change. Peers that know your key still

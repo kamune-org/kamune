@@ -525,8 +525,8 @@ func TestSubmitPassphraseReportsWrongPassphrase(t *testing.T) {
 }
 
 // TestIncognitoReadsAreSynchronized toggles incognito mode while a session
-// loads its history. It only finds a data race when run with -race;
-// without it, it checks nothing.
+// reads it, as the receive loop does. It only finds a data race when run
+// with -race; without it, it checks nothing.
 func TestIncognitoReadsAreSynchronized(t *testing.T) {
 	app, _ := newUnlockedApp(t, "secret")
 	session := &liveSession{ID: "s1"}
@@ -539,7 +539,7 @@ func TestIncognitoReadsAreSynchronized(t *testing.T) {
 	})
 	wg.Go(func() {
 		for range 20 {
-			app.loadChatHistory(session)
+			_ = app.sessionIncognito(session)
 		}
 	})
 	wg.Wait()

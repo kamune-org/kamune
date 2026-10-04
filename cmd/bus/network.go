@@ -803,7 +803,7 @@ func (a *App) ConnectToServer(
 
 	sessionID := t.SessionID()
 	peer := t.RemotePeer()
-	a.rememberPeer(store, peer, verifMode)
+	a.rememberPeer(store, peer, verifMode, incognito)
 	identity := a.identifyPeer(store, peer)
 	session := &liveSession{
 		ID:               sessionID,
@@ -819,6 +819,7 @@ func (a *App) ConnectToServer(
 		SessionStartedAt: time.Now(),
 		pongCh:           make(chan []byte, 1),
 		keepAliveDone:    make(chan struct{}),
+		incognito:        incognito,
 	}
 
 	if !incognito {
@@ -1069,7 +1070,7 @@ func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 	a.mu.RUnlock()
 
 	store := a.store()
-	a.rememberPeer(store, peer, verifMode)
+	a.rememberPeer(store, peer, verifMode, incognito)
 	identity := a.identifyPeer(store, peer)
 	session := &liveSession{
 		ID:               sessionID,
@@ -1086,6 +1087,7 @@ func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 		SessionStartedAt: time.Now(),
 		pongCh:           make(chan []byte, 1),
 		keepAliveDone:    make(chan struct{}),
+		incognito:        incognito,
 	}
 
 	if store != nil && !incognito {
@@ -1182,7 +1184,7 @@ func (a *App) finishRelayToken(session *liveSession, payload []byte) {
 }
 
 func (a *App) loadChatHistory(session *liveSession) {
-	if a.GetIncognito() {
+	if session.incognito {
 		return
 	}
 	store := a.store()

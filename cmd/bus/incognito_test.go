@@ -145,3 +145,66 @@ func TestSetIncognitoKeepsStoppedServerStopped(t *testing.T) {
 	a.False(app.GetIncognito())
 	a.False(app.GetServerRunning(), "a stopped server must stay stopped")
 }
+
+func TestIncognitoFollowsSession(t *testing.T) {
+	cases := []struct {
+		name string
+		// incognito is the mode the session starts in. It is toggled
+		// once the session is live.
+		incognito bool
+	}{
+		{"started in incognito mode", true},
+		{"incognito mode turned on later", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, _ := newUnlockedApp(t, "secret")
+			app.mu.Lock()
+			app.verifMode = VerificationModeAutoAccept
+			app.incognito = tc.incognito
+			app.mu.Unlock()
+			received := make(chan struct{}, 1)
+			app.onEvent = func(name string, _ ...any) {
+				if name == "message-received" {
+					received <- struct{}{}
+				}
+			}
+
+			send := make(chan string)
+			t.Cleanup(func() { close(send) })
+			addr, _ := startTestServer(t, "srv",
+				func(tr *kamune.Transport) error {
+					go func() {
+						for text := range send {
+							_, _ = tr.Send(
+								kamune.Bytes([]byte(text)),
+								kamune.RouteExchangeMessages,
+							)
+						}
+					}()
+					return readUntilEnd(tr)
+				})
+			res, err := app.ConnectToServer(
+				addr, "tcp", "", "", "", "", "", "", "", false, false,
+			)
+			a.NoError(err)
+			a.True(app.SetIncognito(!tc.incognito))
+
+			a.NoError(app.SendMessage(res.SessionID, "hello"))
+			send <- "hi"
+			select {
+			case <-received:
+			case <-time.After(testWait):
+				t.Fatal("the message did not arrive")
+			}
+
+			// Neither message is stored: a session keeps the mode it
+			// started in, and no session stores messages while
+			// incognito mode is on.
+			history, err := app.store().GetChatHistory(res.SessionID)
+			a.NoError(err)
+			a.Empty(history)
+		})
+	}
+}

@@ -191,6 +191,11 @@ type liveSession struct {
 	lastPongAt       time.Time
 	pongCh           chan []byte
 
+	// incognito is the incognito mode the session started in. It is set
+	// before the session is published and never changes; see
+	// App.sessionIncognito.
+	incognito bool
+
 	reconnectFn     func(sessionID string) (*kamune.Transport, error)
 	reconnectCtx    context.Context
 	reconnectCancel context.CancelFunc
@@ -1142,6 +1147,13 @@ func (a *App) GetIncognito() bool {
 	return a.incognito
 }
 
+// sessionIncognito reports whether s keeps its messages off the disk: it
+// started in incognito mode, which it keeps for its whole life, or
+// incognito mode is on now.
+func (a *App) sessionIncognito(s *liveSession) bool {
+	return s.incognito || a.GetIncognito()
+}
+
 // incognitoBusyLocked reports whether a server start or a dial is in
 // progress. Each reads the incognito mode when it begins, so a change
 // would not reach the session it makes. The caller holds a.mu.
@@ -1171,7 +1183,8 @@ const incognitoRestartNote = "The server decides when it starts whether " +
 // SetIncognito turns incognito mode on or off and reports whether it
 // changed. It does nothing until a database is unlocked, and while a
 // server start or a dial is in progress. A running server restarts, once
-// the user confirms, so that its sessions follow the new mode.
+// the user confirms, so that its sessions follow the new mode. A session
+// started in incognito mode stays in it.
 func (a *App) SetIncognito(on bool) bool {
 	if a.store() == nil {
 		a.addLogEntry("WARN",
