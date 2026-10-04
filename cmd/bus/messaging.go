@@ -155,11 +155,9 @@ func (a *App) receiveMessages(session *liveSession) {
 		}
 
 		if !isActive {
-			preview := msgText
-			if len(preview) > 50 {
-				preview = preview[:50] + "..."
-			}
-			a.SendNotification("New Message", preview)
+			a.SendNotification(
+				"New Message", notificationText(msgText, a.GetIncognito()),
+			)
 		}
 
 		a.emitEvent("message-received", session.ID, msg)
@@ -182,6 +180,29 @@ func (a *App) receiveMessages(session *liveSession) {
 		a.setStatus(StatusDisconnected, "Not connected")
 		a.addLogEntry("INFO", "All sessions disconnected")
 	}
+}
+
+// notificationPreviewRunes caps how much of a message a notification
+// shows.
+const notificationPreviewRunes = 50
+
+// incognitoNotificationText is the notification body for a message
+// received in incognito mode.
+const incognitoNotificationText = "Message text is hidden in incognito mode"
+
+// notificationText returns the body of the notification for a received
+// message whose text is msg: its first notificationPreviewRunes runes. In
+// incognito mode it holds none of the text, since the OS may keep
+// notifications in a history that outlives the session.
+func notificationText(msg string, incognito bool) string {
+	if incognito {
+		return incognitoNotificationText
+	}
+	runes := []rune(msg)
+	if len(runes) <= notificationPreviewRunes {
+		return msg
+	}
+	return string(runes[:notificationPreviewRunes]) + "…"
 }
 
 // keepAliveLoop sends periodic pings to detect dead connections. After 3

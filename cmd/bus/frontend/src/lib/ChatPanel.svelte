@@ -444,11 +444,25 @@
           class:peer={!msg.isLocal}
           style="animation: slideUp 0.2s ease-out"
         >
-          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-          <div class="msg-bubble" onclick={() => handleCopy(msg.text, i)}>
+          <div class="msg-bubble">
             <div class="bubble-header">
               <span class="bubble-sender">{msg.isLocal ? 'You' : 'Peer'}</span>
-              <span class="bubble-time">{formatTime(msg.timestamp)}</span>
+              <span class="bubble-meta">
+                <span class="bubble-time">{formatTime(msg.timestamp)}</span>
+                <!-- Copying is an explicit action: the clipboard, and any
+                     clipboard history, keeps the text after the session. -->
+                <button
+                  class="bubble-copy"
+                  title="Copy message"
+                  aria-label="Copy message"
+                  onclick={() => handleCopy(msg.text, i)}
+                >
+                  <svg viewBox="0 0 20 20" fill="currentColor" width="11" height="11">
+                    <path d="M8 2a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V4a2 2 0 00-2-2H8z" />
+                    <path d="M4 6a2 2 0 012-2v10a2 2 0 002 2h6a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" />
+                  </svg>
+                </button>
+              </span>
             </div>
             <div class="bubble-text">{msg.text}</div>
             {#if copiedId === i}
@@ -640,7 +654,6 @@
     max-width: 72%;
     padding: 10px 14px;
     border-radius: 14px;
-    cursor: pointer;
     position: relative;
     transition: box-shadow 0.15s;
   }
@@ -674,6 +687,35 @@
   }
   .msg-row.local .bubble-sender {
     color: rgba(255, 255, 255, 0.8);
+  }
+  .bubble-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .bubble-copy {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-timestamp);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .msg-bubble:hover .bubble-copy,
+  .bubble-copy:focus-visible {
+    opacity: 0.8;
+  }
+  .bubble-copy:hover {
+    opacity: 1;
+  }
+  .msg-row.local .bubble-copy {
+    color: rgba(255, 255, 255, 0.7);
   }
   .bubble-time {
     font-size: 9px;
