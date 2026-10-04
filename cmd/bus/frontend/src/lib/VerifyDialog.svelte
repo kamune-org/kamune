@@ -41,8 +41,14 @@
 
     <div class="dialog-body">
       <div class="verify-peer-info">
-        <div class="verify-label">Connection Request</div>
+        <div class="verify-label">
+          {data.known ? 'Saved peer' : 'Connection request'}
+        </div>
         <div class="verify-peer-name">{data.peerName}</div>
+        <div class="verify-claim">
+          Introduces itself as
+          <span class="verify-claimed-name">“{data.claimedName || 'no name'}”</span>
+        </div>
         <div class="verify-status" class:known={data.known} class:unknown={!data.known}>
           {#if data.known}
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"
@@ -52,7 +58,7 @@
                 clip-rule="evenodd"
               /></svg
             >
-            <span>Known Peer</span>
+            <span>Key is saved</span>
           {:else}
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"
               ><path
@@ -61,14 +67,24 @@
                 clip-rule="evenodd"
               /></svg
             >
-            <span>Unknown Peer</span>
+            <span>Key is not saved</span>
           {/if}
         </div>
         <p class="verify-hint">
           {data.known
-            ? 'This peer has been verified before and is in your trusted list.'
-            : 'New peer — not previously seen. Verify their fingerprint through a secure channel before accepting.'}
+            ? 'This key is in your peer list under the name shown above. The name it introduces itself with is its own claim.'
+            : 'This key is not in your peer list. The name it introduces itself with is its own claim and proves nothing.'}
         </p>
+        {#if data.nameConflict}
+          <div class="verify-warning verify-danger">
+            Another saved peer has the name this peer uses, but a different key. This peer may be
+            impersonating them. Compare the fingerprint with them before accepting.
+          </div>
+        {:else if data.nameMismatch}
+          <div class="verify-warning">
+            This key is saved as “{data.peerName}”, but the peer introduces itself as “{data.claimedName}”.
+          </div>
+        {/if}
       </div>
 
       <div class="verify-section">
@@ -215,6 +231,14 @@
     font-weight: 600;
     margin-bottom: 6px;
   }
+  .verify-claim {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+  .verify-claimed-name {
+    font-style: italic;
+  }
   .verify-status {
     display: inline-flex;
     align-items: center;
@@ -302,6 +326,14 @@
     background: var(--warning-dim);
     border-radius: var(--border-radius);
     margin-bottom: 4px;
+  }
+  .verify-peer-info .verify-warning {
+    margin-top: 8px;
+  }
+  .verify-danger {
+    color: var(--danger);
+    background: var(--danger-dim);
+    font-weight: 600;
   }
   .verify-warning svg {
     flex-shrink: 0;

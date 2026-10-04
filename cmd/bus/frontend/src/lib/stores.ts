@@ -21,8 +21,13 @@ export interface ToastInfo {
 
 export interface VerificationRequest {
   requestID: number;
+  // peerName is the stored name for a saved key and a key-derived label
+  // otherwise; claimedName is the name the peer introduced itself with.
   peerName: string;
+  claimedName: string;
   known: boolean;
+  nameMismatch: boolean;
+  nameConflict: boolean;
   emoji: string;
   hex: string;
 }

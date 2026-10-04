@@ -36,6 +36,29 @@
       null
   );
   let isHistory = $derived($sidebarTab === 'history');
+
+  // identityNote explains who a live session's peer is when its label
+  // alone could mislead: the name a peer introduces itself with is only
+  // its claim, and the label comes from the saved peer list.
+  let dismissedNotes = $state({});
+  let identityNote = $derived.by(() => {
+    const s = activeSession;
+    if (isHistory || !s || s.knownPeer === undefined) return '';
+    const claim = `“${s.claimedName || 'no name'}”`;
+    if (s.nameConflict) {
+      return (
+        `Another saved peer has the name this peer uses, but a different key. ` +
+        `It introduces itself as ${claim}; check its fingerprint.`
+      );
+    }
+    if (s.nameMismatch) {
+      return `This peer introduces itself as ${claim}, not under the name saved for its key.`;
+    }
+    if (!s.knownPeer) {
+      return `This peer is not in your peer list. It introduces itself as ${claim}, which proves nothing.`;
+    }
+    return '';
+  });
   let activeMsgs = $derived($activeSessionId ? $sessionMessages[$activeSessionId] || [] : []);
 
   let countdownNow = $state(Date.now());
@@ -269,6 +292,39 @@
           </svg>
         </button>
       </div>
+    </div>
+  {/if}
+
+  {#if identityNote && !dismissedNotes[activeSession.id]}
+    <div class="version-warning identity-note" class:identity-danger={activeSession.nameConflict}>
+      <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+        <path
+          fill-rule="evenodd"
+          d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+          clip-rule="evenodd"
+        />
+      </svg>
+      <span>
+        {identityNote}
+        {#if activeSession.peerFingerprint}
+          <span class="identity-fp">Fingerprint: {activeSession.peerFingerprint}</span>
+        {/if}
+      </span>
+      {#if !activeSession.nameConflict}
+        <button
+          class="warn-dismiss"
+          title="Dismiss"
+          onclick={() => (dismissedNotes = { ...dismissedNotes, [activeSession.id]: true })}
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+            <path
+              fill-rule="evenodd"
+              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+              clip-rule="evenodd"
+            />
+          </svg>
+        </button>
+      {/if}
     </div>
   {/if}
 
@@ -844,6 +900,19 @@
   }
   .version-warning span {
     flex: 1;
+  }
+  .identity-note.identity-danger {
+    background: var(--danger-dim);
+    border-bottom-color: var(--danger-dim);
+    color: var(--danger);
+    font-weight: 600;
+  }
+  .identity-fp {
+    display: block;
+    flex: none;
+    margin-top: 2px;
+    font-weight: 400;
+    opacity: 0.85;
   }
   .warn-dismiss {
     display: flex;

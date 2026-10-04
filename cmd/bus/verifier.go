@@ -10,11 +10,21 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-func (a *App) getVerifier() kamune.RemoteVerifier {
+// currentVerifMode returns the verification mode that new servers and
+// dialers use.
+func (a *App) currentVerifMode() VerificationMode {
 	a.mu.RLock()
-	mode := a.verifMode
-	a.mu.RUnlock()
+	defer a.mu.RUnlock()
+	return a.verifMode
+}
 
+// getVerifier returns the verifier for the current verification mode.
+func (a *App) getVerifier() kamune.RemoteVerifier {
+	return a.verifierFor(a.currentVerifMode())
+}
+
+// verifierFor returns the verifier for mode.
+func (a *App) verifierFor(mode VerificationMode) kamune.RemoteVerifier {
 	switch mode {
 	case VerificationModeStrict:
 		return a.createStrictVerifier()
@@ -31,115 +41,81 @@ func (a *App) getVerifier() kamune.RemoteVerifier {
 // createStrictVerifier asks the user about every peer, known or not.
 func (a *App) createStrictVerifier() kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
-		key := peer.PublicKey
-		emoji := strings.Join(fingerprint.Emoji(key), " • ")
-		hex := fingerprint.Hex(key)
-
-		known := false
-		_, err := store.FindPeer(key)
-		if err == nil {
-			known = true
-		}
-
-		a.mu.RLock()
-		prevStatus := a.status
-		prevMsg := a.statusMsg
-		a.mu.RUnlock()
-
-		reqID := a.verifIDCounter.Add(1)
-		result := make(chan error, 1)
-
-		a.verifMu.Lock()
-		a.verifRequests[reqID] = &pendingVerification{
-			result: result,
-			peerID: peer.Name,
-			hex:    hex,
-		}
-		a.verifMu.Unlock()
-
-		a.setStatus(StatusVerifying, "Verifying fingerprint of "+peer.Name+"...")
-		a.addLogEntry("INFO", "Verifying peer: "+peer.Name)
-
-		a.emitEvent("verify-peer", map[string]any{
-			"requestID": reqID,
-			"peerID":    peer.Name,
-			"peerName":  peer.Name,
-			"emoji":     emoji,
-			"hex":       hex,
-			"known":     known,
-			"mode":      "strict",
-		})
-
-		verdict := a.awaitVerification(reqID, result)
-
-		if verdict != nil {
-			return verdict
-		}
-
-		a.setStatus(prevStatus, prevMsg)
-		return nil
+		id := a.identifyPeer(store, peer)
+		return a.promptVerification(id, peer.PublicKey, "strict")
 	}
 }
 
 // createQuickVerifier admits a peer whose key is stored without asking
-// and asks the user about any other peer.
+// and asks the user about any other peer. The name a peer claims plays
+// no part: a stored peer is shown under its stored name whatever it
+// claims, and an unknown peer is asked about whatever name it claims.
 func (a *App) createQuickVerifier() kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
-		key := peer.PublicKey
-
-		_, err := store.FindPeer(key)
-		if err == nil {
-			a.addLogEntry("INFO", "Auto-accepted known peer: "+peer.Name)
+		id := a.identifyPeer(store, peer)
+		if id.Known {
+			a.addLogEntry("INFO", "Auto-accepted known peer: "+id.logName())
 			return nil
 		}
-
-		emoji := strings.Join(fingerprint.Emoji(key), " • ")
-		hex := fingerprint.Hex(key)
-
-		a.mu.RLock()
-		prevStatus := a.status
-		prevMsg := a.statusMsg
-		a.mu.RUnlock()
-
-		reqID := a.verifIDCounter.Add(1)
-		result := make(chan error, 1)
-
-		a.verifMu.Lock()
-		a.verifRequests[reqID] = &pendingVerification{
-			result: result,
-			peerID: peer.Name,
-			hex:    hex,
-		}
-		a.verifMu.Unlock()
-
-		a.setStatus(StatusVerifying, "Verifying fingerprint of "+peer.Name+"...")
-		a.addLogEntry("INFO", "Verifying peer: "+peer.Name)
-
-		a.emitEvent("verify-peer", map[string]any{
-			"requestID": reqID,
-			"peerID":    peer.Name,
-			"peerName":  peer.Name,
-			"emoji":     emoji,
-			"hex":       hex,
-			"known":     false,
-			"mode":      "quick",
-		})
-
-		verdict := a.awaitVerification(reqID, result)
-
-		if verdict != nil {
-			return verdict
-		}
-
-		a.setStatus(prevStatus, prevMsg)
-		return nil
+		return a.promptVerification(id, peer.PublicKey, "quick")
 	}
+}
+
+// promptVerification asks the user whether to admit the peer id, whose
+// key is key, and waits for the answer.
+func (a *App) promptVerification(
+	id peerIdentity, key []byte, mode string,
+) error {
+	emoji := strings.Join(fingerprint.Emoji(key), " • ")
+	hex := fingerprint.Hex(key)
+
+	a.mu.RLock()
+	prevStatus := a.status
+	prevMsg := a.statusMsg
+	a.mu.RUnlock()
+
+	reqID := a.verifIDCounter.Add(1)
+	result := make(chan error, 1)
+
+	a.verifMu.Lock()
+	a.verifRequests[reqID] = &pendingVerification{
+		result: result,
+		peerID: id.Label,
+		hex:    hex,
+	}
+	a.verifMu.Unlock()
+
+	a.setStatus(StatusVerifying, "Verifying fingerprint of "+id.Label+"...")
+	a.addLogEntry("INFO", "Verifying peer: "+id.logName())
+
+	a.emitEvent("verify-peer", map[string]any{
+		"requestID":    reqID,
+		"peerID":       id.KeyB64,
+		"peerName":     id.Label,
+		"claimedName":  id.ClaimedName,
+		"emoji":        emoji,
+		"hex":          hex,
+		"known":        id.Known,
+		"nameMismatch": id.NameMismatch,
+		"nameConflict": id.NameConflict,
+		"mode":         mode,
+	})
+
+	verdict := a.awaitVerification(reqID, result)
+
+	if verdict != nil {
+		return verdict
+	}
+
+	a.setStatus(prevStatus, prevMsg)
+	return nil
 }
 
 // createAutoAcceptVerifier admits every peer without asking.
 func (a *App) createAutoAcceptVerifier() kamune.RemoteVerifier {
-	return func(_ *storage.Storage, peer *storage.Peer) error {
-		a.addLogEntry("INFO", "Auto-accepted peer: "+peer.Name)
+	return func(store *storage.Storage, peer *storage.Peer) error {
+		a.addLogEntry("INFO",
+			"Auto-accepted peer: "+a.identifyPeer(store, peer).logName())
 		return nil
 	}
 }

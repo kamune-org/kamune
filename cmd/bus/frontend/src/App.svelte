@@ -130,6 +130,10 @@
   const LABELS = {
     type: 'Type',
     peerName: 'Peer Name',
+    claimedName: 'Introduces Itself As',
+    knownPeer: 'Saved Peer',
+    peerFingerprint: 'Fingerprint',
+    peerKey: 'Public Key',
     sessionID: 'Session ID',
     messageCount: 'Messages',
     lastActivity: 'Last Activity',
@@ -145,6 +149,10 @@
     'name',
     'type',
     'peerName',
+    'claimedName',
+    'knownPeer',
+    'peerFingerprint',
+    'peerKey',
     'sessionID',
     'messageCount',
     'firstMessage',
@@ -1227,7 +1235,7 @@
                       {val}
                     {:else if key === 'lastActivity' || key === 'lastMessage' || key === 'firstMessage'}
                       {new Date(val).toLocaleString()}
-                    {:else if key === 'isServer'}
+                    {:else if key === 'isServer' || key === 'knownPeer'}
                       {val ? 'Yes' : 'No'}
                     {:else}
                       {val}

@@ -47,6 +47,17 @@
     return Math.round(d / 3600) + 'h';
   }
 
+  // identityTitle explains a live session's label: the name the peer
+  // introduced itself with is only its claim.
+  function identityTitle(session) {
+    const claim = `Introduces itself as “${session.claimedName || 'no name'}”`;
+    if (session.nameConflict) {
+      return `Another saved peer has this name but a different key. ${claim}.`;
+    }
+    if (!session.knownPeer) return `Not in your peer list. ${claim}.`;
+    return `Saved peer. ${claim}.`;
+  }
+
   function peerNameFor(pubB64) {
     if (!pubB64) return '';
     const p = $peers.find((p) => p.publicKeyBase64 === pubB64);
@@ -565,7 +576,20 @@
                     }}
                   />
                 {:else}
-                  <div class="session-name">{session.peerName}</div>
+                  <div class="session-name-row">
+                    <div class="session-name" title={identityTitle(session)}>
+                      {session.peerName}
+                    </div>
+                    {#if session.nameConflict}
+                      <span class="peer-flag peer-flag-danger" title={identityTitle(session)}
+                        >name clash</span
+                      >
+                    {:else if session.nameMismatch}
+                      <span class="peer-flag" title={identityTitle(session)}>other name</span>
+                    {:else if !session.knownPeer}
+                      <span class="peer-flag" title={identityTitle(session)}>not saved</span>
+                    {/if}
+                  </div>
                 {/if}
                 <div class="session-meta">
                   <span class="meta-msgs">{session.msgCount} msgs</span>
@@ -1078,6 +1102,30 @@
     width: auto;
     min-width: 40px;
     max-width: 100%;
+  }
+  .session-name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .session-name-row .session-name {
+    min-width: 0;
+  }
+  .peer-flag {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--warning-dim);
+    color: var(--warning);
+  }
+  .peer-flag-danger {
+    background: var(--danger-dim);
+    color: var(--danger);
   }
   .session-meta {
     font-size: 11px;

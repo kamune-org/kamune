@@ -95,9 +95,20 @@ type p2pListenerI interface {
 	Addr() *net.UDPAddr
 }
 
+// SessionInfo describes a live session to the frontend. PeerName is the
+// session's label: the name stored for the peer's key, a name the user
+// gave the session, or a key-derived label for a peer that is not
+// stored. ClaimedName is the name the peer introduced itself with, which
+// proves nothing and is only shown as the peer's claim.
 type SessionInfo struct {
 	ID               string        `json:"id"`
 	PeerName         string        `json:"peerName"`
+	ClaimedName      string        `json:"claimedName"`
+	PeerKey          string        `json:"peerKey"`
+	PeerFingerprint  string        `json:"peerFingerprint"`
+	KnownPeer        bool          `json:"knownPeer"`
+	NameMismatch     bool          `json:"nameMismatch"`
+	NameConflict     bool          `json:"nameConflict"`
 	IsServer         bool          `json:"isServer"`
 	MsgCount         int           `json:"msgCount"`
 	LastActivity     time.Time     `json:"lastActivity"`
@@ -158,6 +169,7 @@ type liveSession struct {
 	mu               sync.Mutex
 	ID               string
 	PeerName         string
+	Identity         peerIdentity
 	RemoteVersion    string
 	Transport        *kamune.Transport
 	relayToken       *relayconn.RelayTokenPending
@@ -176,6 +188,27 @@ type liveSession struct {
 	reconnectCtx    context.Context
 	reconnectCancel context.CancelFunc
 	keepAliveDone   chan struct{}
+}
+
+// info returns the frontend view of s. The caller holds a.mu.
+func (s *liveSession) info() SessionInfo {
+	return SessionInfo{
+		ID:               s.ID,
+		PeerName:         s.PeerName,
+		ClaimedName:      s.Identity.ClaimedName,
+		PeerKey:          s.Identity.KeyB64,
+		PeerFingerprint:  s.Identity.Fingerprint,
+		KnownPeer:        s.Identity.Known,
+		NameMismatch:     s.Identity.NameMismatch,
+		NameConflict:     s.Identity.NameConflict,
+		IsServer:         s.IsServer,
+		MsgCount:         len(s.Messages),
+		LastActivity:     s.LastActivity,
+		TransportType:    s.TransportType,
+		RemoteVersion:    s.RemoteVersion,
+		SessionTTL:       s.SessionTTL,
+		SessionStartedAt: s.SessionStartedAt,
+	}
 }
 
 type historySession struct {
@@ -239,6 +272,7 @@ type App struct {
 	sessions            []*liveSession
 	histSessions        []*historySession
 	server              *kamune.Server
+	serverVerifMode     VerificationMode
 	serverDone          chan struct{}
 	serverTransportType string
 
@@ -1065,17 +1099,7 @@ func (a *App) GetSessions() []SessionInfo {
 	defer a.mu.RUnlock()
 	result := make([]SessionInfo, 0, len(a.sessions))
 	for _, s := range a.sessions {
-		result = append(result, SessionInfo{
-			ID:               s.ID,
-			PeerName:         s.PeerName,
-			IsServer:         s.IsServer,
-			MsgCount:         len(s.Messages),
-			LastActivity:     s.LastActivity,
-			TransportType:    s.TransportType,
-			RemoteVersion:    s.RemoteVersion,
-			SessionTTL:       s.SessionTTL,
-			SessionStartedAt: s.SessionStartedAt,
-		})
+		result = append(result, s.info())
 	}
 	return result
 }
@@ -1425,14 +1449,18 @@ func (a *App) GetSessionInfo(sessionID string) map[string]interface{} {
 	for _, s := range a.sessions {
 		if s.ID == sessionID {
 			return map[string]interface{}{
-				"type":          "live",
-				"peerName":      s.PeerName,
-				"sessionID":     s.ID,
-				"messageCount":  len(s.Messages),
-				"lastActivity":  s.LastActivity.Format(time.RFC3339),
-				"isServer":      s.IsServer,
-				"transportType": s.TransportType,
-				"remoteVersion": s.RemoteVersion,
+				"type":            "live",
+				"peerName":        s.PeerName,
+				"claimedName":     s.Identity.ClaimedName,
+				"knownPeer":       s.Identity.Known,
+				"peerFingerprint": s.Identity.Fingerprint,
+				"peerKey":         s.Identity.KeyB64,
+				"sessionID":       s.ID,
+				"messageCount":    len(s.Messages),
+				"lastActivity":    s.LastActivity.Format(time.RFC3339),
+				"isServer":        s.IsServer,
+				"transportType":   s.TransportType,
+				"remoteVersion":   s.RemoteVersion,
 			}
 		}
 	}

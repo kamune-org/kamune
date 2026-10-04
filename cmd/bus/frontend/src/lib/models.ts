@@ -43,7 +43,17 @@ export interface ServerStatusInfo {
 
 export interface SessionInfo {
   id: string;
+  // peerName is the stored name of the peer's key, a name the user gave
+  // the session, or a key-derived label for a peer that is not saved.
   peerName: string;
+  // claimedName is the name the peer introduced itself with. It is the
+  // peer's own claim and must only be shown as such.
+  claimedName: string;
+  peerKey: string;
+  peerFingerprint: string;
+  knownPeer: boolean;
+  nameMismatch: boolean;
+  nameConflict: boolean;
   isServer: boolean;
   msgCount: number;
   lastActivity: string;

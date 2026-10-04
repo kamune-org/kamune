@@ -225,7 +225,10 @@ func (a *App) StartServer(
 		opts = append(opts, kamune.ServeWithTCP())
 	}
 
-	svr, err := kamune.NewServer(addr, a.serverHandler, store, a.getVerifier(), opts...)
+	verifMode := a.currentVerifMode()
+	svr, err := kamune.NewServer(
+		addr, a.serverHandler, store, a.verifierFor(verifMode), opts...,
+	)
 	if err != nil {
 		a.setStatus(StatusError, "Failed to create server")
 		a.addLogEntry("ERROR", "Failed to create server: "+err.Error())
@@ -242,6 +245,7 @@ func (a *App) StartServer(
 	a.mu.Lock()
 	a.pubKey = pubKey
 	a.server = svr
+	a.serverVerifMode = verifMode
 	a.serverDone = done
 	if transport == "udp" && useP2P {
 		a.serverTransportType = "p2p"
@@ -640,7 +644,10 @@ func (a *App) ConnectToServer(
 		}
 	}
 
-	dialer, err := kamune.NewDialer(addr, store, a.getVerifier(), opts...)
+	verifMode := a.currentVerifMode()
+	dialer, err := kamune.NewDialer(
+		addr, store, a.verifierFor(verifMode), opts...,
+	)
 	if err != nil {
 		a.setStatus(StatusError, "Failed to create dialer")
 		a.addLogEntry("ERROR", "Failed to create dialer: "+err.Error())
@@ -662,9 +669,12 @@ func (a *App) ConnectToServer(
 
 	sessionID := t.SessionID()
 	peer := t.RemotePeer()
+	a.rememberPeer(store, peer, verifMode)
+	identity := a.identifyPeer(store, peer)
 	session := &liveSession{
 		ID:               sessionID,
-		PeerName:         peer.Name,
+		PeerName:         identity.Label,
+		Identity:         identity,
 		RemoteVersion:    peer.AppVersion,
 		Transport:        t,
 		Messages:         make([]MessageInfo, 0),
@@ -677,7 +687,6 @@ func (a *App) ConnectToServer(
 		keepAliveDone:    make(chan struct{}),
 	}
 
-	a.rememberPeer(store, peer)
 	if store := a.store(); store != nil && !a.incognito {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
@@ -770,19 +779,9 @@ func (a *App) ConnectToServer(
 
 	a.mu.Lock()
 	a.sessions = append(a.sessions, session)
+	info := session.info()
 	a.mu.Unlock()
 
-	info := SessionInfo{
-		ID:               session.ID,
-		PeerName:         session.PeerName,
-		IsServer:         false,
-		MsgCount:         len(session.Messages),
-		LastActivity:     session.LastActivity,
-		TransportType:    session.TransportType,
-		RemoteVersion:    peer.AppVersion,
-		SessionTTL:       sessionTTL,
-		SessionStartedAt: time.Now(),
-	}
 	a.emitEvent("session-new", info)
 	a.emitEvent("session-messages", session.ID, session.Messages)
 
@@ -881,6 +880,7 @@ func (a *App) DisconnectSession(sessionID string) error {
 func (a *App) serverHandler(t *kamune.Transport) error {
 	a.mu.RLock()
 	transport := a.serverTransportType
+	verifMode := a.serverVerifMode
 	a.mu.RUnlock()
 	if transport == "" {
 		transport = "tcp"
@@ -896,9 +896,13 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	relaySessionTTL := a.relaySessionTTL
 	a.mu.RUnlock()
 
+	store := a.store()
+	a.rememberPeer(store, peer, verifMode)
+	identity := a.identifyPeer(store, peer)
 	session := &liveSession{
 		ID:               sessionID,
-		PeerName:         peer.Name,
+		PeerName:         identity.Label,
+		Identity:         identity,
 		RemoteVersion:    peer.AppVersion,
 		Transport:        t,
 		Messages:         make([]MessageInfo, 0),
@@ -912,8 +916,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		keepAliveDone:    make(chan struct{}),
 	}
 
-	a.rememberPeer(a.store(), peer)
-	if store := a.store(); store != nil && !a.incognito {
+	if store != nil && !a.incognito {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
@@ -929,19 +932,9 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 
 	a.mu.Lock()
 	a.sessions = append(a.sessions, session)
+	info := session.info()
 	a.mu.Unlock()
 
-	info := SessionInfo{
-		ID:               session.ID,
-		PeerName:         session.PeerName,
-		IsServer:         true,
-		MsgCount:         len(session.Messages),
-		LastActivity:     session.LastActivity,
-		TransportType:    session.TransportType,
-		RemoteVersion:    peer.AppVersion,
-		SessionTTL:       relaySessionTTL,
-		SessionStartedAt: time.Now(),
-	}
 	a.emitEvent("session-new", info)
 	a.emitEvent("session-messages", session.ID, session.Messages)
 	a.addLogEntry("INFO", "New incoming connection: "+sessionID)

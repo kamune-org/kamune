@@ -157,19 +157,37 @@ func (a *App) RenamePeer(publicKeyB64, name string) error {
 
 // rememberPeer saves the remote peer of a session that has just been
 // established when its key is not stored yet and incognito mode is off.
-// The verifiers only decide whether to admit a peer; saving it here,
-// after the handshake, keeps a peer whose handshake fails after the user
+// mode is the verification mode whose verifier admitted the peer. The
+// verifiers only decide whether to admit a peer; saving it here, after
+// the handshake, keeps a peer whose handshake fails after the user
 // accepted it from becoming a known peer.
-func (a *App) rememberPeer(store *storage.Storage, peer *storage.Peer) {
+//
+// The stored name becomes the peer's label in every later session, so a
+// claimed name is kept only when the user accepted the peer in a prompt
+// that showed it, and only when no other stored peer has that name. A
+// peer that Auto-Accept admitted, or that claims another peer's name or
+// no name, is saved under the pseudonym of its key.
+func (a *App) rememberPeer(
+	store *storage.Storage, peer *storage.Peer, mode VerificationMode,
+) {
 	if store == nil || peer == nil || a.GetIncognito() {
 		return
 	}
 	if _, err := store.FindPeer(peer.PublicKey); err == nil {
 		return
 	}
+
+	name := strings.TrimSpace(peer.Name)
+	prompted := mode == VerificationModeStrict ||
+		mode == VerificationModeQuick
+	keyB64 := fingerprint.Base64(peer.PublicKey)
+	if !prompted || name == "" || a.isOtherPeersName(keyB64, name) {
+		name = fingerprint.Pseudonym(peer.PublicKey)
+	}
+
 	now := time.Now()
 	if err := store.StorePeer(&storage.Peer{
-		Name:       peer.Name,
+		Name:       name,
 		PublicKey:  peer.PublicKey,
 		FirstSeen:  now,
 		LastSeen:   now,
