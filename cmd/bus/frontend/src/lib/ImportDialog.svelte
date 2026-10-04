@@ -1,4 +1,5 @@
 <script>
+  import { onDestroy } from 'svelte';
   import jsQR from 'jsqr';
   import { importedRelayScheme } from './importurl';
 
@@ -12,6 +13,12 @@
   let fileInput = $state();
   let stream = null;
   let animationId = null;
+  // destroyed is set once the dialog is gone, however it was closed.
+  let destroyed = false;
+  // starting is set while the camera starts. cameraRun counts the starts
+  // and stops, so a start that a stop overtook drops its stream.
+  let starting = $state(false);
+  let cameraRun = 0;
 
   function fillConnect(urlStr) {
     try {
@@ -60,16 +67,32 @@
   }
 
   async function startCamera() {
+    // A second click while the camera starts would open a second
+    // stream, and only the last one would be stopped.
+    if (starting || stream) return;
     error = '';
+    starting = true;
+    const run = ++cameraRun;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
+      const s = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
       });
+      // The dialog may have closed, or the scan stopped, while the
+      // camera was starting.
+      if (destroyed || run !== cameraRun) {
+        s.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      stream = s;
       videoEl.srcObject = stream;
       scanMode = 'camera';
       scanFrame();
     } catch {
+      if (run !== cameraRun) return;
+      stopCamera();
       error = 'Camera access denied or unavailable';
+    } finally {
+      if (run === cameraRun) starting = false;
     }
   }
 
@@ -93,6 +116,8 @@
   }
 
   function stopCamera() {
+    cameraRun++;
+    starting = false;
     scanMode = 'idle';
     if (animationId) {
       cancelAnimationFrame(animationId);
@@ -108,6 +133,13 @@
     stopCamera();
     onClose?.();
   }
+
+  // The window can also remove the dialog itself, as Escape does, so the
+  // camera is released whenever the dialog goes.
+  onDestroy(() => {
+    destroyed = true;
+    stopCamera();
+  });
 </script>
 
 <div class="dialog-overlay" onclick={handleClose}>
@@ -160,7 +192,7 @@
           </svg>
           Select QR Image
         </button>
-        <button class="import-action" onclick={startCamera}>
+        <button class="import-action" onclick={startCamera} disabled={starting}>
           <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
             <path
               fill-rule="evenodd"
@@ -371,9 +403,13 @@
     transition: all 0.15s;
     margin-bottom: 6px;
   }
-  .import-action:hover {
+  .import-action:hover:not(:disabled) {
     background: var(--border-color);
     color: var(--text-primary);
+  }
+  .import-action:disabled {
+    opacity: 0.5;
+    cursor: wait;
   }
   .import-action svg {
     flex-shrink: 0;
