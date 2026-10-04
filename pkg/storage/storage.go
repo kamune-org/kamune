@@ -2,7 +2,6 @@ package storage
 
 import (
 	"bytes"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -53,12 +52,15 @@ var (
 	// could not be compacted afterwards. The deleted data may then still
 	// be in the database file; [Storage.Compact] can be tried again.
 	ErrCompactFailed = errors.New("could not compact the database")
+	// ErrUnsupportedFormat is returned by [OpenStorage] for a database
+	// written in a newer layout than this version of the package knows.
+	ErrUnsupportedFormat = errors.New("database format is not supported")
 
 	sessionMetaKey = []byte("name")
 
-	// valueMagic is prepended to stored chat values to distinguish the
-	// versioned format (sender timestamp embedded in value) from legacy
-	// entries that store raw message data only.
+	// valueMagic starts the value of a chat entry under a legacy key that
+	// also holds the sender's timestamp, as opposed to the raw message data
+	// of older entries. New entries use [chatValueMagic].
 	valueMagic = []byte("KMNE\x01")
 )
 
@@ -87,7 +89,8 @@ const (
 // ChatEntry represents a decrypted chat message stored in the DB.
 type ChatEntry struct {
 	// Timestamp is when the message was stored, by the local clock. History
-	// is ordered by it.
+	// is in the order messages were stored, which is the order of
+	// Timestamp unless the clock was set back.
 	Timestamp time.Time
 	// SentAt is the time the sender put on the message. A peer can set it
 	// to anything, so it is only for display and never orders history. It
@@ -121,6 +124,12 @@ type Storage struct {
 	createDB          bool
 }
 
+// OpenStorage opens the database, creating it unless [WithCreateDB] says
+// otherwise. A database written by an older version is brought up to the
+// current layout first, and then compacted (see [Storage.Compact]), so the
+// first open after an upgrade can take a while. A database written by a
+// newer version gives [ErrUnsupportedFormat]. Older versions cannot read
+// a database after it has been upgraded.
 func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	s := &Storage{
 		passphraseHandler: defaultPassphraseHandler,
@@ -136,6 +145,9 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 
 	// If a backend was injected via WithBackend, skip BoltDB setup.
 	if s.engine != nil {
+		if err := s.upgradeFormat(); err != nil {
+			return nil, fmt.Errorf("upgrading storage format: %w", err)
+		}
 		return s, nil
 	}
 
@@ -181,6 +193,10 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 		return nil, fmt.Errorf("opening kamune db: %w", err)
 	}
 	s.engine = db
+	if err := s.upgradeFormat(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("upgrading storage format: %w", err)
+	}
 
 	return s, nil
 }
@@ -356,19 +372,20 @@ func sessionMetaEnsure(
 	return session.Ensure([]byte("meta"))
 }
 
-// GetChatHistory returns decrypted chat entries stored under the chat
-// sub-namespace for the given session ID (sessions/<id>/chat/). Keys are
-// expected to be 14 bytes total, composed of:
+// GetChatHistory returns the decrypted chat entries of the given session,
+// stored under sessions/<id>/chat/ by [Storage.AddChatEntry], in the order
+// they were stored, so a peer cannot reorder history by the time it puts
+// on its messages. Malformed entries are skipped.
+//
+// Entries stored before index keys existed, and not converted yet, come
+// first, ordered by their receive time and then sender. Their key is 14
+// bytes:
 //   - 8 bytes: UnixNano timestamp (big-endian) — local receive time
 //   - 2 bytes: sender ID (big-endian; 0 means local user, 1 means remote user)
 //   - 4 bytes: random suffix to avoid collision
 //
-// Each entry's Timestamp is the local time from its key. Versioned entries
-// also carry the sender's timestamp in the value envelope (5-byte magic +
-// 8-byte timestamp + payload), returned as SentAt. Legacy entries store
-// only the payload. Malformed versioned entries are skipped. Results are
-// sorted by Timestamp then sender, so a peer cannot reorder history by
-// the time it puts on its messages.
+// Their value is either the payload alone or, from versions that kept the
+// sender's timestamp, a 5-byte magic, the 8-byte timestamp and the payload.
 func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	var entries []ChatEntry
 	err := s.engine.Query(func(b engine.Namespace) error {
@@ -386,18 +403,17 @@ func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 		return nil, fmt.Errorf("querying chat history: %w", err)
 	}
 
-	slices.SortFunc(entries, func(a, b ChatEntry) int {
-		if c := a.Timestamp.Compare(b.Timestamp); c != 0 {
-			return c
-		}
-		return int(a.Sender) - int(b.Sender)
-	})
-
 	return entries, nil
 }
 
+// decodeChatEntry decodes the entry stored under key, with value as its
+// decrypted value: an index key with a value from [encodeChatValue], or
+// a legacy key of at least 14 bytes (see [Storage.GetChatHistory]).
 func decodeChatEntry(key, value []byte) (ChatEntry, bool) {
-	if len(key) < 14 {
+	if isChatIndexKey(key) {
+		return decodeChatValue(value)
+	}
+	if len(key) < legacyChatKeySize {
 		return ChatEntry{}, false
 	}
 
@@ -462,16 +478,16 @@ func (s *Storage) FindSessionByPeer(pubKey []byte) (string, error) {
 }
 
 // SessionTimestamps returns the first and last message timestamps for the
-// given session by reading only the first and last keys in its chat bucket,
-// and its message count. Note that these are local receive timestamps from
-// the key, not the sender's original timestamps. The count comes from a
+// given session by reading only the first and last entries in its chat
+// bucket, and its message count. Note that these are local receive
+// timestamps, not the sender's original timestamps. The count comes from a
 // counter that [Storage.AddChatEntry] keeps in the session's meta
-// namespace, so this takes two cursor seeks and one read and does not load
-// the entries. A session whose entries were all stored before the counter
-// existed has its entries counted instead, which reads every page of its
-// chat bucket; [Storage.ListSessionsByRecent] stores the counter for such
-// sessions. If the bucket is empty or does not exist both timestamps are
-// zero-valued.
+// namespace, so this takes two cursor seeks and three reads and does not
+// load the other entries. A session whose entries were all stored before
+// the counter existed has its entries counted instead, which reads every
+// page of its chat bucket; [Storage.ListSessionsByRecent] stores the
+// counter for such sessions. If the bucket is empty or does not exist both
+// timestamps are zero-valued.
 func (s *Storage) SessionTimestamps(sessionID string) (
 	first, last time.Time, count int, err error,
 ) {
@@ -490,18 +506,34 @@ func sessionTimestamps(b engine.Namespace, sessionID string) (
 ) {
 	chat := sessionChat(b, sessionID)
 	firstKey := chat.FirstKey()
-	lastKey := chat.LastKey()
-	if l := len(firstKey); l != 0 && l >= 8 {
-		first = time.Unix(0, int64(binary.BigEndian.Uint64(firstKey[:8])))
-	}
-	if l := len(lastKey); l != 0 && l >= 8 {
-		last = time.Unix(0, int64(binary.BigEndian.Uint64(lastKey[:8])))
-	}
+	first = chatEntryTime(chat, firstKey)
+	last = chatEntryTime(chat, chat.LastKey())
 	count, ok := messageCount(sessionMeta(b, sessionID))
 	if !ok && firstKey != nil {
 		count, counted = chat.KeyCount(), true
 	}
 	return first, last, count, counted
+}
+
+// chatEntryTime returns the local receive time of the entry under key in
+// chat, or the zero time when there is none or it does not decode. Only
+// an entry under an index key is decrypted; a legacy key holds the time.
+func chatEntryTime(chat engine.Namespace, key []byte) time.Time {
+	if !isChatIndexKey(key) {
+		if len(key) < 8 {
+			return time.Time{}
+		}
+		return time.Unix(0, int64(binary.BigEndian.Uint64(key[:8])))
+	}
+	value, err := chat.GetEncrypted(key)
+	if err != nil {
+		return time.Time{}
+	}
+	entry, ok := decodeChatValue(value)
+	if !ok {
+		return time.Time{}
+	}
+	return entry.Timestamp
 }
 
 // messageCount returns the number of chat entries stored in the counter
@@ -548,9 +580,9 @@ func (s *Storage) storeMessageCounts(ids []string) error {
 
 // ListSessionsByRecent returns summaries for every stored session, sorted by
 // the most recent message first (descending LastMessage). Timestamps and
-// counts are obtained as [Storage.SessionTimestamps] does — no chat
-// payloads are decrypted. Sessions that had to have their entries counted
-// get a stored counter afterwards.
+// counts are obtained as [Storage.SessionTimestamps] does, which decrypts
+// only the first and last entry of each session. Sessions that had to have
+// their entries counted get a stored counter afterwards.
 func (s *Storage) ListSessionsByRecent() ([]SessionSummary, error) {
 	ids, err := s.ListSessions()
 	if err != nil {
@@ -741,38 +773,23 @@ func (s *Storage) DeleteSession(sessionID string) error {
 // peer being stored. The session's message counter is updated in the same
 // transaction.
 //
-// Key (14 bytes, ordered by local receive time):
-//   - 8 bytes: local UnixNano timestamp (big-endian) — uses the local clock
-//     to avoid ordering issues from sender clock skew
-//   - 2 bytes: sender ID (0 = local, 1 = peer)
-//   - 4 bytes: random suffix for uniqueness
-//
-// Value (versioned envelope):
-//   - 5 bytes: magic prefix "KMNE\x01"
-//   - 8 bytes: sender's original UnixNano timestamp (big-endian)
-//   - remaining: message payload
-//
-// The ts parameter is the sender's original timestamp. It is preserved in
-// the value and returned as [ChatEntry.SentAt] for display, separate from
-// the ordering key.
+// The entry is keyed by the next index of the session (see
+// [chatKeyPrefix]), so its key holds neither its time nor its sender. Its
+// value holds the local receive time, from the Storage's clock, ts, the
+// sender and the payload, padded to one of a few fixed sizes (see
+// [encodeChatValue]), and is sealed under the data key. ts is the
+// sender's original timestamp, returned as [ChatEntry.SentAt] for display;
+// it never orders history. Entries of the session that are still under
+// legacy keys are converted first.
 func (s *Storage) AddChatEntry(
 	sessionID string, payload []byte, ts time.Time, sender Sender,
 ) error {
-	// Key uses local time to avoid clock skew in ordering
-	key := make([]byte, 14)
-	binary.BigEndian.PutUint64(key[:8], uint64(s.clock.Now().UnixNano()))
-	binary.BigEndian.PutUint16(key[8:], uint16(sender))
-
-	if _, err := rand.Read(key[10:]); err != nil {
-		return fmt.Errorf("generate key suffix: %w", err)
-	}
-
-	// Encode sender timestamp into value for correct display
-	enc := make([]byte, 13+len(payload))
-	copy(enc, valueMagic)
-	binary.BigEndian.PutUint64(enc[5:], uint64(ts.UnixNano()))
-	copy(enc[13:], payload)
-
+	value := encodeChatValue(ChatEntry{
+		Timestamp: s.clock.Now(),
+		SentAt:    ts,
+		Data:      payload,
+		Sender:    sender,
+	})
 	err := s.engine.Command(func(b engine.Namespace) error {
 		session := b.Ensure([]byte(engine.SessionsNamespace)).
 			Ensure([]byte(sessionID))
@@ -784,7 +801,12 @@ func (s *Storage) AddChatEntry(
 		if !ok {
 			count = chat.KeyCount()
 		}
-		if err := chat.PutEncrypted(key, enc); err != nil {
+		next, dropped, err := nextChatIndex(chat)
+		if err != nil {
+			return err
+		}
+		count = max(count-dropped, 0)
+		if err := chat.PutEncrypted(chatIndexKey(next), value); err != nil {
 			return err
 		}
 		return putMessageCount(meta, count+1)

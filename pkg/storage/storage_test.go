@@ -944,6 +944,260 @@ func TestSessionMessageCount(t *testing.T) {
 	a.Equal(be(6), counter("old"))
 }
 
+// chatBuckets calls fn with every chat bucket of every session in the bolt
+// file at path.
+func chatBuckets(t *testing.T, path string, fn func(chat *bolt.Bucket)) {
+	t.Helper()
+	a := require.New(t)
+	db, err := bolt.Open(path, 0600, nil)
+	a.NoError(err)
+	defer db.Close()
+	a.NoError(db.View(func(tx *bolt.Tx) error {
+		sessions := tx.Bucket([]byte("sessions"))
+		return sessions.ForEach(func(name, _ []byte) error {
+			if chat := sessions.Bucket(name).Bucket([]byte("chat")); chat != nil {
+				fn(chat)
+			}
+			return nil
+		})
+	}))
+}
+
+// TestChatEntriesHideTimeSenderAndLength stores messages of different
+// lengths from both sides and checks that the keys hold only their order,
+// that short messages are stored at the same length, and that the receive
+// times are not in the file.
+func TestChatEntriesHideTimeSenderAndLength(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	start := time.Date(2026, 10, 3, 22, 15, 24, 994172782, time.UTC)
+	clk := clock.NewFake(start)
+	s, err := OpenStorage(
+		WithDBPath(path), WithNoPassphrase(), WithClock(clk),
+	)
+	a.NoError(err)
+
+	messages := []struct {
+		data   []byte
+		sender Sender
+	}{
+		{[]byte("yes"), SenderLocal},
+		{[]byte("no thanks, maybe some other time"), SenderPeer},
+		{bytes.Repeat([]byte("long "), 120), SenderPeer},
+	}
+	var times [][]byte
+	for _, m := range messages {
+		times = append(times, binary.BigEndian.AppendUint64(
+			nil, uint64(clk.Now().UnixNano()),
+		))
+		a.NoError(s.AddChatEntry("sess", m.data, start, m.sender))
+		clk.Advance(1234 * time.Millisecond)
+	}
+	history, err := s.GetChatHistory("sess")
+	a.NoError(err)
+	a.Len(history, len(messages))
+	for i, m := range messages {
+		a.Equal(m.data, history[i].Data)
+		a.Equal(m.sender, history[i].Sender)
+		a.True(history[i].SentAt.Equal(start))
+		a.Equal(times[i], binary.BigEndian.AppendUint64(
+			nil, uint64(history[i].Timestamp.UnixNano()),
+		))
+	}
+	a.NoError(s.Close())
+
+	var keys [][]byte
+	var lengths []int
+	chatBuckets(t, path, func(chat *bolt.Bucket) {
+		a.NoError(chat.ForEach(func(k, v []byte) error {
+			keys = append(keys, bytes.Clone(k))
+			lengths = append(lengths, len(v))
+			return nil
+		}))
+	})
+	a.Equal([][]byte{
+		{0xff, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0xff, 0, 0, 0, 0, 0, 0, 0, 1},
+		{0xff, 0, 0, 0, 0, 0, 0, 0, 2},
+	}, keys)
+	a.Equal(lengths[0], lengths[1], "short messages differ in length")
+	a.Greater(lengths[2], lengths[1])
+
+	raw, err := os.ReadFile(path)
+	a.NoError(err)
+	for i, ts := range times {
+		a.False(bytes.Contains(raw, ts), "receive time %d in file", i)
+	}
+}
+
+// writeLegacyChat stores entries in session id as versions before index
+// keys did, and marks the database as written by them.
+func writeLegacyChat(t *testing.T, s *Storage, id string, entries []ChatEntry) {
+	t.Helper()
+	a := require.New(t)
+	a.NoError(s.engine.Command(func(b Namespace) error {
+		if err := b.Sub([]byte(engine.DefaultNamespace)).Delete(
+			[]byte(formatKey),
+		); err != nil {
+			return err
+		}
+		chat := b.Ensure([]byte("sessions")).
+			Ensure([]byte(id)).
+			Ensure([]byte("chat"))
+		for i, e := range entries {
+			value := e.Data
+			if !e.SentAt.IsZero() {
+				value = binary.BigEndian.AppendUint64(
+					bytes.Clone(valueMagic), uint64(e.SentAt.UnixNano()),
+				)
+				value = append(value, e.Data...)
+			}
+			err := chat.PutEncrypted(
+				chatKey(e.Timestamp, e.Sender, uint32(i)), value,
+			)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+}
+
+// TestOpenStorageConvertsLegacyChat opens a database whose history was
+// stored under keys that hold the receive time and sender, and checks
+// that it reads the same afterwards, with neither those keys nor their
+// times left in the file.
+func TestOpenStorageConvertsLegacyChat(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	open := func() *Storage {
+		s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
+		a.NoError(err)
+		return s
+	}
+	base := time.Date(2026, 10, 3, 22, 15, 24, 0, time.UTC)
+	legacy := []ChatEntry{
+		{Timestamp: base, Data: []byte("raw"), Sender: SenderLocal},
+		{
+			Timestamp: base.Add(time.Second),
+			SentAt:    base.Add(-time.Hour),
+			Data:      []byte("versioned"),
+			Sender:    SenderPeer,
+		},
+		{
+			Timestamp: base.Add(time.Second),
+			SentAt:    base,
+			Data:      []byte("same time, local"),
+			Sender:    SenderLocal,
+		},
+	}
+
+	s := open()
+	writeLegacyChat(t, s, "old", legacy)
+	before, err := s.GetChatHistory("old")
+	a.NoError(err)
+	a.Len(before, 3)
+	a.NoError(s.Close())
+
+	s = open()
+	after, err := s.GetChatHistory("old")
+	a.NoError(err)
+	a.Equal(before, after)
+	first, last, count, err := s.SessionTimestamps("old")
+	a.NoError(err)
+	a.True(first.Equal(base))
+	a.True(last.Equal(base.Add(time.Second)))
+	a.Equal(3, count)
+	a.NoError(s.AddChatEntry("old", []byte("new"), base, SenderPeer))
+	a.NoError(s.Close())
+
+	raw, err := os.ReadFile(path)
+	a.NoError(err)
+	for i, e := range legacy {
+		key := chatKey(e.Timestamp, e.Sender, uint32(i))
+		a.False(bytes.Contains(raw, key[:8]), "legacy key %d in file", i)
+	}
+	chatBuckets(t, path, func(chat *bolt.Bucket) {
+		a.Equal(4, chat.Stats().KeyN)
+		a.NoError(chat.ForEach(func(k, _ []byte) error {
+			a.True(isChatIndexKey(k), "key %x", k)
+			return nil
+		}))
+	})
+	s = open()
+	defer s.Close()
+	after, err = s.GetChatHistory("old")
+	a.NoError(err)
+	a.Equal(append(before, after[3]), after)
+	a.Equal([]byte("new"), after[3].Data)
+}
+
+func TestOpenStorageRejectsNewerFormat(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
+	a.NoError(err)
+	a.NoError(s.engine.Command(func(b Namespace) error {
+		return b.Sub([]byte(engine.DefaultNamespace)).PutEncrypted(
+			[]byte(formatKey), []byte{storageFormat + 1},
+		)
+	}))
+	a.NoError(s.Close())
+
+	_, err = OpenStorage(WithDBPath(path), WithNoPassphrase())
+	a.ErrorIs(err, ErrUnsupportedFormat)
+	// The failed open released the database.
+	s, err = OpenStorage(
+		WithDBPath(path), WithNoPassphrase(), WithTimeout(time.Second),
+	)
+	a.ErrorIs(err, ErrUnsupportedFormat)
+	a.Nil(s)
+}
+
+// TestAddChatEntryConvertsLegacyEntries stores a message in a session
+// that still has entries under legacy keys, and checks that they are
+// converted, a malformed one dropped, and the new one stored last.
+func TestAddChatEntryConvertsLegacyEntries(t *testing.T) {
+	a := require.New(t)
+	store, cleanup := newTestStorage(t)
+	defer cleanup()
+	base := time.Unix(1_700_000_000, 0)
+	writeLegacyChat(t, store, "sess", []ChatEntry{
+		{Timestamp: base, Data: []byte("one"), Sender: SenderPeer},
+		{Timestamp: base.Add(time.Second), Data: []byte("two")},
+	})
+	a.NoError(store.engine.Command(func(b Namespace) error {
+		chat := b.Sub([]byte("sessions")).Sub([]byte("sess")).
+			Sub([]byte("chat"))
+		return chat.PutEncrypted(
+			chatKey(base.Add(2*time.Second), SenderPeer, 9),
+			append(bytes.Clone(valueMagic), 1, 2),
+		)
+	}))
+	_, _, count, err := store.SessionTimestamps("sess")
+	a.NoError(err)
+	a.Equal(3, count)
+
+	a.NoError(store.AddChatEntry("sess", []byte("three"), base, SenderLocal))
+	history, err := store.GetChatHistory("sess")
+	a.NoError(err)
+	var got []string
+	for _, e := range history {
+		got = append(got, string(e.Data))
+	}
+	a.Equal([]string{"one", "two", "three"}, got)
+	_, _, count, err = store.SessionTimestamps("sess")
+	a.NoError(err)
+	a.Equal(3, count)
+	a.NoError(store.engine.Query(func(b Namespace) error {
+		chat := b.Sub([]byte("sessions")).Sub([]byte("sess")).
+			Sub([]byte("chat"))
+		a.Equal(chatIndexKey(0), chat.FirstKey())
+		a.Equal(chatIndexKey(2), chat.LastKey())
+		return nil
+	}))
+}
+
 func chatKey(timestamp time.Time, sender Sender, suffix uint32) []byte {
 	key := make([]byte, 14)
 	binary.BigEndian.PutUint64(key[:8], uint64(timestamp.UnixNano()))
@@ -965,6 +1219,15 @@ func FuzzDecodeChatEntry(f *testing.F) {
 	f.Add(legacyKey, []byte("legacy"))
 	f.Add(versionedKey, versionedValue)
 	f.Add(versionedKey, append([]byte{}, valueMagic...))
+	indexed := encodeChatValue(ChatEntry{
+		Timestamp: time.Unix(0, 400),
+		SentAt:    time.Unix(0, 300),
+		Data:      []byte("indexed"),
+		Sender:    SenderPeer,
+	})
+	f.Add(chatIndexKey(7), indexed)
+	f.Add(chatIndexKey(7), indexed[:chatHeaderSize])
+	f.Add(chatIndexKey(7), []byte("legacy"))
 
 	f.Fuzz(func(t *testing.T, key, value []byte) {
 		if len(key) > 1024 || len(value) > 64*1024 {
@@ -973,6 +1236,39 @@ func FuzzDecodeChatEntry(f *testing.F) {
 		a := require.New(t)
 		entry, ok := decodeChatEntry(key, value)
 		switch {
+		case len(key) == 9 && key[0] == 0xff:
+			n := -1
+			if len(value) >= 27 {
+				n = int(binary.BigEndian.Uint32(value[23:27]))
+			}
+			if !bytes.HasPrefix(value, []byte("KMNE\x02")) || n < 0 ||
+				n > len(value)-27 {
+				a.False(ok)
+				return
+			}
+			a.True(ok)
+			a.Equal(
+				time.Unix(0, int64(binary.BigEndian.Uint64(value[5:13]))),
+				entry.Timestamp,
+			)
+			var wantSentAt time.Time
+			if v := int64(binary.BigEndian.Uint64(value[13:21])); v != 0 {
+				wantSentAt = time.Unix(0, v)
+			}
+			a.Equal(wantSentAt, entry.SentAt)
+			a.Equal(Sender(binary.BigEndian.Uint16(value[21:23])), entry.Sender)
+			want := bytes.Clone(value[27 : 27+n])
+			a.Equal(want, entry.Data)
+			// The entry does not share memory with the value.
+			if n > 0 {
+				value[27] ^= 0xff
+				a.Equal(want, entry.Data)
+			}
+			a.Equal(entry, func() ChatEntry {
+				e, ok := decodeChatValue(encodeChatValue(entry))
+				a.True(ok)
+				return e
+			}())
 		case len(key) < 14:
 			a.False(ok)
 		case bytes.HasPrefix(value, valueMagic) &&
@@ -1622,5 +1918,21 @@ func TestOpenStorage_DirectoryPermissions(t *testing.T) {
 				a.Equal(want, info.Mode().Perm(), rel)
 			}
 		})
+	}
+}
+
+func TestPaddedSize(t *testing.T) {
+	cases := []struct{ n, want int }{
+		{0, 512},
+		{512, 512},
+		{513, 1024},
+		{4096, 4096},
+		{4097, 16 << 10},
+		{64 << 10, 64 << 10},
+		{64<<10 + 1, 128 << 10},
+		{200 << 10, 256 << 10},
+	}
+	for _, tc := range cases {
+		require.New(t).Equal(tc.want, paddedSize(tc.n), "n=%d", tc.n)
 	}
 }
