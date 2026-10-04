@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -43,7 +45,7 @@ const brokerIDHold = 2 * time.Minute
 
 // heldIdentity is the broker identity of one token.
 type heldIdentity struct {
-	id *relaybroker.Client
+	id *brokerID
 	// users counts the registrations that use id.
 	users int
 	// until is when id may be dropped, once users is zero.
@@ -81,7 +83,7 @@ func identityKey(brokerAddr string, token []byte) string {
 // or held, or a new one. Call release once the registration ends.
 func (b *BrokerClient) identity(
 	brokerAddr string, token []byte,
-) (*relaybroker.Client, error) {
+) (*brokerID, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := time.Now()
@@ -119,13 +121,53 @@ func (b *BrokerClient) release(brokerAddr string, token []byte) {
 	}
 }
 
+// brokerID is a broker identity: a broker client and its X25519 key.
+// The daemon keeps the key to open the NOTIFYs that arrive on a p2p
+// listener's punch socket, which KCP reads (see punchConn).
+type brokerID struct {
+	*relaybroker.Client
+	key *ecdh.PrivateKey
+}
+
 // newBrokerIdentity returns a broker client for the broker at
 // brokerAddr with a new X25519 key. A REGISTER carries the key in the
 // clear, and the broker needs the same key on every refresh of one
 // registration, so use one identity per token, for as long as that
 // token is registered, and never for another token.
-func newBrokerIdentity(brokerAddr string) (*relaybroker.Client, error) {
-	return relaybroker.NewClient(brokerAddr)
+func newBrokerIdentity(brokerAddr string) (*brokerID, error) {
+	key, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generate x25519 key: %w", err)
+	}
+	c, err := relaybroker.NewClientWithKey(brokerAddr, key)
+	if err != nil {
+		return nil, err
+	}
+	return &brokerID{Client: c, key: key}, nil
+}
+
+// openNotify opens a NOTIFY, split by relaybroker.ParseNotify, that the
+// broker sealed to id's key, as relaybroker.Client does for the NOTIFYs
+// it reads itself.
+func (id *brokerID) openNotify(
+	brokerEphPub, nonce, sealed []byte,
+) (relaybroker.NotifyPayload, error) {
+	pub, err := ecdh.X25519().NewPublicKey(brokerEphPub)
+	if err != nil {
+		return relaybroker.NotifyPayload{}, err
+	}
+	shared, err := id.key.ECDH(pub)
+	if err != nil {
+		return relaybroker.NotifyPayload{}, err
+	}
+	key := sha256.Sum256(shared)
+	plaintext, err := relaybroker.OpenNotify(
+		key[:], brokerEphPub, nonce, sealed,
+	)
+	if err != nil {
+		return relaybroker.NotifyPayload{}, err
+	}
+	return relaybroker.ParseNotifyPayload(plaintext)
 }
 
 // WaitMatch registers token with the broker from a new punch socket and

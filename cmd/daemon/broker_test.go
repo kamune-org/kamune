@@ -151,22 +151,30 @@ func (b *fakeBroker) waitRegistered(t *testing.T, token []byte) [][]byte {
 // peerMatched returns a PEER_MATCHED for the wire token token, sealed to
 // the registering peer's key peerEphPub.
 func (b *fakeBroker) peerMatched(token, peerEphPub []byte) []byte {
+	return sealPeerMatched(token, peerEphPub, b.peer, make([]byte, 32))
+}
+
+// sealPeerMatched returns a PEER_MATCHED for the wire token token, sealed
+// to the key to, that names peer and its key peerKey.
+func sealPeerMatched(
+	token, to []byte, peer *net.UDPAddr, peerKey []byte,
+) []byte {
 	eph, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
 		panic(err)
 	}
-	peerPub, err := ecdh.X25519().NewPublicKey(peerEphPub)
+	toPub, err := ecdh.X25519().NewPublicKey(to)
 	if err != nil {
 		panic(err)
 	}
-	shared, err := eph.ECDH(peerPub)
+	shared, err := eph.ECDH(toPub)
 	if err != nil {
 		panic(err)
 	}
 	key := sha256.Sum256(shared)
 	brokerEphPub := eph.PublicKey().Bytes()
 	plaintext := relaybroker.PeerMatchedPlaintext(
-		token, make([]byte, 32), b.peer.IP, uint16(b.peer.Port),
+		token, peerKey, peer.IP, uint16(peer.Port),
 	)
 	nonce, sealed := relaybroker.SealNotify(key[:], brokerEphPub, plaintext)
 	return relaybroker.BuildNotifyPeerMatched(brokerEphPub, nonce, sealed)
