@@ -406,3 +406,50 @@ func TestInitFromStorageUnknownModeIsStrict(t *testing.T) {
 		})
 	}
 }
+
+func TestSetVerificationModeConfirmsAutoAccept(t *testing.T) {
+	cases := []struct {
+		name     string
+		from     VerificationMode
+		to       VerificationMode
+		answer   bool
+		wantAsk  bool
+		wantMode VerificationMode
+	}{
+		{name: "declined", from: VerificationModeQuick,
+			to: VerificationModeAutoAccept, wantAsk: true,
+			wantMode: VerificationModeQuick},
+		{name: "confirmed", from: VerificationModeStrict,
+			to: VerificationModeAutoAccept, answer: true, wantAsk: true,
+			wantMode: VerificationModeAutoAccept},
+		{name: "strict needs no confirmation", from: VerificationModeQuick,
+			to: VerificationModeStrict, wantMode: VerificationModeStrict},
+		{name: "quick needs no confirmation",
+			from: VerificationModeAutoAccept, to: VerificationModeQuick,
+			wantMode: VerificationModeQuick},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, cleanup := newTestAppWithStorage(t)
+			defer cleanup()
+			app.verifMode = tc.from
+			var asked []string
+			app.confirmFn = func(title, message string) bool {
+				asked = append(asked, message)
+				return tc.answer
+			}
+
+			changed := app.SetVerificationMode(int(tc.to))
+
+			a.Equal(tc.wantMode != tc.from, changed)
+			a.Equal(int(tc.wantMode), app.GetVerificationMode())
+			if !tc.wantAsk {
+				a.Empty(asked)
+				return
+			}
+			a.Len(asked, 1)
+			a.Contains(asked[0], "without asking you to compare fingerprints")
+		})
+	}
+}

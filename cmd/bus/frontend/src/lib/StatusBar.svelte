@@ -19,6 +19,7 @@
   } = $props();
 
   const modeLabels = ['Strict', 'Quick', 'Auto-Accept'];
+  const AUTO_ACCEPT = 2;
 
   let isDark = $state(document.documentElement.classList.contains('dark'));
 
@@ -51,9 +52,18 @@
     </span>
   </div>
   <div class="status-right">
-    <span class="mode-badge" title="Verification mode — change from Connection menu">
-      {modeLabels[$verificationMode] || 'Unknown'}
-    </span>
+    {#if $verificationMode === AUTO_ACCEPT}
+      <span
+        class="mode-badge auto-accept-badge"
+        title="Auto-Accept: every peer is admitted without fingerprint verification — change from Connection menu"
+      >
+        Auto-Accept: not verifying peers
+      </span>
+    {:else}
+      <span class="mode-badge" title="Verification mode — change from Connection menu">
+        {modeLabels[$verificationMode] || 'Unknown'}
+      </span>
+    {/if}
     {#if $incognito}
       <span class="mode-badge incognito-badge" title="Incognito mode — new messages not saved">
         Incognito
@@ -176,6 +186,10 @@
   }
   .lib-part {
     opacity: 0.7;
+  }
+  .mode-badge.auto-accept-badge {
+    color: var(--danger);
+    background: var(--danger-dim);
   }
   .mode-badge {
     display: inline-flex;

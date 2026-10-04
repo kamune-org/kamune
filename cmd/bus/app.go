@@ -342,6 +342,8 @@ type App struct {
 	// onEvent, when set, receives every event the app emits, so tests can
 	// observe events without a Wails runtime.
 	onEvent func(name string, data ...any)
+	// confirmFn, when set, answers confirm in place of a native dialog.
+	confirmFn func(title, message string) bool
 }
 
 func NewApp() *App {
@@ -542,6 +544,9 @@ func (a *App) lifeCtx() context.Context {
 func (a *App) confirm(
 	title, message, action, cancel string,
 ) bool {
+	if a.confirmFn != nil {
+		return a.confirmFn(title, message)
+	}
 	if a.wails == nil {
 		return false
 	}
@@ -860,6 +865,18 @@ func (a *App) GetVerificationMode() int {
 	return int(a.verifMode)
 }
 
+// autoAcceptWarning is the confirmation text shown before Auto-Accept is
+// turned on.
+const autoAcceptWarning = "Auto-Accept admits every peer that connects " +
+	"without asking you to compare fingerprints, so anyone who can reach " +
+	"you gets a session. Outside incognito mode each new peer is also " +
+	"saved as a known peer, under a name derived from its key, and Quick " +
+	"mode later admits saved peers without asking.\n\n" +
+	"Use it only for testing, on a network you trust."
+
+// SetVerificationMode switches the verification mode new connections use
+// and reports whether it changed. Switching to Auto-Accept always asks
+// for confirmation, and a running server asks before it restarts.
 func (a *App) SetVerificationMode(mode int) bool {
 	if !VerificationMode(mode).valid() {
 		a.addLogEntry("WARN",
@@ -875,15 +892,29 @@ func (a *App) SetVerificationMode(mode int) bool {
 	serverRunning := a.server != nil
 	a.mu.RUnlock()
 
-	if serverRunning {
+	const restartNote = "The verification mode change only applies to " +
+		"new client connections. To apply it to incoming server " +
+		"connections as well, the server must restart. This will " +
+		"disconnect all active sessions."
+
+	switch {
+	case VerificationMode(mode) == VerificationModeAutoAccept:
+		// Turning verification off must never happen by accident, for
+		// example through the menu shortcut, so it always asks.
+		msg := autoAcceptWarning
+		if serverRunning {
+			msg += "\n\n" + restartNote
+		}
 		if !a.confirm(
-			"Restart Server?",
-			"The verification mode change only applies to new "+
-				"client connections. To apply it to incoming server "+
-				"connections as well, the server must restart. This "+
-				"will disconnect all active sessions.",
-			"Restart Server",
-			"Cancel",
+			"Turn Off Peer Verification?", msg, "Use Auto-Accept", "Cancel",
+		) {
+			a.addLogEntry("INFO", "Kept verification mode: "+
+				verifModeName(a.currentVerifMode()))
+			return false
+		}
+	case serverRunning:
+		if !a.confirm(
+			"Restart Server?", restartNote, "Restart Server", "Cancel",
 		) {
 			return false
 		}
