@@ -1,6 +1,6 @@
-import {defineConfig} from 'vite'
-import {svelte} from '@sveltejs/vite-plugin-svelte'
-import wails from '@wailsio/runtime/plugins/vite'
+import { defineConfig } from 'vite';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
+import wails from '@wailsio/runtime/plugins/vite';
 
 export default defineConfig({
   server: {
@@ -9,4 +9,4 @@ export default defineConfig({
     strictPort: true,
   },
   plugins: [svelte(), wails('./bindings')],
-})
+});

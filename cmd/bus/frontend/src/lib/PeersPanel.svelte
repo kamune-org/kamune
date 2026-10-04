@@ -1,31 +1,38 @@
 <script>
-  import { peers } from './stores'
-  import { dialogs } from './stores'
+  import { peers } from './stores';
+  import { dialogs } from './stores';
 
   function timeAgo(t) {
-    if (!t) return ''
-    const diff = Date.now() - new Date(t).getTime()
-    const seconds = Math.floor(diff / 1000)
-    if (seconds < 60) return 'just now'
-    const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return `${minutes}m ago`
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    if (days < 30) return `${days}d ago`
-    return new Date(t).toLocaleDateString()
+    if (!t) return '';
+    const diff = Date.now() - new Date(t).getTime();
+    const seconds = Math.floor(diff / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(t).toLocaleDateString();
   }
 
   function handleSelect(publicKeyB64) {
-    dialogs.update((d) => ({ ...d, peerInfoFor: publicKeyB64 }))
+    dialogs.update((d) => ({ ...d, peerInfoFor: publicKeyB64 }));
   }
 </script>
 
 <div class="peers-panel">
   <div class="peers-actions">
-    <button class="action-btn action-primary" onclick={() => dialogs.update((d) => ({ ...d, showAddPeer: true }))}>
+    <button
+      class="action-btn action-primary"
+      onclick={() => dialogs.update((d) => ({ ...d, showAddPeer: true }))}
+    >
       <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+        <path
+          fill-rule="evenodd"
+          d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+          clip-rule="evenodd"
+        />
       </svg>
       Add Peer
     </button>
@@ -35,8 +42,17 @@
     {#if $peers.length === 0}
       <div class="empty-state">
         <div class="empty-icon-wrap">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="32" height="32" stroke-width="1.5">
-            <path d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-2.13a4 4 0 100-7.75 4 4 0 000 7.75zm6 0a4 4 0 100-7.75 4 4 0 000 7.75z" />
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            width="32"
+            height="32"
+            stroke-width="1.5"
+          >
+            <path
+              d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-2.13a4 4 0 100-7.75 4 4 0 000 7.75zm6 0a4 4 0 100-7.75 4 4 0 000 7.75z"
+            />
           </svg>
         </div>
         <p class="empty-title">No known peers</p>
@@ -51,14 +67,18 @@
           onclick={() => handleSelect(peer.publicKeyBase64)}
           onkeydown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              handleSelect(peer.publicKeyBase64)
+              e.preventDefault();
+              handleSelect(peer.publicKeyBase64);
             }
           }}
         >
           <div class="peer-avatar">
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-              <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
+                clip-rule="evenodd"
+              />
             </svg>
           </div>
           <div class="peer-info">

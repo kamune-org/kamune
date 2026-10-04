@@ -1,9 +1,7 @@
 <script>
-  import {
-    GenerateP2PToken, RemoveP2PToken, CopyToClipboard,
-  } from './go.js'
-  import { p2pTokens, peers, toast } from './stores'
-  import PeerSelect from './PeerSelect.svelte'
+  import { GenerateP2PToken, RemoveP2PToken, CopyToClipboard } from './go.js';
+  import { p2pTokens, peers, toast } from './stores';
+  import PeerSelect from './PeerSelect.svelte';
 
   /**
    * @typedef {Object} Props
@@ -13,86 +11,103 @@
 
   /** @type {Props} */
   let { brokerAddr = $bindable(''), locked = false } = $props();
-  let expanded = $state(true)
-  let generating = $state(false)
-  let mode = $state('random') // 'random' or 'static'
-  let selectedPeer = $state('')
+  let expanded = $state(true);
+  let generating = $state(false);
+  let mode = $state('random'); // 'random' or 'static'
+  let selectedPeer = $state('');
 
   async function handleGenerate() {
-    if (generating) return
-    const trimmed = brokerAddr.trim()
+    if (generating) return;
+    const trimmed = brokerAddr.trim();
     if (!trimmed) {
-      toast.set({ message: 'Broker address is required', type: 'error' })
-      setTimeout(() => toast.set(null), 3000)
-      return
+      toast.set({ message: 'Broker address is required', type: 'error' });
+      setTimeout(() => toast.set(null), 3000);
+      return;
     }
     if (mode === 'static' && !selectedPeer) {
-      toast.set({ message: 'Select a peer for static token', type: 'error' })
-      setTimeout(() => toast.set(null), 3000)
-      return
+      toast.set({ message: 'Select a peer for static token', type: 'error' });
+      setTimeout(() => toast.set(null), 3000);
+      return;
     }
-    const peerArg = mode === 'static' ? selectedPeer : ''
-    generating = true
+    const peerArg = mode === 'static' ? selectedPeer : '';
+    generating = true;
     try {
-      const token = await GenerateP2PToken(trimmed, peerArg)
+      const token = await GenerateP2PToken(trimmed, peerArg);
       if (token) {
-        toast.set({ message: `Token: ${token}`, token, type: 'token' })
-        setTimeout(() => toast.set(null), 4000)
+        toast.set({ message: `Token: ${token}`, token, type: 'token' });
+        setTimeout(() => toast.set(null), 4000);
       }
     } catch (e) {
-      toast.set({ message: String(e), type: 'error' })
-      setTimeout(() => toast.set(null), 3000)
+      toast.set({ message: String(e), type: 'error' });
+      setTimeout(() => toast.set(null), 3000);
     } finally {
-      generating = false
+      generating = false;
     }
   }
 
   async function handleRemove(token) {
     try {
-      await RemoveP2PToken(token)
+      await RemoveP2PToken(token);
     } catch (e) {
-      console.error('Remove p2p token failed:', e)
+      console.error('Remove p2p token failed:', e);
     }
   }
 
   function handleCopyToken(token) {
     CopyToClipboard(token)
       .then(() => {
-        toast.set({ message: 'Copied to clipboard', type: 'info' })
-        setTimeout(() => toast.set(null), 1500)
+        toast.set({ message: 'Copied to clipboard', type: 'info' });
+        setTimeout(() => toast.set(null), 1500);
       })
-      .catch((e) => console.error('Copy failed:', e))
+      .catch((e) => console.error('Copy failed:', e));
   }
 
   function peerNameFor(pubB64) {
-    if (!pubB64) return ''
-    const p = $peers.find((p) => p.publicKeyBase64 === pubB64)
-    return p ? (p.name || p.fingerprintEmoji || pubB64.slice(0, 8)) : pubB64.slice(0, 8)
+    if (!pubB64) return '';
+    const p = $peers.find((p) => p.publicKeyBase64 === pubB64);
+    return p ? p.name || p.fingerprintEmoji || pubB64.slice(0, 8) : pubB64.slice(0, 8);
   }
 
   function truncateToken(t) {
-    if (!t) return ''
-    if (t.length <= 16) return t
-    return t.slice(0, 8) + '…'
+    if (!t) return '';
+    if (t.length <= 16) return t;
+    return t.slice(0, 8) + '…';
   }
 
   function formatExpiry(token) {
-    if (!token.expiresAt) return ''
-    const ms = new Date(token.expiresAt).getTime() - Date.now()
-    if (ms <= 0) return 'expired'
-    const s = Math.floor(ms / 1000)
-    if (s < 60) return `${s}s`
-    const m = Math.floor(s / 60)
-    return `${m}m ${s % 60}s`
+    if (!token.expiresAt) return '';
+    const ms = new Date(token.expiresAt).getTime() - Date.now();
+    if (ms <= 0) return 'expired';
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    return `${m}m ${s % 60}s`;
   }
 </script>
 
 <div class="signaling-tokens-section">
-  <div class="st-header" onclick={() => expanded = !expanded}
-       onkeydown={(e) => { if (e.key === 'Enter') expanded = !expanded }}
-       role="button" tabindex="0">
-    <svg class="st-chevron" class:collapsed={!expanded} viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
-      <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+  <div
+    class="st-header"
+    onclick={() => (expanded = !expanded)}
+    onkeydown={(e) => {
+      if (e.key === 'Enter') expanded = !expanded;
+    }}
+    role="button"
+    tabindex="0"
+  >
+    <svg
+      class="st-chevron"
+      class:collapsed={!expanded}
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      width="10"
+      height="10"
+    >
+      <path
+        fill-rule="evenodd"
+        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+        clip-rule="evenodd"
+      />
     </svg>
     <span class="st-header-label">Signaling Tokens</span>
     <span class="st-count">{$p2pTokens.length}</span>
@@ -108,7 +123,9 @@
             placeholder="broker host:port"
             bind:value={brokerAddr}
             disabled={locked}
-            onkeydown={(e) => { if (e.key === 'Enter') handleGenerate() }}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') handleGenerate();
+            }}
           />
         </div>
 
@@ -116,13 +133,18 @@
           <button
             class="st-mode-btn"
             class:active={mode === 'random'}
-            onclick={() => { mode = 'random'; selectedPeer = '' }}
-          >random</button>
+            onclick={() => {
+              mode = 'random';
+              selectedPeer = '';
+            }}>random</button
+          >
           <button
             class="st-mode-btn"
             class:active={mode === 'static'}
-            onclick={() => { mode = 'static' }}
-          >static</button>
+            onclick={() => {
+              mode = 'static';
+            }}>static</button
+          >
         </div>
       {/if}
 
@@ -138,12 +160,18 @@
         <button
           class="st-gen-btn"
           onclick={handleGenerate}
-          disabled={generating || (!locked && mode === 'static' && !selectedPeer) || (locked && !selectedPeer)}
+          disabled={generating ||
+            (!locked && mode === 'static' && !selectedPeer) ||
+            (locked && !selectedPeer)}
         >
           <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+            <path
+              fill-rule="evenodd"
+              d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+              clip-rule="evenodd"
+            />
           </svg>
-          Generate {locked ? 'peer' : (mode === 'static' ? 'static' : 'random')} token
+          Generate {locked ? 'peer' : mode === 'static' ? 'static' : 'random'} token
         </button>
       {/if}
 
@@ -156,10 +184,16 @@
             <div class="st-item" class:consumed={pt.consumed}>
               <span class="st-dot" class:filled={pt.consumed}></span>
               <div class="st-item-main">
-                <span class="st-item-token" role="button" tabindex="0"
-                      title={pt.token}
-                      onclick={() => handleCopyToken(pt.token)}
-                      onkeydown={(e) => { if (e.key === 'Enter') handleCopyToken(pt.token) }}>
+                <span
+                  class="st-item-token"
+                  role="button"
+                  tabindex="0"
+                  title={pt.token}
+                  onclick={() => handleCopyToken(pt.token)}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter') handleCopyToken(pt.token);
+                  }}
+                >
                   {truncateToken(pt.token)}
                 </span>
                 <span class="st-item-meta">
@@ -175,12 +209,19 @@
                 <span class="st-expiry" class:expired={expiry === 'expired'}>{expiry}</span>
               {/if}
               <button
-                  class="st-rm-btn"
-                  title="Remove token"
-                  onclick={(e) => { e.stopPropagation(); handleRemove(pt.token) }}
-                >
+                class="st-rm-btn"
+                title="Remove token"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  handleRemove(pt.token);
+                }}
+              >
                 <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-                  <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                  <path
+                    fill-rule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                    clip-rule="evenodd"
+                  />
                 </svg>
               </button>
             </div>

@@ -1,48 +1,46 @@
 <script>
-  import { logEntries, filteredLogEntries, logLevel, toast } from './stores'
-  import {
-    ClearLogs,
-    ExportLogsToFile,
-    SetLogLevel,
-  } from './go.js'
+  import { logEntries, filteredLogEntries, logLevel, toast } from './stores';
+  import { ClearLogs, ExportLogsToFile, SetLogLevel } from './go.js';
 
-  let autoScroll = $state(true)
-  let listEl = $state()
+  let autoScroll = $state(true);
+  let listEl = $state();
 
-  const levels = ['DEBUG', 'INFO', 'WARN', 'ERROR']
+  const levels = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
 
   $effect(() => {
-    $filteredLogEntries.length
+    $filteredLogEntries.length;
     if (autoScroll && listEl) {
-      listEl.scrollTop = listEl.scrollHeight
+      listEl.scrollTop = listEl.scrollHeight;
     }
-  })
+  });
 
   function levelColor(level) {
-    return {
-      INFO: 'var(--log-info)',
-      WARN: 'var(--log-warn)',
-      ERROR: 'var(--log-error)',
-      DEBUG: 'var(--log-debug)',
-    }[level] || 'var(--log-debug)'
+    return (
+      {
+        INFO: 'var(--log-info)',
+        WARN: 'var(--log-warn)',
+        ERROR: 'var(--log-error)',
+        DEBUG: 'var(--log-debug)',
+      }[level] || 'var(--log-debug)'
+    );
   }
 
   async function setLevel(level) {
-    logLevel.set(level)
-    await SetLogLevel(level)
+    logLevel.set(level);
+    await SetLogLevel(level);
   }
 
   async function clearLogs() {
-    await ClearLogs()
-    logEntries.set([])
+    await ClearLogs();
+    logEntries.set([]);
   }
 
   async function exportLogs() {
     try {
-      await ExportLogsToFile()
+      await ExportLogsToFile();
     } catch (e) {
-      toast.set({ message: String(e), type: 'error' })
-      setTimeout(() => toast.set(null), 3000)
+      toast.set({ message: String(e), type: 'error' });
+      setTimeout(() => toast.set(null), 3000);
     }
   }
 </script>
@@ -51,7 +49,11 @@
   <div class="log-header">
     <div class="log-header-left">
       <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-        <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd" />
+        <path
+          fill-rule="evenodd"
+          d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
+          clip-rule="evenodd"
+        />
       </svg>
       <span>Logs</span>
       <span class="log-count">{$logEntries.length}</span>
@@ -63,8 +65,8 @@
             class="log-level-btn"
             class:active={$logLevel === lvl}
             style="color: {levelColor(lvl)}"
-            onclick={() => setLevel(lvl)}
-          >{lvl}</button>
+            onclick={() => setLevel(lvl)}>{lvl}</button
+          >
         {/each}
       </div>
       <label class="auto-scroll">
@@ -73,14 +75,20 @@
       </label>
       <button class="log-btn" onclick={clearLogs}>
         <svg viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
-          <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+          <path
+            fill-rule="evenodd"
+            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+            clip-rule="evenodd"
+          />
         </svg>
         Clear
       </button>
       <button class="log-btn" onclick={exportLogs}>
         <svg viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
-          <path d="M10 1a1 1 0 011 1v9.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V2a1 1 0 011-1z"/>
-          <path d="M2 17a1 1 0 011 1h14a1 1 0 011-1H2z" opacity=".5"/>
+          <path
+            d="M10 1a1 1 0 011 1v9.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V2a1 1 0 011-1z"
+          />
+          <path d="M2 17a1 1 0 011 1h14a1 1 0 011-1H2z" opacity=".5" />
         </svg>
         Export
       </button>
@@ -90,7 +98,11 @@
     {#each $filteredLogEntries as entry, i}
       <div class="log-entry">
         <span class="log-time">
-          {new Date(entry.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+          {new Date(entry.timestamp).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })}
         </span>
         <span class="log-level" style="color:{levelColor(entry.level)}">
           {entry.level}

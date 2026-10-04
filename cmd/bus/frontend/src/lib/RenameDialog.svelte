@@ -1,7 +1,5 @@
 <script>
-  import {
-    RenameSession, RenameHistorySession,
-  } from './go.js'
+  import { RenameSession, RenameHistorySession } from './go.js';
 
   /**
    * @typedef {Object} Props
@@ -14,19 +12,19 @@
   /** @type {Props} */
   let { sessionId = '', isHistory = false, onRenamed, onClose } = $props();
 
-  let name = $state('')
+  let name = $state('');
 
   async function handleRename() {
-    if (!name.trim()) return
+    if (!name.trim()) return;
     try {
       if (isHistory) {
-        await RenameHistorySession(sessionId, name.trim())
+        await RenameHistorySession(sessionId, name.trim());
       } else {
-        await RenameSession(sessionId, name.trim())
+        await RenameSession(sessionId, name.trim());
       }
-      onRenamed?.()
+      onRenamed?.();
     } catch (e) {
-      console.error('Rename error:', e)
+      console.error('Rename error:', e);
     }
   }
 </script>
@@ -36,7 +34,9 @@
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
-          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+          <path
+            d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
+          />
         </svg>
       </div>
       <h3>Rename Session</h3>
@@ -48,7 +48,9 @@
         bind:value={name}
         placeholder="Enter new name..."
         class="dialog-input"
-        onkeydown={(e) => { if (e.key === 'Enter') handleRename() }}
+        onkeydown={(e) => {
+          if (e.key === 'Enter') handleRename();
+        }}
       />
     </div>
     <div class="dialog-actions">

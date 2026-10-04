@@ -1,13 +1,13 @@
 <script lang="ts">
   let { text = '' }: { text?: string } = $props();
   let btnEl = $state<HTMLElement>();
-  let tipStyle = $state('')
+  let tipStyle = $state('');
 
   function show() {
-    if (!btnEl) return
-    const r = btnEl.getBoundingClientRect()
-    const top = r.top - 8
-    tipStyle = `position:fixed; bottom:auto; top:${top}px; left:${r.left + r.width / 2}px; transform:translate(-50%,-100%);`
+    if (!btnEl) return;
+    const r = btnEl.getBoundingClientRect();
+    const top = r.top - 8;
+    tipStyle = `position:fixed; bottom:auto; top:${top}px; left:${r.left + r.width / 2}px; transform:translate(-50%,-100%);`;
   }
 </script>
 

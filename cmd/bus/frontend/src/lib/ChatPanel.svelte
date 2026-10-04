@@ -1,112 +1,144 @@
 <script>
   import {
-    sessions, historySessions, activeSessionId, sessionMessages, sidebarTab, showWelcome,
+    sessions,
+    historySessions,
+    activeSessionId,
+    sessionMessages,
+    sidebarTab,
+    showWelcome,
     versionWarnings,
-  } from './stores'
-  import { CopyToClipboard, RenameSession, RenameHistorySession } from './go.js'
-  import { K } from './keyboard'
-  import { welcomeTips } from './hints'
+  } from './stores';
+  import { CopyToClipboard, RenameSession, RenameHistorySession } from './go.js';
+  import { K } from './keyboard';
+  import { welcomeTips } from './hints';
 
-  let { onSendMessage, onDisconnect, onSelectHistory, onShowInfo, onDeleteHistory, onClosePanel, onRenamed } = $props()
+  let {
+    onSendMessage,
+    onDisconnect,
+    onSelectHistory,
+    onShowInfo,
+    onDeleteHistory,
+    onClosePanel,
+    onRenamed,
+  } = $props();
 
-  const randomTip = welcomeTips[Math.floor(Math.random() * welcomeTips.length)]
+  const randomTip = welcomeTips[Math.floor(Math.random() * welcomeTips.length)];
 
-  let messageText = $state('')
-  let messagesEl = $state()
-  let copiedId = $state(null)
-  let editingName = $state(false)
-  let editName = $state('')
+  let messageText = $state('');
+  let messagesEl = $state();
+  let copiedId = $state(null);
+  let editingName = $state(false);
+  let editName = $state('');
 
   let activeSession = $derived(
-    $sessions.find(s => s.id === $activeSessionId) || $historySessions.find(s => s.id === $activeSessionId) || null
-  )
-  let isHistory = $derived($sidebarTab === 'history')
-  let activeMsgs = $derived($activeSessionId ? ($sessionMessages[$activeSessionId] || []) : [])
+    $sessions.find((s) => s.id === $activeSessionId) ||
+      $historySessions.find((s) => s.id === $activeSessionId) ||
+      null
+  );
+  let isHistory = $derived($sidebarTab === 'history');
+  let activeMsgs = $derived($activeSessionId ? $sessionMessages[$activeSessionId] || [] : []);
 
-  let countdownNow = $state(Date.now())
-  let countdownTimer
+  let countdownNow = $state(Date.now());
+  let countdownTimer;
 
   $effect(() => {
-    const shouldCount = $activeSessionId && !isHistory && activeSession?.sessionTTL && activeSession?.sessionStartedAt
+    const shouldCount =
+      $activeSessionId &&
+      !isHistory &&
+      activeSession?.sessionTTL &&
+      activeSession?.sessionStartedAt;
     if (shouldCount) {
-      countdownNow = Date.now()
-      countdownTimer = setInterval(() => { countdownNow = Date.now() }, 1000)
-      return () => clearInterval(countdownTimer)
+      countdownNow = Date.now();
+      countdownTimer = setInterval(() => {
+        countdownNow = Date.now();
+      }, 1000);
+      return () => clearInterval(countdownTimer);
     }
     if (countdownTimer) {
-      clearInterval(countdownTimer)
-      countdownTimer = null
+      clearInterval(countdownTimer);
+      countdownTimer = null;
     }
-  })
+  });
 
   let remainingMs = $derived(
-    (activeSession?.sessionTTL && activeSession?.sessionStartedAt)
-      ? (new Date(activeSession.sessionStartedAt).getTime() + activeSession.sessionTTL / 1000000 - countdownNow)
+    activeSession?.sessionTTL && activeSession?.sessionStartedAt
+      ? new Date(activeSession.sessionStartedAt).getTime() +
+          activeSession.sessionTTL / 1000000 -
+          countdownNow
       : 0
-  )
+  );
 
-  let countdownLabel = $derived(remainingMs > 0
-    ? (() => { const s = Math.ceil(remainingMs / 1000); const m = Math.floor(s / 60); return m > 0 ? `${m}m ${s % 60}s` : `${s}s` })()
-    : 'expired')
+  let countdownLabel = $derived(
+    remainingMs > 0
+      ? (() => {
+          const s = Math.ceil(remainingMs / 1000);
+          const m = Math.floor(s / 60);
+          return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+        })()
+      : 'expired'
+  );
 
   $effect(() => {
-    $activeSessionId
-    $showWelcome
-    activeMsgs.length
+    $activeSessionId;
+    $showWelcome;
+    activeMsgs.length;
     if (messagesEl) {
-      messagesEl.scrollTop = messagesEl.scrollHeight
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     }
-  })
+  });
 
   function startEdit() {
-    editName = activeSession?.peerName || activeSession?.name || $activeSessionId?.slice(0, 16) || ''
-    editingName = true
+    editName =
+      activeSession?.peerName || activeSession?.name || $activeSessionId?.slice(0, 16) || '';
+    editingName = true;
   }
 
   function selectOnMount(node) {
-    node.select()
+    node.select();
   }
 
   async function saveName() {
-    const trimmed = editName.trim()
+    const trimmed = editName.trim();
     if (trimmed && activeSession) {
       try {
         if (isHistory) {
-          await RenameHistorySession($activeSessionId, trimmed)
+          await RenameHistorySession($activeSessionId, trimmed);
         } else {
-          await RenameSession($activeSessionId, trimmed)
+          await RenameSession($activeSessionId, trimmed);
         }
-        onRenamed?.()
+        onRenamed?.();
       } catch (e) {
-        console.error('Rename error:', e)
+        console.error('Rename error:', e);
       }
     }
-    editingName = false
+    editingName = false;
   }
 
   function cancelEdit() {
-    editingName = false
+    editingName = false;
   }
 
   function handleSend() {
-    const text = messageText.trim()
-    if (!text || !$activeSessionId) return
-    onSendMessage?.({ sessionId: $activeSessionId, text })
-    messageText = ''
+    const text = messageText.trim();
+    if (!text || !$activeSessionId) return;
+    onSendMessage?.({ sessionId: $activeSessionId, text });
+    messageText = '';
   }
 
   async function handleCopy(text, index) {
     try {
-      await CopyToClipboard(text)
-      copiedId = index
-      setTimeout(() => { copiedId = null }, 1500)
+      await CopyToClipboard(text);
+      copiedId = index;
+      setTimeout(() => {
+        copiedId = null;
+      }, 1500);
     } catch (e) {
-      console.error('Copy failed:', e)
+      console.error('Copy failed:', e);
     }
   }
 
   function formatTime(ts) {
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 </script>
 
@@ -117,11 +149,19 @@
         <div class="info-avatar" class:history={isHistory}>
           {#if isHistory}
             <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+                clip-rule="evenodd"
+              />
             </svg>
           {:else}
             <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-              <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
+                clip-rule="evenodd"
+              />
             </svg>
           {/if}
         </div>
@@ -133,10 +173,23 @@
               bind:value={editName}
               use:selectOnMount
               onblur={saveName}
-              onkeydown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') cancelEdit() }}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') saveName();
+                if (e.key === 'Escape') cancelEdit();
+              }}
             />
           {:else}
-            <div class="info-name" role="button" tabindex="0" onclick={startEdit} onkeydown={(e) => { if (e.key === 'Enter') startEdit() }}>{activeSession?.peerName || activeSession?.name || $activeSessionId?.slice(0, 16)}</div>
+            <div
+              class="info-name"
+              role="button"
+              tabindex="0"
+              onclick={startEdit}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') startEdit();
+              }}
+            >
+              {activeSession?.peerName || activeSession?.name || $activeSessionId?.slice(0, 16)}
+            </div>
           {/if}
           <div class="info-sub">
             <span class="badge-type" class:live={!isHistory} class:history={isHistory}>
@@ -159,28 +212,60 @@
         </div>
       </div>
       <div class="info-actions">
-        <button class="info-btn" title="Session Info" onclick={() => onShowInfo?.($activeSessionId)}>
+        <button
+          class="info-btn"
+          title="Session Info"
+          onclick={() => onShowInfo?.($activeSessionId)}
+        >
           <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+            <path
+              fill-rule="evenodd"
+              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+              clip-rule="evenodd"
+            />
           </svg>
         </button>
         {#if isHistory}
-          <button class="info-btn info-btn-danger" title="Delete" onclick={() => onDeleteHistory?.($activeSessionId)}>
+          <button
+            class="info-btn info-btn-danger"
+            title="Delete"
+            onclick={() => onDeleteHistory?.($activeSessionId)}
+          >
             <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-              <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                clip-rule="evenodd"
+              />
             </svg>
           </button>
         {:else}
-          <button class="info-btn info-btn-danger" title="Disconnect" onclick={() => onDisconnect?.($activeSessionId)}>
+          <button
+            class="info-btn info-btn-danger"
+            title="Disconnect"
+            onclick={() => onDisconnect?.($activeSessionId)}
+          >
             <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-              <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v6a1 1 0 11-2 0V3a1 1 0 011-1z" clip-rule="evenodd" />
-              <path fill-rule="evenodd" d="M4.903 4.903a1 1 0 01.085 1.413A6 6 0 1015.012 6.32a1 1 0 111.328-1.498 8 8 0 11-13.35 5.178 8 8 0 012.412-5.912 1 1 0 011.413-.085z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M10 2a1 1 0 011 1v6a1 1 0 11-2 0V3a1 1 0 011-1z"
+                clip-rule="evenodd"
+              />
+              <path
+                fill-rule="evenodd"
+                d="M4.903 4.903a1 1 0 01.085 1.413A6 6 0 1015.012 6.32a1 1 0 111.328-1.498 8 8 0 11-13.35 5.178 8 8 0 012.412-5.912 1 1 0 011.413-.085z"
+                clip-rule="evenodd"
+              />
             </svg>
           </button>
         {/if}
         <button class="info-btn" title="Close" onclick={() => onClosePanel?.()}>
           <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+            <path
+              fill-rule="evenodd"
+              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+              clip-rule="evenodd"
+            />
           </svg>
         </button>
       </div>
@@ -190,23 +275,48 @@
   {#if $activeSessionId && $versionWarnings[$activeSessionId]}
     <div class="version-warning">
       <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+        <path
+          fill-rule="evenodd"
+          d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+          clip-rule="evenodd"
+        />
       </svg>
       <span>{$versionWarnings[$activeSessionId]}</span>
-      <button class="warn-dismiss" onclick={() => versionWarnings.update(w => { const n = { ...w }; delete n[$activeSessionId]; return n })}>
+      <button
+        class="warn-dismiss"
+        onclick={() =>
+          versionWarnings.update((w) => {
+            const n = { ...w };
+            delete n[$activeSessionId];
+            return n;
+          })}
+      >
         <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-          <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+          <path
+            fill-rule="evenodd"
+            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+            clip-rule="evenodd"
+          />
         </svg>
       </button>
     </div>
   {/if}
 
   <div class="messages" bind:this={messagesEl}>
-    {#if (!$activeSessionId) || ($showWelcome && !isHistory)}
+    {#if !$activeSessionId || ($showWelcome && !isHistory)}
       <div class="welcome">
         <div class="welcome-icon-wrap">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="48" height="48" stroke-width="1.2">
-            <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            width="48"
+            height="48"
+            stroke-width="1.2"
+          >
+            <path
+              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+            />
           </svg>
         </div>
         <h2 class="welcome-title">Bus — Kamune Chat</h2>
@@ -226,8 +336,16 @@
           </span>
         </div>
         <div class="welcome-tip">
-          <svg class="welcome-tip-icon" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-            <path d="M11 3a1 1 0 10-2 0v1a2 2 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a2 2 0 110-4h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM4 11a1 1 0 100-2H3a2 2 0 100 4h1a1 1 0 00-1-1zM10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 110-12 6 6 0 010 12z" />
+          <svg
+            class="welcome-tip-icon"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            width="14"
+            height="14"
+          >
+            <path
+              d="M11 3a1 1 0 10-2 0v1a2 2 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a2 2 0 110-4h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM4 11a1 1 0 100-2H3a2 2 0 100 4h1a1 1 0 00-1-1zM10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 110-12 6 6 0 010 12z"
+            />
           </svg>
           {#if randomTip.key}
             <span>{randomTip.text} <kbd>{K(randomTip.key)}</kbd></span>
@@ -239,8 +357,17 @@
     {:else if activeMsgs.length === 0}
       <div class="empty-msgs">
         <div class="empty-msgs-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="32" height="32" stroke-width="1.5">
-            <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            width="32"
+            height="32"
+            stroke-width="1.5"
+          >
+            <path
+              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+            />
           </svg>
         </div>
         <p>No messages yet</p>
@@ -252,7 +379,12 @@
       </div>
     {:else}
       {#each activeMsgs as msg, i}
-        <div class="msg-row" class:local={msg.isLocal} class:peer={!msg.isLocal} style="animation: slideUp 0.2s ease-out">
+        <div
+          class="msg-row"
+          class:local={msg.isLocal}
+          class:peer={!msg.isLocal}
+          style="animation: slideUp 0.2s ease-out"
+        >
           <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
           <div class="msg-bubble" onclick={() => handleCopy(msg.text, i)}>
             <div class="bubble-header">
@@ -276,15 +408,20 @@
           type="text"
           bind:value={messageText}
           placeholder="Type a message..."
-          onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+          onkeydown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
         />
-        <button
-          class="send-btn"
-          onclick={handleSend}
-          disabled={!messageText.trim()}
-        >
+        <button class="send-btn" onclick={handleSend} disabled={!messageText.trim()}>
           <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
-            <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+            <path
+              fill-rule="evenodd"
+              d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"
+              clip-rule="evenodd"
+            />
           </svg>
         </button>
       </div>

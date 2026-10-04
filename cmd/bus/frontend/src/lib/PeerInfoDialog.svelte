@@ -1,117 +1,117 @@
 <script>
-  import { onMount } from 'svelte'
-  import { get } from 'svelte/store'
-  import {
-    GetPeer, RenamePeer, DeletePeer, CopyToClipboard,
-  } from './go.js'
-  import { dialogs, toast } from './stores'
+  import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
+  import { GetPeer, RenamePeer, DeletePeer, CopyToClipboard } from './go.js';
+  import { dialogs, toast } from './stores';
 
-  let peer = $state(null)
-  let name = $state('')
-  let originalName = $state('')
-  let loading = $state(true)
-  let saving = $state(false)
-  let removing = $state(false)
-  let confirmingRemove = $state(false)
-  let error = $state('')
-  let copiedField = $state(null)
-  let copyResetTimer = null
+  let peer = $state(null);
+  let name = $state('');
+  let originalName = $state('');
+  let loading = $state(true);
+  let saving = $state(false);
+  let removing = $state(false);
+  let confirmingRemove = $state(false);
+  let error = $state('');
+  let copiedField = $state(null);
+  let copyResetTimer = null;
 
   function close() {
-    dialogs.update((d) => ({ ...d, peerInfoFor: null }))
+    dialogs.update((d) => ({ ...d, peerInfoFor: null }));
   }
 
   function startConfirmRemove() {
-    if (!peer || removing) return
-    confirmingRemove = true
-    error = ''
+    if (!peer || removing) return;
+    confirmingRemove = true;
+    error = '';
   }
 
   function cancelConfirmRemove() {
-    if (removing) return
-    confirmingRemove = false
+    if (removing) return;
+    confirmingRemove = false;
   }
 
   async function performRemove() {
-    if (!peer || removing) return
-    removing = true
-    error = ''
+    if (!peer || removing) return;
+    removing = true;
+    error = '';
     try {
-      await DeletePeer(peer.publicKeyBase64)
-      toast.set({ message: 'Peer removed', type: 'info' })
-      setTimeout(() => toast.set(null), 2000)
-      close()
+      await DeletePeer(peer.publicKeyBase64);
+      toast.set({ message: 'Peer removed', type: 'info' });
+      setTimeout(() => toast.set(null), 2000);
+      close();
     } catch (e) {
-      error = String(e)
-      removing = false
-      confirmingRemove = false
+      error = String(e);
+      removing = false;
+      confirmingRemove = false;
     }
   }
 
   function handleSave() {
-    if (!peer || saving) return
-    const trimmed = name.trim()
+    if (!peer || saving) return;
+    const trimmed = name.trim();
     if (trimmed === originalName) {
-      close()
-      return
+      close();
+      return;
     }
     if (!trimmed) {
-      error = 'Name is required'
-      return
+      error = 'Name is required';
+      return;
     }
-    saving = true
-    error = ''
+    saving = true;
+    error = '';
     RenamePeer(peer.publicKeyBase64, trimmed)
       .then(() => {
-        toast.set({ message: 'Peer renamed', type: 'info' })
-        setTimeout(() => toast.set(null), 2000)
-        close()
+        toast.set({ message: 'Peer renamed', type: 'info' });
+        setTimeout(() => toast.set(null), 2000);
+        close();
       })
       .catch((e) => {
-        error = String(e)
-        saving = false
-      })
+        error = String(e);
+        saving = false;
+      });
   }
 
   function copy(value, field) {
-    if (!value) return
+    if (!value) return;
     CopyToClipboard(value)
       .then(() => {
-        copiedField = field
-        if (copyResetTimer) clearTimeout(copyResetTimer)
-        copyResetTimer = setTimeout(() => { copiedField = null }, 1500)
+        copiedField = field;
+        if (copyResetTimer) clearTimeout(copyResetTimer);
+        copyResetTimer = setTimeout(() => {
+          copiedField = null;
+        }, 1500);
       })
       .catch((e) => {
-        console.error('Copy failed:', e)
-      })
+        console.error('Copy failed:', e);
+      });
   }
 
   function formatDateTime(t) {
-    if (!t) return '—'
-    const d = new Date(t)
-    if (isNaN(d.getTime())) return '—'
-    return d.toLocaleString()
+    if (!t) return '—';
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleString();
   }
 
   onMount(async () => {
-    const publicKeyB64 = get(dialogs).peerInfoFor
+    const publicKeyB64 = get(dialogs).peerInfoFor;
     if (!publicKeyB64) {
-      loading = false
-      return
+      loading = false;
+      return;
     }
     try {
-      const p = await GetPeer(publicKeyB64)
-      peer = p
-      name = p.name
-      originalName = p.name
+      const p = await GetPeer(publicKeyB64);
+      peer = p;
+      name = p.name;
+      originalName = p.name;
     } catch (e) {
-      error = String(e)
+      error = String(e);
     } finally {
-      loading = false
+      loading = false;
     }
-  })
+  });
 
-  let dirty = $derived(peer && name.trim() !== originalName)
+  let dirty = $derived(peer && name.trim() !== originalName);
 </script>
 
 <div class="overlay" onclick={close}>
@@ -119,7 +119,11 @@
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
-          <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+          <path
+            fill-rule="evenodd"
+            d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
+            clip-rule="evenodd"
+          />
         </svg>
       </div>
       <h3>Peer Details</h3>
@@ -138,7 +142,9 @@
           placeholder="Peer name"
           class="dialog-input"
           maxlength="32"
-          onkeydown={(e) => { if (e.key === 'Enter') handleSave() }}
+          onkeydown={(e) => {
+            if (e.key === 'Enter') handleSave();
+          }}
         />
 
         <label class="field-label">Public Key</label>
@@ -178,7 +184,12 @@
       {#if confirmingRemove}
         <span class="confirm-text">Remove <strong>{peer?.name}</strong>?</span>
         <div class="spacer"></div>
-        <button class="dialog-btn dialog-btn-secondary" type="button" onclick={cancelConfirmRemove} disabled={removing}>Cancel</button>
+        <button
+          class="dialog-btn dialog-btn-secondary"
+          type="button"
+          onclick={cancelConfirmRemove}
+          disabled={removing}>Cancel</button
+        >
         <button
           class="dialog-btn dialog-btn-danger dialog-btn-danger-solid"
           type="button"
@@ -197,7 +208,12 @@
           Remove
         </button>
         <div class="spacer"></div>
-        <button class="dialog-btn dialog-btn-secondary" type="button" onclick={close} disabled={saving}>Cancel</button>
+        <button
+          class="dialog-btn dialog-btn-secondary"
+          type="button"
+          onclick={close}
+          disabled={saving}>Cancel</button
+        >
         <button
           class="dialog-btn dialog-btn-primary"
           type="button"

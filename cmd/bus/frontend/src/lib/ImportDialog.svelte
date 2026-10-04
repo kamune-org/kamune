@@ -1,109 +1,109 @@
 <script>
-  import jsQR from 'jsqr'
+  import jsQR from 'jsqr';
 
   let { onImport, onClose } = $props();
 
-  let importURL = $state('')
-  let error = $state('')
-  let scanMode = $state('idle')
-  let videoEl = $state()
-  let canvasEl = $state()
-  let fileInput = $state()
-  let stream = null
-  let animationId = null
+  let importURL = $state('');
+  let error = $state('');
+  let scanMode = $state('idle');
+  let videoEl = $state();
+  let canvasEl = $state();
+  let fileInput = $state();
+  let stream = null;
+  let animationId = null;
 
   function fillConnect(urlStr) {
     try {
-      const url = new URL(urlStr)
-      const transport = url.protocol.slice(0, -1)
-      if (!transport) throw new Error('Unknown transport')
-      stopCamera()
+      const url = new URL(urlStr);
+      const transport = url.protocol.slice(0, -1);
+      if (!transport) throw new Error('Unknown transport');
+      stopCamera();
       onImport?.({
         transport,
         host: url.host,
         scheme: url.searchParams.get('scheme') || '',
         token: url.searchParams.get('token') || '',
         insecure: url.searchParams.get('insecure') === 'true',
-      })
+      });
     } catch {
-      error = 'Invalid connection URL'
+      error = 'Invalid connection URL';
     }
   }
 
   function handlePaste() {
-    error = ''
-    fillConnect(importURL.trim())
+    error = '';
+    fillConnect(importURL.trim());
   }
 
   function handleFileSelect(e) {
-    error = ''
-    const file = e.target.files?.[0]
-    if (!file) return
-    const ctx = canvasEl.getContext('2d')
-    const img = new Image()
+    error = '';
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const ctx = canvasEl.getContext('2d');
+    const img = new Image();
     img.onload = () => {
-      canvasEl.width = img.width
-      canvasEl.height = img.height
-      ctx.drawImage(img, 0, 0)
-      const imageData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height)
-      const code = jsQR(imageData.data, imageData.width, imageData.height)
+      canvasEl.width = img.width;
+      canvasEl.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
       if (code) {
-        fillConnect(code.data)
-        return
+        fillConnect(code.data);
+        return;
       }
-      error = 'No QR code found in image'
-    }
-    img.src = URL.createObjectURL(file)
+      error = 'No QR code found in image';
+    };
+    img.src = URL.createObjectURL(file);
   }
 
   async function startCamera() {
-    error = ''
+    error = '';
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
-      })
-      videoEl.srcObject = stream
-      scanMode = 'camera'
-      scanFrame()
+      });
+      videoEl.srcObject = stream;
+      scanMode = 'camera';
+      scanFrame();
     } catch {
-      error = 'Camera access denied or unavailable'
+      error = 'Camera access denied or unavailable';
     }
   }
 
   function scanFrame() {
-    if (scanMode !== 'camera') return
+    if (scanMode !== 'camera') return;
     if (videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
-      canvasEl.width = videoEl.videoWidth
-      canvasEl.height = videoEl.videoHeight
-      canvasEl.getContext('2d').drawImage(videoEl, 0, 0)
+      canvasEl.width = videoEl.videoWidth;
+      canvasEl.height = videoEl.videoHeight;
+      canvasEl.getContext('2d').drawImage(videoEl, 0, 0);
       const imageData = canvasEl
         .getContext('2d')
-        .getImageData(0, 0, canvasEl.width, canvasEl.height)
-      const code = jsQR(imageData.data, imageData.width, imageData.height)
+        .getImageData(0, 0, canvasEl.width, canvasEl.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
       if (code) {
-        stopCamera()
-        fillConnect(code.data)
-        return
+        stopCamera();
+        fillConnect(code.data);
+        return;
       }
     }
-    animationId = requestAnimationFrame(scanFrame)
+    animationId = requestAnimationFrame(scanFrame);
   }
 
   function stopCamera() {
-    scanMode = 'idle'
+    scanMode = 'idle';
     if (animationId) {
-      cancelAnimationFrame(animationId)
-      animationId = null
+      cancelAnimationFrame(animationId);
+      animationId = null;
     }
     if (stream) {
-      stream.getTracks().forEach((t) => t.stop())
-      stream = null
+      stream.getTracks().forEach((t) => t.stop());
+      stream = null;
     }
   }
 
   function handleClose() {
-    stopCamera()
-    onClose?.()
+    stopCamera();
+    onClose?.();
   }
 </script>
 
@@ -112,7 +112,9 @@
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
-          <path d="M4 4a2 2 0 00-2 2v1h2V6h1V4H4zM16 4h-1v2h1v1h2V6a2 2 0 00-2-2zM4 16H4v-1H2v1a2 2 0 002 2h1v-2H4zM16 16h-1v2h1a2 2 0 002-2v-1h-2v1zM5 7a1 1 0 011-1h8a1 1 0 011 1v6a1 1 0 01-1 1H6a1 1 0 01-1-1V7z" />
+          <path
+            d="M4 4a2 2 0 00-2 2v1h2V6h1V4H4zM16 4h-1v2h1v1h2V6a2 2 0 00-2-2zM4 16H4v-1H2v1a2 2 0 002 2h1v-2H4zM16 16h-1v2h1a2 2 0 002-2v-1h-2v1zM5 7a1 1 0 011-1h8a1 1 0 011 1v6a1 1 0 01-1 1H6a1 1 0 01-1-1V7z"
+          />
         </svg>
       </div>
       <h3>Import URL</h3>
@@ -125,22 +127,14 @@
         <p class="dialog-hint">Point camera at QR code</p>
       </div>
       <div class="dialog-actions">
-        <button
-          class="dialog-btn dialog-btn-secondary"
-          onclick={stopCamera}>Cancel Scan</button
-        >
+        <button class="dialog-btn dialog-btn-secondary" onclick={stopCamera}>Cancel Scan</button>
       </div>
     {:else}
       <div class="dialog-body">
         <div class="import-paste-row">
-          <input
-            bind:value={importURL}
-            placeholder="Paste connection URL…"
-            class="dialog-input"
-          />
-          <button
-            class="dialog-btn dialog-btn-primary import-btn"
-            onclick={handlePaste}>Import</button
+          <input bind:value={importURL} placeholder="Paste connection URL…" class="dialog-input" />
+          <button class="dialog-btn dialog-btn-primary import-btn" onclick={handlePaste}
+            >Import</button
           >
         </div>
 
@@ -154,12 +148,7 @@
           hidden
         />
         <button class="import-action" onclick={() => fileInput.click()}>
-          <svg
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            width="16"
-            height="16"
-          >
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
             <path
               fill-rule="evenodd"
               d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z"
@@ -169,12 +158,7 @@
           Select QR Image
         </button>
         <button class="import-action" onclick={startCamera}>
-          <svg
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            width="16"
-            height="16"
-          >
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
             <path
               fill-rule="evenodd"
               d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm6 9a3 3 0 100-6 3 3 0 000 6z"
@@ -189,10 +173,7 @@
         {/if}
       </div>
       <div class="dialog-actions">
-        <button
-          class="dialog-btn dialog-btn-secondary"
-          onclick={handleClose}>Cancel</button
-        >
+        <button class="dialog-btn dialog-btn-secondary" onclick={handleClose}>Cancel</button>
       </div>
     {/if}
 

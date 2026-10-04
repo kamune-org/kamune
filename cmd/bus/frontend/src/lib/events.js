@@ -1,18 +1,18 @@
-import { Events } from '@wailsio/runtime'
+import { Events } from '@wailsio/runtime';
 
 export function EventsOn(name, callback) {
   return Events.On(name, (event) => {
-    const data = event?.data
+    const data = event?.data;
     if (Array.isArray(data) && callback.length > 1) {
-      callback(...data)
+      callback(...data);
     } else if (data === undefined) {
-      callback()
+      callback();
     } else {
-      callback(data)
+      callback(data);
     }
-  })
+  });
 }
 
 export function EventsOff(name) {
-  Events.Off(name)
+  Events.Off(name);
 }

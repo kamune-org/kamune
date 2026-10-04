@@ -1,9 +1,12 @@
 <script>
-  import { onMount } from 'svelte'
+  import { onMount } from 'svelte';
   import {
-    SubmitPassphrase, HasKeychainPassphrase, GetDBPath,
-    SetDBPath, OpenFileDialog,
-  } from './go.js'
+    SubmitPassphrase,
+    HasKeychainPassphrase,
+    GetDBPath,
+    SetDBPath,
+    OpenFileDialog,
+  } from './go.js';
 
   /**
    * @typedef {Object} Props
@@ -14,66 +17,78 @@
   /** @type {Props} */
   let { dismissable = false, onClose } = $props();
 
-  let passphrase = $state('')
-  let showPass = $state(false)
-  let saveToKeychain = $state(false)
-  let loading = $state(false)
-  let error = $state('')
-  let hasKeychain = $state(false)
-  let dbPath = $state('')
+  let passphrase = $state('');
+  let showPass = $state(false);
+  let saveToKeychain = $state(false);
+  let loading = $state(false);
+  let error = $state('');
+  let hasKeychain = $state(false);
+  let dbPath = $state('');
 
   onMount(async () => {
-    hasKeychain = await HasKeychainPassphrase()
-    dbPath = await GetDBPath()
-  })
+    hasKeychain = await HasKeychainPassphrase();
+    dbPath = await GetDBPath();
+  });
 
   async function submit() {
-    loading = true
-    error = ''
+    loading = true;
+    error = '';
     try {
-      const currentPath = await GetDBPath()
+      const currentPath = await GetDBPath();
       if (dbPath !== currentPath) {
-        await SetDBPath(dbPath)
+        await SetDBPath(dbPath);
       }
-      await SubmitPassphrase(passphrase, saveToKeychain)
+      await SubmitPassphrase(passphrase, saveToKeychain);
     } catch (e) {
-      error = e.message || e || 'Wrong passphrase or corrupted database'
-      loading = false
+      error = e.message || e || 'Wrong passphrase or corrupted database';
+      loading = false;
     }
   }
 
   async function skipPassphrase() {
-    passphrase = ''
-    saveToKeychain = true
-    await submit()
+    passphrase = '';
+    saveToKeychain = true;
+    await submit();
   }
 
   async function browsePath() {
     try {
-      const file = await OpenFileDialog()
+      const file = await OpenFileDialog();
       if (file) {
-        dbPath = file
+        dbPath = file;
       }
     } catch (e) {
-      console.error('Failed to open file dialog:', e)
+      console.error('Failed to open file dialog:', e);
     }
   }
 
   function handleKeydown(e) {
     if (e.key === 'Enter') {
-      submit()
+      submit();
     } else if (e.key === 'Escape' && dismissable) {
-      onClose?.()
+      onClose?.();
     }
   }
 </script>
 
-<div class="overlay" onclick={dismissable ? () => onClose?.() : undefined} onkeydown={dismissable ? (e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation() } : undefined}>
+<div
+  class="overlay"
+  onclick={dismissable ? () => onClose?.() : undefined}
+  onkeydown={dismissable
+    ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+      }
+    : undefined}
+>
   <div class="dialog" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown}>
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
-          <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+          <path
+            fill-rule="evenodd"
+            d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+            clip-rule="evenodd"
+          />
         </svg>
       </div>
       <h3>Database Passphrase</h3>
@@ -81,8 +96,8 @@
 
     <div class="dialog-body">
       <p class="dialog-desc">
-        Enter your database passphrase to unlock your identity and chat history.
-        The database is encrypted at rest.
+        Enter your database passphrase to unlock your identity and chat history. The database is
+        encrypted at rest.
       </p>
 
       <div class="path-field">
@@ -93,7 +108,12 @@
           placeholder="Path to database"
           disabled={loading}
         />
-        <button class="path-browse-btn" onclick={browsePath} disabled={loading} title="Browse for file">
+        <button
+          class="path-browse-btn"
+          onclick={browsePath}
+          disabled={loading}
+          title="Browse for file"
+        >
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
             <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
           </svg>
@@ -104,26 +124,36 @@
         <input
           type={showPass ? 'text' : 'password'}
           value={passphrase}
-          oninput={(e) => passphrase = e.target.value}
+          oninput={(e) => (passphrase = e.target.value)}
           placeholder="Enter passphrase"
           class="pass-input"
           disabled={loading}
         />
         <button
           class="toggle-vis"
-          onclick={() => showPass = !showPass}
+          onclick={() => (showPass = !showPass)}
           tabindex="-1"
           title={showPass ? 'Hide' : 'Show'}
         >
           {#if showPass}
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-              <path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clip-rule="evenodd" />
-              <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
+              <path
+                fill-rule="evenodd"
+                d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z"
+                clip-rule="evenodd"
+              />
+              <path
+                d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z"
+              />
             </svg>
           {:else}
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
               <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-              <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+                clip-rule="evenodd"
+              />
             </svg>
           {/if}
         </button>
@@ -137,7 +167,11 @@
       {#if error}
         <div class="error-msg">
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+            <path
+              fill-rule="evenodd"
+              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+              clip-rule="evenodd"
+            />
           </svg>
           {error}
         </div>

@@ -1,39 +1,56 @@
 <script>
   import {
-    sessions, historySessions, activeSessionId, fingerprint,
-    status, sidebarTab, dbPath, myName, relayTokens, p2pTokens, toast, peers,
-  } from './stores'
-  import { CopyToClipboard, SetMyName, GenerateRelayToken, RemoveRelayToken, RenameSession, RenameHistorySession } from './go.js'
-  import PeersPanel from './PeersPanel.svelte'
-  import SignalingTokens from './SignalingTokens.svelte'
-  import PeerSelect from './PeerSelect.svelte'
+    sessions,
+    historySessions,
+    activeSessionId,
+    fingerprint,
+    status,
+    sidebarTab,
+    dbPath,
+    myName,
+    relayTokens,
+    p2pTokens,
+    toast,
+    peers,
+  } from './stores';
+  import {
+    CopyToClipboard,
+    SetMyName,
+    GenerateRelayToken,
+    RemoveRelayToken,
+    RenameSession,
+    RenameHistorySession,
+  } from './go.js';
+  import PeersPanel from './PeersPanel.svelte';
+  import SignalingTokens from './SignalingTokens.svelte';
+  import PeerSelect from './PeerSelect.svelte';
 
   function truncateToken(t) {
-    if (t.length <= 20) return t
-    return t.slice(0, 8) + '…'
+    if (t.length <= 20) return t;
+    return t.slice(0, 8) + '…';
   }
 
   function formatExpiry(rt) {
-    if (rt.consumed || !rt.expiresAt) return ''
-    const remaining = new Date(rt.expiresAt).getTime() - Date.now()
-    if (remaining <= 0) return 'expired'
-    if (remaining < 60000) return Math.ceil(remaining / 1000) + 's'
-    if (remaining < 3600000) return Math.ceil(remaining / 60000) + 'm'
-    return Math.ceil(remaining / 3600000) + 'h'
+    if (rt.consumed || !rt.expiresAt) return '';
+    const remaining = new Date(rt.expiresAt).getTime() - Date.now();
+    if (remaining <= 0) return 'expired';
+    if (remaining < 60000) return Math.ceil(remaining / 1000) + 's';
+    if (remaining < 3600000) return Math.ceil(remaining / 60000) + 'm';
+    return Math.ceil(remaining / 3600000) + 'h';
   }
 
   function formatSessionTTL(rt) {
-    if (!rt.sessionTtl || rt.sessionTtl <= 0) return ''
-    const d = rt.sessionTtl / 1000000000
-    if (d < 60) return Math.round(d) + 's'
-    if (d < 3600) return Math.round(d / 60) + 'm'
-    return Math.round(d / 3600) + 'h'
+    if (!rt.sessionTtl || rt.sessionTtl <= 0) return '';
+    const d = rt.sessionTtl / 1000000000;
+    if (d < 60) return Math.round(d) + 's';
+    if (d < 3600) return Math.round(d / 60) + 'm';
+    return Math.round(d / 3600) + 'h';
   }
 
   function peerNameFor(pubB64) {
-    if (!pubB64) return ''
-    const p = $peers.find((p) => p.publicKeyBase64 === pubB64)
-    return p ? (p.name || p.fingerprintEmoji || pubB64.slice(0, 8)) : pubB64.slice(0, 8)
+    if (!pubB64) return '';
+    const p = $peers.find((p) => p.publicKeyBase64 === pubB64);
+    return p ? p.name || p.fingerprintEmoji || pubB64.slice(0, 8) : pubB64.slice(0, 8);
   }
 
   /**
@@ -82,128 +99,134 @@
     onRenamed,
   } = $props();
 
-  let copied = $state(false)
-  let tokensExpanded = $state(true)
-  let editingName = $state(false)
-  let editName = $state('')
-  let ctxMenu = $state(null)
-  let rtMode = $state('random')
-  let rtSelectedPeer = $state('')
+  let copied = $state(false);
+  let tokensExpanded = $state(true);
+  let editingName = $state(false);
+  let editName = $state('');
+  let ctxMenu = $state(null);
+  let rtMode = $state('random');
+  let rtSelectedPeer = $state('');
 
   function openCtx(e, id, isHistory, name) {
-    e.preventDefault()
-    ctxMenu = { x: e.clientX, y: e.clientY, id, isHistory, name }
+    e.preventDefault();
+    ctxMenu = { x: e.clientX, y: e.clientY, id, isHistory, name };
   }
 
   function closeCtx() {
-    ctxMenu = null
+    ctxMenu = null;
   }
 
-  let editingSessionId = $state(null)
-  let editSessionName = $state('')
-  let editingIsHistory = false
+  let editingSessionId = $state(null);
+  let editSessionName = $state('');
+  let editingIsHistory = false;
 
   function startRename(id, name, isHistory) {
-    editingSessionId = id
-    editSessionName = name
-    editingIsHistory = isHistory
+    editingSessionId = id;
+    editSessionName = name;
+    editingIsHistory = isHistory;
   }
 
   async function saveRename() {
-    const trimmed = editSessionName.trim()
+    const trimmed = editSessionName.trim();
     if (trimmed && editingSessionId) {
       try {
         if (editingIsHistory) {
-          await RenameHistorySession(editingSessionId, trimmed)
+          await RenameHistorySession(editingSessionId, trimmed);
         } else {
-          await RenameSession(editingSessionId, trimmed)
+          await RenameSession(editingSessionId, trimmed);
         }
-        onRenamed?.()
+        onRenamed?.();
       } catch (e) {
-        console.error('Rename error:', e)
+        console.error('Rename error:', e);
       }
     }
-    editingSessionId = null
-    editSessionName = ''
+    editingSessionId = null;
+    editSessionName = '';
   }
 
   function cancelRename() {
-    editingSessionId = null
-    editSessionName = ''
+    editingSessionId = null;
+    editSessionName = '';
   }
 
   function focusInput(node) {
-    node.focus()
-    node.select()
+    node.focus();
+    node.select();
   }
 
   function startEdit() {
-    editName = $myName
-    editingName = true
+    editName = $myName;
+    editingName = true;
   }
 
   async function saveName() {
-    const trimmed = editName.trim()
+    const trimmed = editName.trim();
     if (trimmed && trimmed !== $myName) {
-      await SetMyName(trimmed)
+      await SetMyName(trimmed);
     }
-    editingName = false
+    editingName = false;
   }
 
   function cancelEdit() {
-    editingName = false
+    editingName = false;
   }
 
   function toggleTab(tab) {
-    sidebarTab.set(tab)
-    activeSessionId.set(null)
+    sidebarTab.set(tab);
+    activeSessionId.set(null);
   }
 
   function handleItemKeydown(e, handler) {
     if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      handler()
+      e.preventDefault();
+      handler();
     }
   }
 
   function timeAgo(t) {
-    if (!t) return ''
-    const diff = Date.now() - new Date(t).getTime()
-    const seconds = Math.floor(diff / 1000)
-    if (seconds < 10) return 'just now'
-    if (seconds < 60) return `${seconds}s ago`
-    const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return `${minutes}m ago`
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    if (days < 30) return `${days}d ago`
-    return new Date(t).toLocaleDateString()
+    if (!t) return '';
+    const diff = Date.now() - new Date(t).getTime();
+    const seconds = Math.floor(diff / 1000);
+    if (seconds < 10) return 'just now';
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(t).toLocaleDateString();
   }
 
   async function copyFingerprint() {
-    if (!$fingerprint.emoji) return
+    if (!$fingerprint.emoji) return;
     try {
-      const text = $fingerprint.emoji.replace(/ • /g, ' ')
-      await CopyToClipboard(text)
-      copied = true
-      setTimeout(() => copied = false, 1500)
+      const text = $fingerprint.emoji.replace(/ • /g, ' ');
+      await CopyToClipboard(text);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
     } catch (e) {
-      console.error('Copy failed:', e)
+      console.error('Copy failed:', e);
     }
   }
 
   async function handleCopyToken(token) {
-    await CopyToClipboard(token)
-    toast.set({ message: 'Copied!', type: 'info' })
-    setTimeout(() => toast.set(null), 2000)
+    await CopyToClipboard(token);
+    toast.set({ message: 'Copied!', type: 'info' });
+    setTimeout(() => toast.set(null), 2000);
   }
 </script>
 
 <div class="sidebar">
   <div class="sidebar-header">
     <div class="brand">
-      <svg class="brand-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" /></svg>
+      <svg class="brand-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"
+        ><path
+          fill-rule="evenodd"
+          d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+          clip-rule="evenodd"
+        /></svg
+      >
       <span class="brand-text">Kamune</span>
       {#if editingName}
         <input
@@ -212,11 +235,20 @@
           bind:value={editName}
           maxlength="32"
           onblur={saveName}
-          onkeydown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') cancelEdit() }}
+          onkeydown={(e) => {
+            if (e.key === 'Enter') saveName();
+            if (e.key === 'Escape') cancelEdit();
+          }}
           use:focusInput
-        >
+        />
       {:else if $myName}
-        <span class="brand-name" onclick={startEdit} onkeydown={(e) => e.key === 'Enter' && startEdit()} tabindex="0" role="button">{ $myName }</span>
+        <span
+          class="brand-name"
+          onclick={startEdit}
+          onkeydown={(e) => e.key === 'Enter' && startEdit()}
+          tabindex="0"
+          role="button">{$myName}</span
+        >
       {/if}
     </div>
   </div>
@@ -228,7 +260,9 @@
       onclick={() => toggleTab('sessions')}
     >
       <svg class="tab-icon" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-        <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6z" />
+        <path
+          d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6z"
+        />
         <path d="M7 14a3 3 0 006 0H7z" />
       </svg>
       Sessions
@@ -242,7 +276,11 @@
       onclick={() => toggleTab('peers')}
     >
       <svg class="tab-icon" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-        <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+        <path
+          fill-rule="evenodd"
+          d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
+          clip-rule="evenodd"
+        />
       </svg>
       Peers
       {#if $peers.length > 0}
@@ -255,14 +293,18 @@
       onclick={() => toggleTab('history')}
     >
       <svg class="tab-icon" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+        <path
+          fill-rule="evenodd"
+          d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+          clip-rule="evenodd"
+        />
       </svg>
       History
       {#if $historySessions.length > 0}
         <span class="tab-count">{$historySessions.length}</span>
       {/if}
-        </button>
-      </div>
+    </button>
+  </div>
 
   <div class="sidebar-content">
     {#if $sidebarTab === 'peers'}
@@ -272,28 +314,49 @@
         {#if serverLoading || connectLoading}
           <button class="action-btn action-danger" onclick={() => onCancel?.()}>
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-              <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                clip-rule="evenodd"
+              />
             </svg>
             Cancel
           </button>
         {:else}
-          <button class="action-btn" class:action-primary={!serverActive} class:action-danger={serverActive} onclick={() => (serverActive ? onStopServer?.() : onStartServer?.())}>
+          <button
+            class="action-btn"
+            class:action-primary={!serverActive}
+            class:action-danger={serverActive}
+            onclick={() => (serverActive ? onStopServer?.() : onStartServer?.())}
+          >
             {#if serverActive}
               <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" />
+                <path
+                  fill-rule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z"
+                  clip-rule="evenodd"
+                />
               </svg>
               Stop Server
             {:else}
               <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+                <path
+                  fill-rule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                  clip-rule="evenodd"
+                />
               </svg>
               Start Server
             {/if}
           </button>
           <button class="action-btn action-secondary" onclick={() => onConnect?.()}>
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-              <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
-              <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
+              <path
+                d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"
+              />
+              <path
+                d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"
+              />
             </svg>
             Connect
           </button>
@@ -302,9 +365,28 @@
 
       {#if $relayTokens.length > 0 || (serverActive && runningServerTransport === 'relay')}
         <div class="relay-tokens-section">
-          <div class="rt-header" onclick={() => tokensExpanded = !tokensExpanded} onkeydown={(e) => { if (e.key === 'Enter') tokensExpanded = !tokensExpanded }} role="button" tabindex="0">
-            <svg class="rt-chevron" class:collapsed={!tokensExpanded} viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
-              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+          <div
+            class="rt-header"
+            onclick={() => (tokensExpanded = !tokensExpanded)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') tokensExpanded = !tokensExpanded;
+            }}
+            role="button"
+            tabindex="0"
+          >
+            <svg
+              class="rt-chevron"
+              class:collapsed={!tokensExpanded}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              width="10"
+              height="10"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                clip-rule="evenodd"
+              />
             </svg>
             <span class="rt-header-label">Relay Tokens</span>
             <span class="rt-count">{$relayTokens.length}</span>
@@ -315,13 +397,18 @@
                 <button
                   class="rt-mode-btn"
                   class:active={rtMode === 'random'}
-                  onclick={() => { rtMode = 'random'; rtSelectedPeer = '' }}
-                >random</button>
+                  onclick={() => {
+                    rtMode = 'random';
+                    rtSelectedPeer = '';
+                  }}>random</button
+                >
                 <button
                   class="rt-mode-btn"
                   class:active={rtMode === 'static'}
-                  onclick={() => { rtMode = 'static' }}
-                >static</button>
+                  onclick={() => {
+                    rtMode = 'static';
+                  }}>static</button
+                >
               </div>
               {#if rtMode === 'static'}
                 <PeerSelect
@@ -336,73 +423,104 @@
                 disabled={rtMode === 'static' && !rtSelectedPeer}
                 onclick={async () => {
                   try {
-                    const peerArg = rtMode === 'static' ? rtSelectedPeer : ''
-                    const token = await GenerateRelayToken(peerArg)
+                    const peerArg = rtMode === 'static' ? rtSelectedPeer : '';
+                    const token = await GenerateRelayToken(peerArg);
                     if (token) {
-                      toast.set({ message: `Generated token: ${token}`, token, type: 'token' })
-                      setTimeout(() => toast.set(null), 4000)
+                      toast.set({ message: `Generated token: ${token}`, token, type: 'token' });
+                      setTimeout(() => toast.set(null), 4000);
                     }
                   } catch (e) {
-                    toast.set({ message: String(e), type: 'error' })
-                    setTimeout(() => toast.set(null), 3000)
+                    toast.set({ message: String(e), type: 'error' });
+                    setTimeout(() => toast.set(null), 3000);
                   }
-                }}>
+                }}
+              >
                 <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-                  <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                  <path
+                    fill-rule="evenodd"
+                    d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+                    clip-rule="evenodd"
+                  />
                 </svg>
                 Generate {rtMode === 'static' ? 'static' : 'random'} token
               </button>
               <div class="rt-list">
-              {#each $relayTokens as rt}
-                {@const expiry = formatExpiry(rt)}
-                {@const sessionTTL = formatSessionTTL(rt)}
-                <div class="rt-item" class:consumed={rt.consumed}>
-                  <span class="rt-dot" class:filled={rt.consumed}></span>
-                  <span class="rt-item-token" role="button" tabindex="0" title={rt.token} onclick={() => handleCopyToken(rt.token)} onkeydown={(e) => { if (e.key === 'Enter') handleCopyToken(rt.token) }}>{truncateToken(rt.token)}</span>
-                  <span class="rt-mode-badge" class:rt-mode-static={rt.mode === 'static'}>
-                    {rt.mode || 'random'}
-                  </span>
-                  {#if rt.mode === 'static' && rt.peerPubB64}
-                    <span class="rt-peer-name">{peerNameFor(rt.peerPubB64)}</span>
-                  {/if}
-                  {#if expiry}
-                    <span class="rt-expiry" class:expired={expiry === 'expired'}>{expiry}</span>
-                  {/if}
-                  {#if sessionTTL}
-                    <span class="rt-session-ttl">session {sessionTTL}</span>
-                  {/if}
-                  <button class="rt-rm-btn" title="Remove token" onclick={(e) => { e.stopPropagation(); (async () => {
-                    try {
-                      await RemoveRelayToken(rt.token)
-                    } catch (e) {
-                      console.error('Remove token failed:', e)
-                    }
-                  })() }}>
-                    <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-                      <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-                    </svg>
-                  </button>
-                </div>
-              {/each}
-            </div>
+                {#each $relayTokens as rt}
+                  {@const expiry = formatExpiry(rt)}
+                  {@const sessionTTL = formatSessionTTL(rt)}
+                  <div class="rt-item" class:consumed={rt.consumed}>
+                    <span class="rt-dot" class:filled={rt.consumed}></span>
+                    <span
+                      class="rt-item-token"
+                      role="button"
+                      tabindex="0"
+                      title={rt.token}
+                      onclick={() => handleCopyToken(rt.token)}
+                      onkeydown={(e) => {
+                        if (e.key === 'Enter') handleCopyToken(rt.token);
+                      }}>{truncateToken(rt.token)}</span
+                    >
+                    <span class="rt-mode-badge" class:rt-mode-static={rt.mode === 'static'}>
+                      {rt.mode || 'random'}
+                    </span>
+                    {#if rt.mode === 'static' && rt.peerPubB64}
+                      <span class="rt-peer-name">{peerNameFor(rt.peerPubB64)}</span>
+                    {/if}
+                    {#if expiry}
+                      <span class="rt-expiry" class:expired={expiry === 'expired'}>{expiry}</span>
+                    {/if}
+                    {#if sessionTTL}
+                      <span class="rt-session-ttl">session {sessionTTL}</span>
+                    {/if}
+                    <button
+                      class="rt-rm-btn"
+                      title="Remove token"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        (async () => {
+                          try {
+                            await RemoveRelayToken(rt.token);
+                          } catch (e) {
+                            console.error('Remove token failed:', e);
+                          }
+                        })();
+                      }}
+                    >
+                      <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+                        <path
+                          fill-rule="evenodd"
+                          d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                          clip-rule="evenodd"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                {/each}
+              </div>
             </div>
           {/if}
         </div>
       {/if}
 
       {#if serverActive && runningServerTransport === 'p2p' && serverBrokerAddr}
-        <SignalingTokens
-          brokerAddr={serverBrokerAddr}
-          locked
-        />
+        <SignalingTokens brokerAddr={serverBrokerAddr} locked />
       {/if}
 
       <div class="list">
         {#if $sessions.length === 0}
           <div class="empty-state">
             <div class="empty-icon-wrap">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="32" height="32" stroke-width="1.5">
-                <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                width="32"
+                height="32"
+                stroke-width="1.5"
+              >
+                <path
+                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                />
               </svg>
             </div>
             <p class="empty-title">No active sessions</p>
@@ -417,12 +535,19 @@
               tabindex="0"
               onclick={() => onSelectSession?.(session.id)}
               onkeydown={(e) => handleItemKeydown(e, () => onSelectSession?.(session.id))}
-               oncontextmenu={(e) => { e.preventDefault(); openCtx(e, session.id, false, session.peerName) }}
+              oncontextmenu={(e) => {
+                e.preventDefault();
+                openCtx(e, session.id, false, session.peerName);
+              }}
             >
               <div class="session-indicator"></div>
               <div class="session-avatar">
                 <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-                  <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                  <path
+                    fill-rule="evenodd"
+                    d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                    clip-rule="evenodd"
+                  />
                 </svg>
               </div>
               <div class="session-info">
@@ -433,7 +558,11 @@
                     bind:value={editSessionName}
                     use:focusInput
                     onblur={saveRename}
-                    onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') cancelRename() }}
+                    onkeydown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === 'Enter') saveRename();
+                      if (e.key === 'Escape') cancelRename();
+                    }}
                   />
                 {:else}
                   <div class="session-name">{session.peerName}</div>
@@ -443,7 +572,12 @@
                   <span class="meta-dot">·</span>
                   <span class="meta-time">{timeAgo(session.lastActivity)}</span>
                   <span class="meta-dot">·</span>
-                  <span class="transport-badge" class:transport-relay={session.transportType === 'relay'} class:transport-udp={session.transportType === 'udp'}>{session.transportType}</span>
+                  <span
+                    class="transport-badge"
+                    class:transport-relay={session.transportType === 'relay'}
+                    class:transport-udp={session.transportType === 'udp'}
+                    >{session.transportType}</span
+                  >
                   {#if session.remoteVersion}
                     <span class="meta-dot">·</span>
                     <span class="meta-version">v{session.remoteVersion}</span>
@@ -458,7 +592,11 @@
       <div class="sidebar-actions">
         <button class="action-btn action-secondary" onclick={() => onRefreshHistory?.()}>
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+            <path
+              fill-rule="evenodd"
+              d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
+              clip-rule="evenodd"
+            />
           </svg>
           Refresh
         </button>
@@ -468,8 +606,17 @@
         {#if $historySessions.length === 0}
           <div class="empty-state">
             <div class="empty-icon-wrap">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="32" height="32" stroke-width="1.5">
-                <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                width="32"
+                height="32"
+                stroke-width="1.5"
+              >
+                <path
+                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                />
               </svg>
             </div>
             <p class="empty-title">No history yet</p>
@@ -484,12 +631,19 @@
               tabindex="0"
               onclick={() => onSelectHistory?.(hs.id)}
               onkeydown={(e) => handleItemKeydown(e, () => onSelectHistory?.(hs.id))}
-               oncontextmenu={(e) => { e.preventDefault(); openCtx(e, hs.id, true, hs.name || hs.id.slice(0, 16)) }}
+              oncontextmenu={(e) => {
+                e.preventDefault();
+                openCtx(e, hs.id, true, hs.name || hs.id.slice(0, 16));
+              }}
             >
               <div class="session-indicator"></div>
               <div class="session-avatar history">
                 <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+                  <path
+                    fill-rule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+                    clip-rule="evenodd"
+                  />
                 </svg>
               </div>
               <div class="session-info">
@@ -500,7 +654,11 @@
                     bind:value={editSessionName}
                     use:focusInput
                     onblur={saveRename}
-                    onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') cancelRename() }}
+                    onkeydown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === 'Enter') saveRename();
+                      if (e.key === 'Escape') cancelRename();
+                    }}
                   />
                 {:else}
                   <div class="session-name">{hs.name || hs.id.slice(0, 16)}</div>
@@ -521,42 +679,129 @@
   </div>
 
   {#if ctxMenu}
-    <div class="ctx-overlay" onclick={closeCtx} oncontextmenu={(e) => { e.preventDefault(); closeCtx() }}></div>
+    <div
+      class="ctx-overlay"
+      onclick={closeCtx}
+      oncontextmenu={(e) => {
+        e.preventDefault();
+        closeCtx();
+      }}
+    ></div>
     <div class="ctx-menu" style="left: {ctxMenu.x}px; top: {ctxMenu.y}px;">
       {#if ctxMenu.isHistory}
-        <button class="ctx-item" onclick={() => { startRename(ctxMenu.id, ctxMenu.name, true); closeCtx() }}>
-          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+        <button
+          class="ctx-item"
+          onclick={() => {
+            startRename(ctxMenu.id, ctxMenu.name, true);
+            closeCtx();
+          }}
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"
+            ><path
+              d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
+            /></svg
+          >
           Rename
         </button>
-        <button class="ctx-item ctx-danger" onclick={() => { onDeleteHistory?.(ctxMenu.id); closeCtx() }}>
-          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+        <button
+          class="ctx-item ctx-danger"
+          onclick={() => {
+            onDeleteHistory?.(ctxMenu.id);
+            closeCtx();
+          }}
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"
+            ><path
+              fill-rule="evenodd"
+              d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+              clip-rule="evenodd"
+            /></svg
+          >
           Delete
         </button>
       {:else}
-        <button class="ctx-item" onclick={() => { startRename(ctxMenu.id, ctxMenu.name, false); closeCtx() }}>
-          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+        <button
+          class="ctx-item"
+          onclick={() => {
+            startRename(ctxMenu.id, ctxMenu.name, false);
+            closeCtx();
+          }}
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"
+            ><path
+              d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
+            /></svg
+          >
           Rename
         </button>
-        <button class="ctx-item ctx-danger" onclick={() => { onDisconnect?.(ctxMenu.id); closeCtx() }}>
-          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 2a1 1 0 011 1v6a1 1 0 11-2 0V3a1 1 0 011-1z" clip-rule="evenodd" /><path fill-rule="evenodd" d="M4.903 4.903a1 1 0 01.085 1.413A6 6 0 1015.012 6.32a1 1 0 111.328-1.498 8 8 0 11-13.35 5.178 8 8 0 012.412-5.912 1 1 0 011.413-.085z" clip-rule="evenodd" /></svg>
+        <button
+          class="ctx-item ctx-danger"
+          onclick={() => {
+            onDisconnect?.(ctxMenu.id);
+            closeCtx();
+          }}
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"
+            ><path
+              fill-rule="evenodd"
+              d="M10 2a1 1 0 011 1v6a1 1 0 11-2 0V3a1 1 0 011-1z"
+              clip-rule="evenodd"
+            /><path
+              fill-rule="evenodd"
+              d="M4.903 4.903a1 1 0 01.085 1.413A6 6 0 1015.012 6.32a1 1 0 111.328-1.498 8 8 0 11-13.35 5.178 8 8 0 012.412-5.912 1 1 0 011.413-.085z"
+              clip-rule="evenodd"
+            /></svg
+          >
           Disconnect
         </button>
       {/if}
       <div class="ctx-divider"></div>
-      <button class="ctx-item" onclick={() => { onShowInfo?.(ctxMenu.id); closeCtx() }}>
-        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
+      <button
+        class="ctx-item"
+        onclick={() => {
+          onShowInfo?.(ctxMenu.id);
+          closeCtx();
+        }}
+      >
+        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"
+          ><path
+            fill-rule="evenodd"
+            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+            clip-rule="evenodd"
+          /></svg
+        >
         Session Info
       </button>
     </div>
   {/if}
 
   <div class="sidebar-footer">
-    <div class="fingerprint-card" class:clickable={!!$fingerprint.emoji} role="button" tabindex="0" onclick={copyFingerprint} onkeydown={(e) => handleItemKeydown(e, copyFingerprint)} title={$fingerprint.emoji ? 'Click to copy fingerprint' : ''}>
+    <div
+      class="fingerprint-card"
+      class:clickable={!!$fingerprint.emoji}
+      role="button"
+      tabindex="0"
+      onclick={copyFingerprint}
+      onkeydown={(e) => handleItemKeydown(e, copyFingerprint)}
+      title={$fingerprint.emoji ? 'Click to copy fingerprint' : ''}
+    >
       <div class="fp-header">
         <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-          <path fill-rule="evenodd" d="M6.625 2.655A9 9 0 0119 11a1 1 0 11-2 0 7 7 0 00-9.625-6.492 1 1 0 11-.75-1.853zM4.662 4.959A1 1 0 014.75 6.37 6.97 6.97 0 003 11a1 1 0 11-2 0 8.97 8.97 0 012.25-5.953 1 1 0 011.412-.088z" clip-rule="evenodd" />
-          <path fill-rule="evenodd" d="M5 11a5 5 0 1110 0 1 1 0 11-2 0 3 3 0 10-6 0c0 1.677-.345 3.276-.968 4.729a1 1 0 11-1.838-.789A9.964 9.964 0 005 11zm8.921 2.012a1 1 0 01.831 1.145 19.86 19.86 0 01-.545 2.436 1 1 0 11-1.92-.558c.207-.713.371-1.445.49-2.192a1 1 0 011.144-.83z" clip-rule="evenodd" />
-          <path fill-rule="evenodd" d="M10 8a3 3 0 00-3 3c0 1.29-.326 2.51-.882 3.57a1 1 0 01-1.764-.944A6.96 6.96 0 007 11a1 1 0 012 0c0 .859-.144 1.685-.41 2.452a1 1 0 01-1.908-.602A4.97 4.97 0 0010 11a1 1 0 012 0 6.96 6.96 0 01-.647 2.878 1 1 0 01-1.78-.91A4.97 4.97 0 0011 11a1 1 0 012 0c0 1.556-.372 3.027-1.03 4.34a1 1 0 01-1.775-.922A6.95 6.95 0 0010 11z" clip-rule="evenodd" />
+          <path
+            fill-rule="evenodd"
+            d="M6.625 2.655A9 9 0 0119 11a1 1 0 11-2 0 7 7 0 00-9.625-6.492 1 1 0 11-.75-1.853zM4.662 4.959A1 1 0 014.75 6.37 6.97 6.97 0 003 11a1 1 0 11-2 0 8.97 8.97 0 012.25-5.953 1 1 0 011.412-.088z"
+            clip-rule="evenodd"
+          />
+          <path
+            fill-rule="evenodd"
+            d="M5 11a5 5 0 1110 0 1 1 0 11-2 0 3 3 0 10-6 0c0 1.677-.345 3.276-.968 4.729a1 1 0 11-1.838-.789A9.964 9.964 0 005 11zm8.921 2.012a1 1 0 01.831 1.145 19.86 19.86 0 01-.545 2.436 1 1 0 11-1.92-.558c.207-.713.371-1.445.49-2.192a1 1 0 011.144-.83z"
+            clip-rule="evenodd"
+          />
+          <path
+            fill-rule="evenodd"
+            d="M10 8a3 3 0 00-3 3c0 1.29-.326 2.51-.882 3.57a1 1 0 01-1.764-.944A6.96 6.96 0 007 11a1 1 0 012 0c0 .859-.144 1.685-.41 2.452a1 1 0 01-1.908-.602A4.97 4.97 0 0010 11a1 1 0 012 0 6.96 6.96 0 01-.647 2.878 1 1 0 01-1.78-.91A4.97 4.97 0 0011 11a1 1 0 012 0c0 1.556-.372 3.027-1.03 4.34a1 1 0 01-1.775-.922A6.95 6.95 0 0010 11z"
+            clip-rule="evenodd"
+          />
         </svg>
         <span class="fp-label">Fingerprint</span>
         {#if copied}
@@ -575,7 +820,14 @@
         </div>
       {/if}
     </div>
-    <div class="db-card" role="button" tabindex="0" onclick={() => onChangeDBPath?.()} onkeydown={(e) => handleItemKeydown(e, () => onChangeDBPath?.())} title="Click to change database path">
+    <div
+      class="db-card"
+      role="button"
+      tabindex="0"
+      onclick={() => onChangeDBPath?.()}
+      onkeydown={(e) => handleItemKeydown(e, () => onChangeDBPath?.())}
+      title="Click to change database path"
+    >
       <div class="db-header">
         <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
           <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z" />
@@ -584,7 +836,9 @@
         </svg>
         <span class="db-label">Database Path</span>
         <svg class="db-edit-icon" viewBox="0 0 20 20" fill="currentColor" width="10" height="10">
-          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+          <path
+            d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
+          />
         </svg>
       </div>
       <span class="db-path">{$dbPath}</span>

@@ -1,27 +1,27 @@
 <script>
-  import { toCanvas } from 'qrcode'
+  import { toCanvas } from 'qrcode';
 
   let { data = $bindable(), onClose, onToast } = $props();
 
-  let address = $state(data.address || '')
-  let url = $state(data.url)
-  let qrCanvas = $state()
+  let address = $state(data.address || '');
+  let url = $state(data.url);
+  let qrCanvas = $state();
 
   function buildURL() {
     if (data.transport === 'relay') {
-      url = data.url
+      url = data.url;
     } else {
-      url = address ? `${data.transport}://${address}:${data.port}` : data.url
+      url = address ? `${data.transport}://${address}:${data.port}` : data.url;
     }
   }
 
   function redrawQR() {
-    buildURL()
-    if (!qrCanvas || !url) return
-    const ctx = qrCanvas.getContext('2d')
-    if (ctx) ctx.clearRect(0, 0, qrCanvas.width, qrCanvas.height)
-    const s = getComputedStyle(document.documentElement)
-    const qrDark = s.getPropertyValue('--export-qr-dark').trim() || '#1a1d27'
+    buildURL();
+    if (!qrCanvas || !url) return;
+    const ctx = qrCanvas.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, qrCanvas.width, qrCanvas.height);
+    const s = getComputedStyle(document.documentElement);
+    const qrDark = s.getPropertyValue('--export-qr-dark').trim() || '#1a1d27';
     toCanvas(qrCanvas, url, {
       width: 220,
       margin: 2,
@@ -29,32 +29,32 @@
         dark: qrDark,
         light: '#00000000',
       },
-    })
+    });
   }
 
   $effect(() => {
-    if (data && qrCanvas) redrawQR()
+    if (data && qrCanvas) redrawQR();
   });
 
   async function handleRefresh() {
-    const { GetShareInfo } = await import('./go.js')
+    const { GetShareInfo } = await import('./go.js');
     try {
-      const info = await GetShareInfo()
-      data = info
-      address = info.address || ''
-      url = info.url
+      const info = await GetShareInfo();
+      data = info;
+      address = info.address || '';
+      url = info.url;
     } catch (e) {
-      console.error('Failed to refresh share info:', e)
+      console.error('Failed to refresh share info:', e);
     }
   }
 
   async function handleCopyURL() {
-    const { CopyToClipboard } = await import('./go.js')
+    const { CopyToClipboard } = await import('./go.js');
     try {
-      await CopyToClipboard(url)
-      onToast?.({ message: 'Copied!', type: 'info' })
+      await CopyToClipboard(url);
+      onToast?.({ message: 'Copied!', type: 'info' });
     } catch (e) {
-      onToast?.({ message: 'Copy failed', type: 'error' })
+      onToast?.({ message: 'Copy failed', type: 'error' });
     }
   }
 
@@ -63,43 +63,51 @@
     // differently from CSS (no subpixel AA, emoji metrics vary by glyph). Possible paths:
     // SVG foreignObject, html2canvas, or Wails-specific screenshot API.
     // Layout measurements (in pixels)
-    const margin = 20
-    const qrSize = 220
-    const titleY = 30
-    const qrY = 70
-    const emojiGap = 24
-    const tileSize = 34
-    const tileGap = 4
-    const sectionGap = 16
-    const rowHeight = 20
-    const bottomPad = 20
+    const margin = 20;
+    const qrSize = 220;
+    const titleY = 30;
+    const qrY = 70;
+    const emojiGap = 24;
+    const tileSize = 34;
+    const tileGap = 4;
+    const sectionGap = 16;
+    const rowHeight = 20;
+    const bottomPad = 20;
 
     // Calculate emoji rows
-    const emojis = data.fingerprintEmoji.split(' • ')
-    const baseW = 400
-    const maxRowWidth = baseW - margin * 2
-    const perRow = Math.max(1, Math.floor((maxRowWidth + tileGap) / (tileSize + tileGap)))
-    const emojiRows = Math.ceil(emojis.length / perRow)
+    const emojis = data.fingerprintEmoji.split(' • ');
+    const baseW = 400;
+    const maxRowWidth = baseW - margin * 2;
+    const perRow = Math.max(1, Math.floor((maxRowWidth + tileGap) / (tileSize + tileGap)));
+    const emojiRows = Math.ceil(emojis.length / perRow);
 
     // Calculate total height
-    let contentEnd = qrY + qrSize + emojiGap + emojiRows * (tileSize + tileGap) + sectionGap + rowHeight + rowHeight + bottomPad
+    let contentEnd =
+      qrY +
+      qrSize +
+      emojiGap +
+      emojiRows * (tileSize + tileGap) +
+      sectionGap +
+      rowHeight +
+      rowHeight +
+      bottomPad;
 
     if (data.transport === 'relay') {
-      const relayRows = data.relayInfo.password ? 4 : 3
-      contentEnd += relayRows * (rowHeight + 4) + 8
+      const relayRows = data.relayInfo.password ? 4 : 3;
+      contentEnd += relayRows * (rowHeight + 4) + 8;
     }
 
-    const w = baseW
-    const h = Math.max(contentEnd, 400)
+    const w = baseW;
+    const h = Math.max(contentEnd, 400);
 
-    const offscreen = document.createElement('canvas')
-    offscreen.width = w
-    offscreen.height = h
-    offscreen.style.position = 'fixed'
-    offscreen.style.left = '-9999px'
-    offscreen.style.top = '-9999px'
-    document.body.appendChild(offscreen)
-    const ctx = offscreen.getContext('2d')
+    const offscreen = document.createElement('canvas');
+    offscreen.width = w;
+    offscreen.height = h;
+    offscreen.style.position = 'fixed';
+    offscreen.style.left = '-9999px';
+    offscreen.style.top = '-9999px';
+    document.body.appendChild(offscreen);
+    const ctx = offscreen.getContext('2d');
 
     const s = getComputedStyle(document.documentElement);
     const cv = (name) => s.getPropertyValue(name).trim();
@@ -112,129 +120,129 @@
     const warningColor = cv('--warning') || '#d97706';
 
     // Background
-    ctx.fillStyle = bgColor
-    ctx.fillRect(0, 0, w, h)
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, w, h);
 
     // Title
-    ctx.fillStyle = textColor
-    ctx.font = 'bold 18px -apple-system, BlinkMacSystemFont, sans-serif'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'top'
-    ctx.fillText('Kamune — Connection Card', w / 2, titleY)
+    ctx.fillStyle = textColor;
+    ctx.font = 'bold 18px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Kamune — Connection Card', w / 2, titleY);
 
     // QR code — temp canvas to not affect display
-    const qrTemp = document.createElement('canvas')
+    const qrTemp = document.createElement('canvas');
     try {
       await toCanvas(qrTemp, url, {
         width: qrSize,
         margin: 2,
         color: { dark: qrDark, light: '#00000000' },
-      })
+      });
     } catch (err) {
-      console.error('QR error:', err)
-      document.body.removeChild(offscreen)
-      return
+      console.error('QR error:', err);
+      document.body.removeChild(offscreen);
+      return;
     }
-    ctx.drawImage(qrTemp, (w - qrSize) / 2, qrY, qrSize, qrSize)
+    ctx.drawImage(qrTemp, (w - qrSize) / 2, qrY, qrSize, qrSize);
 
     // Emoji tiles
     for (let ri = 0; ri < emojiRows; ri++) {
-      const row = emojis.slice(ri * perRow, (ri + 1) * perRow)
-      const rowW = row.length * (tileSize + tileGap) - tileGap
-      let x = (w - rowW) / 2
-      const y = qrY + qrSize + emojiGap + ri * (tileSize + tileGap)
+      const row = emojis.slice(ri * perRow, (ri + 1) * perRow);
+      const rowW = row.length * (tileSize + tileGap) - tileGap;
+      let x = (w - rowW) / 2;
+      const y = qrY + qrSize + emojiGap + ri * (tileSize + tileGap);
       for (const emoji of row) {
-        ctx.fillStyle = surfaceColor
-        roundRect(ctx, x, y, tileSize, tileSize, 8)
-        ctx.fill()
-        ctx.strokeStyle = borderColor
-        ctx.lineWidth = 1
-        ctx.stroke()
-        ctx.fillStyle = textColor
-        ctx.font = '15px -apple-system, BlinkMacSystemFont, sans-serif'
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'middle'
-        const m = ctx.measureText(emoji)
-        ctx.fillText(emoji, x + (tileSize - m.width) / 2, y + tileSize / 2)
-        x += tileSize + tileGap
+        ctx.fillStyle = surfaceColor;
+        roundRect(ctx, x, y, tileSize, tileSize, 8);
+        ctx.fill();
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = textColor;
+        ctx.font = '15px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const m = ctx.measureText(emoji);
+        ctx.fillText(emoji, x + (tileSize - m.width) / 2, y + tileSize / 2);
+        x += tileSize + tileGap;
       }
     }
 
-    let nextY = qrY + qrSize + emojiGap + emojiRows * (tileSize + tileGap) + sectionGap
+    let nextY = qrY + qrSize + emojiGap + emojiRows * (tileSize + tileGap) + sectionGap;
 
     // Transport info
-    ctx.fillStyle = mutedColor
-    ctx.font = '12px Menlo, Monaco, monospace'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'top'
-    ctx.fillText(data.transport.toUpperCase(), w / 2, nextY)
-    nextY += rowHeight
+    ctx.fillStyle = mutedColor;
+    ctx.font = '12px Menlo, Monaco, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(data.transport.toUpperCase(), w / 2, nextY);
+    nextY += rowHeight;
 
     // Relay details
     if (data.transport === 'relay') {
-      ctx.textAlign = 'left'
-      const labelX = margin
-      const valueX = w / 2
+      ctx.textAlign = 'left';
+      const labelX = margin;
+      const valueX = w / 2;
 
       function drawRow(label, value) {
-        ctx.fillStyle = mutedColor
-        ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
-        ctx.textBaseline = 'top'
-        ctx.fillText(label, labelX, nextY)
-        ctx.fillStyle = textColor
-        ctx.font = '11px Menlo, Monaco, monospace'
-        ctx.fillText(value, valueX, nextY)
-        nextY += rowHeight + 4
+        ctx.fillStyle = mutedColor;
+        ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.textBaseline = 'top';
+        ctx.fillText(label, labelX, nextY);
+        ctx.fillStyle = textColor;
+        ctx.font = '11px Menlo, Monaco, monospace';
+        ctx.fillText(value, valueX, nextY);
+        nextY += rowHeight + 4;
       }
 
-      drawRow('Relay', data.relayInfo.address)
-      drawRow('Scheme', data.relayInfo.scheme.toUpperCase())
-      drawRow('Token', data.relayInfo.token)
+      drawRow('Relay', data.relayInfo.address);
+      drawRow('Scheme', data.relayInfo.scheme.toUpperCase());
+      drawRow('Token', data.relayInfo.token);
       if (data.relayInfo.password) {
-        ctx.fillStyle = mutedColor
-        ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
-        ctx.textBaseline = 'top'
-        ctx.fillText('Password', labelX, nextY)
-        ctx.fillStyle = warningColor
-        ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
-        ctx.fillText('Required', valueX, nextY)
-        nextY += rowHeight + 4
+        ctx.fillStyle = mutedColor;
+        ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Password', labelX, nextY);
+        ctx.fillStyle = warningColor;
+        ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.fillText('Required', valueX, nextY);
+        nextY += rowHeight + 4;
       }
 
-      nextY += 8
-      ctx.textAlign = 'center'
+      nextY += 8;
+      ctx.textAlign = 'center';
     }
 
     // Scan to connect
-    ctx.fillStyle = mutedColor
-    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'top'
-    ctx.fillText('Scan to connect', w / 2, nextY)
+    ctx.fillStyle = mutedColor;
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Scan to connect', w / 2, nextY);
 
-    const dataUrl = offscreen.toDataURL('image/png')
-    document.body.removeChild(offscreen)
+    const dataUrl = offscreen.toDataURL('image/png');
+    document.body.removeChild(offscreen);
 
-    const { SaveCardPNG } = await import('./go.js')
+    const { SaveCardPNG } = await import('./go.js');
     try {
-      await SaveCardPNG(dataUrl)
+      await SaveCardPNG(dataUrl);
     } catch (err) {
-      console.error('Save failed:', err)
+      console.error('Save failed:', err);
     }
   }
 
   function roundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath()
-    ctx.moveTo(x + r, y)
-    ctx.lineTo(x + w - r, y)
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r)
-    ctx.lineTo(x + w, y + h - r)
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
-    ctx.lineTo(x + r, y + h)
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r)
-    ctx.lineTo(x, y + r)
-    ctx.quadraticCurveTo(x, y, x + r, y)
-    ctx.closePath()
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
   }
 </script>
 
@@ -243,7 +251,9 @@
     <div class="dialog-header">
       <div class="dialog-icon">
         <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
-          <path d="M15 8a3 3 0 10-2.977-2.633l-6.94 3.47a3 3 0 100 4.326l6.94 3.47a3 3 0 10.895-1.789l-6.94-3.47a3.027 3.027 0 000-.748l6.94-3.47A3 3 0 0015 8z" />
+          <path
+            d="M15 8a3 3 0 10-2.977-2.633l-6.94 3.47a3 3 0 100 4.326l6.94 3.47a3 3 0 10.895-1.789l-6.94-3.47a3.027 3.027 0 000-.748l6.94-3.47A3 3 0 0015 8z"
+          />
         </svg>
       </div>
       <h3>Share Connection</h3>
@@ -300,7 +310,9 @@
     </div>
 
     <div class="dialog-actions share-actions">
-      <button class="dialog-btn dialog-btn-secondary" onclick={handleSavePNG}>Save Card as PNG</button>
+      <button class="dialog-btn dialog-btn-secondary" onclick={handleSavePNG}
+        >Save Card as PNG</button
+      >
       <button class="dialog-btn dialog-btn-primary" onclick={handleCopyURL}>Copy URL</button>
     </div>
   </div>

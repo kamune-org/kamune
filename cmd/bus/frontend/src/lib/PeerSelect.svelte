@@ -1,5 +1,5 @@
 <script>
-  import { tick } from 'svelte'
+  import { tick } from 'svelte';
 
   /**
    * @typedef {Object} Props
@@ -19,87 +19,88 @@
     onChange,
   } = $props();
 
-  let open = $state(false)
-  let search = $state('')
-  let searchInput = $state()
-  let rootEl = $state()
-  let highlightedIdx = $state(0)
+  let open = $state(false);
+  let search = $state('');
+  let searchInput = $state();
+  let rootEl = $state();
+  let highlightedIdx = $state(0);
 
-  let selected = $derived(peers.find((p) => p.publicKeyBase64 === value) || null)
+  let selected = $derived(peers.find((p) => p.publicKeyBase64 === value) || null);
 
-  let filtered = $derived((() => {
-    if (!search.trim()) return peers
-    const q = search.trim().toLowerCase()
-    return peers.filter((p) => {
-      if ((p.name || '').toLowerCase().includes(q)) return true
-      if ((p.fingerprintEmoji || '').includes(q)) return true
-      if ((p.publicKeyBase64 || '').toLowerCase().includes(q)) return true
-      return false
-    })
-  })())
+  let filtered = $derived(
+    (() => {
+      if (!search.trim()) return peers;
+      const q = search.trim().toLowerCase();
+      return peers.filter((p) => {
+        if ((p.name || '').toLowerCase().includes(q)) return true;
+        if ((p.fingerprintEmoji || '').includes(q)) return true;
+        if ((p.publicKeyBase64 || '').toLowerCase().includes(q)) return true;
+        return false;
+      });
+    })()
+  );
 
   $effect(() => {
     if (open) {
-      highlightedIdx = 0
+      highlightedIdx = 0;
     }
   });
 
   async function toggleDropdown() {
     if (open) {
-      closeDropdown()
-      return
+      closeDropdown();
+      return;
     }
-    open = true
-    search = ''
-    await tick()
-    if (searchInput) searchInput.focus()
+    open = true;
+    search = '';
+    await tick();
+    if (searchInput) searchInput.focus();
   }
 
   function closeDropdown() {
-    open = false
-    search = ''
-    highlightedIdx = 0
+    open = false;
+    search = '';
+    highlightedIdx = 0;
   }
 
   function pick(peer) {
-    value = peer.publicKeyBase64
-    onChange?.(peer)
-    closeDropdown()
+    value = peer.publicKeyBase64;
+    onChange?.(peer);
+    closeDropdown();
   }
 
   function clearSelection() {
-    value = ''
-    onChange?.(null)
-    closeDropdown()
+    value = '';
+    onChange?.(null);
+    closeDropdown();
   }
 
   function onWindowClick(e) {
-    if (!open) return
-    if (rootEl && !rootEl.contains(e.target)) closeDropdown()
+    if (!open) return;
+    if (rootEl && !rootEl.contains(e.target)) closeDropdown();
   }
 
   function onKeydown(e) {
     if (!open) {
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
-        e.preventDefault()
-        toggleDropdown()
+        e.preventDefault();
+        toggleDropdown();
       }
-      return
+      return;
     }
     if (e.key === 'Escape') {
-      e.preventDefault()
-      closeDropdown()
+      e.preventDefault();
+      closeDropdown();
     } else if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      highlightedIdx = Math.min(
-        highlightedIdx + 1, Math.max(filtered.length - 1, 0))
+      e.preventDefault();
+      highlightedIdx = Math.min(highlightedIdx + 1, Math.max(filtered.length - 1, 0));
     } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      highlightedIdx = Math.max(highlightedIdx - 1, 0)
+      e.preventDefault();
+      highlightedIdx = Math.max(highlightedIdx - 1, 0);
     } else if (e.key === 'Enter') {
-      e.preventDefault()
-      const pickPeer = filtered[highlightedIdx]
-      if (pickPeer) pick(pickPeer)
+      e.preventDefault();
+      const pickPeer = filtered[highlightedIdx];
+      if (pickPeer) pick(pickPeer);
     }
   }
 </script>
@@ -117,12 +118,7 @@
   aria-haspopup="listbox"
   tabindex="0"
 >
-  <button
-    type="button"
-    class="trigger"
-    class:placeholder={!selected}
-    onclick={toggleDropdown}
-  >
+  <button type="button" class="trigger" class:placeholder={!selected} onclick={toggleDropdown}>
     {#if selected}
       <span class="name">{selected.name || 'Unnamed peer'}</span>
       <span class="emoji">{selected.fingerprintEmoji}</span>
@@ -162,19 +158,11 @@
           class="search-input"
           placeholder="Search peers…"
         />
-        <button
-          type="button"
-          class="close-btn"
-          title="Close"
-          onclick={closeDropdown}
-        >×</button>
+        <button type="button" class="close-btn" title="Close" onclick={closeDropdown}>×</button>
         {#if value}
-          <button
-            type="button"
-            class="clear-btn"
-            title="Clear selection"
-            onclick={clearSelection}
-          >⊘</button>
+          <button type="button" class="clear-btn" title="Clear selection" onclick={clearSelection}
+            >⊘</button
+          >
         {/if}
       </div>
 
@@ -376,7 +364,13 @@
     padding: 4px 8px;
   }
   @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 </style>
