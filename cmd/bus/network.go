@@ -1017,7 +1017,7 @@ func (a *App) ConnectToServer(
 	a.mu.Unlock()
 
 	a.emitEvent("session-new", info)
-	a.emitEvent("session-messages", session.ID, session.Messages)
+	a.emitSessionMessages(session)
 
 	a.setStatus(StatusConnected, "Connected to "+addr)
 	a.addLogEntry("INFO", "Connected | addr="+addr+" session_id="+sessionID)
@@ -1248,7 +1248,7 @@ func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 		a.emitEvent("session-new", info)
 		a.addLogEntry("INFO", "New incoming connection: "+sessionID)
 	}
-	a.emitEvent("session-messages", session.ID, session.Messages)
+	a.emitSessionMessages(session)
 
 	go a.keepAliveLoop(session, session.keepAliveDone)
 	dropped, removed := a.receiveMessages(session)
@@ -1328,6 +1328,13 @@ func (a *App) finishRelayToken(session *liveSession, payload []byte) {
 	session.mu.Unlock()
 }
 
+// loadChatHistory loads into session the history that storage holds for
+// it, which a resumed session has. It counts the stored messages and
+// takes the session's last activity from them, but session keeps only
+// the newest maxLiveMessages. Storage has no query for the newest
+// entries alone, so the whole history is read into memory first, and a
+// long one costs its full size until it is trimmed. An incognito session
+// has no stored history.
 func (a *App) loadChatHistory(session *liveSession) {
 	if session.incognito {
 		return
@@ -1344,6 +1351,14 @@ func (a *App) loadChatHistory(session *liveSession) {
 	}
 
 	a.mu.Lock()
+	session.msgCount = len(entries)
+	for _, e := range entries {
+		if e.Timestamp.After(session.LastActivity) {
+			session.LastActivity = e.Timestamp
+		}
+	}
+	// The session holds only the newest messages; see maxLiveMessages.
+	entries = entries[max(0, len(entries)-maxLiveMessages):]
 	session.Messages = make([]MessageInfo, 0, len(entries))
 	for _, e := range entries {
 		session.Messages = append(session.Messages, MessageInfo{
@@ -1351,11 +1366,19 @@ func (a *App) loadChatHistory(session *liveSession) {
 			Timestamp: e.Timestamp,
 			IsLocal:   e.Sender == storage.SenderLocal,
 		})
-		if e.Timestamp.After(session.LastActivity) {
-			session.LastActivity = e.Timestamp
-		}
 	}
 	a.mu.Unlock()
+}
+
+// emitSessionMessages hands the window the messages that session holds.
+// The window reads the event after emitEvent returns, while addMessage
+// may already be shifting the session's messages, so the event carries a
+// copy of them.
+func (a *App) emitSessionMessages(session *liveSession) {
+	a.mu.RLock()
+	msgs := slices.Clone(session.Messages)
+	a.mu.RUnlock()
+	a.emitEvent("session-messages", session.ID, msgs)
 }
 
 // removeSession takes session out of the app and reports how many

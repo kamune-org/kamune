@@ -52,7 +52,7 @@ func (a *App) SendMessage(sessionID string, text string) error {
 	}
 
 	a.mu.Lock()
-	session.Messages = append(session.Messages, msg)
+	session.addMessage(msg)
 	session.LastActivity = time.Now()
 	a.mu.Unlock()
 
@@ -153,7 +153,7 @@ func (a *App) receiveMessages(session *liveSession) (dropped, removed bool) {
 		}
 
 		a.mu.Lock()
-		session.Messages = append(session.Messages, msg)
+		session.addMessage(msg)
 		session.LastActivity = time.Now()
 		isActive := a.activeSessionID == session.ID
 		a.mu.Unlock()
@@ -218,6 +218,27 @@ func connLost(err error) bool {
 	}
 	_, ok := errors.AsType[*net.OpError](err)
 	return ok
+}
+
+// maxLiveMessages caps the messages that a live session holds in memory
+// and shows. A peer can send messages as fast as the connection carries
+// them, and without a cap they would fill the memory of the app and of
+// its window. The history in storage keeps every message of a session
+// that is not incognito.
+const maxLiveMessages = 1000
+
+// addMessage adds msg to s, and drops the oldest message once s holds
+// maxLiveMessages. It shifts the messages within their array, so a
+// slice of s.Messages must not be read after a.mu is released: hand out
+// a copy, as emitSessionMessages does. The caller holds a.mu.
+func (s *liveSession) addMessage(msg MessageInfo) {
+	s.msgCount++
+	if over := len(s.Messages) + 1 - maxLiveMessages; over > 0 {
+		n := copy(s.Messages, s.Messages[over:])
+		clear(s.Messages[n:])
+		s.Messages = s.Messages[:n]
+	}
+	s.Messages = append(s.Messages, msg)
 }
 
 // notificationPreviewRunes caps how much of a message a notification

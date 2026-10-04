@@ -196,6 +196,11 @@ type liveSession struct {
 	// App.sessionIncognito.
 	incognito bool
 
+	// msgCount counts every message of the session. Messages holds only
+	// the newest maxLiveMessages of them, oldest first; see addMessage.
+	// a.mu guards both.
+	msgCount int
+
 	reconnectFn     func(sessionID string) (*kamune.Transport, error)
 	reconnectCtx    context.Context
 	reconnectCancel context.CancelFunc
@@ -214,7 +219,7 @@ func (s *liveSession) info() SessionInfo {
 		NameMismatch:     s.Identity.NameMismatch,
 		NameConflict:     s.Identity.NameConflict,
 		IsServer:         s.IsServer,
-		MsgCount:         len(s.Messages),
+		MsgCount:         s.msgCount,
 		LastActivity:     s.LastActivity,
 		TransportType:    s.TransportType,
 		RemoteVersion:    s.RemoteVersion,
@@ -1985,7 +1990,7 @@ func (a *App) GetSessionInfo(sessionID string) map[string]interface{} {
 				"peerFingerprint": s.Identity.Fingerprint,
 				"peerKey":         s.Identity.KeyB64,
 				"sessionID":       s.ID,
-				"messageCount":    len(s.Messages),
+				"messageCount":    s.msgCount,
 				"lastActivity":    s.LastActivity.Format(time.RFC3339),
 				"isServer":        s.IsServer,
 				"transportType":   s.TransportType,
