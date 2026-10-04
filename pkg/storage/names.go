@@ -136,7 +136,8 @@ func decodeSetting(v []byte) ([]byte, bool) {
 // key, with the bare value. It returns how many records it moved or
 // dropped. Records already under keyed names are left alone, so it can
 // run again after an interruption. Values that do not open are not seen,
-// and stay where they are.
+// and stay where they are: a session that holds any keeps its old
+// namespace, and so its ID in the file, for them.
 func (s *Storage) keyNames() (int, error) {
 	var changed int
 	err := s.engine.Command(func(b engine.Namespace) error {
@@ -254,7 +255,10 @@ func (s *Storage) keySettingNames(settings engine.Namespace) (int, error) {
 // keyed name, and records the ID in its meta namespace. It does nothing,
 // and reports false, when name is already the keyed name of the session
 // recorded there. Chat entries are appended to those already under the
-// keyed name, if any, and meta entries already there are kept.
+// keyed name, if any, and meta entries already there are kept. Chat
+// entries that open but do not decode are dropped, as [convertLegacyChat]
+// drops them. Values that do not open stay under name, which is removed
+// only when nothing else is left in it.
 func (s *Storage) keySessionName(b engine.Namespace, name []byte) (
 	bool, error,
 ) {
@@ -271,7 +275,9 @@ func (s *Storage) keySessionName(b engine.Namespace, name []byte) (
 		return false, err
 	}
 	meta := session.Ensure([]byte("meta"))
+	var movedMeta [][]byte
 	for k, v := range oldMeta.IterateEncrypted() {
+		movedMeta = append(movedMeta, k)
 		if string(k) == sessionIDKey {
 			continue
 		}
@@ -288,7 +294,10 @@ func (s *Storage) keySessionName(b engine.Namespace, name []byte) (
 	if err != nil {
 		return false, err
 	}
-	for k, v := range old.Sub([]byte("chat")).IterateEncrypted() {
+	oldChat := old.Sub([]byte("chat"))
+	var movedChat [][]byte
+	for k, v := range oldChat.IterateEncrypted() {
+		movedChat = append(movedChat, k)
 		entry, ok := decodeChatEntry(k, v)
 		if !ok {
 			continue
@@ -304,5 +313,40 @@ func (s *Storage) keySessionName(b engine.Namespace, name []byte) (
 			return false, err
 		}
 	}
-	return true, sessions.DeleteNamespace(name)
+
+	for _, moved := range []struct {
+		ns   engine.Namespace
+		keys [][]byte
+	}{{oldMeta, movedMeta}, {oldChat, movedChat}} {
+		for _, k := range moved.keys {
+			if err := moved.ns.Delete(k); err != nil {
+				return false, err
+			}
+		}
+	}
+	return true, removeEmptySession(sessions, name)
+}
+
+// removeEmptySession deletes the session namespace name from sessions,
+// unless something is left in it besides empty meta and chat namespaces,
+// such as values that do not open.
+func removeEmptySession(sessions engine.Namespace, name []byte) error {
+	old := sessions.Sub(name)
+	for _, sub := range []string{"meta", "chat"} {
+		if old.Sub([]byte(sub)).FirstKey() != nil {
+			continue
+		}
+		err := old.DeleteNamespace([]byte(sub))
+		if err != nil && !isMissing(err) {
+			return err
+		}
+	}
+	if old.FirstKey() != nil {
+		slog.Warn(
+			"keeping session values that do not open " +
+				"under the session's old name",
+		)
+		return nil
+	}
+	return sessions.DeleteNamespace(name)
 }
