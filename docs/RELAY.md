@@ -508,6 +508,18 @@ certificate, so when the certificate changes every client must pin the new
 fingerprint. A client that turns certificate checks off instead hands an active
 attacker the PSK and the session token (see [Threat Model](#threat-model)).
 
+The clients in this repository take the fingerprint for a `wss` or `tls` relay
+and refuse it for `ws` and `tcp`:
+
+- **daemon**: the `relay_pin` parameter of `start_server` and `dial`. A pinned
+  relay address cannot also carry `?insecure=true`. For a pinned relay server,
+  the URL that `get_share_info` returns carries the pin as `&pin=`.
+- **bus**: a `pin=` query parameter in the relay address, for example
+  `wss://relay.example:8891?pin=<fingerprint>`. With a pin, the bus trusts
+  only that certificate, whatever `insecure=` says.
+- **tui**: the Relay certificate SHA-256 fingerprint field of the relay dial
+  and relay server forms.
+
 ### Comparison
 
 | Transport | Wire fingerprint             | DPI evasion               | Use case                     |
@@ -792,14 +804,14 @@ the peer sends first, such as a chat message, is lost.
 
 ### Token Pool
 
-The 3 tokens form an ordered pool. On reconnection after session TTL expiry, the
-protocol is asymmetric:
+The 3 tokens form an ordered pool, which each peer stores with the session.
+When a relay session's connection drops, the protocol is asymmetric:
 
-- **Listener** (server side): picks the first unconsumed token from the pool and
-  registers with the relay using `MODE_CREATE(token_i)`.
-- **Dialer** (client side): searches the pool sequentially with
-  `MODE_JOIN(token_0)`, `MODE_JOIN(token_1)`, `MODE_JOIN(token_2)` until it
-  finds the matching session.
+- **Listener** (server side): registers one token at a time, the first one
+  left in its pool, with `MODE_CREATE(token_i)`.
+- **Dialer** (client side): on each reconnect attempt, tries the stored tokens
+  in order with `MODE_JOIN(token_0)`, `MODE_JOIN(token_1)`,
+  `MODE_JOIN(token_2)` until one matches.
 
 ```
 Listener: MODE_CREATE(tokens[1]) → session created     (tokens[0] consumed earlier)
@@ -809,29 +821,43 @@ Dialer:   MODE_JOIN(tokens[0])   → connection closed (no such session)
 
 The relay answers a missed `MODE_JOIN` by closing the connection, so each try
 costs the dialer a new connection and an HPKE exchange and counts against its
-rate limit (see [Rate Limiting](#rate-limiting)); the search takes at most 3
+rate limit (see [Rate Limiting](#rate-limiting)); an attempt takes at most 3
 tries. This eliminates the coordination problem: the listener picks one token,
 the dialer searches all of them. No shared counter or index agreement is needed.
 
 **Why 3 tokens (not 1 or 10):** A single token offers no retry margin — if the
 first reconnection attempt fails (network error, timing race), the session must
-cold-start. A pool of 10 wastes entropy and storage. Three tokens give the peers
-3 attempts to reconnect before pool exhaustion, with the relay's per-address
+cold-start. A pool of 10 wastes entropy and storage. Three tokens give the
+listener 3 registrations before pool exhaustion, with the relay's per-address
 rate limiter (20 connections a minute by default) limiting how fast an attacker
 could probe tokens during the rare cold-start recovery path.
 
 ### Lifecycle
 
-- **Single-use.** Each token may be consumed exactly once for relay
-  registration. Any-order, mark-on-use.
+These rules describe the bus and daemon clients in this repository.
+
+- **Single-use on the listener side.** The listener registers each token at
+  most once: it removes a token from the stored pool once the relay has
+  registered a listener with it. The daemon also removes a token whose
+  registration failed after the relay received it. The bus removes a token that
+  the relay answered with a different one, but keeps one that the relay turned
+  away without registering it, as a full relay does, and registers it again
+  later. The dialer does not use tokens up: each reconnect attempt tries every
+  stored token.
 - **Forward secrecy.** On successful resumption (new handshake, new encrypted
-  transport), both peers perform a fresh ECDH exchange. Tokens from session _k_
-  are worthless after session _k+1_'s handshake.
-- **Pool exhaustion.** When all 3 tokens are consumed, no fallback is used. The
-  session enters a cold start — the user must re-initiate the connection. After
-  a new handshake, a fresh ECDH exchange derives 3 new tokens.
-- **Expiration.** Relay tokens are valid for 7 days, longer than the 24-hour
-  resumption window because relay reconnection is less time-sensitive.
+  transport), both peers perform a fresh ECDH exchange and replace the stored
+  pool. Tokens from session _k_ are worthless after session _k+1_'s handshake.
+- **Pool exhaustion.** When no token is left, the listener registers no more,
+  and the session cannot resume through the relay. The user must re-initiate
+  the connection; the new session's handshake derives 3 new tokens.
+- **No expiry time.** A pool carries no timestamp. The listener registers its
+  tokens only within 10 minutes of the drop (see
+  [Relay Listener Reconnection](#relay-listener-reconnection)). Either peer
+  deletes its pool when the session is closed on purpose, by the user or by
+  the other peer. The server also deletes it when the session ends other than
+  by a drop, or can no longer be resumed. The bus also deletes the pool when
+  the 10 minutes pass without a resumption, and on the dialer side when the
+  session stops reconnecting; the daemon keeps it in both cases, unused.
 
 ### Security
 
@@ -843,40 +869,66 @@ could probe tokens during the rare cold-start recovery path.
 - **Limited blast radius.** The pool is only 3 tokens; after exhaustion, a fresh
   ECDH exchange with new ephemeral keys is required. This limits the number of
   sessions an attacker could establish with a compromised token.
+- **Seen by the relay.** A registered token is no secret from the relay, which
+  could join the listener with it and start a fresh kamune handshake. The bus
+  closes any session on a reconnect listener other than the one it was
+  registered for, and registers the next token. The daemon admits a fresh
+  session there as on any other listener, subject to its verifier, and then
+  registers no more reconnect listeners for the dropped session.
 
 ## Relay Listener Reconnection
 
 ### Problem
 
-When `purgeExpired()` closes both channels (session TTL expiry), or when the
-relay server restarts, the server-side relay listener is permanently lost. The
-`multiListener` goroutine for that listener exits, but no new listener is
-registered. The server continues running with fewer listeners.
+When a relay session's connection drops (the relay ends it at `session_ttl`,
+the relay restarts, or the network fails), the relay forgets its token and the
+server's listener for that session is gone. The dialer can resume the kamune
+session (see [SPEC §6.8](SPEC.md#68-session-resumption)) only if the server
+listens on the relay again under a token the dialer knows.
 
-The dialer side already handles disconnects via `reconnectSession()`, which
-retries with exponential backoff using a pre-captured closure.
+The dialer side handles drops with its reconnect loop (`reconnectSession` in
+the bus and daemon), which tries up to 10 times, waiting 1 second before the
+second attempt and doubling the wait up to 30 seconds. Each attempt tries the
+stored tokens in order (see [Token Pool](#token-pool)).
 
 ### Solution
 
-A goroutine (`relayReconnectLoop`) monitors the relay listener for death and
-re-registers it automatically using ECDH-derived tokens:
+The bus and daemon servers run one resume task (`awaitRelayResume`) for each
+relay session whose connection dropped, whichever token that session came in
+on: a token the user registered or a reconnect token. An incognito session
+gets none, as it cannot be resumed. The task:
 
-1. Monitor the relay listener for death (the `tokenTracker` reports the listener
-   is dead via a `Dead()` channel).
-2. Wait a short backoff (1–5 seconds, jittered).
-3. Pop the next unconsumed token from the stored token pool.
-4. Re-create a `RelayListener` with that token.
-5. Add the new listener to the `multiListener`.
-6. Loop back to step 1.
+1. Takes the first token left in the session's stored pool and registers a
+   listener with it, next to the server's other listeners.
+2. Removes the token from the pool (see [Lifecycle](#lifecycle)).
+3. Waits for the listener to end. When a session ran on it, the task is done;
+   in the bus that can only be the dropped session, resumed (see
+   [Security](#security)). If that session's connection drops later, it gets a
+   resume task of its own.
+4. When the listener ended unused, for example at its `token_ttl`, waits 1 to 5
+   seconds (jittered) and goes back to step 1.
+
+When a registration fails, the daemon tries the next token in the pool at once,
+and waits 1 to 5 seconds when none could be registered. The bus registers the
+first token left in the pool again after 1 second, doubling the wait with each
+failure in a row up to 30 seconds.
 
 ### Termination
 
-The loop exits when:
+The task ends when:
 
-- The server's context is cancelled (`StopServer` / `shutdown`).
-- The token pool is exhausted (all 3 tokens consumed without a successful
-  reconnection + new handshake). Pool exhaustion triggers a cold start — the
-  user must re-initiate.
+- A session ran on its listener (see step 3).
+- The server stops, or the application shuts down.
+- The user removes the reconnect token from the server's token list, or, in
+  the daemon, deletes the session from the history. The session then cannot
+  resume through the relay, and its pool is deleted.
+- Before it registers a token, the task finds that the session can no longer
+  be resumed (it has no kamune resumption tokens left, as after a close on
+  either side or once it is deleted from the history), or that no reconnect
+  token is left.
+- 10 minutes after the drop. The daemon registers no new listener after that.
+  The bus stops the live listener then, so that the relay drops its token; a
+  session already on it carries on.
 
 ## Broker: STUN-Echo and Signal Introduction
 
@@ -1013,7 +1065,9 @@ The same static-token mechanism that the relay's transports support (see
 - `NOTIFY` carries the 16-byte form, so a client compares the token in a
   `PEER_MATCHED` with the first 16 bytes of its own token, not with the whole
   32-byte token. The Go client provides `broker.WireToken` and
-  `broker.TokenMatches` for this.
+  `broker.TokenMatches` for this. The bus and daemon clients compare with
+  `broker.TokenMatches` both while a dialer waits for its match and in their
+  P2P listeners.
 
 **Design decision: peer identity = `PEER_EPH_PUB`, not source address.** The
 broker identifies the same peer by the X25519 public key it sends in REGISTER,

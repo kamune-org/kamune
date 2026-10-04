@@ -135,8 +135,13 @@ INFO tls certificate listener=tls sha256=<64 hex digits>
 ```
 
 Clients authenticate the relay by pinning that value; Go clients build the TLS
-configuration with `relayconn.PinnedTLSConfig`. A client that turns certificate
-checks off instead leaves the PSK and session tokens open to an active attacker.
+configuration with `relayconn.PinnedTLSConfig`. The clients in this repository
+take it as the daemon's `relay_pin` parameter, a `pin=` query parameter in a
+bus relay address (`wss://host:port?pin=<fingerprint>`), or the TUI's Relay
+certificate SHA-256 fingerprint field (see
+[TLS](../../docs/RELAY.md#tls-tls) in `docs/RELAY.md`). A client that turns
+certificate checks off instead leaves the PSK and session tokens open to an
+active attacker.
 
 The relay never replaces these files, so the pin stays valid across restarts.
 To rotate the certificate, remove both files; the relay creates a new one at
