@@ -19,6 +19,11 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
+// closeFrameTimeout bounds how long Transport.Close waits for its close frame
+// to be sent. It leaves room for a full frame already being written on a
+// slow link, while a peer that stops reading holds Close up only this long.
+const closeFrameTimeout = 5 * time.Second
+
 // connDropErrors are Conn read errors that mean the connection was closed
 // locally, closed by the peer, or dropped by the network.
 var connDropErrors = []error{
@@ -78,6 +83,7 @@ type Transport struct {
 	resumptionRoot []byte
 	recvSequence   uint64
 	sendSequence   uint64
+	closeTimeout   time.Duration
 	sendMu         sync.Mutex
 	recvMu         sync.Mutex
 	established    bool
@@ -90,12 +96,13 @@ func newTransport(
 	encoder, decoder *enigma.Enigma,
 ) *Transport {
 	return &Transport{
-		conn:      conn,
-		mu:        &sync.Mutex{},
-		encoder:   encoder,
-		decoder:   decoder,
-		sessionID: sessionID,
-		serde:     serde,
+		conn:         conn,
+		mu:           &sync.Mutex{},
+		encoder:      encoder,
+		decoder:      decoder,
+		sessionID:    sessionID,
+		serde:        serde,
+		closeTimeout: closeFrameTimeout,
 	}
 }
 
@@ -234,14 +241,40 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 // before closing (best-effort — if the send fails, it closes directly) and,
 // once the frame is sent, invalidates the session's resumption tokens. It
 // returns nil when Receive has already closed the transport.
+//
+// Close waits at most 5 seconds for the close frame to be sent, including
+// the wait for a Send already in progress, and then closes the connection
+// whether or not the frame went out. A peer that stops reading cannot hold
+// it up for longer. A peer that does not get the frame in time sees the
+// connection drop, as ErrConnClosed rather than ErrPeerDisconnected.
+//
+// The frame is written from a goroutine that ends when the write does.
+// Closing the connection ends a pending write on a network connection. A
+// Conn whose Close does not, such as one accepted from a relay listener,
+// which shares the listener's link to the relay, keeps that goroutine until
+// the pending write completes or the link fails.
 func (t *Transport) Close() error {
 	if t.terminated() != nil {
 		_ = t.conn.Close()
 		return nil
 	}
-	_, err := t.Send(Bytes(nil), RouteCloseTransport)
-	if err == nil {
-		t.invalidateResumptionTokens()
+
+	sent := make(chan error, 1)
+	go func() {
+		_, err := t.Send(Bytes(nil), RouteCloseTransport)
+		sent <- err
+	}()
+	timer := time.NewTimer(t.closeTimeout)
+	defer timer.Stop()
+	select {
+	case err := <-sent:
+		if err == nil {
+			t.invalidateResumptionTokens()
+		}
+	case <-timer.C:
+		// Closing the connection below ends a stuck write on a network
+		// connection, and the goroutine then returns. See the doc
+		// comment for Conns whose Close does not.
 	}
 	return t.conn.Close()
 }

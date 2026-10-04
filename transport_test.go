@@ -738,3 +738,62 @@ func TestTransportCloseDoesNotRecreateSession(t *testing.T) {
 		})
 	}
 }
+
+// stalledConn is a Conn whose writes block until it is closed, like a
+// connection to a peer that has stopped reading.
+type stalledConn struct {
+	writing   chan struct{}
+	closed    chan struct{}
+	writeOnce sync.Once
+	closeOnce sync.Once
+}
+
+func newStalledConn() *stalledConn {
+	return &stalledConn{
+		writing: make(chan struct{}),
+		closed:  make(chan struct{}),
+	}
+}
+
+func (c *stalledConn) ReadBytes() ([]byte, error) {
+	<-c.closed
+	return nil, net.ErrClosed
+}
+
+func (c *stalledConn) WriteBytes([]byte) error {
+	c.writeOnce.Do(func() { close(c.writing) })
+	<-c.closed
+	return net.ErrClosed
+}
+
+func (*stalledConn) SetDeadline(time.Time) error { return nil }
+
+func (c *stalledConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closed) })
+	return nil
+}
+
+func TestTransportCloseIsNotHeldUpByStalledSend(t *testing.T) {
+	a := require.New(t)
+	tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
+	conn := newStalledConn()
+	tr.conn = conn
+	tr.closeTimeout = 50 * time.Millisecond
+
+	sendErr := make(chan error, 1)
+	go func() {
+		_, err := tr.Send(Bytes([]byte("stuck")), RouteExchangeMessages)
+		sendErr <- err
+	}()
+	<-conn.writing
+
+	closed := make(chan error, 1)
+	go func() { closed <- tr.Close() }()
+	select {
+	case err := <-closed:
+		a.NoError(err)
+	case <-time.After(10 * time.Second):
+		a.FailNow("Close blocked behind a stalled Send")
+	}
+	a.Error(<-sendErr)
+}
