@@ -2,208 +2,135 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"time"
+	"slices"
 
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/relayconn"
+	relaybroker "github.com/kamune-org/kamune/pkg/relayconn/broker"
 )
 
-// p2pTokenRefreshInterval is how often the bus re-registers a p2p token on the
-// broker to keep it alive. The broker's default TTL is 60s, so refresh at
-// half that to leave margin.
-const p2pTokenRefreshInterval = 30 * time.Second
+// ErrNoP2PServer is returned by GenerateP2PToken when no P2P server is
+// running with the given broker: a token is only of use while a server
+// registered on its punch socket answers the peers that match it.
+var ErrNoP2PServer = errors.New(
+	"start a P2P server with this broker before generating a token",
+)
 
-// p2pToken is the bus-side view of a broker-registered signaling token. The
-// broker assigns random 16-byte tokens; the bus stores them as hex for display
-// and runs a refresh loop to keep the registration alive until RemoveP2PToken
-// or StopServer cancels it.
+// maxP2PTokens is how many tokens a P2P server's listener registers at
+// most, its own token included. The listener sends a REGISTER for each
+// token every 30 s from its punch socket, and a broker by default takes
+// 20 REGISTERs a minute from one IPv4 address and drops the rest without
+// a reply. Eight tokens cost 16 a minute, which leaves room for the first
+// REGISTER of a new token and for a dial from the same address.
+const maxP2PTokens = 8
+
+// ErrTooManyP2PTokens is returned by GenerateP2PToken when the P2P
+// server's listener already registers maxP2PTokens tokens. More would
+// exceed the broker's REGISTER quota, and the broker would drop the
+// newest tokens without a word.
+var ErrTooManyP2PTokens = fmt.Errorf(
+	"a P2P server keeps at most %d tokens: remove one first",
+	maxP2PTokens,
+)
+
+// p2pToken is the bus-side view of a token that the running P2P server's
+// listener registers with the broker. It is listed until RemoveP2PToken
+// removes it or the server stops.
 type p2pToken struct {
-	Token     string        `json:"token"`
-	Consumed  bool          `json:"consumed"`
-	TTL       time.Duration `json:"ttl"`
-	ExpiresAt time.Time     `json:"expiresAt"`
+	Token string `json:"token"`
 	// Mode is "static" when derived from a peer public key, "random"
-	// when the broker assigned the token. Used by the sidebar to
-	// group / label entries distinctly.
+	// when it was generated at random. Used by the sidebar to group /
+	// label entries distinctly.
 	Mode string `json:"mode"`
 	// PeerPubB64 is set when Mode == "static"; identifies the
 	// peer this token was derived for (so the sidebar can show the
 	// peer's name alongside the token).
-	PeerPubB64 string             `json:"peerPubB64,omitempty"`
-	brokerAddr string             `json:"-"`
-	ctx        context.Context    `json:"-"`
-	cancel     context.CancelFunc `json:"-"`
+	PeerPubB64 string `json:"peerPubB64,omitempty"`
 }
 
-// GenerateP2PToken registers a token on the broker at brokerAddr and returns
-// its hex representation. Two modes:
+// GenerateP2PToken has the running P2P server register one more token
+// with the broker at brokerAddr and returns it in hex. The server's
+// listener registers the token from its punch socket, the address the
+// broker gives a matched peer to punch to, and keeps it registered until
+// RemoveP2PToken removes it or the server stops. Two modes:
 //
-//   - Random (peerPubB64 == ""): the broker assigns a fresh random token.
-//   - Static (peerPubB64 != ""): the token is derived locally via
-//     relayconn.TokenFromKeys(myPub, peerPub) and registered with the
-//     broker. Both peers compute the same token independently, so the
-//     listener and the dialer meet on the same broker registration.
+//   - Random (peerPubB64 == ""): a fresh random token on every call, for
+//     whoever is given it. The listener cannot tell which token a peer
+//     matched on, so while a random token is registered it admits any
+//     peer, also on a server started with a static token.
+//   - Static (peerPubB64 != ""): the token derived via
+//     relayconn.TokenFromKeys(myPub, peerPub). Both peers compute it on
+//     their own, and it admits only that peer. A second call for the
+//     same peer returns the token already registered.
 //
-// The bus runs a refresh loop in the background; remove the token (or
-// stop the server) to cancel the loop.
+// It returns ErrNoP2PServer when no P2P server runs with that broker,
+// and ErrTooManyP2PTokens when the server already has maxP2PTokens.
 func (a *App) GenerateP2PToken(brokerAddr, peerPubB64 string) (string, error) {
-	if a.brokerClient == nil {
-		return "", errors.New("broker client is not initialized")
-	}
 	if brokerAddr == "" {
 		return "", errors.New("broker address is required")
+	}
+	a.mu.RLock()
+	l, _ := a.p2pListener.(*p2pListener)
+	a.mu.RUnlock()
+	if l == nil || l.brokerAddr != brokerAddr {
+		return "", ErrNoP2PServer
 	}
 
 	staticToken, err := a.deriveP2PToken(peerPubB64)
 	if err != nil {
 		return "", err
 	}
-
-	// De-duplicate: if a token for the same peer (static) or broker
-	// (random) already exists, refresh its broker registration (reset
-	// the broker's TTL) and update the local ExpiresAt, then return
-	// the existing token. The broker would self-match on re-register
-	// anyway, so the token stays the same.
-	expectedToken := ""
-	if staticToken != nil {
-		expectedToken = hex.EncodeToString(staticToken)
-	}
-	a.mu.RLock()
-	listener := a.p2pListener
-	var existing *p2pToken
-	for i := range a.p2pTokens {
-		t := &a.p2pTokens[i]
-		if t.brokerAddr != brokerAddr {
-			continue
-		}
-		if staticToken != nil {
-			if t.PeerPubB64 == peerPubB64 {
-				existing = t
-				break
-			}
-		} else {
-			if t.Mode != "static" {
-				existing = t
-				break
-			}
+	token, mode := staticToken, "static"
+	if staticToken == nil {
+		token, mode = make([]byte, relaybroker.TokenSize), "random"
+		if _, err := rand.Read(token); err != nil {
+			return "", fmt.Errorf("generate token: %w", err)
 		}
 	}
-	a.mu.RUnlock()
-	if existing != nil {
-		return existing.Token, nil
-	}
-
-	if l, ok := listener.(*p2pListener); ok && staticToken != nil {
-		if err := l.RegisterToken(staticToken); err != nil {
-			return "", fmt.Errorf("register token on punch socket: %w", err)
-		}
-		l.peers.allow(staticPeerKey(peerPubB64, staticToken))
-		hexToken := hex.EncodeToString(staticToken)
-		ptCtx, ptCancel := context.WithCancel(context.Background())
-		a.mu.Lock()
-		a.p2pTokens = append(a.p2pTokens, p2pToken{
-			Token:      hexToken,
-			Mode:       "static",
-			PeerPubB64: peerPubB64,
-			Consumed:   false,
-			TTL:        p2pTokenRefreshInterval,
-			ExpiresAt:  time.Now().Add(p2pTokenRefreshInterval),
-			brokerAddr: brokerAddr,
-			ctx:        ptCtx,
-			cancel:     ptCancel,
-		})
-		snapshot := a.p2pTokensSnapshot()
-		a.mu.Unlock()
-		a.emitEvent("p2p-tokens", snapshot)
+	hexToken := hex.EncodeToString(token)
+	if mode == "static" && a.hasP2PToken(hexToken) {
 		return hexToken, nil
 	}
 
-	client, err := a.brokerClient.Client(brokerAddr)
-	if err != nil {
-		return "", fmt.Errorf("broker client: %w", err)
+	if err := l.RegisterToken(token); err != nil {
+		if errors.Is(err, ErrTooManyP2PTokens) {
+			return "", err
+		}
+		return "", fmt.Errorf("register token on punch socket: %w", err)
 	}
-
-	claimIP, claimPort, err := client.Echo(context.Background())
-	if err != nil {
-		return "", fmt.Errorf("broker echo: %w", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	token, err := client.Register(ctx, staticToken, claimIP, claimPort)
-	if err != nil {
-		cancel()
-		return "", fmt.Errorf("broker register: %w", err)
-	}
-
-	hexToken := hex.EncodeToString(token)
-	// Sanity check: the broker should have echoed back our static
-	// token (or assigned a new random one). If it doesn't match our
-	// static derivation, log a warning.
-	if expectedToken != "" && hexToken != expectedToken {
-		a.addLogEntry("WARN",
-			"Broker assigned a different token than derived: "+
-				hexToken+" (expected "+expectedToken+")")
-	}
-	mode := "random"
-	if staticToken != nil {
-		mode = "static"
-	}
-	pt := p2pToken{
-		Token:      hexToken,
-		Mode:       mode,
-		PeerPubB64: peerPubB64,
-		TTL:        p2pTokenRefreshInterval,
-		ExpiresAt:  time.Now().Add(p2pTokenRefreshInterval),
-		brokerAddr: brokerAddr,
-		ctx:        ctx,
-		cancel:     cancel,
-	}
+	l.peers.allow(staticPeerKey(peerPubB64, staticToken))
 
 	a.mu.Lock()
-	a.p2pTokens = append(a.p2pTokens, pt)
+	if a.p2pListener != l {
+		a.mu.Unlock()
+		return "", errors.New("the server stopped while registering the token")
+	}
+	if !slices.ContainsFunc(a.p2pTokens, func(t p2pToken) bool {
+		return t.Token == hexToken
+	}) {
+		a.p2pTokens = append(a.p2pTokens, p2pToken{
+			Token: hexToken, Mode: mode, PeerPubB64: peerPubB64,
+		})
+	}
 	snapshot := a.p2pTokensSnapshot()
 	a.mu.Unlock()
 
 	a.emitEvent("p2p-tokens", snapshot)
-	if staticToken != nil {
-		a.addLogEntry("INFO", "Generated static p2p token: "+hexToken)
-	} else {
-		a.addLogEntry("INFO", "Generated p2p token: "+hexToken)
-	}
-	go a.runP2PRefresh(pt)
+	a.addLogEntry("INFO", "Generated "+mode+" p2p token: "+hexToken)
 	return hexToken, nil
 }
 
-// refreshBrokerRegistration re-sends ECHO + REGISTER on the broker to
-// reset the broker's TTL for an existing token. Used when the user
-// re-clicks Generate for a token that already exists (de-duplication
-// path). The token is either pre-derived (static) or hex-encoded
-// (random); the broker's self-match path resets the TTL without
-// changing the stored address.
-func (a *App) refreshBrokerRegistration(
-	brokerAddr, hexToken string, staticToken []byte,
-) error {
-	client, err := a.brokerClient.Client(brokerAddr)
-	if err != nil {
-		return fmt.Errorf("broker client: %w", err)
-	}
-	claimIP, claimPort, err := client.Echo(context.Background())
-	if err != nil {
-		return fmt.Errorf("broker echo: %w", err)
-	}
-	tokenBytes, err := hex.DecodeString(hexToken)
-	if err != nil {
-		return fmt.Errorf("decode token: %w", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := client.Register(ctx, tokenBytes, claimIP, claimPort); err != nil {
-		return fmt.Errorf("broker register: %w", err)
-	}
-	return nil
+// hasP2PToken reports whether the hex token is in the p2p token list.
+func (a *App) hasP2PToken(hexToken string) bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return slices.ContainsFunc(a.p2pTokens, func(t p2pToken) bool {
+		return t.Token == hexToken
+	})
 }
 
 // deriveP2PToken returns a relay token for the given peer. It prefers
@@ -254,12 +181,10 @@ func (a *App) RemoveP2PToken(token string) error {
 		a.mu.Unlock()
 		return errors.New("token not found")
 	}
-	pt := a.p2pTokens[idx]
 	a.p2pTokens = append(a.p2pTokens[:idx], a.p2pTokens[idx+1:]...)
 	snapshot := a.p2pTokensSnapshot()
 	a.mu.Unlock()
 
-	pt.cancel()
 	a.emitEvent("p2p-tokens", snapshot)
 	a.addLogEntry("INFO", "Removed p2p token: "+token)
 	return nil
@@ -279,130 +204,6 @@ func (a *App) p2pTokensSnapshot() []p2pToken {
 	out := make([]p2pToken, len(a.p2pTokens))
 	copy(out, a.p2pTokens)
 	return out
-}
-
-// runP2PRefresh re-registers the token at p2pTokenRefreshInterval until the
-// token's context is cancelled. On failure the token is removed and the loop
-// exits. An expiry timer removes the token when ExpiresAt passes; the timer
-// is rescheduled after each successful refresh.
-func (a *App) runP2PRefresh(pt p2pToken) {
-	ticker := time.NewTicker(p2pTokenRefreshInterval)
-	defer ticker.Stop()
-
-	var expiryTimer *time.Timer
-	scheduleExpiry := func() {
-		if expiryTimer != nil {
-			expiryTimer.Stop()
-		}
-		remaining := time.Until(pt.ExpiresAt)
-		if remaining <= 0 {
-			remaining = time.Second
-		}
-		expiryTimer = time.AfterFunc(remaining, func() {
-			a.removeP2PTokenByValue(pt.Token)
-		})
-	}
-	scheduleExpiry()
-	defer func() {
-		if expiryTimer != nil {
-			expiryTimer.Stop()
-		}
-	}()
-
-	for {
-		select {
-		case <-pt.ctx.Done():
-			return
-		case <-ticker.C:
-			if !a.refreshP2PToken(pt) {
-				a.removeP2PTokenByValue(pt.Token)
-				return
-			}
-			// Read the updated ExpiresAt from the stored token
-			// and reschedule the expiry timer.
-			a.mu.RLock()
-			for _, t := range a.p2pTokens {
-				if t.Token == pt.Token {
-					pt.ExpiresAt = t.ExpiresAt
-					break
-				}
-			}
-			a.mu.RUnlock()
-			scheduleExpiry()
-		}
-	}
-}
-
-// refreshP2PToken re-registers the token on the broker and updates ExpiresAt.
-// Returns false if the broker is unreachable.
-func (a *App) refreshP2PToken(pt p2pToken) bool {
-	client, err := a.brokerClient.Client(pt.brokerAddr)
-	if err != nil {
-		a.addLogEntry("ERROR",
-			"p2p token refresh: broker client: "+err.Error())
-		return false
-	}
-	tokenBytes, err := hex.DecodeString(pt.Token)
-	if err != nil {
-		a.addLogEntry("ERROR",
-			"p2p token refresh: decode token: "+err.Error())
-		return false
-	}
-	claimIP, claimPort, err := client.Echo(pt.ctx)
-	if err != nil {
-		a.addLogEntry("ERROR", "p2p token refresh: echo: "+err.Error())
-		return false
-	}
-	if _, err := client.Register(pt.ctx, tokenBytes, claimIP, claimPort); err != nil {
-		a.addLogEntry("ERROR",
-			"p2p token refresh: register: "+err.Error())
-		return false
-	}
-	a.mu.Lock()
-	for i, t := range a.p2pTokens {
-		if t.Token == pt.Token {
-			a.p2pTokens[i].ExpiresAt = time.Now().Add(p2pTokenRefreshInterval)
-			break
-		}
-	}
-	snapshot := a.p2pTokensSnapshot()
-	a.mu.Unlock()
-	a.emitEvent("p2p-tokens", snapshot)
-	return true
-}
-
-// removeP2PTokenByValue is the internal variant called when the refresh loop
-// fails and we want to drop the token without logging "user removed".
-func (a *App) removeP2PTokenByValue(token string) {
-	a.mu.Lock()
-	idx := -1
-	for i, t := range a.p2pTokens {
-		if t.Token == token {
-			idx = i
-			break
-		}
-	}
-	if idx == -1 {
-		a.mu.Unlock()
-		return
-	}
-	pt := a.p2pTokens[idx]
-	a.p2pTokens = append(a.p2pTokens[:idx], a.p2pTokens[idx+1:]...)
-	snapshot := a.p2pTokensSnapshot()
-	a.mu.Unlock()
-	pt.cancel()
-	a.emitEvent("p2p-tokens", snapshot)
-}
-
-// p2pDialer is the connect-side counterpart to a p2pToken. It represents
-// a one-shot broker registration that lives only as long as the dialer is
-// waiting for a match. It is not refreshed (the listener keeps the
-// registration alive); once the caller cancels or the context is done,
-// the dialer is forgotten.
-type p2pDialer struct {
-	brokerAddr string
-	token      string
-	cancel     context.CancelFunc
 }
 
 // RegisterP2PDialer registers as a dialer on the broker so the listener

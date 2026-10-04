@@ -87,9 +87,6 @@ export interface StatusInfo {
 
 export interface P2PToken {
   token: string;
-  consumed: boolean;
-  ttl: number;
-  expiresAt: string;
   mode: string;
   peerPubB64?: string;
 }

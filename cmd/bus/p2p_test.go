@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/relayconn"
 	relaybroker "github.com/kamune-org/kamune/pkg/relayconn/broker"
 )
@@ -68,24 +69,41 @@ func sendNotify(
 ) {
 	t.Helper()
 	a := require.New(t)
+	pkt, err := sealedNotify(plaintext, peerEphPub)
+	a.NoError(err)
+	_, err = b.conn.WriteToUDP(pkt, dst)
+	a.NoError(err)
+}
+
+// sealedNotify returns a NOTIFY packet that carries plaintext to the
+// peer whose broker key is peerEphPub.
+func sealedNotify(plaintext, peerEphPub []byte) ([]byte, error) {
 	eph, err := ecdh.X25519().GenerateKey(rand.Reader)
-	a.NoError(err)
+	if err != nil {
+		return nil, err
+	}
 	peerPub, err := ecdh.X25519().NewPublicKey(peerEphPub)
-	a.NoError(err)
+	if err != nil {
+		return nil, err
+	}
 	shared, err := eph.ECDH(peerPub)
-	a.NoError(err)
+	if err != nil {
+		return nil, err
+	}
 	key := sha256.Sum256(shared)
 	brokerEphPub := eph.PublicKey().Bytes()
 	nonce, sealed := relaybroker.SealNotify(key[:], brokerEphPub, plaintext)
-	var pkt []byte
 	switch plaintext[0] {
 	case byte(relaybroker.NotifyPeerMatched):
-		pkt = relaybroker.BuildNotifyPeerMatched(brokerEphPub, nonce, sealed)
+		return relaybroker.BuildNotifyPeerMatched(
+			brokerEphPub, nonce, sealed,
+		), nil
 	case byte(relaybroker.NotifyTokenAssigned):
-		pkt = relaybroker.BuildNotifyTokenAssigned(brokerEphPub, nonce, sealed)
+		return relaybroker.BuildNotifyTokenAssigned(
+			brokerEphPub, nonce, sealed,
+		), nil
 	}
-	_, err = b.conn.WriteToUDP(pkt, dst)
-	a.NoError(err)
+	return nil, fmt.Errorf("unknown notify type %d", plaintext[0])
 }
 
 // ---------------------------------------------------------------------------
@@ -156,40 +174,196 @@ func newTestAppForP2P(t *testing.T) *App {
 	return app
 }
 
-func TestGenerateP2PToken_AssignsAndAppends(t *testing.T) {
+// brokerRegistration is a REGISTER that serveFakeBroker received: the
+// token in its wire form, or the one it assigned, and the source.
+type brokerRegistration struct {
+	token []byte
+	src   *net.UDPAddr
+}
+
+// serveFakeBroker answers every ECHO that fb receives, assigns a token to
+// a random-mode REGISTER and reports each REGISTER on the returned
+// channel, until fb is closed at the end of the test.
+func serveFakeBroker(fb *fakeBroker) <-chan brokerRegistration {
+	regs := make(chan brokerRegistration, 64)
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			n, src, err := fb.conn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+			pkt := buf[:n]
+			if relaybroker.ParseEchoRequest(pkt) == nil {
+				resp := relaybroker.BuildEchoResponse(src)
+				_, _ = fb.conn.WriteToUDP(resp, src)
+				continue
+			}
+			token, ephPub, _, _, err := relaybroker.ParseRegister(pkt)
+			if err != nil {
+				continue
+			}
+			token = bytes.Clone(token)
+			if bytes.Equal(token, make([]byte, len(token))) {
+				if _, err := rand.Read(token); err != nil {
+					return
+				}
+				notify, err := sealedNotify(
+					relaybroker.TokenAssignedPlaintext(token, 60), ephPub,
+				)
+				if err != nil {
+					return
+				}
+				_, _ = fb.conn.WriteToUDP(notify, src)
+			}
+			regs <- brokerRegistration{token: token, src: src}
+		}
+	}()
+	return regs
+}
+
+// nextRegistration returns the next REGISTER that serveFakeBroker saw.
+func nextRegistration(
+	t *testing.T, regs <-chan brokerRegistration,
+) brokerRegistration {
+	t.Helper()
+	select {
+	case r := <-regs:
+		return r
+	case <-time.After(testWait):
+		t.Fatal("the broker got no REGISTER")
+		return brokerRegistration{}
+	}
+}
+
+// startTestP2PServer starts a p2p listener on a fake broker and makes it
+// app's running P2P listener, as StartServer does. It returns the
+// broker's address and the channel of the REGISTERs the broker gets,
+// past the listener's own.
+func startTestP2PServer(
+	t *testing.T, app *App, token []byte,
+) (*p2pListener, string, <-chan brokerRegistration) {
+	t.Helper()
+	a := require.New(t)
+	fb := newFakeBroker(t)
+	regs := serveFakeBroker(fb)
+	addr := fb.conn.LocalAddr().String()
+	l, err := newP2PListener(app.brokerClient, addr, token, "127.0.0.1:0")
+	a.NoError(err)
+	t.Cleanup(func() { _ = l.Close() })
+	own := nextRegistration(t, regs)
+	a.Equal(l.Addr().Port, own.src.Port)
+	app.mu.Lock()
+	app.p2pListener = l
+	app.p2pTokens = append(app.p2pTokens, p2pToken{
+		Token: l.Token(), Mode: "random",
+	})
+	app.mu.Unlock()
+	return l, addr, regs
+}
+
+func TestGenerateP2PToken_RequiresP2PServer(t *testing.T) {
 	a := require.New(t)
 	app := newTestAppForP2P(t)
-	fb := newFakeBroker(t)
-	addr := fb.conn.LocalAddr().String()
+	_, err := app.GenerateP2PToken("127.0.0.1:1", "")
+	a.ErrorIs(err, ErrNoP2PServer)
 
-	done := make(chan []byte, 1)
-	go func() {
-		// ECHO request from the client.
-		_, src1 := fb.readOne(t, 2*time.Second)
-		fb.respondEcho(t, src1)
-		// REGISTER packet — read it, parse the X25519 pub out, send back
-		// a NOTIFY(TOKEN_ASSIGNED).
-		buf := make([]byte, 1500)
-		_ = fb.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		n, src2, err := fb.conn.ReadFromUDP(buf)
-		a.NoError(err)
-		token, peerEphPub, _, _, err := relaybroker.ParseRegister(buf[:n])
-		a.NoError(err)
-		plaintext := relaybroker.TokenAssignedPlaintext(token, 60)
-		sendNotify(t, fb, plaintext, src2, peerEphPub)
-		done <- token
-	}()
-
-	token, err := app.GenerateP2PToken(addr, "")
+	_, addr, _ := startTestP2PServer(t, app, nil)
+	_, err = app.GenerateP2PToken("127.0.0.1:1", "")
+	a.ErrorIs(err, ErrNoP2PServer, "a server on another broker")
+	_, err = app.GenerateP2PToken(addr, "")
 	a.NoError(err)
-	expected := <-done
-	a.Equal(hex.EncodeToString(expected), token)
+}
+
+// TestGenerateP2PToken_RegistersOnPunchSocket checks that each generated
+// token is registered from the p2p listener's punch socket, the address
+// a matched peer is told to punch to, and that each random token is a
+// new one.
+func TestGenerateP2PToken_RegistersOnPunchSocket(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	var err error
+	app.brokerClient, err = NewBrokerClient()
+	a.NoError(err)
+	l, addr, regs := startTestP2PServer(t, app, nil)
+
+	seen := map[string]bool{l.Token(): true}
+	for range 2 {
+		tok, err := app.GenerateP2PToken(addr, "")
+		a.NoError(err)
+		a.False(seen[tok], "a random token must be new")
+		seen[tok] = true
+		reg := nextRegistration(t, regs)
+		a.Equal(tok, hex.EncodeToString(reg.token))
+		a.Equal(l.Addr().Port, reg.src.Port)
+	}
+
+	peer := fingerprint.Base64(newTestPubKey(t))
+	tok, err := app.GenerateP2PToken(addr, peer)
+	a.NoError(err)
+	raw, err := hex.DecodeString(tok)
+	a.NoError(err)
+	a.Len(raw, 32)
+	reg := nextRegistration(t, regs)
+	a.Equal(relaybroker.WireToken(raw), reg.token)
+	a.Equal(l.Addr().Port, reg.src.Port)
+	again, err := app.GenerateP2PToken(addr, peer)
+	a.NoError(err)
+	a.Equal(tok, again, "a peer's static token is the same")
 
 	got := app.GetP2PTokens()
-	a.Len(got, 1)
-	a.Equal(hex.EncodeToString(expected), got[0].Token)
-	a.False(got[0].Consumed)
-	a.NotZero(got[0].ExpiresAt)
+	a.Len(got, 4)
+	a.Equal("static", got[3].Mode)
+	a.Equal(peer, got[3].PeerPubB64)
+}
+
+// TestGenerateP2PToken_RefusesPastCap checks that a P2P server keeps at
+// most maxP2PTokens tokens, its own included, so that its refreshes stay
+// within a broker's default REGISTER quota. A new token past the cap is
+// refused and never sent, and a peer's listed static token is still
+// returned.
+func TestGenerateP2PToken_RefusesPastCap(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	var err error
+	app.brokerClient, err = NewBrokerClient()
+	a.NoError(err)
+	l, addr, regs := startTestP2PServer(t, app, nil)
+
+	peer := fingerprint.Base64(newTestPubKey(t))
+	static, err := app.GenerateP2PToken(addr, peer)
+	a.NoError(err)
+	for range maxP2PTokens - 2 {
+		_, err := app.GenerateP2PToken(addr, "")
+		a.NoError(err)
+	}
+	a.Len(app.GetP2PTokens(), maxP2PTokens)
+
+	_, err = app.GenerateP2PToken(addr, "")
+	a.ErrorIs(err, ErrTooManyP2PTokens)
+	other := fingerprint.Base64(newTestPubKey(t))
+	_, err = app.GenerateP2PToken(addr, other)
+	a.ErrorIs(err, ErrTooManyP2PTokens)
+	again, err := app.GenerateP2PToken(addr, peer)
+	a.NoError(err)
+	a.Equal(static, again, "a listed static token is returned")
+	a.Len(app.GetP2PTokens(), maxP2PTokens)
+
+	// The listener sent a REGISTER for each generated token and sends one
+	// for each listed token on a refresh, and none for a refused one.
+	listed := make(map[string]bool)
+	for _, pt := range app.GetP2PTokens() {
+		raw, err := hex.DecodeString(pt.Token)
+		a.NoError(err)
+		listed[hex.EncodeToString(relaybroker.WireToken(raw))] = true
+	}
+	a.NoError(l.refreshRegistration())
+	for range 2*maxP2PTokens - 1 {
+		reg := hex.EncodeToString(nextRegistration(t, regs).token)
+		a.True(listed[reg], "a refused token was registered: %s", reg)
+	}
 }
 
 func TestGenerateP2PToken_EmptyAddress(t *testing.T) {
@@ -202,9 +376,7 @@ func TestGenerateP2PToken_EmptyAddress(t *testing.T) {
 func TestRemoveP2PToken(t *testing.T) {
 	a := require.New(t)
 	app := newTestAppForP2P(t)
-	_, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	app.p2pTokens = []p2pToken{{Token: "deadbeef", cancel: cancel}}
+	app.p2pTokens = []p2pToken{{Token: "deadbeef"}}
 	err := app.RemoveP2PToken("deadbeef")
 	a.NoError(err)
 	a.Empty(app.GetP2PTokens())

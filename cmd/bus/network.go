@@ -203,7 +203,6 @@ func (a *App) StartServer(
 			// Register the p2pListener's token in a.p2pTokens so the
 			// sidebar can display it. The token was either precomputed
 			// (static mode) or captured from the broker (random mode).
-			ptCtx, ptCancel := context.WithCancel(context.Background())
 			mode := "random"
 			if peerPubB64 != "" {
 				mode = "static"
@@ -213,12 +212,6 @@ func (a *App) StartServer(
 				Token:      listener.Token(),
 				Mode:       mode,
 				PeerPubB64: peerPubB64,
-				Consumed:   false,
-				TTL:        p2pTokenRefreshInterval,
-				ExpiresAt:  time.Now().Add(p2pTokenRefreshInterval),
-				brokerAddr: brokerAddr,
-				ctx:        ptCtx,
-				cancel:     ptCancel,
 			})
 			snapshot := a.p2pTokensSnapshot()
 			a.mu.Unlock()
@@ -303,16 +296,6 @@ func (a *App) StartServer(
 	}
 	a.emitEvent("server-running", true, serverLabel)
 
-	// Auto-register a P2P token on the broker for broker-synced mode.
-	// When p2pListener is active it already registered, so skip.
-	if transport == "udp" && useP2P && useBroker &&
-		brokerAddr != "" && p2pL == nil {
-		if _, err := a.GenerateP2PToken(brokerAddr, peerPubB64); err != nil {
-			a.addLogEntry("ERROR",
-				"Failed to register p2p token: "+err.Error())
-		}
-	}
-
 	go func() {
 		defer close(done)
 		err := svr.ListenAndServe()
@@ -334,14 +317,10 @@ func (a *App) StartServer(
 		a.serverDirectPeerAddr = ""
 		a.serverUseP2P = false
 		a.serverUseBroker = false
-		p2pToCancel := a.p2pTokens
 		a.p2pTokens = make([]p2pToken, 0)
 		a.mu.Unlock()
 		if p2pL != nil {
 			_ = p2pL.Close()
-		}
-		for _, pt := range p2pToCancel {
-			pt.cancel()
 		}
 		a.emitEvent("p2p-tokens", []p2pToken{})
 		a.emitEvent("server-running", false, stopLabel)
@@ -374,14 +353,14 @@ func (a *App) StartServer(
 	return emoji, firstToken, nil
 }
 
-// dropStartListeners closes the relay and P2P listeners, and cancels the
+// dropStartListeners closes the relay and P2P listeners, and drops the
 // P2P tokens, that a StartServer which then failed set up, so that they
 // neither run on nor keep the database in use (see storageBusyLocked).
 func (a *App) dropStartListeners() {
 	a.mu.Lock()
 	ml := a.relayListeners
 	p2pL := a.p2pListener
-	p2pTokens := a.p2pTokens
+	hadP2PTokens := len(a.p2pTokens) > 0
 	a.relayListeners = nil
 	a.relayTokens = nil
 	a.relayAddr = ""
@@ -396,10 +375,7 @@ func (a *App) dropStartListeners() {
 	if p2pL != nil {
 		_ = p2pL.Close()
 	}
-	for _, pt := range p2pTokens {
-		pt.cancel()
-	}
-	if len(p2pTokens) > 0 {
+	if hadP2PTokens {
 		a.emitEvent("p2p-tokens", []p2pToken{})
 	}
 }

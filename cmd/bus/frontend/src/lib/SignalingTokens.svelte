@@ -73,16 +73,6 @@
     if (t.length <= 16) return t;
     return t.slice(0, 8) + '…';
   }
-
-  function formatExpiry(token) {
-    if (!token.expiresAt) return '';
-    const ms = new Date(token.expiresAt).getTime() - Date.now();
-    if (ms <= 0) return 'expired';
-    const s = Math.floor(ms / 1000);
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    return `${m}m ${s % 60}s`;
-  }
 </script>
 
 <div class="signaling-tokens-section">
@@ -180,9 +170,8 @@
       {:else}
         <div class="st-list">
           {#each $p2pTokens as pt (pt.token)}
-            {@const expiry = formatExpiry(pt)}
-            <div class="st-item" class:consumed={pt.consumed}>
-              <span class="st-dot" class:filled={pt.consumed}></span>
+            <div class="st-item">
+              <span class="st-dot"></span>
               <div class="st-item-main">
                 <span
                   class="st-item-token"
@@ -205,9 +194,6 @@
                   {/if}
                 </span>
               </div>
-              {#if expiry}
-                <span class="st-expiry" class:expired={expiry === 'expired'}>{expiry}</span>
-              {/if}
               <button
                 class="st-rm-btn"
                 title="Remove token"
@@ -371,9 +357,6 @@
     border-radius: var(--border-radius);
     font-size: 11px;
   }
-  .st-item.consumed {
-    opacity: 0.6;
-  }
   .st-dot {
     width: 6px;
     height: 6px;
@@ -381,9 +364,6 @@
     background: transparent;
     border: 1px solid var(--text-muted);
     flex-shrink: 0;
-  }
-  .st-dot.filled {
-    background: var(--text-muted);
   }
   .st-item-main {
     flex: 1;
@@ -426,14 +406,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 100px;
-  }
-  .st-expiry {
-    font-size: 10px;
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .st-expiry.expired {
-    color: var(--danger);
   }
   .st-rm-btn {
     background: transparent;

@@ -3,7 +3,7 @@ export const welcomeTips = [
   'Start a server to let peers find you',
   'UDP hole punching lets you connect directly — no port forwarding needed',
   'Relay mode works through firewalls — no setup required',
-  'Static tokens are linked to your identity — random tokens are one-time and unlinkable.',
+  "Static tokens are derived from both peers' keys — random relay tokens work once, random P2P tokens until you remove them.",
   'Check the Peers tab to manage your contacts',
   { text: 'Toggle the server on/off with', key: 'S' },
   'Use the Share Card to send your connection info to a peer',

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
@@ -208,8 +210,29 @@ func (l *p2pListener) refreshLoop() {
 	}
 }
 
-// RegisterToken registers an additional token from the punch socket.
+// RegisterToken registers an additional token from the punch socket. A
+// token is refused with ErrTooManyP2PTokens, and not sent, while the
+// listener registers maxP2PTokens tokens, its own included.
 func (l *p2pListener) RegisterToken(token []byte) error {
+	l.tokenMu.Lock()
+	if 1+len(l.extraTokens) >= maxP2PTokens {
+		l.tokenMu.Unlock()
+		return ErrTooManyP2PTokens
+	}
+	l.extraTokens = append(l.extraTokens, token)
+	l.tokenMu.Unlock()
+	if err := l.sendRegister(token); err != nil {
+		l.tokenMu.Lock()
+		l.extraTokens = slices.DeleteFunc(l.extraTokens,
+			func(t []byte) bool { return bytes.Equal(t, token) })
+		l.tokenMu.Unlock()
+		return err
+	}
+	return nil
+}
+
+// sendRegister sends a REGISTER for token from the punch socket.
+func (l *p2pListener) sendRegister(token []byte) error {
 	brokerUDPAddr, err := net.ResolveUDPAddr("udp4", l.brokerAddr)
 	if err != nil {
 		return fmt.Errorf("resolve broker: %w", err)
@@ -228,9 +251,6 @@ func (l *p2pListener) RegisterToken(token []byte) error {
 	if _, err := l.conn.WriteToUDP(pkt, brokerUDPAddr); err != nil {
 		return fmt.Errorf("send register: %w", err)
 	}
-	l.tokenMu.Lock()
-	l.extraTokens = append(l.extraTokens, token)
-	l.tokenMu.Unlock()
 	return nil
 }
 
