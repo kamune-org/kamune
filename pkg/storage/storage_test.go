@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	bolt "go.etcd.io/bbolt"
 
+	"github.com/kamune-org/kamune/internal/clock"
 	"github.com/kamune-org/kamune/pkg/attest"
 )
 
@@ -543,11 +544,48 @@ func TestGetChatHistorySupportsLegacyAndMalformedEntries(t *testing.T) {
 			Sender:    SenderLocal,
 		},
 		{
-			Timestamp: versionedTime,
+			Timestamp: time.Unix(0, 300),
+			SentAt:    versionedTime,
 			Data:      []byte("versioned"),
 			Sender:    SenderPeer,
 		},
 	}, entries)
+}
+
+// TestGetChatHistoryIgnoresSenderTimestampForOrder stores a peer reply
+// whose sender timestamp claims it came before the local question, and
+// checks that history keeps the order the messages were stored in.
+func TestGetChatHistoryIgnoresSenderTimestampForOrder(t *testing.T) {
+	a := require.New(t)
+	start := time.Date(2026, 1, 2, 22, 14, 21, 0, time.UTC)
+	clk := clock.NewFake(start)
+	s, err := OpenStorage(
+		WithDBPath(filepath.Join(t.TempDir(), "db")),
+		WithNoPassphrase(),
+		WithClock(clk),
+	)
+	a.NoError(err)
+	defer s.Close()
+
+	att, err := attest.New()
+	a.NoError(err)
+	a.NoError(s.StorePeer(&Peer{Name: "peer", PublicKey: att.MarshalPublicKey()}))
+	a.NoError(s.CreateSession("sess", att.MarshalPublicKey()))
+
+	a.NoError(s.AddChatEntry(
+		"sess", []byte("should I wire the money?"), start, SenderLocal,
+	))
+	clk.Advance(time.Second)
+	forged := start.Add(-time.Hour)
+	a.NoError(s.AddChatEntry("sess", []byte("NO"), forged, SenderPeer))
+
+	entries, err := s.GetChatHistory("sess")
+	a.NoError(err)
+	a.Len(entries, 2)
+	a.Equal([]byte("should I wire the money?"), entries[0].Data)
+	a.Equal([]byte("NO"), entries[1].Data)
+	a.True(entries[1].Timestamp.Equal(start.Add(time.Second)))
+	a.True(entries[1].SentAt.Equal(forged))
 }
 
 func chatKey(timestamp time.Time, sender Sender, suffix uint32) []byte {
@@ -589,14 +627,16 @@ func FuzzDecodeChatEntry(f *testing.F) {
 			a.Equal(Sender(binary.BigEndian.Uint16(key[8:10])), entry.Sender)
 
 			wantTimestamp := int64(binary.BigEndian.Uint64(key[:8]))
+			var wantSentAt time.Time
 			wantData := value
 			if bytes.HasPrefix(value, valueMagic) {
 				offset := len(valueMagic)
-				wantTimestamp = int64(binary.BigEndian.Uint64(value[offset : offset+8]))
+				wantSentAt = time.Unix(0, int64(binary.BigEndian.Uint64(value[offset:offset+8])))
 				wantData = value[offset+8:]
 			}
 			wantData = bytes.Clone(wantData)
 			a.Equal(time.Unix(0, wantTimestamp), entry.Timestamp)
+			a.Equal(wantSentAt, entry.SentAt)
 			a.Equal(wantData, entry.Data)
 
 			if len(value) > 0 {

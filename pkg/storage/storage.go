@@ -74,9 +74,15 @@ const (
 
 // ChatEntry represents a decrypted chat message stored in the DB.
 type ChatEntry struct {
+	// Timestamp is when the message was stored, by the local clock. History
+	// is ordered by it.
 	Timestamp time.Time
-	Data      []byte
-	Sender    Sender
+	// SentAt is the time the sender put on the message. A peer can set it
+	// to anything, so it is only for display and never orders history. It
+	// is zero for entries stored without it.
+	SentAt time.Time
+	Data   []byte
+	Sender Sender
 }
 
 type PassphraseHandler func() ([]byte, error)
@@ -295,10 +301,12 @@ func sessionMetaEnsure(
 //   - 2 bytes: sender ID (big-endian; 0 means local user, 1 means remote user)
 //   - 4 bytes: random suffix to avoid collision
 //
-// Versioned entries use the sender's original timestamp from the value envelope
-// (5-byte magic + 8-byte timestamp + payload). Legacy entries store only the
-// payload and use the local receive timestamp from the key. Malformed versioned
-// entries are skipped. Results are sorted by timestamp then sender.
+// Each entry's Timestamp is the local time from its key. Versioned entries
+// also carry the sender's timestamp in the value envelope (5-byte magic +
+// 8-byte timestamp + payload), returned as SentAt. Legacy entries store
+// only the payload. Malformed versioned entries are skipped. Results are
+// sorted by Timestamp then sender, so a peer cannot reorder history by
+// the time it puts on its messages.
 func (s *Storage) GetChatHistory(sessionID string) ([]ChatEntry, error) {
 	var entries []ChatEntry
 	err := s.engine.Query(func(b engine.Namespace) error {
@@ -341,7 +349,7 @@ func decodeChatEntry(key, value []byte) (ChatEntry, bool) {
 			return ChatEntry{}, false
 		}
 		offset := len(valueMagic)
-		entry.Timestamp = time.Unix(
+		entry.SentAt = time.Unix(
 			0, int64(binary.BigEndian.Uint64(value[offset:offset+8])),
 		)
 		entry.Data = value[offset+8:]
@@ -587,8 +595,9 @@ func (s *Storage) DeleteSession(sessionID string) error {
 //   - 8 bytes: sender's original UnixNano timestamp (big-endian)
 //   - remaining: message payload
 //
-// The ts parameter is the sender's original timestamp and is preserved in
-// the value for display, separate from the ordering key.
+// The ts parameter is the sender's original timestamp. It is preserved in
+// the value and returned as [ChatEntry.SentAt] for display, separate from
+// the ordering key.
 func (s *Storage) AddChatEntry(
 	sessionID string, payload []byte, ts time.Time, sender Sender,
 ) error {
