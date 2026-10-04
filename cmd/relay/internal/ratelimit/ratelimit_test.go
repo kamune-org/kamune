@@ -119,3 +119,17 @@ func TestHighQuota(t *testing.T) {
 		a.True(rl.Allow("1.2.3.4"), "attempt %d denied with quota=%d", i+1, n)
 	}
 }
+
+func TestNewKeyDoesNotReserveQuota(t *testing.T) {
+	a := require.New(t)
+	const quota = 1 << 20
+	rl := New(quota, time.Minute, 100)
+	a.True(rl.Allow("1.2.3.4"))
+	stamps, ok := rl.lru.Get("1.2.3.4")
+	a.True(ok)
+	a.Len(stamps, 1)
+	a.Less(
+		cap(stamps), 64,
+		"one request must not reserve room for the whole quota",
+	)
+}

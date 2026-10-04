@@ -29,10 +29,10 @@ func (rl *RateLimiter) Allow(key string) bool {
 	now := time.Now()
 	cutoff := now.Add(-rl.window)
 
-	stamps, ok := rl.lru.Get(key)
-	if !ok {
-		stamps = make([]time.Time, 0, rl.quota)
-	}
+	// A new key starts with no history and grows it one stamp at a time.
+	// Sizing it to quota up front cost 24*quota bytes per address that
+	// sent a single request, which a high quota turns into gigabytes.
+	stamps, _ := rl.lru.Get(key)
 
 	i := 0
 	for i < len(stamps) && !stamps[i].After(cutoff) {
