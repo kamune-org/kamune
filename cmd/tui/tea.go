@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
@@ -503,8 +504,8 @@ func (m *model) enterChat() (tea.Model, tea.Cmd) {
 	m.vp = vp
 	m.vp.SetContent("Session ID is " + m.transport.SessionID() + ". Loading history…")
 
-	m.startReceiving()
 	m.pongCh = make(chan []byte, 1)
+	m.startReceiving()
 	m.keepAliveDone = make(chan struct{})
 	go m.keepAliveLoop()
 	if !m.sessionExpiry.IsZero() {
@@ -540,47 +541,63 @@ func loadChatHistory(m *model) tea.Cmd {
 }
 
 func (m *model) startReceiving() {
-	go func() {
-		for {
-			b := kamune.Bytes(nil)
-			metadata, err := m.transport.Receive(b)
-			if err != nil {
-				switch {
-				case errors.Is(err, kamune.ErrPeerDisconnected):
-					m.program.Send(peerDisconnectedMsg{})
-					return
-				case errors.Is(err, kamune.ErrConnClosed):
-					m.program.Send(peerDisconnectedMsg{})
-					return
-				case errors.Is(err, kamune.ErrReceiveTimeout):
-					continue
-				default:
-					m.program.Send(receiveErrorMsg{err})
-					return
-				}
-			}
+	go receiveLoop(m.transport, m.pongCh, m.program.Send)
+}
 
-			// Handle protocol-level routes before treating as chat.
-			switch metadata.Route() {
-			case kamune.RoutePing:
-				_, _ = m.transport.Send(kamune.Bytes(b.GetValue()), kamune.RoutePong)
+// receiveLoop reads frames from t and passes what they mean to send until
+// the transport fails or the peer leaves. Only RouteExchangeMessages frames
+// are chat. Pings are answered and pongs go to pongCh. Frames on other
+// routes, such as the RouteSessionData frame that bus and the daemon send
+// to set up relay tokens, are of no use to the TUI and are dropped.
+func receiveLoop(
+	t *kamune.Transport, pongCh chan<- []byte, send func(tea.Msg),
+) {
+	for {
+		metadata, payload, err := t.ReceivePayload()
+		if err != nil {
+			switch {
+			case errors.Is(err, kamune.ErrPeerDisconnected),
+				errors.Is(err, kamune.ErrConnClosed):
+				send(peerDisconnectedMsg{})
+				return
+			case errors.Is(err, kamune.ErrReceiveTimeout):
 				continue
-			case kamune.RoutePong:
-				select {
-				case m.pongCh <- b.GetValue():
-				default:
-				}
-				continue
+			default:
+				send(receiveErrorMsg{err})
+				return
 			}
+		}
 
-			text := string(b.GetValue())
-			m.program.Send(chatMessageMsg{
+		route := metadata.Route()
+		switch route {
+		case kamune.RouteExchangeMessages, kamune.RoutePing,
+			kamune.RoutePong:
+		default:
+			slog.Debug("dropping frame", slog.String("route", route.String()))
+			continue
+		}
+		b := kamune.Bytes(nil)
+		if err := proto.Unmarshal(payload, b); err != nil {
+			send(receiveErrorMsg{fmt.Errorf("decoding %s: %w", route, err)})
+			continue
+		}
+
+		switch route {
+		case kamune.RoutePing:
+			_, _ = t.Send(kamune.Bytes(b.GetValue()), kamune.RoutePong)
+		case kamune.RoutePong:
+			select {
+			case pongCh <- b.GetValue():
+			default:
+			}
+		default:
+			send(chatMessageMsg{
 				sender: storage.SenderPeer,
-				text:   text,
+				text:   string(b.GetValue()),
 				time:   metadata.Timestamp(),
 			})
 		}
-	}()
+	}
 }
 
 // keepAliveLoop sends periodic pings to detect dead connections. After
