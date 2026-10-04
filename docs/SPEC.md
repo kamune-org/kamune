@@ -1314,7 +1314,10 @@ Server flow per connection:
 
 Common implementation parameters include:
 
-- **Handshake timeout**: 30 seconds for the network steps of the handshake.
+- **Introduction timeout**: 10 seconds for an accepted connection to complete
+  the Exchange and send its `Introduce` or `ResumeRequest`, the steps the
+  initiator takes without waiting for anyone.
+- **Handshake timeout**: 30 seconds for the network steps after that.
 - **Verify timeout**: 150 seconds for the remote verifier (§6.2). After its
   own verifier, the responder allows the handshake timeout plus the verify
   timeout for the rest of the handshake, since the initiator runs its verifier
@@ -1324,6 +1327,31 @@ Common implementation parameters include:
   relay, or any other transport satisfying the connection contract (§9.4).
 - **Session handler**: A user-supplied callback invoked once per established
   session, receiving the `Transport`.
+
+The reference implementation also limits connections that have not finished
+their handshake, while it keeps accepting new ones:
+
+- **Waiting connections**: at most 256 accepted connections may wait for their
+  introduction at once. When another arrives at that cap, the server groups
+  the waiting connections by network (an IPv4 /24 or an IPv6 /48), takes the
+  networks with the most of them, the new one counted, and closes the oldest
+  waiting connection of one of those networks, picked at random. A connection
+  that has sent its `Introduce` or `ResumeRequest` no longer counts and is
+  never closed this way.
+- **Per-source limit**: at most 16 connections from one source (an IPv4
+  address, or an IPv6 /64) may be in the handshake at once, verification
+  included; a connection over the limit is closed when it is accepted. Over
+  UDP, where a source address can be forged, a connection counts only from its
+  introduction, which needs the server's reply. Connections that report no
+  remote address, such as relay connections, are not limited.
+- **Accept errors**: after an accept error the server waits before it accepts
+  again, starting at 5 ms and doubling up to 1 second.
+
+These limits leave two gaps. Over UDP a sender that forges source addresses
+from many networks can still push out an initiator that has not introduced
+itself yet. Nothing limits, across sources, the connections past their
+introduction or the verifier calls running at once, so an application whose
+verifier prompts a user should limit its open prompts itself.
 
 ### 10.2 Initiator Role
 
@@ -1681,35 +1709,38 @@ is one of `frameTargetSize` − 1 bytes, which no user message reaches (§4.1).
 
 ## 13. Constants and Limits
 
-| Constant                   | Value                                  | Description                                                                                                             |
-| -------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `maxTransportSize`         | 61,375 bytes (~60 KiB)                 | Maximum user-message size: `maxFrameSize` minus a reserved protocol overhead.                                           |
-| `reservedProtocolOverhead` | 4,096 bytes (4 KiB)                    | Reserved bytes per message for signature + metadata + padding + AEAD tag.                                               |
-| `wireFormatMax`            | 65,535 bytes                           | Wire format's hard upper bound (uint16 max); receivers accept frames up to this size                                    |
-| `maxFrameSize`             | 65,471 bytes                           | Largest frame a sender emits: `wireFormatMax` minus `transportReserve`                                                  |
-| `transportReserve`         | 64 bytes                               | Headroom below `wireFormatMax` for a transport that wraps each frame, such as the relay                                 |
-| `paddingBuckets`           | {512, 1024, 4096, 16384, 32768, 65431} | Bucketed padding target sizes (pre-encryption). See §12.7.                                                              |
-| `bumpProbabilities`        | {80%, 15%, 4%, 1%}                     | Cross-bucket bump distribution (stay, +1, +2, +3). See §12.7.                                                           |
-| `handshakeSaltSize`        | 16 bytes                               | Size of random salts for handshake key derivation                                                                       |
-| `handshakeChallengeSize`   | 32 bytes                               | Size of handshake challenge tokens                                                                                      |
-| `sessionIDLength`          | 24 characters                          | Total session-ID length (12 prefix + 12 suffix)                                                                         |
-| `base32Alphabet`           | `ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`     | Base32 alphabet used for session-ID halves: A-Z and 2-7, so it has O and I but not 0, 1, 8 or 9                         |
-| `nonceSize`                | 24 bytes                               | XChaCha20-Poly1305 nonce size                                                                                           |
-| `keySize`                  | 32 bytes                               | ChaCha20-Poly1305 / HKDF output key size                                                                                |
-| `defaultReadTimeout`       | 5 minutes                              | Default read deadline applied to the underlying transport                                                               |
-| `defaultWriteTimeout`      | 1 minute                               | Default write deadline applied to the underlying transport                                                              |
-| `closeFrameTimeout`        | 5 seconds                              | Longest time a closing peer waits for its close message to be written (§6.6)                                            |
-| `defaultDialTimeout`       | 10 seconds                             | Default connection establishment timeout                                                                                |
-| `defaultPeerExpiry`        | 7 days                                 | Default peer identity expiration                                                                                        |
-| `lengthPrefixSize`         | 2 bytes                                | Size of the big-endian message length header                                                                            |
-| `sessionPrefixLength`      | 12 characters                          | Length of the session-ID prefix emitted by the initiator                                                                |
-| `sessionSuffixLength`      | 12 characters                          | Length of the session-ID suffix emitted by the responder                                                                |
-| `defaultHandshakeTimeout`  | 30 seconds                             | Time allowed for the network steps of a handshake; the remote verifier has its own limit                                |
-| `defaultVerifyTimeout`     | 150 seconds                            | Time allowed for the remote verifier                                                                                    |
-| `pingDataSize`             | 8 bytes                                | Size of the random token in each ping message                                                                           |
-| `resumptionGracePeriod`    | 24 hours                               | Time window after a session's cold handshake during which its resumption tokens are valid; resuming does not extend it  |
-| `resumptionTokenCount`     | 20                                     | Number of resumption tokens derived per session                                                                         |
-| `resumptionTokenSize`      | 32 bytes                               | Size of each resumption token (HKDF-SHA512 output)                                                                      |
+| Constant                      | Value                                  | Description                                                                                                            |
+| ----------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `maxTransportSize`            | 61,375 bytes (~60 KiB)                 | Maximum user-message size: `maxFrameSize` minus a reserved protocol overhead.                                          |
+| `reservedProtocolOverhead`    | 4,096 bytes (4 KiB)                    | Reserved bytes per message for signature + metadata + padding + AEAD tag.                                              |
+| `wireFormatMax`               | 65,535 bytes                           | Wire format's hard upper bound (uint16 max); receivers accept frames up to this size                                   |
+| `maxFrameSize`                | 65,471 bytes                           | Largest frame a sender emits: `wireFormatMax` minus `transportReserve`                                                 |
+| `transportReserve`            | 64 bytes                               | Headroom below `wireFormatMax` for a transport that wraps each frame, such as the relay                                |
+| `paddingBuckets`              | {512, 1024, 4096, 16384, 32768, 65431} | Bucketed padding target sizes (pre-encryption). See §12.7.                                                             |
+| `bumpProbabilities`           | {80%, 15%, 4%, 1%}                     | Cross-bucket bump distribution (stay, +1, +2, +3). See §12.7.                                                          |
+| `handshakeSaltSize`           | 16 bytes                               | Size of random salts for handshake key derivation                                                                      |
+| `handshakeChallengeSize`      | 32 bytes                               | Size of handshake challenge tokens                                                                                     |
+| `sessionIDLength`             | 24 characters                          | Total session-ID length (12 prefix + 12 suffix)                                                                        |
+| `base32Alphabet`              | `ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`     | Base32 alphabet used for session-ID halves: A-Z and 2-7, so it has O and I but not 0, 1, 8 or 9                        |
+| `nonceSize`                   | 24 bytes                               | XChaCha20-Poly1305 nonce size                                                                                          |
+| `keySize`                     | 32 bytes                               | ChaCha20-Poly1305 / HKDF output key size                                                                               |
+| `defaultReadTimeout`          | 5 minutes                              | Default read deadline applied to the underlying transport                                                              |
+| `defaultWriteTimeout`         | 1 minute                               | Default write deadline applied to the underlying transport                                                             |
+| `closeFrameTimeout`           | 5 seconds                              | Longest time a closing peer waits for its close message to be written (§6.6)                                           |
+| `defaultDialTimeout`          | 10 seconds                             | Default connection establishment timeout                                                                               |
+| `defaultPeerExpiry`           | 7 days                                 | Default peer identity expiration                                                                                       |
+| `lengthPrefixSize`            | 2 bytes                                | Size of the big-endian message length header                                                                           |
+| `sessionPrefixLength`         | 12 characters                          | Length of the session-ID prefix emitted by the initiator                                                               |
+| `sessionSuffixLength`         | 12 characters                          | Length of the session-ID suffix emitted by the responder                                                               |
+| `defaultHandshakeTimeout`     | 30 seconds                             | Time allowed for the network steps of a handshake; the remote verifier has its own limit                               |
+| `defaultIntroTimeout`         | 10 seconds                             | Time a responder allows an accepted connection to send its `Introduce` or `ResumeRequest`                              |
+| `defaultVerifyTimeout`        | 150 seconds                            | Time allowed for the remote verifier                                                                                   |
+| `defaultMaxPendingHandshakes` | 256                                    | Accepted connections that may wait for their introduction at once (§10.1)                                              |
+| `defaultMaxPendingPerSource`  | 16                                     | Connections from one source that may be in the handshake at once (§10.1)                                               |
+| `pingDataSize`                | 8 bytes                                | Size of the random token in each ping message                                                                          |
+| `resumptionGracePeriod`       | 24 hours                               | Time window after a session's cold handshake during which its resumption tokens are valid; resuming does not extend it |
+| `resumptionTokenCount`        | 20                                     | Number of resumption tokens derived per session                                                                        |
+| `resumptionTokenSize`         | 32 bytes                               | Size of each resumption token (HKDF-SHA512 output)                                                                     |
 
 ---
 
