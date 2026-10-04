@@ -88,6 +88,9 @@ func FuzzPreAuthEnvelopeValidation(f *testing.F) {
 				return
 			case tamperSignature:
 				a.ErrorIs(receiveErr, ErrInvalidSignature)
+			case ValidatePeerName(text) != nil:
+				a.ErrorIs(receiveErr, ErrInvalidPeerName)
+				a.Nil(peer)
 			default:
 				a.NoError(receiveErr)
 				a.NotNil(peer)

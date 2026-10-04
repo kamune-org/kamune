@@ -930,9 +930,15 @@ func NewServer(
 // causes [NewServer] to fail immediately with that error.
 type ServerOptions func(*Server) error
 
-// ServeWithServerName sets the server's advertised name.
+// ServeWithServerName sets the server's advertised name. The name must pass
+// [ValidatePeerName], or [NewServer] fails, since peers reject an
+// introduction with such a name. An empty name stands for the default, the
+// [fingerprint.Sum] of the server's public key.
 func ServeWithServerName(name string) ServerOptions {
 	return func(s *Server) error {
+		if err := ValidatePeerName(name); err != nil {
+			return fmt.Errorf("server name: %w", err)
+		}
 		s.serverName = name
 		return nil
 	}

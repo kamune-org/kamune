@@ -302,9 +302,15 @@ func DialWithDialTimeout(timeout time.Duration) DialOption {
 	}
 }
 
-// DialWithClientName sets the client's advertised name.
+// DialWithClientName sets the client's advertised name. The name must pass
+// [ValidatePeerName], or [NewDialer] fails, since peers reject an
+// introduction with such a name. An empty name stands for the default, the
+// [fingerprint.Sum] of the dialer's public key.
 func DialWithClientName(name string) DialOption {
 	return func(d *Dialer) error {
+		if err := ValidatePeerName(name); err != nil {
+			return fmt.Errorf("client name: %w", err)
+		}
 		d.clientName = name
 		return nil
 	}

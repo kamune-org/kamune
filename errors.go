@@ -37,6 +37,9 @@ var (
 	// ErrResumptionRejected is returned when a ResumeRequest is rejected by the
 	//  responder (session not found, expired, token invalid, etc.).
 	ErrResumptionRejected = errors.New("resumption rejected")
+	// ErrInvalidPeerName is returned when a peer's name, local or received
+	// in an introduction, fails [ValidatePeerName].
+	ErrInvalidPeerName = errors.New("invalid peer name")
 	// ErrMissingStorage is returned by NewServer and NewDialer when they are
 	// given a nil storage.
 	ErrMissingStorage = errors.New("storage is required")
