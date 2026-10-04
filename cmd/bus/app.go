@@ -23,6 +23,7 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/zalando/go-keyring"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 type ver struct {
@@ -318,6 +319,11 @@ type App struct {
 	unlockMu sync.Mutex
 	// noPassphrase is set while the open database has no passphrase.
 	noPassphrase bool
+	// storageErr says why the last unlock with a saved passphrase failed.
+	storageErr string
+	// dbTimeout bounds the wait for a database another process holds.
+	// Zero keeps the storage default.
+	dbTimeout    time.Duration
 	storageReady bool
 	pubKey       []byte
 	myName       string
@@ -410,7 +416,7 @@ func (a *App) store() *storage.Storage {
 
 // openDB opens the database at path with passphrase. create says whether
 // a database that does not exist yet is created.
-func openDB(
+func (a *App) openDB(
 	path string, passphrase []byte, create bool,
 ) (*storage.Storage, error) {
 	return storage.OpenStorage(
@@ -419,7 +425,50 @@ func openDB(
 			return passphrase, nil
 		}),
 		storage.WithCreateDB(create),
+		storage.WithTimeout(a.dbTimeout),
 	)
+}
+
+// ErrNoSavedPassphrase is returned by UnlockWithSavedPassphrase when the
+// keychain holds no passphrase for the database.
+var ErrNoSavedPassphrase = errors.New(
+	"no passphrase is saved in the keychain for this database",
+)
+
+// unlockError is a failure to open the database, with a message for the
+// user. It wraps the storage error.
+type unlockError struct {
+	msg string
+	err error
+}
+
+func (e *unlockError) Error() string { return e.msg }
+func (e *unlockError) Unwrap() error { return e.err }
+
+// describeOpenError returns err, an error from opening the database, with
+// a message that says what went wrong.
+func describeOpenError(err error) error {
+	var msg string
+	switch {
+	case errors.Is(err, storage.ErrWrongPassphrase):
+		msg = "Wrong passphrase"
+	case errors.Is(err, bolterrors.ErrTimeout):
+		msg = "The database is in use by another program, such as the " +
+			"Kamune TUI, the daemon or another Bus window. Close it and " +
+			"try again"
+	case errors.Is(err, os.ErrNotExist):
+		msg = "There is no database at this path"
+	case errors.Is(err, storage.ErrCorruptMetadata):
+		msg = "The database's key data is missing or damaged"
+	case errors.Is(err, storage.ErrInsecurePermissions):
+		msg = "Other users can access the database file, and its " +
+			"permissions could not be restricted"
+	case errors.Is(err, storage.ErrUnsupportedFormat):
+		msg = "The database was written by a newer version of Kamune"
+	default:
+		msg = "Could not open the database: " + err.Error()
+	}
+	return &unlockError{msg: msg, err: err}
 }
 
 // ErrStorageBusy is returned when the database would change while the
@@ -491,7 +540,6 @@ func (a *App) unlockDB(path string, passphrase []byte, create bool) error {
 	if path == "" {
 		return errors.New("no database path")
 	}
-	path = filepath.Clean(path)
 
 	a.unlockMu.Lock()
 	defer a.unlockMu.Unlock()
@@ -500,7 +548,7 @@ func (a *App) unlockDB(path string, passphrase []byte, create bool) error {
 		return err
 	}
 
-	store, err := openDB(path, passphrase, create)
+	store, err := a.openDB(path, passphrase, create)
 	if err != nil {
 		return err
 	}
@@ -586,28 +634,9 @@ func (a *App) ServiceStartup(
 	case err != nil:
 		a.addLogEntry("WARN", "Keychain lookup failed: "+err.Error())
 	default:
-		// The saved passphrase opens an existing database only. A
-		// missing one is created once the user chooses a passphrase.
-		storeErr := a.unlockDB(a.dbPath, []byte(passphrase), false)
-		if storeErr == nil {
-			if passphrase == "" {
-				a.addLogEntry("WARN", "Opened database without a "+
-					"passphrase, as saved in the keychain: anyone "+
-					"who can read its file can read it")
-			} else {
-				a.addLogEntry("INFO", "Loaded passphrase from keychain")
-			}
-			a.initFromStorage()
+		if a.unlockSaved(a.dbPath, passphrase) == nil {
 			return nil
 		}
-		if errors.Is(storeErr, os.ErrNotExist) {
-			a.addLogEntry("WARN", "No database at "+a.dbPath)
-			break
-		}
-
-		_ = keyring.Delete(keychainService, keychainAccount(a.dbPath))
-		a.addLogEntry("WARN",
-			"Keychain passphrase is invalid, clearing and prompting")
 	}
 
 	a.addLogEntry("INFO", "Application started — awaiting passphrase")
@@ -1248,8 +1277,9 @@ func (a *App) SubmitPassphrase(
 		if errors.Is(err, ErrStorageBusy) || errors.Is(err, ErrStorageOpen) {
 			return err
 		}
-		return fmt.Errorf("wrong passphrase or corrupted database")
+		return describeOpenError(err)
 	}
+	a.setStorageError("")
 	a.addLogEntry("INFO", "Opened database: "+path)
 
 	if saveToKeychain {
@@ -1287,8 +1317,9 @@ func (a *App) OpenWithoutPassphrase(
 		if errors.Is(err, ErrStorageBusy) || errors.Is(err, ErrStorageOpen) {
 			return false, err
 		}
-		return false, fmt.Errorf("wrong passphrase or corrupted database")
+		return false, describeOpenError(err)
 	}
+	a.setStorageError("")
 	a.addLogEntry("WARN", "Opened database without a passphrase: "+path)
 
 	if saveToKeychain {
@@ -1302,6 +1333,110 @@ func (a *App) OpenWithoutPassphrase(
 
 	a.initFromStorage()
 	return true, nil
+}
+
+// UnlockWithSavedPassphrase opens the existing database at path with the
+// passphrase saved for it in the keychain, as at startup. It lets the
+// user try again after the saved passphrase failed for a reason other
+// than being wrong, such as another program holding the database.
+func (a *App) UnlockWithSavedPassphrase(path string) error {
+	passphrase, err := keyring.Get(keychainService, keychainAccount(path))
+	if errors.Is(err, keyring.ErrNotFound) {
+		return ErrNoSavedPassphrase
+	}
+	if err != nil {
+		return fmt.Errorf("keychain lookup failed: %w", err)
+	}
+	return a.unlockSaved(path, passphrase)
+}
+
+// unlockSaved opens the existing database at path with passphrase, which
+// was saved for it in the keychain. A failure never removes the saved
+// passphrase, since it may be the only copy: another program may hold the
+// database, or the file may be missing, damaged or another database, which
+// the passphrase does not open even though it opens the right one. Only
+// ForgetSavedPassphrase removes it, once the user confirms. The failure is
+// kept for GetStorageError.
+func (a *App) unlockSaved(path, passphrase string) error {
+	err := a.unlockDB(path, []byte(passphrase), false)
+	if errors.Is(err, ErrStorageBusy) || errors.Is(err, ErrStorageOpen) {
+		return err
+	}
+	if err != nil {
+		err = describeOpenError(err)
+		if errors.Is(err, storage.ErrWrongPassphrase) {
+			err = &unlockError{
+				msg: "The passphrase saved in the keychain does not " +
+					"open this database. It was kept, since it may open " +
+					"a copy of it. Enter the passphrase, or forget the " +
+					"saved one",
+				err: err,
+			}
+		}
+		a.addLogEntry("ERROR",
+			"Could not open the database with the passphrase saved in "+
+				"the keychain, which was kept: "+err.Error())
+		a.setStorageError(err.Error())
+		return err
+	}
+
+	a.setStorageError("")
+	if passphrase == "" {
+		a.addLogEntry("WARN", "Opened database without a "+
+			"passphrase, as saved in the keychain: anyone "+
+			"who can read its file can read it")
+	} else {
+		a.addLogEntry("INFO", "Loaded passphrase from keychain")
+	}
+	a.initFromStorage()
+	return nil
+}
+
+// forgetPassphraseWarning is the confirmation text shown before a saved
+// passphrase is removed from the keychain.
+const forgetPassphraseWarning = "Remove the passphrase saved in the " +
+	"system keychain for this database?\n\n%s\n\n" +
+	"If you do not know it and have no other copy of it, nothing that " +
+	"it encrypts, in this database or in a copy of it, can be read again."
+
+// ForgetSavedPassphrase removes the passphrase saved in the keychain for
+// the database at path, once the user confirms. It reports false when the
+// user declines, and returns ErrNoSavedPassphrase when none is saved.
+func (a *App) ForgetSavedPassphrase(path string) (bool, error) {
+	account := keychainAccount(path)
+	if _, err := keyring.Get(keychainService, account); err != nil {
+		if errors.Is(err, keyring.ErrNotFound) {
+			return false, ErrNoSavedPassphrase
+		}
+		return false, fmt.Errorf("keychain lookup failed: %w", err)
+	}
+	if !a.confirm(
+		"Forget the Saved Passphrase?",
+		fmt.Sprintf(forgetPassphraseWarning, path),
+		"Forget", "Cancel",
+	) {
+		return false, nil
+	}
+	if err := keyring.Delete(keychainService, account); err != nil {
+		return false, fmt.Errorf("failed to clear keychain: %w", err)
+	}
+	a.setStorageError("")
+	a.addLogEntry("INFO", "Passphrase removed from keychain: "+path)
+	return true, nil
+}
+
+func (a *App) setStorageError(msg string) {
+	a.mu.Lock()
+	a.storageErr = msg
+	a.mu.Unlock()
+}
+
+// GetStorageError returns why the database could not be opened with the
+// passphrase saved in the keychain, or "" when it could.
+func (a *App) GetStorageError() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.storageErr
 }
 
 // GetNoPassphrase reports whether the open database has no passphrase,
@@ -1327,17 +1462,6 @@ func (a *App) HasKeychainPassphrase() bool {
 	a.mu.RUnlock()
 	_, err := keyring.Get(keychainService, keychainAccount(path))
 	return err == nil
-}
-
-func (a *App) ClearKeychainPassphrase() error {
-	a.mu.RLock()
-	path := a.dbPath
-	a.mu.RUnlock()
-	if err := keyring.Delete(keychainService, keychainAccount(path)); err != nil {
-		return fmt.Errorf("failed to clear keychain: %w", err)
-	}
-	a.addLogEntry("INFO", "Passphrase cleared from keychain")
-	return nil
 }
 
 // parseVerificationMode parses a stored verification mode. ok is false

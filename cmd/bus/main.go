@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"errors"
 	"log/slog"
 	"os"
 	"runtime"
@@ -135,22 +136,16 @@ func buildMenu(app *App) *application.Menu {
 	idMenu.AddSeparator()
 	idMenu.Add("Forget Saved Passphrase…").
 		OnClick(func(_ *application.Context) {
-			if !app.confirm(
-				"Clear Saved Passphrase",
-				"Remove the passphrase for the current database from "+
-					"your system keychain?\n\nThe passphrase will be "+
-					"requested again on next startup.",
-				"Clear",
-				"Cancel",
-			) {
-				return
-			}
-			if err := app.ClearKeychainPassphrase(); err != nil {
+			forgot, err := app.ForgetSavedPassphrase(app.GetDBPath())
+			switch {
+			case errors.Is(err, ErrNoSavedPassphrase):
 				app.SendNotification(
 					"Identity",
 					"No saved passphrase to forget.",
 				)
-			} else {
+			case err != nil:
+				app.SendNotification("Identity", err.Error())
+			case forgot:
 				app.SendNotification(
 					"Identity",
 					"Saved passphrase removed from keychain.",

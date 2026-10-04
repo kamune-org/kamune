@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/zalando/go-keyring"
+	bolterrors "go.etcd.io/bbolt/errors"
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/storage"
@@ -62,7 +63,7 @@ func TestSettingsBeforeUnlockDoNotOpenDB(t *testing.T) {
 
 	// The database is protected by the passphrase the user chose.
 	a.NoError(app.ServiceShutdown())
-	_, err = openDB(path, nil, false)
+	_, err = app.openDB(path, nil, false)
 	a.ErrorIs(err, storage.ErrWrongPassphrase)
 }
 
@@ -100,7 +101,7 @@ func createDB(t *testing.T, passphrase string) string {
 	t.Helper()
 	a := require.New(t)
 	path := filepath.Join(t.TempDir(), "db")
-	store, err := openDB(path, []byte(passphrase), true)
+	store, err := (&App{}).openDB(path, []byte(passphrase), true)
 	a.NoError(err)
 	a.NoError(store.Close())
 	return path
@@ -383,4 +384,141 @@ func TestNoPassphraseFlagFollowsOpenDatabase(t *testing.T) {
 	a.NoError(err)
 	a.True(opened)
 	a.True(app.GetNoPassphrase())
+}
+
+func TestStartupKeepsSavedPassphrase(t *testing.T) {
+	cases := []struct {
+		name string
+		// setup prepares the database at path and returns a function
+		// that ends anything it holds open, or nil.
+		setup func(t *testing.T, path string) func()
+		errIs error
+	}{
+		{
+			name: "database in use",
+			setup: func(t *testing.T, path string) func() {
+				store, err := (&App{}).openDB(path, []byte("secret"), true)
+				require.New(t).NoError(err)
+				return func() { _ = store.Close() }
+			},
+			errIs: bolterrors.ErrTimeout,
+		},
+		{
+			name:  "no database",
+			setup: func(*testing.T, string) func() { return nil },
+			errIs: os.ErrNotExist,
+		},
+		{
+			// The file may be another database, or a damaged copy, and
+			// the saved passphrase still open the right one.
+			name: "passphrase does not open the file",
+			setup: func(t *testing.T, path string) func() {
+				store, err := (&App{}).openDB(path, []byte("other"), true)
+				require.New(t).NoError(err)
+				require.New(t).NoError(store.Close())
+				return nil
+			},
+			errIs: storage.ErrWrongPassphrase,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			keyring.MockInit()
+			path := filepath.Join(t.TempDir(), "db")
+			t.Setenv("KAMUNE_DB_PATH", path)
+			if release := tc.setup(t, path); release != nil {
+				t.Cleanup(release)
+			}
+			account := keychainAccount(path)
+			a.NoError(keyring.Set(keychainService, account, "secret"))
+
+			app := NewApp()
+			app.dbTimeout = 100 * time.Millisecond
+			t.Cleanup(func() { _ = app.ServiceShutdown() })
+			a.NoError(app.ServiceStartup(
+				context.Background(), application.ServiceOptions{},
+			))
+
+			a.Nil(app.store())
+			a.NotEmpty(app.GetStorageError())
+			saved, err := keyring.Get(keychainService, account)
+			a.NoError(err, "the saved passphrase must be kept")
+			a.Equal("secret", saved)
+			a.ErrorIs(app.UnlockWithSavedPassphrase(path), tc.errIs)
+			a.Nil(app.store())
+			saved, err = keyring.Get(keychainService, account)
+			a.NoError(err, "a retry must keep the saved passphrase")
+			a.Equal("secret", saved)
+		})
+	}
+}
+
+func TestForgetSavedPassphraseAsksFirst(t *testing.T) {
+	a := require.New(t)
+	app, path := newLockedApp(t)
+	account := keychainAccount(path)
+	asked := 0
+	answer := false
+	app.confirmFn = func(string, string) bool {
+		asked++
+		return answer
+	}
+
+	forgot, err := app.ForgetSavedPassphrase(path)
+	a.ErrorIs(err, ErrNoSavedPassphrase)
+	a.False(forgot)
+	a.Zero(asked, "there is nothing to ask about")
+
+	a.NoError(keyring.Set(keychainService, account, "secret"))
+	forgot, err = app.ForgetSavedPassphrase(path)
+	a.NoError(err)
+	a.False(forgot)
+	a.Equal(1, asked)
+	saved, err := keyring.Get(keychainService, account)
+	a.NoError(err, "a declined prompt must keep the saved passphrase")
+	a.Equal("secret", saved)
+
+	answer = true
+	forgot, err = app.ForgetSavedPassphrase(path)
+	a.NoError(err)
+	a.True(forgot)
+	a.Equal(2, asked)
+	_, err = keyring.Get(keychainService, account)
+	a.ErrorIs(err, keyring.ErrNotFound)
+}
+
+func TestUnlockWithSavedPassphraseRetries(t *testing.T) {
+	a := require.New(t)
+	keyring.MockInit()
+	path := filepath.Join(t.TempDir(), "db")
+	t.Setenv("KAMUNE_DB_PATH", path)
+	held, err := (&App{}).openDB(path, []byte("secret"), true)
+	a.NoError(err)
+	a.NoError(keyring.Set(keychainService, keychainAccount(path), "secret"))
+
+	app := NewApp()
+	app.dbTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { _ = app.ServiceShutdown() })
+	a.NoError(app.ServiceStartup(
+		context.Background(), application.ServiceOptions{},
+	))
+	a.Nil(app.store())
+	a.Contains(app.GetStorageError(), "in use")
+
+	a.NoError(held.Close())
+	a.NoError(app.UnlockWithSavedPassphrase(path))
+	a.NotNil(app.store())
+	a.True(app.GetStorageReady())
+	a.Empty(app.GetStorageError())
+}
+
+func TestSubmitPassphraseReportsWrongPassphrase(t *testing.T) {
+	a := require.New(t)
+	app, _ := newLockedApp(t)
+	other := createDB(t, "other")
+
+	err := app.SubmitPassphrase(other, "wrong", false)
+	a.ErrorIs(err, storage.ErrWrongPassphrase)
+	a.Equal("Wrong passphrase", err.Error())
 }

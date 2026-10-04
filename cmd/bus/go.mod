@@ -10,6 +10,7 @@ require (
 	github.com/wailsapp/wails/v3 v3.0.0-beta.23
 	github.com/xtaci/kcp-go/v5 v5.6.72
 	github.com/zalando/go-keyring v0.2.8
+	go.etcd.io/bbolt v1.5.0
 )
 
 require (
@@ -28,7 +29,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
-	go.etcd.io/bbolt v1.5.0 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect

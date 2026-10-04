@@ -3,7 +3,10 @@
   import {
     SubmitPassphrase,
     OpenWithoutPassphrase,
+    UnlockWithSavedPassphrase,
+    ForgetSavedPassphrase,
     HasKeychainPassphrase,
+    GetStorageError,
     GetDBPath,
     OpenFileDialog,
   } from './go.js';
@@ -28,6 +31,8 @@
   onMount(async () => {
     hasKeychain = await HasKeychainPassphrase();
     dbPath = await GetDBPath();
+    // Why the passphrase saved in the keychain did not open the database.
+    error = (await GetStorageError()) || '';
   });
 
   async function submit() {
@@ -52,6 +57,37 @@
     } catch (e) {
       error = e.message || e || 'Could not open the database';
     }
+    loading = false;
+  }
+
+  // retrySaved tries the passphrase saved in the keychain again, after it
+  // failed for a reason other than being wrong, such as another program
+  // holding the database.
+  async function retrySaved() {
+    loading = true;
+    error = '';
+    try {
+      await UnlockWithSavedPassphrase(dbPath);
+    } catch (e) {
+      error = e.message || e || 'Could not open the database';
+      hasKeychain = await HasKeychainPassphrase();
+    }
+    loading = false;
+  }
+
+  // forgetSaved removes the passphrase saved in the keychain, once the
+  // user confirms in a native dialog. The backend never removes it by
+  // itself, since it may be the only copy.
+  async function forgetSaved() {
+    loading = true;
+    try {
+      if (await ForgetSavedPassphrase(dbPath)) {
+        error = '';
+      }
+    } catch (e) {
+      error = e.message || e || 'Could not forget the saved passphrase';
+    }
+    hasKeychain = await HasKeychainPassphrase();
     loading = false;
   }
 
@@ -169,6 +205,13 @@
         <span>Remember in system keychain</span>
       </label>
 
+      {#if hasKeychain}
+        <div class="keychain-row">
+          <span>A passphrase is saved in the keychain for this database.</span>
+          <button class="link-btn" onclick={forgetSaved} disabled={loading}>Forget it…</button>
+        </div>
+      {/if}
+
       {#if error}
         <div class="error-msg">
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
@@ -184,6 +227,11 @@
     </div>
 
     <div class="dialog-actions">
+      {#if hasKeychain}
+        <button class="dialog-btn dialog-btn-ghost" onclick={retrySaved} disabled={loading}>
+          Retry saved passphrase
+        </button>
+      {/if}
       <button
         class="dialog-btn dialog-btn-ghost"
         onclick={skipPassphrase}
@@ -354,6 +402,30 @@
     height: 15px;
     accent-color: var(--accent-primary);
     cursor: pointer;
+  }
+
+  .keychain-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .link-btn {
+    background: transparent;
+    color: var(--accent-primary);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .link-btn:hover:not(:disabled) {
+    text-decoration: underline;
+  }
+  .link-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .error-msg {
