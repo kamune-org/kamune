@@ -38,12 +38,17 @@ followed by `\n`. Logs go to stderr in JSON format via `log/slog`.
 }
 ```
 
-| Field    | Type   | Description                                                          |
-| -------- | ------ | -------------------------------------------------------------------- |
-| `type`   | string | Always `"cmd"` for commands.                                         |
-| `cmd`    | string | The command name (see [Commands](#commands)).                        |
-| `id`     | string | Unique correlation ID. The daemon echoes this on the response event. |
-| `params` | object | Command-specific parameters (`{}` for commands with none).           |
+| Field    | Type   | Description                                                                                                                                                                            |
+| -------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`   | string | Always `"cmd"` for commands.                                                                                                                                                           |
+| `cmd`    | string | The command name (see [Commands](#commands)).                                                                                                                                          |
+| `id`     | string | Optional correlation ID. The daemon echoes it on the response or error event; the answer to a command without one carries no `id`.                                                     |
+| `params` | object | Command-specific parameters. A command that takes parameters fails with `invalid_params` when `params` is absent, except `generate_relay_token`. A command that takes none ignores it. |
+
+The daemon reads one command per line. A line that is not a JSON object fails
+with `invalid_json`, a `type` other than `"cmd"` with `unknown_message_type`
+and an unknown `cmd` with `unknown_command`. A line longer than 1 MiB, newline
+included, is dropped and reported with `line_too_long`.
 
 ### Event Envelope (Daemon → Client)
 
@@ -56,21 +61,32 @@ followed by `\n`. Logs go to stderr in JSON format via `log/slog`.
 }
 ```
 
-| Field  | Type   | Description                                                                                                             |
-| ------ | ------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `type` | string | Always `"evt"` for events.                                                                                              |
-| `evt`  | string | The event name (see [Commands](#commands) and [Push Events](#push-events)).                                             |
-| `id`   | string | Optional correlation ID. Present for command responses (`<command>-id`) and for events triggered by a specific command. |
-| `data` | object | Event-specific payload.                                                                                                 |
+| Field  | Type   | Description                                                                                                                                                     |
+| ------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type` | string | Always `"evt"` for events.                                                                                                                                      |
+| `evt`  | string | The event name (see [Commands](#commands) and [Push Events](#push-events)).                                                                                     |
+| `id`   | string | Correlation ID of the command that the event answers. Omitted for push events, for side events such as `status_changed`, and for commands sent without an `id`. |
+| `data` | object | Event-specific payload.                                                                                                                                         |
 
 Every command in the [Commands](#commands) section below shows the exact
-JSON it expects on stdin and the exact JSON it emits on stdout. You don't
-need to read any other section to use a command.
+JSON it expects on stdin and the JSON it emits on stdout. The daemon also
+emits a `log_entry` event for each line it logs, and the examples leave
+those out.
+
+Some values have a fixed encoding:
+
+- Public keys (`public_key`, `b64`, `peer_pub_b64`) are the 44-byte PKIX
+  encoding of an Ed25519 key in unpadded base64url.
+- Message data (`data_base64`) is standard base64 with padding.
+- Durations (`*_ns`) are integer nanoseconds, and times are RFC 3339 strings.
+
+Machine-readable JSON Schemas for every command and event are in
+[`cmd/daemon/schema`](../cmd/daemon/schema/README.md).
 
 ## Commands
 
-All 49 commands, grouped by category. Each block shows the **exact JSON**
-to send and the **exact JSON** to expect back.
+All 53 commands, grouped by category. Each block shows the **exact JSON**
+to send and the JSON to expect back.
 
 ### `SessionInfo` Shape
 

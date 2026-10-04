@@ -39,10 +39,21 @@ ajv.validate(startServer, wireMessage.params);
 - **JSON Schema Draft 2020-12**
 - `duration` fields serialize as `int64` nanoseconds (Go `time.Duration`), named `*_ns`
 - `time` fields serialize as RFC3339 strings
-- `enum` values mirror Go `const` blocks in `main.go` and `param.go`
+- `enum` values mirror the values the daemon accepts and sends: the
+  constants in `main.go` and the checks in the command handlers
 - Schemas are derived from Go struct `json:` tags — keep them in sync when
   modifying param or event structs
 
 ## Coverage
 
-All 51 commands and 25 push events documented in DAEMON.md have schemas.
+All 53 commands and 26 events (`CmdXxx` and `EvtXxx` in `main.go`) have
+schemas, `response` and `error` included. `schema_test.go` checks that:
+
+- every command and event constant has a schema file, and every schema file
+  names one;
+- the properties of each command schema are the JSON fields of the command's
+  params struct, and a command without params declares none;
+- the `SessionInfo`, relay token, P2P token and `log_entry` schemas list the
+  fields of their Go structs;
+- `start_server` and `dial` accept the transports the daemon accepts, and
+  require `addr` for exactly those that need one (`tcp` and `udp`).
