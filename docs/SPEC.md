@@ -1257,7 +1257,7 @@ The reference implementation persists its state in an embedded key-value store l
 
 The database contents are encrypted at rest using a key hierarchy:
 
-1. **Passphrase** → `HKDF-SHA512(passphrase, deriveSalt, "derived-passphrase-key", 32)` → `derivedPass`.
+1. **Passphrase** → `Argon2id(passphrase, deriveSalt, t=3, m=64 MiB, p=4, 32)` → `derivedPass`.
 2. `derivedPass` → `Enigma(derivedPass, wrappedSalt, "key-encryption-key")` → **KEK** (Key Encryption Key cipher).
 3. A random 32-byte **secret** is encrypted by the KEK and stored as the
    wrapped key material.
@@ -1265,14 +1265,41 @@ The database contents are encrypted at rest using a key hierarchy:
 5. All sensitive data (the local identity, peers, sessions, chat history) is
    encrypted and decrypted using the DEK.
 
-The four salts (`deriveSalt`, `wrappedSalt`, `secretSalt`) and the wrapped key
-are stored as plaintext metadata. The passphrase itself is never stored.
+`Enigma(key, salt, info)` is XChaCha20-Poly1305 under the key
+`HKDF-SHA512(key, salt, info, 32)`. Step 1 uses the second recommended
+Argon2id option of RFC 9106, so every passphrase guess costs 64 MiB of memory
+and about a tenth of a second on a current laptop; opening the database costs
+the same. The HKDF in step 2 keeps the KEK separate from any other use of
+`derivedPass`.
 
-If the deployment disables the passphrase requirement
-(`KAMUNE_DB_PASSPHRASE` empty and the no-passphrase option set), the
-key-hierarchy is collapsed: a fixed derivation replaces step 1 and no human
-passphrase is required. This mode is intended for embedded and test scenarios
-and SHOULD NOT be used where the database file may be exposed.
+The three salts (`deriveSalt`, `wrappedSalt`, `secretSalt`, 32 random bytes
+each), the wrapped key and the Argon2id parameters (`kdf-params`) are stored as
+plaintext metadata. The passphrase itself is never stored. `kdf-params` is 10
+bytes: an algorithm identifier (1 for Argon2id), the time cost and the memory
+cost in KiB as big-endian uint32 values, and the parallelism as one byte. An
+open rejects stored parameters above 1 GiB of memory or 4 GiB of total work
+(time × memory). It also rejects key metadata that is malformed or partly
+missing, or missing from a database that holds data, instead of writing a new
+key hierarchy over it.
+
+Databases written before `kdf-params` existed derived `derivedPass` with
+`HKDF-SHA512(passphrase, deriveSalt, "derived-passphrase-key", 32)`, which has
+no work factor. The first successful open of such a database, or of one whose
+Argon2id parameters are below the defaults, wraps the secret again under
+Argon2id, with each parameter raised to at least its default, and with fresh
+`deriveSalt` and `wrappedSalt`. The database file is then rewritten so that the
+old wrapped key does not remain in it.
+
+Changing the passphrase replaces the data key, not only its wrapping: every
+value is encrypted again under a new secret, which is wrapped under the new
+passphrase, and the database file is rewritten. Copies of the old file, such as
+backups, still open with the old passphrase.
+
+If the deployment disables the passphrase requirement (the no-passphrase
+option), the empty passphrase goes through the same derivation. Anyone with the
+file can then derive the KEK, so the encryption gives no protection, while each
+open still costs one Argon2id run. This mode is intended for embedded and test
+scenarios and SHOULD NOT be used where the database file may be exposed.
 
 ### 11.3 Stored Entities
 
