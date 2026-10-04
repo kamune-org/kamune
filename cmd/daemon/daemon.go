@@ -75,12 +75,17 @@ func parseLogLevel(level string) (slog.Level, bool) {
 	}
 }
 
-func applySlogLevel(level string) bool {
+// applyLogLevel makes level the lowest level that d logs at: to stderr,
+// to its log buffer, which get_logs and export_logs read, and in
+// log_entry events alike. It returns false, and changes nothing, when
+// level names no level.
+func (d *Daemon) applyLogLevel(level string) bool {
 	lvl, ok := parseLogLevel(level)
 	if !ok {
 		return false
 	}
 	daemonLogLevel.Set(lvl)
+	d.logMin.Set(lvl)
 	return true
 }
 
@@ -186,6 +191,9 @@ type Daemon struct {
 	logMu         sync.RWMutex
 	logBufferSize int
 	logLevel      string
+	// logMin is the level that logLevel names. addLogEntry drops an
+	// entry below it.
+	logMin slog.LevelVar
 
 	fingerprintFmt string
 
@@ -239,7 +247,8 @@ func (d *Daemon) emitError(correlationID ID, code string, errMsg string) {
 
 // addLogEntry logs a message at the given level and stores it in the in-memory
 // log buffer for retrieval via get_logs. Also emits evt_log_entry for live
-// subscribers.
+// subscribers. A message below the level that set_log_level chose is
+// dropped: it goes to none of them, nor to stderr.
 func (d *Daemon) addLogEntry(level, msg string) {
 	var lvl slog.Level
 	switch level {
@@ -251,6 +260,9 @@ func (d *Daemon) addLogEntry(level, msg string) {
 		lvl = slog.LevelError
 	default:
 		lvl = slog.LevelInfo
+	}
+	if lvl < d.logMin.Level() {
+		return
 	}
 	slog.Log(d.ctx, lvl, msg)
 
@@ -1136,7 +1148,8 @@ func (d *Daemon) handleGetLogLevel(cmd Command) {
 }
 
 // handleSetLogLevel sets the minimum log level (mirrors cmd/bus/app.go:1090-1097).
-// Persisted to storage when available.
+// Persisted to storage when available. The level applies to stderr, the
+// log buffer that get_logs and export_logs read, and log_entry events.
 func (d *Daemon) handleSetLogLevel(cmd Command) {
 	var params SetLogLevelParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
@@ -1145,7 +1158,7 @@ func (d *Daemon) handleSetLogLevel(cmd Command) {
 	}
 
 	level := strings.ToUpper(params.Level)
-	if !applySlogLevel(level) {
+	if !d.applyLogLevel(level) {
 		d.emitError(cmd.ID, "invalid_log_level", fmt.Sprintf("invalid level: %s", params.Level))
 		return
 	}

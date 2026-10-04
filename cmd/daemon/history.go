@@ -80,7 +80,7 @@ func (d *Daemon) loadIdentityAndHistory() {
 	}
 
 	if levelStr, err := store.GetSettings("daemon", "log_level"); err == nil &&
-		levelStr != "" && applySlogLevel(levelStr) {
+		levelStr != "" && d.applyLogLevel(levelStr) {
 		d.mu.Lock()
 		d.logLevel = strings.ToUpper(levelStr)
 		d.mu.Unlock()
@@ -112,7 +112,7 @@ func (d *Daemon) resetStorageState() {
 	d.myName = ""
 	d.histSessions = make([]*historySession, 0)
 	d.mu.Unlock()
-	applySlogLevel(base.logLevel)
+	d.applyLogLevel(base.logLevel)
 }
 
 // loadHistorySessions refreshes the history cache from the store.

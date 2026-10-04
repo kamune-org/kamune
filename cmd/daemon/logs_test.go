@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -169,6 +170,66 @@ func TestEscapeLogText(t *testing.T) {
 		t.Run(tt.want, func(t *testing.T) {
 			a := require.New(t)
 			a.Equal(tt.want, escapeLogText(tt.in))
+		})
+	}
+}
+
+// set_log_level applies to the log buffer, which get_logs and export_logs
+// read, and to log_entry events, as it does to stderr: an entry below the
+// level reaches none of them.
+func TestLogLevelAppliesToBufferAndEvents(t *testing.T) {
+	levels := []string{"DEBUG", "INFO", "WARN", "ERROR"}
+	tests := []struct {
+		level     string
+		want      []string
+		wantLevel slog.Level
+	}{
+		{level: "debug", wantLevel: slog.LevelDebug, want: levels},
+		{level: "INFO", wantLevel: slog.LevelInfo, want: levels[1:]},
+		{level: "WARN", wantLevel: slog.LevelWarn, want: levels[2:]},
+		{level: "ERROR", wantLevel: slog.LevelError, want: levels[3:]},
+	}
+	for _, tt := range tests {
+		t.Run(tt.level, func(t *testing.T) {
+			a := require.New(t)
+			d, rec := newTestDaemon(t, VerificationModeQuick, false)
+			t.Cleanup(func() { daemonLogLevel.Set(slog.LevelInfo) })
+			d.handleSetLogLevel(Command{
+				ID:     "level",
+				Params: mustJSON(SetLogLevelParams{Level: tt.level}),
+			})
+			evt := rec.waitFor(t, func(e recordedEvent) bool {
+				return e.ID == "level"
+			})
+			a.Equal(EvtResponse, evt.Evt, "set_log_level failed: %v", evt.Data)
+			a.Equal(tt.wantLevel, daemonLogLevel.Level())
+
+			for _, level := range levels {
+				d.addLogEntry(level, "probe at "+level)
+			}
+
+			var buffered []string
+			for _, msg := range logMessages(d) {
+				if level, ok := strings.CutPrefix(
+					msg, "[cmd/daemon] probe at ",
+				); ok {
+					buffered = append(buffered, level)
+				}
+			}
+			a.Equal(tt.want, buffered)
+
+			var emitted []string
+			rec.mu.Lock()
+			for _, e := range rec.events {
+				msg, _ := e.Data["message"].(string)
+				if e.Evt != EvtLogEntry ||
+					!strings.Contains(msg, "probe at ") {
+					continue
+				}
+				emitted = append(emitted, e.Data["level"].(string))
+			}
+			rec.mu.Unlock()
+			a.Equal(tt.want, emitted)
 		})
 	}
 }

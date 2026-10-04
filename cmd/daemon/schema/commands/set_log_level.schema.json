@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-set-log-level",
   "title": "set_log_level params",
-  "description": "Sets the minimum log level.",
+  "description": "Sets the minimum log level. Entries below it are left out of stderr, get_logs, export_logs and log_entry events alike.",
   "type": "object",
   "properties": {
     "level": { "type": "string", "enum": ["DEBUG", "INFO", "WARN", "ERROR"] }
