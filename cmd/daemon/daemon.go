@@ -31,6 +31,10 @@ var (
 	errStorageBusy = errors.New(
 		"storage cannot be replaced while networking is active",
 	)
+	errEmptyPassphrase = errors.New(
+		"passphrase is empty; open an unencrypted database with " +
+			"open_storage and db_no_passphrase",
+	)
 )
 
 func keychainAccount(dbPath string) string {
@@ -556,11 +560,17 @@ func (d *Daemon) handleOpenStorage(cmd Command) {
 
 // handleSubmitPassphrase re-opens storage with a new passphrase. Requires a
 // prior open_storage call (so d.dbPath is set). The passphrase is saved to
-// the system keychain only when the command asks for it.
+// the system keychain only when the command asks for it. An empty
+// passphrase is refused: an unencrypted database must be opened with
+// open_storage and db_no_passphrase.
 func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	var params SubmitPassphraseParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
 		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+	if params.Passphrase == "" {
+		d.emitError(cmd.ID, "passphrase_required", errEmptyPassphrase.Error())
 		return
 	}
 

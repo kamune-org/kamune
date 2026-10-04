@@ -5,7 +5,11 @@
   "description": "Re-opens the previously-opened storage path with a new passphrase.",
   "type": "object",
   "properties": {
-    "passphrase": { "type": "string" },
+    "passphrase": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must not be empty; an empty passphrase gives the error code passphrase_required. Open an unencrypted database with open_storage and db_no_passphrase."
+    },
     "save_to_keychain": {
       "type": "boolean",
       "default": false,

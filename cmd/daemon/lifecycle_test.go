@@ -410,3 +410,31 @@ func TestHandleSendMessageDoesNotBlock(t *testing.T) {
 		t.Fatal("handleSendMessage blocked the command loop")
 	}
 }
+
+func TestSubmitPassphraseRejectsEmptyPassphrase(t *testing.T) {
+	a := require.New(t)
+	d := NewDaemon()
+	rec := newEventRecorder()
+	d.output = json.NewEncoder(rec)
+	t.Cleanup(func() {
+		d.cancel()
+		d.closeStore()
+	})
+	t.Setenv("KAMUNE_DB_PASSPHRASE", "")
+
+	path := filepath.Join(t.TempDir(), "new.db")
+	err := d.openStorage(OpenStorageParams{StoragePath: path})
+	a.ErrorIs(err, errPassphraseRequired)
+
+	d.handleSubmitPassphrase(Command{
+		ID: "submit", Params: mustJSON(SubmitPassphraseParams{}),
+	})
+
+	evt := rec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "submit"
+	})
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("passphrase_required", evt.Data["code"])
+	a.Nil(d.store())
+	a.NoFileExists(path)
+}
