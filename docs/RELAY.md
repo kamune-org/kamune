@@ -850,8 +850,8 @@ needed for P2P hole-punching:
 1. **STUN-like IP echo** — a peer sends a packet; the broker responds with the
    peer's perceived public IP:port.
 2. **Signal introduction** — two peers register with a shared token; when both
-   are present, the broker notifies each with the other's claimed IP:port so
-   they can hole-punch directly.
+   are present, the broker notifies each with the other's public IP:port, as
+   the broker saw it, so they can hole-punch directly.
 
 The broker is optional. If the operator enables it, peers can use the
 kamune broker client (or implement the on-the-wire protocol directly) to
@@ -902,12 +902,29 @@ MAGIC (4) | VER=0x01 (1) | OPCODE=0x02 (1) | TOKEN (16) | PEER_EPH_PUB (32) | IP
 60 bytes. Fields:
 
 - `TOKEN` — 16 bytes, may be all zero (random mode) or precomputed (static mode,
-  see [Static Tokens](#static-tokens)).
+  see [Static Tokens](#static-tokens-1)). A longer token travels as its first
+  16 bytes, so a 32-byte static token is cut to 16.
 - `PEER_EPH_PUB` — the peer's stable X25519 public key (raw 32 bytes). The
   broker uses this both for encryption (per-NOTIFY ECDH) and to identify the
   same peer across re-registrations.
-- `IP`, `PORT` — the peer's claimed public IPv4 + port. The broker echoes these
-  to a matched peer in `NOTIFY(PEER_MATCHED)`.
+- `IP`, `PORT`: a non-zero IPv4 address and a non-zero port, or the broker
+  drops the packet. They are not used otherwise.
+
+The broker records the REGISTER's source address, not `IP` and `PORT`. It sends
+its NOTIFYs to that address and gives it to the matched peer as the address to
+punch to. A peer must therefore send REGISTER from the UDP socket it will
+hole-punch from, and read NOTIFYs on it; in the Go client that is
+`Client.RegisterOn` and `Client.ReadNotify` on a socket the caller owns (the
+older `Client.Register` uses a socket it closes on return and is deprecated).
+A `STUN_ECHO` from the same socket (`Client.EchoOn`) reports the address the
+broker will record. In static mode `RegisterOn` returns right after it sends
+the REGISTER, and the `PEER_MATCHED` is read with `ReadNotify`. The calls that
+read the socket (`EchoOn`, `RegisterOn` in random mode, and `ReadNotify`) drop
+packets from any address other than the broker's, read into a 64 KiB buffer,
+and skip a read that fails. They fail when the context ends, when the
+socket is closed, or after 16 failed reads in a row; with no context deadline,
+`EchoOn` and `RegisterOn` also fail after 2 seconds (`DefaultEchoTimeout` and
+`DefaultRegisterTimeout`).
 
 #### `NOTIFY` (broker → peer, encrypted)
 
@@ -926,6 +943,8 @@ MAGIC (4) | VER=0x01 (1) | OPCODE=0x03 (1) | BROKER_EPH_PUB (32) | NONCE (24) | 
 Encrypted payload layout (depends on `TYPE`):
 
 - `TYPE = 0x01` (`PEER_MATCHED`): `TYPE (1) | TOKEN (16) | OTHER_PEER_EPH_PUB (32) | IP (4) | PORT (2)` — 55 bytes plaintext.
+  `IP` and `PORT` are the source address of the other peer's REGISTER, and
+  `TOKEN` is the token as the REGISTERs carried it (16 bytes).
 - `TYPE = 0x02` (`TOKEN_ASSIGNED`): `TYPE (1) | TOKEN (16) | TTL_SECONDS (4)` — 21 bytes plaintext.
 
 The peer derives the AEAD key and decrypts:
@@ -953,6 +972,10 @@ The same static-token mechanism that the relay's transports support (see
   token. The broker matches them.
 - When peer A's IP changes (NAT rebinding, DHCP renewal), both peers re-derive
   the same token from the same public keys — no OOB exchange needed.
+- `NOTIFY` carries the 16-byte form, so a client compares the token in a
+  `PEER_MATCHED` with the first 16 bytes of its own token, not with the whole
+  32-byte token. The Go client provides `broker.WireToken` and
+  `broker.TokenMatches` for this.
 
 **Design decision: peer identity = `PEER_EPH_PUB`, not source address.** The
 broker identifies the same peer by the X25519 public key it sends in REGISTER,
@@ -978,8 +1001,9 @@ For every received UDP datagram, the broker:
 **`STUN_ECHO`** (opcode 0x01): responds with `ip:port\0` from the packet's
 source address. No state, no encryption, no registry interaction.
 
-**`REGISTER`** (opcode 0x02): validates the packet, generates a fresh broker
-ephemeral X25519 key, and branches on the token:
+**`REGISTER`** (opcode 0x02): validates the packet and branches on the token.
+"Peer" in the table is the REGISTER's `PEER_EPH_PUB` together with its source
+address:
 
 | `TOKEN`   | Registry state                                               | Action                                                                                                           |
 | --------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
@@ -1003,7 +1027,7 @@ some random opcode is silently dropped.
 | Packet type                                    | Recognizable?               | Notes                                                                |
 | ---------------------------------------------- | --------------------------- | -------------------------------------------------------------------- |
 | `STUN_ECHO`                                    | Yes (peer opts in)          | Response is plaintext `ip:port\0` from source address                |
-| `REGISTER`                                     | Yes (peer opts in)          | Plaintext header; not sensitive (token + claimed IP + ephemeral pub) |
+| `REGISTER`                                     | Yes (peer opts in)          | Plaintext; token, X25519 public key and IP/PORT fields in clear      |
 | `NOTIFY`                                       | Encrypted                   | Server-only; AEAD-sealed payload; header has fixed fingerprint       |
 | Random UDP                                     | No response                 | Ignored                                                              |
 | Random UDP that happens to start with `"KBRK"` | Falls into "unknown opcode" | Ignored                                                              |
@@ -1022,8 +1046,9 @@ scope for v1.
 
 The broker is **lower-trust** than the relay's transports:
 
-- The broker **sees** the matched peers' claimed IP:port and ephemeral public
-  keys (passed through in NOTIFY plaintext).
+- The broker **sees** each peer's public IP:port (the source address of its
+  REGISTER) and X25519 public key, and passes them to the matched peer inside
+  the NOTIFY.
 - The broker **does not see** message content (the broker hands off and is out
   of the picture; subsequent traffic is end-to-end between peers).
 - A malicious broker can disrupt rendezvous (drop REGISTERs, refuse matches) but
