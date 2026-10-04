@@ -12,8 +12,8 @@ and WebKitGTK 6.0 on Linux.
 - **Session History** — Browse past chat sessions from the database, load and view messages inline (read-only)
 - **Live Sessions** — Start a server or connect to peers with real-time encrypted messaging
 - **Message Bubbles** — Styled message bubbles with sender labels, timestamps, and alignment
-- **Peer Fingerprint** — Emoji fingerprint display in the sidebar with copy-to-clipboard
-- **Peer Verification** — Dialog-based emoji fingerprint verification with Strict, Quick, and Auto-Accept modes
+- **Fingerprint Card**: Your emoji and numeric fingerprints in the sidebar; a click copies the numeric one
+- **Peer Verification**: Dialogs to compare a peer's numeric fingerprint, with Strict, Quick and Auto-Accept modes
 - **Log Viewer** — Integrated log panel with real-time streaming and level-colored entries
 - **Session Info** — Dialog with session metadata (peer name, message count, timestamps)
 - **Rename & Delete** — Rename live or history sessions, delete history sessions
@@ -212,7 +212,10 @@ session is live or still closing.
 2. Enter the listen address (e.g., `:8443`)
 3. Click **Start**
 
-Your emoji fingerprint will be displayed in the sidebar for peer verification.
+The **Fingerprint** card at the bottom of the sidebar shows your emoji
+fingerprint and, under it, your numeric fingerprint, the one peers compare
+(see [Verifying Peers](#verifying-peers)). Click the card to copy the
+numeric fingerprint.
 
 ### Connecting to a Peer
 
@@ -273,6 +276,27 @@ once you confirm, which disconnects all sessions; if you decline, the mode
 stays as it was. Switching to Auto-Accept always asks first, also through
 its shortcut, and while it is on the status bar shows a red "Auto-Accept:
 not verifying peers" badge.
+
+### Verifying Peers
+
+1. A verification dialog shows the peer's label (see
+   [Peer Names](#peer-names)), the name it introduces itself with, and
+   whether its key is saved
+2. Over a channel you trust, such as a call, ask the peer to read out its
+   own numeric fingerprint: 40 digits in eight groups of five, shown under
+   the emojis in its sidebar and on its share card, and copied by
+   **Identity > Copy Numeric Fingerprint**. The Kamune TUI and daemon show
+   the same value. Check it against the number in the dialog, which also
+   shows yours for the peer to check
+3. Click **Accept** only if they match, otherwise **Reject**
+
+The numeric fingerprint comes from the SHA-512 of the peer's public key and
+carries about 132.9 bits: finding another key with the same number takes
+about 2^132 hashes. The eight emojis carry about 52.7 bits, so another key
+with the same emojis takes about 2^52.7 attempts to find, which a
+well-funded attacker can afford; they are a quick visual check only. The hex
+fingerprint, folded away in the dialog, is for peers whose app shows no
+numeric fingerprint.
 
 ### Saved Peers
 
@@ -336,12 +360,6 @@ To make a peer pass the verifier again, disconnect the session (a session
 closed on purpose, by either side, cannot be resumed), or delete the peer in
 the Peers tab or the session in the History tab.
 
-### Verifying Peers
-
-1. A verification dialog appears when a new peer connects
-2. Compare the emoji fingerprint with the peer through a secure channel
-3. Click **Accept** to allow the connection or **Reject** to deny it
-
 ## Configuration
 
 | Setting | Default | Description |
@@ -352,8 +370,11 @@ the Peers tab or the session in the History tab.
 
 ## Security Notes
 
-- All messages are end-to-end encrypted using the Kamune protocol
-- Verify peer identity using emoji fingerprints through a separate secure channel
+- Messages are end-to-end encrypted with the Kamune protocol. The key
+  exchange before the handshake authenticates neither side, so a man in the
+  middle is caught only by checking the peer's key: compare its numeric
+  fingerprint over a channel you trust, since the emoji fingerprint alone is
+  not enough
 - The database is encrypted at rest under a key derived from its passphrase
   with Argon2id. A database without a passphrase is not protected: anyone
   who can read its file can read your identity key, peers and history
