@@ -9,12 +9,26 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+// buildDaemon builds the daemon into a temporary directory and returns
+// the path of the binary.
+func buildDaemon(t *testing.T) string {
+	a := require.New(t)
+	binaryPath := filepath.Join(t.TempDir(), "kamune-daemon")
+	build := exec.Command("go", "build", "-o", binaryPath, ".")
+	build.Stderr = os.Stderr
+	a.NoError(build.Run(), "failed to build daemon")
+	return binaryPath
+}
 
 func TestIntegrationEndToEnd(t *testing.T) {
 	a := require.New(t)
@@ -22,12 +36,7 @@ func TestIntegrationEndToEnd(t *testing.T) {
 		t.Skip("skipping integration test in -short mode")
 	}
 
-	tmpDir := t.TempDir()
-	binaryPath := filepath.Join(tmpDir, "kamune-daemon")
-
-	build := exec.Command("go", "build", "-o", binaryPath, ".")
-	build.Stderr = os.Stderr
-	a.NoError(build.Run(), "failed to build daemon")
+	binaryPath := buildDaemon(t)
 
 	storageDir := t.TempDir()
 	storagePath := filepath.Join(storageDir, "test.db")
@@ -133,6 +142,74 @@ func TestIntegrationEndToEnd(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		a.FailNow("daemon did not shut down within 5s")
 	}
+}
+
+// SIGTERM shuts the daemon down and ends the process while its stdin
+// stays open: a supervisor that sends it need not also close the pipe or
+// write to it.
+func TestSignalEndsProcessWithStdinOpen(t *testing.T) {
+	a := require.New(t)
+	if testing.Short() {
+		t.Skip("skipping integration test in -short mode")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("SIGTERM cannot be sent on windows")
+	}
+
+	cmd := exec.Command(buildDaemon(t))
+	stdin, err := cmd.StdinPipe()
+	a.NoError(err)
+	stdout, err := cmd.StdoutPipe()
+	a.NoError(err)
+	cmd.Stderr = os.Stderr
+	a.NoError(cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = stdin.Close()
+	})
+
+	// events carries the event names the daemon writes, and is closed when
+	// its stdout ends.
+	events := make(chan string, 64)
+	go func() {
+		defer close(events)
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			var evt struct {
+				Data any    `json:"data"`
+				Evt  string `json:"evt"`
+			}
+			if json.Unmarshal(scanner.Bytes(), &evt) == nil {
+				events <- evt.Evt + " " + fmt.Sprint(evt.Data)
+			}
+		}
+	}()
+
+	deadline := time.After(testEventTimeout)
+	var seen []string
+	next := func() (string, bool) {
+		select {
+		case evt, ok := <-events:
+			return evt, ok
+		case <-deadline:
+			a.FailNow("the daemon did not exit after SIGTERM", "%q", seen)
+			return "", false
+		}
+	}
+	evt, ok := next()
+	a.True(ok)
+	a.True(strings.HasPrefix(evt, "ready "), evt)
+
+	a.NoError(cmd.Process.Signal(syscall.SIGTERM))
+	for {
+		evt, ok := next()
+		if !ok {
+			break
+		}
+		seen = append(seen, evt)
+	}
+	a.Contains(seen, "response map[status:shutdown]")
+	a.NoError(cmd.Wait())
 }
 
 func findFreePort(t *testing.T) int {

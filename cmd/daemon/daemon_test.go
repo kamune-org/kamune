@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"io"
+	"os"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -96,7 +99,7 @@ func TestReadCommandsDropsLongLineWhileReading(t *testing.T) {
 
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	d.readCommands(input)
+	d.readCommands(input, nil)
 	runtime.ReadMemStats(&after)
 
 	allocated := after.TotalAlloc - before.TotalAlloc
@@ -109,4 +112,36 @@ func TestReadCommandsDropsLongLineWhileReading(t *testing.T) {
 	a.Equal("line_too_long", events[0].Data["code"])
 	a.Equal(EvtResponse, events[1].Evt)
 	a.Equal(ID("v"), events[1].ID)
+}
+
+// A signal ends the command loop while it waits for input: the daemon
+// does not wait for the client to write a line or close its input
+// before it shuts down.
+func TestReadCommandsStopsOnSignalWithoutInput(t *testing.T) {
+	a := require.New(t)
+	d := NewDaemon()
+	rec := newEventRecorder()
+	d.output = json.NewEncoder(rec)
+	t.Cleanup(d.cancel)
+	r, w := io.Pipe()
+	t.Cleanup(func() { _ = w.Close() })
+	stop := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		d.readCommands(r, stop)
+	}()
+
+	_, err := io.WriteString(w,
+		`{"type":"cmd","cmd":"get_version","id":"v"}`+"\n")
+	a.NoError(err)
+	evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == "v" })
+	a.Equal(EvtResponse, evt.Evt)
+
+	stop <- syscall.SIGTERM
+	select {
+	case <-done:
+	case <-time.After(testEventTimeout):
+		t.Fatal("the command loop waited for input after a signal")
+	}
 }

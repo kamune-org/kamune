@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -469,19 +470,22 @@ func (d *Daemon) openStorage(params OpenStorageParams) error {
 	return d.replaceStore(params.StoragePath, unlock)
 }
 
-// Run starts the daemon's main loop
+// Run starts the daemon's main loop. It shuts the daemon down and returns
+// after a shutdown command, at the end of stdin, or on SIGTERM or SIGINT.
+// A signal does not wait for stdin to deliver a line or end: a read from
+// stdin cannot be interrupted, so it may still wait when Run returns, and
+// the process exits all the same.
 func (d *Daemon) Run() {
-	// Set up signal handling for graceful shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-
+	stop := make(chan os.Signal, 1)
 	go func() {
-		select {
-		case <-sigCh:
-			slog.Info("received shutdown signal")
-			d.Shutdown()
-		case <-d.ctx.Done():
-		}
+		sig := <-sigCh
+		// Should shutting down hang, a second signal ends the process.
+		signal.Stop(sigCh)
+		slog.Info("received shutdown signal",
+			slog.String("signal", sig.String()))
+		stop <- sig
 	}()
 
 	// Emit ready event
@@ -490,41 +494,76 @@ func (d *Daemon) Run() {
 		"protocol_version": "1",
 	})
 
-	d.readCommands(os.Stdin)
+	d.readCommands(os.Stdin, stop)
 
-	if d.ctx.Err() != nil {
-		d.wg.Wait()
-		return
-	}
-
-	// stdin closed without a shutdown command — clean up all resources.
+	// After a shutdown command this returns at once.
 	d.Shutdown()
 }
 
+// inputLine is a line read from the client, as readLine returns it.
+type inputLine struct {
+	err     error
+	line    []byte
+	tooLong bool
+}
+
 // readCommands handles the commands read from r, one JSON object per
-// line, until r ends or the daemon shuts down. A line longer than
-// maxScanTokenSize, newline included, is reported with line_too_long
-// and dropped as it is read, so it never takes more memory than that.
-func (d *Daemon) readCommands(r io.Reader) {
-	reader := bufio.NewReaderSize(r, maxScanTokenSize)
+// line, until r ends, the daemon shuts down or stop receives a signal.
+// A line longer than maxScanTokenSize, newline included, is reported
+// with line_too_long and dropped as it is read, so it never takes more
+// memory than that.
+//
+// The lines are read on a goroutine of their own, so that a signal ends
+// the loop while a read waits for input. That goroutine ends when r
+// does, or when it has read a line after the daemon shut down; such a
+// line is dropped.
+func (d *Daemon) readCommands(r io.Reader, stop <-chan os.Signal) {
+	lines := make(chan inputLine)
+	go readLines(r, lines, d.ctx.Done())
 	for {
+		var in inputLine
 		select {
 		case <-d.ctx.Done():
 			return
-		default:
+		case <-stop:
+			return
+		case in = <-lines:
+		}
+		if d.ctx.Err() != nil {
+			return
 		}
 
-		line, tooLong, err := readLine(reader)
-		if tooLong {
+		if in.tooLong {
 			d.emitError("", "line_too_long",
 				"line exceeds maximum allowed length")
-		} else if len(line) > 0 {
-			d.handleLine(line)
+		} else if len(in.line) > 0 {
+			d.handleLine(in.line)
+		}
+		if in.err != nil {
+			if !errors.Is(in.err, io.EOF) {
+				slog.Error("stdin reader error",
+					slog.Any("error", in.err))
+			}
+			return
+		}
+	}
+}
+
+// readLines sends the lines of r to lines, each in a buffer of its own,
+// until r ends or done is closed.
+func readLines(r io.Reader, lines chan<- inputLine, done <-chan struct{}) {
+	reader := bufio.NewReaderSize(r, maxScanTokenSize)
+	for {
+		line, tooLong, err := readLine(reader)
+		in := inputLine{
+			line: bytes.Clone(line), tooLong: tooLong, err: err,
+		}
+		select {
+		case lines <- in:
+		case <-done:
+			return
 		}
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				slog.Error("stdin reader error", slog.Any("error", err))
-			}
 			return
 		}
 	}
@@ -827,9 +866,6 @@ func (d *Daemon) shutdown(cmdID ID) {
 	d.closeStore()
 
 	d.emit(EvtResponse, cmdID, MapS{"status": "shutdown"})
-
-	// Close stdin so the scanner loop in Run exits
-	os.Stdin.Close()
 }
 
 // --- P2: Peer management ---
