@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -43,39 +42,31 @@ func main() {
 		os.Exit(1)
 	}
 
-	pass := []byte(os.Getenv("KAMUNE_DB_PASSPHRASE"))
-	if len(pass) == 0 {
-		_, statErr := os.Stat(dbPath)
-		p := prompter{
-			out: os.Stdout,
-			readLine: func() (string, error) {
-				if scanner.Scan() {
-					return scanner.Text(), nil
-				}
-				if err := scanner.Err(); err != nil {
-					return "", err
-				}
-				return "", io.EOF
-			},
-			readSecret: func() ([]byte, error) {
-				// Fd 0 is not the console handle on Windows.
-				return term.ReadPassword(int(os.Stdin.Fd()))
-			},
-		}
-		var err error
-		pass, err = p.passphrase(errors.Is(statErr, fs.ErrNotExist))
-		if err != nil {
-			slog.Error("reading passphrase", "error", err)
-			os.Exit(1)
-		}
+	pr := prompter{
+		out: os.Stdout,
+		readLine: func() (string, error) {
+			if scanner.Scan() {
+				return scanner.Text(), nil
+			}
+			if err := scanner.Err(); err != nil {
+				return "", err
+			}
+			return "", io.EOF
+		},
+		readSecret: func() ([]byte, error) {
+			// Fd 0 is not the console handle on Windows.
+			return term.ReadPassword(int(os.Stdin.Fd()))
+		},
 	}
-
-	store, err := storage.OpenStorage(
-		storage.WithDBPath(dbPath),
-		storage.WithPassphraseHandler(func() ([]byte, error) {
-			return pass, nil
-		}),
+	store, err := openDB(
+		dbPath, []byte(os.Getenv("KAMUNE_DB_PASSPHRASE")), pr,
 	)
+	if errors.Is(err, storage.ErrWrongPassphrase) {
+		fmt.Fprintf(os.Stderr,
+			"The passphrase does not open the database at %s.\n", dbPath,
+		)
+		os.Exit(1)
+	}
 	if err != nil {
 		slog.Error("opening storage", "error", err)
 		os.Exit(1)

@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // scripted returns a prompter that reads secrets and lines from the given
@@ -110,6 +114,91 @@ func TestPrompterPassphrase(t *testing.T) {
 			if len(tt.secrets) > 0 && tt.secrets[0] == "" {
 				a.Contains(out.String(), "without a passphrase?")
 			}
+		})
+	}
+}
+
+func TestOpenDB_AsksAgainAfterAWrongPassphrase(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+
+	var out bytes.Buffer
+	store, err := openDB(path, nil, scripted(&out, []string{"pw", "pw"}, nil))
+	a.NoError(err)
+	a.Contains(out.String(), "Repeat passphrase")
+	a.NoError(store.Close())
+
+	out.Reset()
+	store, err = openDB(path, nil, scripted(
+		&out, []string{"wrong", "pw"}, nil,
+	))
+	a.NoError(err)
+	a.NoError(store.Close())
+	a.Equal(1, strings.Count(out.String(), "Wrong passphrase."))
+	a.NotContains(out.String(), "Repeat passphrase")
+
+	out.Reset()
+	_, err = openDB(path, nil, scripted(
+		&out, []string{"a", "b", "c", "pw"}, nil,
+	))
+	a.ErrorIs(err, storage.ErrWrongPassphrase)
+	a.Equal(
+		maxPassphraseAttempts, strings.Count(out.String(), "Wrong passphrase."),
+	)
+
+	_, err = openDB(path, []byte("wrong"), scripted(&out, nil, nil))
+	a.ErrorIs(err, storage.ErrWrongPassphrase)
+	store, err = openDB(path, []byte("pw"), scripted(&out, nil, nil))
+	a.NoError(err)
+	a.NoError(store.Close())
+}
+
+func TestOpenDB_LimitsTriesInAll(t *testing.T) {
+	a := require.New(t)
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "db")
+	store, err := openDB(
+		existing, nil, scripted(&bytes.Buffer{}, []string{"pw", "pw"}, nil),
+	)
+	a.NoError(err)
+	a.NoError(store.Close())
+
+	tests := []struct {
+		name    string
+		path    string
+		secrets []string
+		lines   []string
+		wantErr error
+		wrong   int
+	}{
+		{
+			name: "declined empty, then wrong", path: existing,
+			secrets: []string{"", "a", "b", "pw"}, lines: []string{"n"},
+			wantErr: storage.ErrWrongPassphrase, wrong: 2,
+		},
+		{
+			name: "wrong, then declined empty", path: existing,
+			secrets: []string{"a", "", "", "pw"},
+			lines:   []string{"n", "n", "y"},
+			wantErr: errNoPassphrase, wrong: 1,
+		},
+		{
+			name: "new, never repeated", path: filepath.Join(dir, "new"),
+			secrets: []string{"a", "b", "c", "d", "e", "f", "pw", "pw"},
+			wantErr: errNoPassphrase,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			var out bytes.Buffer
+			_, err := openDB(tt.path, nil, scripted(&out, tt.secrets, tt.lines))
+			a.ErrorIs(err, tt.wantErr)
+			a.Equal(
+				maxPassphraseAttempts, strings.Count(out.String(), "Passphrase: "),
+			)
+			a.Equal(tt.wrong, strings.Count(out.String(), "Wrong passphrase."))
+			a.NoFileExists(filepath.Join(dir, "new"))
 		})
 	}
 }
