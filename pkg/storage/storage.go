@@ -571,7 +571,9 @@ func (s *Storage) SetSettings(app, key, value string) error {
 }
 
 // DeleteSession removes the session sub-namespace (chat, meta, resumption)
-// for the given session ID.
+// for the given session ID. Close a session that is still connected first:
+// a message stored for it afterwards with [Storage.AddChatEntry] creates
+// its chat again, and the session is listed again with that message.
 func (s *Storage) DeleteSession(sessionID string) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
 		sessions := b.Sub([]byte(engine.SessionsNamespace))
@@ -588,7 +590,9 @@ func (s *Storage) DeleteSession(sessionID string) error {
 }
 
 // AddChatEntry stores a chat message for the given session ID. The message
-// is stored in sessions/<sessionID>/chat/.
+// is stored in sessions/<sessionID>/chat/, which is created if needed, so
+// it does not depend on [Storage.CreateSession] having run, nor on the
+// peer being stored.
 //
 // Key (14 bytes, ordered by local receive time):
 //   - 8 bytes: local UnixNano timestamp (big-endian) — uses the local clock
@@ -623,7 +627,9 @@ func (s *Storage) AddChatEntry(
 	copy(enc[13:], payload)
 
 	err := s.engine.Command(func(b engine.Namespace) error {
-		chat := sessionChat(b, sessionID)
+		chat := b.Ensure([]byte(engine.SessionsNamespace)).
+			Ensure([]byte(sessionID)).
+			Ensure([]byte("chat"))
 		return chat.PutEncrypted(key, enc)
 	})
 	if err != nil {

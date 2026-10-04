@@ -498,6 +498,41 @@ func TestAddChatEntryToCreatedSession(t *testing.T) {
 	a.Equal([]byte("hello"), entries[0].Data)
 }
 
+// TestAddChatEntryWithoutCreateSession stores messages in sessions that
+// CreateSession never ran for, such as one accepted while incognito or
+// whose peer record expired.
+func TestAddChatEntryWithoutCreateSession(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(a *require.Assertions, s *Storage, id string)
+	}{
+		{"no session", func(*require.Assertions, *Storage, string) {}},
+		{"resumption state only", func(a *require.Assertions, s *Storage, id string) {
+			att, err := attest.New()
+			a.NoError(err)
+			a.NoError(s.PutSessionResumption(
+				id, att.MarshalPublicKey(), nil, true,
+			))
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			store, cleanup := newTestStorage(t)
+			defer cleanup()
+			tc.setup(a, store, "sess")
+
+			a.NoError(store.AddChatEntry(
+				"sess", []byte("hello"), time.Now(), SenderPeer,
+			))
+			entries, err := store.GetChatHistory("sess")
+			a.NoError(err)
+			a.Len(entries, 1)
+			a.Equal([]byte("hello"), entries[0].Data)
+		})
+	}
+}
+
 func TestGetChatHistorySupportsLegacyAndMalformedEntries(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
