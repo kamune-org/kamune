@@ -33,8 +33,16 @@ LICENSE_FILE="$REPO_ROOT/LICENSE"
 mkdir -p "$DIST_PATH"
 
 HAS_ZIP=true
-command -v zip >/dev/null 2>&1 || HAS_ZIP=false
+if ! command -v zip >/dev/null 2>&1; then
+	HAS_ZIP=false
+	echo "WARNING: zip not found; leaving bare binaries without" \
+		"config.toml, README.md and LICENSE" >&2
+fi
 
+staging=""
+trap '[ -z "$staging" ] || rm -rf "$staging"' EXIT
+
+failed=()
 for plat in $PLATFORMS; do
 	os="${plat%%/*}"
 	arch="${plat#*/}"
@@ -46,10 +54,16 @@ for plat in $PLATFORMS; do
 
 	echo "==> Building $APP_NAME for $plat..."
 
+	# Drop what an earlier build left for this platform, so a failed build
+	# leaves nothing that looks current and zip starts a new archive
+	# instead of updating the old one.
+	rm -f "$DIST_PATH/$binary" "$DIST_PATH/${zipbase}.zip"
+
 	if ! GOOS="$os" GOARCH="$arch" go build -o "$DIST_PATH/$binary" \
 		-ldflags="-s -w -X main.version=$FULL_VERSION" \
 		"$PROJECT_DIR"; then
 		echo "  FAILED: build for $plat" >&2
+		failed+=("$plat")
 		continue
 	fi
 
@@ -61,11 +75,17 @@ for plat in $PLATFORMS; do
 		cp "$LICENSE_FILE"     "$staging/"
 		( cd "$staging" && zip -q "$DIST_PATH/${zipbase}.zip" ./* )
 		rm -rf "$staging"
+		staging=""
 		rm "$DIST_PATH/$binary"
 		echo "  $binary -> ${zipbase}.zip"
 	fi
 done
 
 echo ""
+if [ "${#failed[@]}" -gt 0 ]; then
+	echo "==> Build FAILED for: ${failed[*]}" >&2
+	ls -lh "$DIST_PATH/" 2>/dev/null || true
+	exit 1
+fi
 echo "==> Build complete!"
 ls -lh "$DIST_PATH/" 2>/dev/null || true
