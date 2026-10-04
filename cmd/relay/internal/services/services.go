@@ -23,6 +23,13 @@ func New(ctx context.Context, cfg config.Config) (*Service, error) {
 	}
 
 	slog.Info("starting relay service")
+	// Say which mode the relay runs in, so a password that did not
+	// reach the config shows up at once.
+	if cfg.Server.Password != "" {
+		slog.Info("psk auth on: clients must send server.password")
+	} else {
+		slog.Info("psk auth off: any client can register")
+	}
 
 	sessionTTL := cfg.Session.SessionTTL
 	handshakeTimeout := cfg.Session.HandshakeTimeout

@@ -1,7 +1,9 @@
 package services
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -82,4 +84,37 @@ func TestServices_New_WrapsValidationError(t *testing.T) {
 	a.Error(err, "expected error, got nil")
 	a.Contains(err.Error(), "invalid config")
 	a.Contains(err.Error(), "max_concurrent_sessions")
+}
+
+// TestServices_New_LogsAuthMode checks that startup says whether PSK auth
+// is on, so a relay that lost its password is noticed.
+func TestServices_New_LogsAuthMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		want     string
+	}{
+		{name: "open", want: "psk auth off"},
+		{name: "psk", password: "s3cret", want: "psk auth on"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			var out bytes.Buffer
+			prev := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&out, nil)))
+			t.Cleanup(func() { slog.SetDefault(prev) })
+
+			cfg := validConfig()
+			cfg.Server.Password = tc.password
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			_, err := New(ctx, cfg)
+			a.NoError(err)
+			a.Contains(out.String(), tc.want)
+			if tc.password != "" {
+				a.NotContains(out.String(), tc.password)
+			}
+		})
+	}
 }
