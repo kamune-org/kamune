@@ -1205,14 +1205,18 @@ list. A session ID that is neither fails with `session_not_found`.
 
 ### Verification
 
-Modes: `0` = Strict (always prompt), `1` = Quick (auto-accept known peers,
-prompt for new), `2` = Auto-Accept (accept all). See
-[Verification Flow](#verification-flow).
+Modes: `0` = Strict (prompt for every peer, known or not), `1` = Quick
+(accept known peers without a prompt, prompt for others), `2` = Auto-Accept
+(accept every peer, and store none of them as a known peer). Without a saved
+mode the daemon uses Quick. No mode prompts for a peer that resumes a session.
+See [Verification Flow](#verification-flow).
 
 #### `set_verification_mode`
 
-Sets the verification mode and persists it. If a server is running, it
-is auto-restarted to apply the new mode to incoming connections.
+Sets the verification mode, and saves it while a storage is open. The new mode
+applies to the next peer verified, by a running server too: the server is not
+restarted, and live sessions and relay tokens are kept. A mode other than 0, 1
+or 2 fails with `invalid_verification_mode`.
 
 **Input:**
 
@@ -1236,8 +1240,7 @@ is auto-restarted to apply the new mode to incoming connections.
 }
 ```
 
-If a server was running, also emits `server_stopped` + `server_started` (the
-`restart_server` flow).
+The response gives the mode as a string.
 
 #### `get_verification_mode`
 
@@ -1257,7 +1260,12 @@ Returns the current verification mode.
 
 #### `verify_response`
 
-Answers a pending `verify_peer` event (see [Push Events](#push-events)).
+Answers a pending `verify_peer` event (see [`verify_peer`](#verify_peer)). A
+`request_id` that names no pending prompt, because it was answered, timed out
+or ended when the server stopped, fails with `verification_not_found`. An
+unknown peer that is accepted is stored as a known peer once its session is
+established, unless incognito mode is on; a peer whose handshake fails after
+it was accepted is not stored.
 
 **Input:**
 
@@ -2143,8 +2151,28 @@ Emitted when a peer has a different minor version.
 
 ### `verify_peer`
 
-Emitted when a new peer needs verification (Strict or Quick mode). The client
-must respond with a `verify_response` command within 2 minutes.
+Emitted when a peer needs the user's verdict: every peer in Strict mode, and a
+peer that is not known in Quick mode. The client must answer with
+`verify_response` within 2 minutes; the peer is rejected otherwise.
+
+Ask the user to compare `numeric`, 40 digits in eight groups of five, with the
+peer over a trusted channel before accepting. It carries about 132.9 bits. The
+eight `emoji` carry about 52.7 bits, few enough that an attacker can search for
+a key that shows the same emoji, so they must not be relied on alone. `hex` is
+the whole PKIX key, whose first 12 bytes are the same for every Ed25519 key.
+`peer_name` is the name the peer chose for itself, and proves nothing. The
+default names that the daemon derives from a key, its pseudonym (two
+adjectives, a noun and a number, such as `brave misty otter 42`), are
+nicknames of about 29.6 bits, not fingerprints: anyone can make a key with a
+given pseudonym. `known` tells whether the key is a stored peer, and `mode`
+is `strict` or `quick`.
+
+A peer that connects to the server is rejected at once, without this event,
+while another connection with the same key has a prompt open, or when it is
+unknown and 8 unknown peers that connected have prompts open. Known peers do
+not count toward the 8, and a peer the user dials (`dial` or a reconnect) is
+never rejected this way. While prompts are open the status is `verifying`;
+when the last one ends, the status before them comes back.
 
 ```json
 {
@@ -2153,8 +2181,9 @@ must respond with a `verify_response` command within 2 minutes.
   "data": {
     "request_id": 42,
     "peer_name": "CrimsonOtter",
-    "emoji": ["🦊", "🐱"],
-    "hex": "ab12cd34...",
+    "numeric": "12345 67890 13579 24680 11223 34455 66778 89900",
+    "emoji": ["🦊", "🐱", "🌵", "🔑", "🚀", "🍀", "🎲", "🐙"],
+    "hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...",
     "known": false,
     "mode": "quick"
   }
@@ -2283,36 +2312,60 @@ open fails.
 
 ## Verification Flow
 
-The daemon supports three peer verification modes. The mode is persisted in
-storage settings under `daemon/verification_mode` and can be changed at runtime
-via `set_verification_mode`.
+The daemon supports three peer verification modes. The mode is saved in the
+storage settings under `daemon/verification_mode`, applied when the storage is
+opened, and can be changed at runtime with `set_verification_mode`; each peer
+is verified in the mode in effect at the time. Without a saved mode the
+daemon uses Quick. A saved value that names no mode means Strict, and a
+warning is logged.
 
 ```
-                  ┌──────────────────────────────────────────┐
-                  │  Peer connects (server or dial)          │
-                  └──────────────────┬───────────────────────┘
-                                     │
-                  ┌──────────────────▼───────────────────────┐
-                  │  Mode = Auto-Accept?                     │
-                  │  → accept, store peer (if new), continue │
-                  └──────────────────┬───────────────────────┘
-                                     │ no
-                  ┌──────────────────▼───────────────────────┐
-                  │  Mode = Quick? + peer known?             │
-                  │  → accept, continue                      │
-                  └──────────────────┬───────────────────────┘
-                                     │ no
-                  ┌──────────────────▼──────────────────────-─┐
-                  │  Emit verify_peer event (request_id)      │
-                  │  Wait for verify_response or 2-min timeout│
-                  └──────────────────┬───────────────────────-┘
-                                     │
-                  ┌──────────────────▼─────────────────────-----──┐
-                  │  accept → store peer (if new), continue       │
-                  │  reject → return kamune.ErrVerificationFailed │
-                  │  timeout → return generic timeout error       │
-                  └──────────────────────────────────────────-----┘
+                  ┌─────────────────────────────────────────────────────────┐
+                  │ A peer connects to the server, or the user dials one    │
+                  │ (cold handshake; a resumed session skips all this)      │
+                  └────────────────────────────┬────────────────────────────┘
+                                               │
+                  ┌────────────────────────────▼────────────────────────────┐
+                  │ Mode = Auto-Accept?                                     │
+                  │ → accept; the peer is not stored                        │
+                  └────────────────────────────┬────────────────────────────┘
+                                               │ no
+                  ┌────────────────────────────▼────────────────────────────┐
+                  │ Mode = Quick and the peer is known?                     │
+                  │ → accept                                                │
+                  └────────────────────────────┬────────────────────────────┘
+                                               │ no
+                  ┌────────────────────────────▼────────────────────────────┐
+                  │ Inbound peer whose key already has a prompt open,       │
+                  │ or unknown inbound peer while 8 unknown inbound         │
+                  │ peers have prompts open?                                │
+                  │ → reject without a prompt                               │
+                  └────────────────────────────┬────────────────────────────┘
+                                               │ no
+                  ┌────────────────────────────▼────────────────────────────┐
+                  │ Emit verify_peer (request_id)                           │
+                  │ Wait for verify_response or the 2-minute timeout        │
+                  └────────────────────────────┬────────────────────────────┘
+                                               │
+                  ┌────────────────────────────▼────────────────────────────┐
+                  │ accept  → continue; an unknown peer is stored once      │
+                  │           its session is established (not in incognito) │
+                  │ reject  → kamune.ErrVerificationFailed                  │
+                  │ timeout → error, but the status is not set to error     │
+                  └─────────────────────────────────────────────────────────┘
 ```
+
+The verifier runs only on a cold handshake. The kamune library does not run it
+when a peer resumes a session, which it allows within 24 hours of the
+session's cold handshake (a resume does not extend that). So in every mode,
+Strict included, a peer that resumes a session is not prompted, and the daemon
+resumes dropped dialed sessions on its own. A server started in incognito mode
+refuses resumption.
+
+A prompt that waits for the user holds the handshake open. The kamune library
+allows the verifier 150 seconds, so the daemon's 2-minute timeout ends the
+prompt first. `stop_server` and `restart_server` reject the open prompts of
+peers that connected to the server.
 
 `request_id` is distinct from the command `id` correlation field because
 verification is triggered by the protocol, not by a client command. Match
