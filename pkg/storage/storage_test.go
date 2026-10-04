@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/kamune-org/kamune/pkg/attest"
 )
@@ -283,6 +284,94 @@ func TestDeletePeer(t *testing.T) {
 	// Now FindPeer should fail.
 	_, err = storage.FindPeer(att.MarshalPublicKey())
 	a.Error(err)
+}
+
+// TestCopiedPeerRecordIsNotTrusted copies a known peer's record to the key
+// of an attacker's public key, as someone who can write the database file
+// but has no passphrase could, and checks that the attacker is not found
+// as a known peer.
+func TestCopiedPeerRecordIsNotTrusted(t *testing.T) {
+	cases := []struct {
+		name string
+		// copy puts the record of victim under the key of attacker.
+		copy func(t *testing.T, s *Storage, path string, victim, attacker []byte)
+		want error
+	}{
+		{
+			// The stored bytes are bound to the victim's key, so the copy
+			// does not even decrypt.
+			name: "raw ciphertext",
+			copy: func(t *testing.T, s *Storage, path string, victim, attacker []byte) {
+				a := require.New(t)
+				a.NoError(s.Close())
+				db, err := bolt.Open(path, 0600, nil)
+				a.NoError(err)
+				a.NoError(db.Update(func(tx *bolt.Tx) error {
+					peers := tx.Bucket([]byte("peers"))
+					v := bytes.Clone(peers.Get(peerKey(victim)))
+					a.NotNil(v)
+					return peers.Put(peerKey(attacker), v)
+				}))
+				a.NoError(db.Close())
+			},
+		},
+		{
+			// A record that decrypts under the attacker's key, such as one
+			// written before values were bound to their location, holds
+			// the victim's public key.
+			name: "decryptable record",
+			copy: func(t *testing.T, s *Storage, path string, victim, attacker []byte) {
+				a := require.New(t)
+				a.NoError(s.engine.Command(func(b Namespace) error {
+					peers := b.Sub([]byte("peers"))
+					v, err := peers.GetEncrypted(peerKey(victim))
+					if err != nil {
+						return err
+					}
+					return peers.PutEncrypted(peerKey(attacker), v)
+				}))
+				a.NoError(s.Close())
+			},
+			want: ErrPeerMismatch,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			path := filepath.Join(t.TempDir(), "db")
+			open := func() *Storage {
+				s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
+				a.NoError(err)
+				return s
+			}
+			victim, err := attest.New()
+			a.NoError(err)
+			attacker, err := attest.New()
+			a.NoError(err)
+			victimPK := victim.MarshalPublicKey()
+			attackerPK := attacker.MarshalPublicKey()
+
+			s := open()
+			a.NoError(s.StorePeer(&Peer{Name: "friend", PublicKey: victimPK}))
+			tc.copy(t, s, path, victimPK, attackerPK)
+
+			s = open()
+			defer s.Close()
+			_, err = s.FindPeer(attackerPK)
+			a.Error(err, "attacker must not be a known peer")
+			if tc.want != nil {
+				a.ErrorIs(err, tc.want)
+			}
+			found, err := s.FindPeer(victimPK)
+			a.NoError(err)
+			a.Equal("friend", found.Name)
+
+			peers, err := s.ListPeers()
+			a.NoError(err)
+			a.Len(peers, 1)
+			a.Equal(victimPK, peers[0].PublicKey)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

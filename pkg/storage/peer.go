@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"crypto/sha3"
 	"errors"
 	"fmt"
@@ -25,6 +26,10 @@ type Peer struct {
 var (
 	ErrPeerExpired      = errors.New("peer has been expired")
 	ErrInvalidPublicKey = errors.New("public key must be PKIX-marshaled")
+	// ErrPeerMismatch is returned when a stored peer record holds a public
+	// key other than the one it is stored under, which means the database
+	// was tampered with. The record is not trusted.
+	ErrPeerMismatch = errors.New("stored peer does not match its key")
 )
 
 // peerKey returns the storage key for a peer identified by the given claim
@@ -35,6 +40,9 @@ func peerKey(claim []byte) []byte {
 	return h[:]
 }
 
+// FindPeer returns the stored peer whose public key is claim. An expired
+// peer is removed and [ErrPeerExpired] returned. A record stored under
+// claim that holds another public key gives [ErrPeerMismatch].
 func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	key := peerKey(claim)
 	var peer *Peer
@@ -50,6 +58,9 @@ func (s *Storage) FindPeer(claim []byte) (*Peer, error) {
 	return peer, err
 }
 
+// findPeer reads the peer stored under key, the [peerKey] of its public
+// key. A record whose public key does not hash to key is rejected with
+// [ErrPeerMismatch].
 func (s *Storage) findPeer(b engine.Namespace, key []byte) (*Peer, error) {
 	peers := b.Sub([]byte(engine.PeersNamespace))
 	data, err := peers.GetEncrypted(key)
@@ -60,6 +71,9 @@ func (s *Storage) findPeer(b engine.Namespace, key []byte) (*Peer, error) {
 	var p pb.Peer
 	if err = proto.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("unmarshaling peer: %w", err)
+	}
+	if !matchesKey(&p, key) {
+		return nil, ErrPeerMismatch
 	}
 
 	if p.FirstSeen.AsTime().Add(s.expiryDuration).Before(s.clock.Now()) {
@@ -78,6 +92,12 @@ func (s *Storage) findPeer(b engine.Namespace, key []byte) (*Peer, error) {
 		LastSeen:   lastSeen,
 		AppVersion: p.AppVersion,
 	}, nil
+}
+
+// matchesKey reports whether p is the peer whose records are stored under
+// key.
+func matchesKey(p *pb.Peer, key []byte) bool {
+	return bytes.Equal(peerKey(p.GetPublicKey()), key)
 }
 
 func (s *Storage) removeExpiredPeer(key []byte) {
@@ -190,6 +210,13 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 			if err := proto.Unmarshal(value, &p); err != nil {
 				slog.Warn(
 					"skipping malformed peer entry", slog.Any("error", err),
+				)
+				continue
+			}
+			if !matchesKey(&p, key) {
+				slog.Warn(
+					"skipping peer entry stored under another key",
+					slog.String("name", p.GetName()),
 				)
 				continue
 			}
