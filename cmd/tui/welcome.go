@@ -52,12 +52,14 @@ func (m *model) selectMode(idx int) (tea.Model, tea.Cmd) {
 			mkInput(relayAddrLabel, defaultRelayAddr),
 			mkInput("Token (hex)", ""),
 			mkPasswordInput(relayPasswordLabel),
+			mkInput(relayPinLabel, ""),
 		}
 	case 3:
 		m.mode = modeRelayServe
 		m.inputs = []textinput.Model{
 			mkInput(relayAddrLabel, defaultRelayAddr),
 			mkPasswordInput(relayPasswordLabel),
+			mkInput(relayPinLabel, ""),
 		}
 	case 4:
 		return m, loadSessions(m.store)
@@ -79,15 +81,27 @@ const (
 	// default settings on this host.
 	defaultRelayAddr   = "wss://localhost:8891"
 	relayPasswordLabel = "Relay password (only for a relay that has one)"
+	relayPinLabel      = "Relay certificate SHA-256 fingerprint " +
+		"(for a self-signed wss or tls relay)"
 )
 
 // relayPasswordInput returns the index of the relay password input in
-// the relay mode mode.
+// the relay mode mode. The certificate fingerprint input comes next.
 func relayPasswordInput(mode inputMode) int {
 	if mode == modeRelayDial {
 		return 2
 	}
 	return 1
+}
+
+// relayTarget returns the relay that the input screen of a relay mode
+// names: its address, and the certificate fingerprint to pin, if any.
+func (m *model) relayTarget() (relayTarget, error) {
+	r, err := parseRelayAddr(m.inputs[0].Value())
+	if err != nil {
+		return relayTarget{}, err
+	}
+	return r.pinned(m.inputs[relayPasswordInput(m.mode)+1].Value())
 }
 
 // mkPasswordInput returns an input that hides what is typed into it.
@@ -151,8 +165,7 @@ func (m *model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.connectErr = nil
 			if m.mode == modeRelayDial || m.mode == modeRelayServe {
-				_, err := parseRelayAddr(m.inputs[0].Value())
-				if err != nil {
+				if _, err := m.relayTarget(); err != nil {
 					m.connectErr = err
 					return m, nil
 				}

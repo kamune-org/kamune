@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -27,6 +28,10 @@ type relayTarget struct {
 	// host is host:port, or for ws and wss also a bare host, which
 	// stands for the scheme's default port.
 	host string
+	// pin, when set, is the SHA-256 fingerprint of the certificate that
+	// a wss or tls relay must have. It takes the place of the checks
+	// against the system's roots and the relay's name.
+	pin []byte
 }
 
 // parseRelayAddr parses a relay address. An address without a scheme
@@ -60,6 +65,27 @@ func parseRelayAddr(addr string) (relayTarget, error) {
 	return relayTarget{scheme: scheme, host: host}, nil
 }
 
+// pinned returns r with the certificate fingerprint fp, as
+// relayconn.ParseCertFingerprint reads it, or r itself if fp is empty.
+// Only a wss or tls relay has a certificate to pin.
+func (r relayTarget) pinned(fp string) (relayTarget, error) {
+	if strings.TrimSpace(fp) == "" {
+		return r, nil
+	}
+	if !r.secure() {
+		return relayTarget{}, fmt.Errorf(
+			"%w: a certificate fingerprint needs a wss or tls relay",
+			errRelayAddress,
+		)
+	}
+	pin, err := relayconn.ParseCertFingerprint(fp)
+	if err != nil {
+		return relayTarget{}, err
+	}
+	r.pin = pin
+	return r, nil
+}
+
 // secure reports whether r reaches the relay over TLS, which tells the
 // relay from an impostor. Over ws and tcp, anyone on the path can pose
 // as the relay and read the session token.
@@ -67,48 +93,75 @@ func (r relayTarget) secure() bool {
 	return r.scheme == "wss" || r.scheme == "tls"
 }
 
-// tlsConfig returns the TLS config for a wss or tls relay. It checks the
-// relay's certificate against the system's roots and the relay's name.
-func (r relayTarget) tlsConfig() *tls.Config {
-	return &tls.Config{MinVersion: tls.VersionTLS12}
+// tlsConfig returns the TLS config for a wss or tls relay. It accepts
+// only the certificate with the pinned fingerprint, if r has one, and
+// otherwise checks the relay's certificate against the system's roots
+// and the relay's name.
+func (r relayTarget) tlsConfig() (*tls.Config, error) {
+	if r.pin != nil {
+		return relayconn.PinnedTLSConfig(r.pin)
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS12}, nil
 }
 
 // dial joins the relay session named by token.
 func (r relayTarget) dial(
 	ctx context.Context, token []byte, opts ...relayconn.Option,
 ) (*relayconn.RelayConn, error) {
+	cfg, err := r.tlsConfig()
+	if err != nil {
+		return nil, err
+	}
+	var conn *relayconn.RelayConn
 	switch r.scheme {
 	case "wss":
-		return relayconn.DialRelayWSS(
-			ctx, r.host, token, r.tlsConfig(), opts...,
-		)
+		conn, err = relayconn.DialRelayWSS(ctx, r.host, token, cfg, opts...)
 	case "tls":
-		return relayconn.DialRelayTLS(
-			ctx, r.host, token, r.tlsConfig(), opts...,
-		)
+		conn, err = relayconn.DialRelayTLS(ctx, r.host, token, cfg, opts...)
 	case "ws":
-		return relayconn.DialRelay(ctx, r.host, token, opts...)
+		conn, err = relayconn.DialRelay(ctx, r.host, token, opts...)
 	case "tcp":
-		return relayconn.DialRelayTCP(ctx, r.host, token, opts...)
+		conn, err = relayconn.DialRelayTCP(ctx, r.host, token, opts...)
+	default:
+		err = fmt.Errorf("%w: unknown scheme %q", errRelayAddress, r.scheme)
 	}
-	return nil, fmt.Errorf("%w: unknown scheme %q", errRelayAddress, r.scheme)
+	return conn, untrusted(err)
 }
 
 // listen registers a new relay session.
 func (r relayTarget) listen(
 	ctx context.Context, opts ...relayconn.Option,
 ) (*relayconn.ListenResult, error) {
+	cfg, err := r.tlsConfig()
+	if err != nil {
+		return nil, err
+	}
+	var res *relayconn.ListenResult
 	switch r.scheme {
 	case "wss":
-		return relayconn.ListenRelayWSS(ctx, r.host, r.tlsConfig(), opts...)
+		res, err = relayconn.ListenRelayWSS(ctx, r.host, cfg, opts...)
 	case "tls":
-		return relayconn.ListenRelayTLS(ctx, r.host, r.tlsConfig(), opts...)
+		res, err = relayconn.ListenRelayTLS(ctx, r.host, cfg, opts...)
 	case "ws":
-		return relayconn.ListenRelay(ctx, r.host, opts...)
+		res, err = relayconn.ListenRelay(ctx, r.host, opts...)
 	case "tcp":
-		return relayconn.ListenRelayTCP(ctx, r.host, opts...)
+		res, err = relayconn.ListenRelayTCP(ctx, r.host, opts...)
+	default:
+		err = fmt.Errorf("%w: unknown scheme %q", errRelayAddress, r.scheme)
 	}
-	return nil, fmt.Errorf("%w: unknown scheme %q", errRelayAddress, r.scheme)
+	return res, untrusted(err)
+}
+
+// untrusted adds a hint to err when the relay's certificate did not pass
+// the checks against the system's roots, as a self-signed one does not.
+func untrusted(err error) error {
+	var unknown x509.UnknownAuthorityError
+	if errors.As(err, &unknown) {
+		return fmt.Errorf("%w (to trust a relay with a self-signed "+
+			"certificate, enter the SHA-256 fingerprint that it logs "+
+			"at startup)", err)
+	}
+	return err
 }
 
 // hungUp adds a hint to err, the error of a relay handshake, when the

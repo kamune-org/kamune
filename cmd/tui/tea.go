@@ -735,7 +735,7 @@ func (m *model) startConnect() tea.Cmd {
 	var password string
 	if m.mode == modeRelayDial || m.mode == modeRelayServe {
 		var err error
-		if relay, err = parseRelayAddr(addr); err != nil {
+		if relay, err = m.relayTarget(); err != nil {
 			return failed(err)
 		}
 		password = m.inputs[relayPasswordInput(m.mode)].Value()

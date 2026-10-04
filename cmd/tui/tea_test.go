@@ -204,20 +204,21 @@ func TestInput_RelayDialRequiresBothFields(t *testing.T) {
 }
 
 func TestInput_TabMovesFocus(t *testing.T) {
-	tab := tea.KeyMsg{Type: tea.KeyTab}
-	shiftTab := tea.KeyMsg{Type: tea.KeyShiftTab}
 	tests := []struct {
 		name string
-		keys []tea.KeyMsg
-		// field is the input that should get the typed text.
+		// tabs is how many times Tab is pressed, all of the inputs' count
+		// when negative, and shiftTabs how many times Shift+Tab is then.
+		tabs, shiftTabs int
+		// field is the input that should get the typed text, the last
+		// one when negative.
 		field int
 	}{
-		{"no tab", nil, 0},
-		{"tab", []tea.KeyMsg{tab}, 1},
-		{"tab twice", []tea.KeyMsg{tab, tab}, 2},
-		{"tab wraps", []tea.KeyMsg{tab, tab, tab}, 0},
-		{"shift+tab", []tea.KeyMsg{tab, shiftTab}, 0},
-		{"shift+tab wraps", []tea.KeyMsg{shiftTab}, 2},
+		{"no tab", 0, 0, 0},
+		{"tab", 1, 0, 1},
+		{"tab twice", 2, 0, 2},
+		{"tab wraps", -1, 0, 0},
+		{"shift+tab", 1, 1, 0},
+		{"shift+tab wraps", 0, 1, -1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -231,8 +232,17 @@ func TestInput_TabMovesFocus(t *testing.T) {
 				want[i] = m.inputs[i].Value()
 			}
 
-			for _, k := range tt.keys {
-				m.Update(k)
+			if tt.tabs < 0 {
+				tt.tabs = len(m.inputs)
+			}
+			if tt.field < 0 {
+				tt.field = len(m.inputs) - 1
+			}
+			for range tt.tabs {
+				m.Update(tea.KeyMsg{Type: tea.KeyTab})
+			}
+			for range tt.shiftTabs {
+				m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 			}
 			m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("abcd")})
 			want[tt.field] += "abcd"
@@ -245,18 +255,24 @@ func TestInput_TabMovesFocus(t *testing.T) {
 }
 
 func TestInput_RelayAddress(t *testing.T) {
+	pin := strings.Repeat("ab", 32)
 	tests := []struct {
 		name  string
 		addr  string
+		pin   string
 		valid bool
 		warns bool
 	}{
-		{"default", "", true, false},
-		{"tls", "tls://relay.example:8890", true, false},
-		{"ws", "ws://relay.example:8888", true, true},
-		{"tcp", "tcp://relay.example:8889", true, true},
-		{"unknown scheme", "http://relay.example", false, false},
-		{"path", "wss://relay.example/ws", false, false},
+		{"default", "", "", true, false},
+		{"tls", "tls://relay.example:8890", "", true, false},
+		{"ws", "ws://relay.example:8888", "", true, true},
+		{"tcp", "tcp://relay.example:8889", "", true, true},
+		{"unknown scheme", "http://relay.example", "", false, false},
+		{"path", "wss://relay.example/ws", "", false, false},
+		{"pinned tls", "tls://relay.example:8890", pin, true, false},
+		{"pinned wss", "relay.example", pin, true, false},
+		{"pinned tcp", "tcp://relay.example:8889", pin, false, true},
+		{"short pin", "tls://relay.example:8890", "abcd", false, false},
 	}
 	for _, mode := range []rune{'3', '4'} {
 		for _, tt := range tests {
@@ -271,6 +287,7 @@ func TestInput_RelayAddress(t *testing.T) {
 				} else {
 					m.inputs[0].SetValue(tt.addr)
 				}
+				m.inputs[len(m.inputs)-1].SetValue(tt.pin)
 				view := m.viewInput()
 				a.Contains(view, "Relay address")
 				a.Equal(tt.warns,
@@ -285,8 +302,8 @@ func TestInput_RelayAddress(t *testing.T) {
 				m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 				a.Equal(stateInput, m.state)
 				a.Nil(m.att)
-				a.ErrorIs(m.connectErr, errRelayAddress)
-				a.Contains(m.viewInput(), "invalid relay address")
+				a.Error(m.connectErr)
+				a.Contains(m.viewInput(), "Error: ")
 				m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 				a.Equal(stateWelcome, m.state)
 				a.Nil(m.connectErr)

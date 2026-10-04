@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -9,9 +10,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
-	"errors"
 	"math/big"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -371,25 +372,106 @@ func TestRelay_SessionOverTCP(t *testing.T) {
 	a.Equal("hi", string(b.GetValue()))
 }
 
-func TestRelay_TLSChecksTheCertificate(t *testing.T) {
+func TestRelay_TLSCertificate(t *testing.T) {
+	relay := startFakeRelay(t, true, time.Hour, "")
+	other := selfSignedCert(t)
+	tests := []struct {
+		name string
+		pin  string
+		// check checks the error that both sides fail with, if they
+		// do.
+		check func(*require.Assertions, error)
+	}{
+		{
+			name: "pinned",
+			pin:  relayconn.CertFingerprint(relay.cert.Raw),
+		},
+		{
+			name: "pinned to another certificate",
+			pin:  relayconn.CertFingerprint(other.Certificate[0]),
+			check: func(a *require.Assertions, err error) {
+				a.ErrorIs(err, relayconn.ErrCertPinMismatch)
+			},
+		},
+		{
+			// The certificate is self-signed, so the system's roots
+			// do not vouch for it.
+			name: "not pinned",
+			check: func(a *require.Assertions, err error) {
+				a.ErrorAs(err, &x509.UnknownAuthorityError{})
+				a.ErrorContains(err, "SHA-256 fingerprint")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			r, err := parseRelayAddr("tls://" + relay.addr)
+			a.NoError(err)
+			r, err = r.pinned(tt.pin)
+			a.NoError(err)
+
+			server, dialer := relayPair(t, r, "", "")
+			if tt.check == nil {
+				a.NoError(server.err)
+				a.NoError(dialer.err)
+				return
+			}
+			tt.check(a, server.err)
+
+			accept := func(*storage.Storage, *storage.Peer) error {
+				return nil
+			}
+			_, _, err = relayDial(
+				context.Background(), r,
+				"00112233445566778899aabbccddeeff", "",
+				openTestStore(t), accept,
+			)
+			tt.check(a, err)
+		})
+	}
+}
+
+func TestRelayTarget_Pinned(t *testing.T) {
+	fp := strings.Repeat("Ab", 32)
+	colons := strings.TrimSuffix(strings.Repeat("ab:", 32), ":")
+	tests := []struct {
+		addr string
+		pin  string
+		want []byte
+		ok   bool
+	}{
+		{"tls://relay.example:8890", "", nil, true},
+		{"tls://relay.example:8890", fp, bytes.Repeat([]byte{0xab}, 32), true},
+		{"relay.example", colons, bytes.Repeat([]byte{0xab}, 32), true},
+		{"ws://relay.example", fp, nil, false},
+		{"tcp://relay.example:8889", fp, nil, false},
+		{"tls://relay.example:8890", "ab", nil, false},
+		{"tls://relay.example:8890", strings.Repeat("x", 64), nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.addr+" "+tt.pin, func(t *testing.T) {
+			a := require.New(t)
+			r, err := parseRelayAddr(tt.addr)
+			a.NoError(err)
+			r, err = r.pinned(tt.pin)
+			if !tt.ok {
+				a.Error(err)
+				return
+			}
+			a.NoError(err)
+			a.Equal(tt.want, r.pin)
+		})
+	}
+}
+
+func TestRelay_PinnedChatThroughTheUI(t *testing.T) {
 	a := require.New(t)
 	relay := startFakeRelay(t, true, time.Hour, "")
-	r, err := parseRelayAddr("tls://" + relay.addr)
-	a.NoError(err)
-
-	// The relay's certificate is self-signed, so neither side trusts it.
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
-	_, _, _, err = relayServe(
-		context.Background(), r, "", openTestStore(t), accept,
-		func(*kamune.Transport, chan struct{}) {}, func(error) {},
+	server, dialer := relayChat(t, "tls://"+relay.addr, "",
+		relayconn.CertFingerprint(relay.cert.Raw),
 	)
-	var unknown x509.UnknownAuthorityError
-	a.True(errors.As(err, &unknown), "error: %v", err)
-	_, _, err = relayDial(
-		context.Background(), r, "00112233445566778899aabbccddeeff", "",
-		openTestStore(t), accept,
-	)
-	a.True(errors.As(err, &unknown), "error: %v", err)
+	a.Equal(server.sess.t.SessionID(), dialer.sess.t.SessionID())
 }
 
 func TestRelay_Password(t *testing.T) {
@@ -456,16 +538,19 @@ func relayModel(t *testing.T, key rune) (*model, chan tea.Msg) {
 }
 
 // relayChat starts a relay server and a relay dial to it, with the relay
-// address addr and the given password typed into their input screens,
-// and accepts the peer on both sides. It returns the models in their
-// chats.
-func relayChat(t *testing.T, addr, password string) (server, dialer *model) {
+// address addr, password and certificate fingerprint pin typed into their
+// input screens, and accepts the peer on both sides. It returns the
+// models in their chats.
+func relayChat(
+	t *testing.T, addr, password, pin string,
+) (server, dialer *model) {
 	t.Helper()
 	a := require.New(t)
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
 	server, serverMsgs := relayModel(t, '4')
 	server.inputs[0].SetValue(addr)
 	server.inputs[relayPasswordInput(server.mode)].SetValue(password)
+	server.inputs[relayPasswordInput(server.mode)+1].SetValue(pin)
 	server.Update(enter)
 	a.Equal(stateConnecting, server.state)
 	server.Update(waitFor(t, serverMsgs))
@@ -475,6 +560,7 @@ func relayChat(t *testing.T, addr, password string) (server, dialer *model) {
 	dialer.inputs[0].SetValue(addr)
 	dialer.inputs[1].SetValue(hex.EncodeToString(server.relayToken))
 	dialer.inputs[relayPasswordInput(dialer.mode)].SetValue(password)
+	dialer.inputs[relayPasswordInput(dialer.mode)+1].SetValue(pin)
 	dialer.Update(enter)
 	a.Equal(stateConnecting, dialer.state)
 
@@ -504,6 +590,6 @@ func relayChat(t *testing.T, addr, password string) (server, dialer *model) {
 func TestRelay_ChatThroughTheUI(t *testing.T) {
 	a := require.New(t)
 	relay := startFakeRelay(t, false, time.Hour, "s3cret")
-	server, dialer := relayChat(t, "tcp://"+relay.addr, "s3cret")
+	server, dialer := relayChat(t, "tcp://"+relay.addr, "s3cret", "")
 	a.Equal(server.sess.t.SessionID(), dialer.sess.t.SessionID())
 }
