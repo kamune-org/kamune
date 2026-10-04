@@ -134,14 +134,24 @@ message Frame {
 }
 
 message Register {
-    bytes token = 1;  // Empty when creating a session (listener),
-                      // token when joining (dialer) — 16 bytes relay-generated,
-                      // 32 bytes user-provided (static or ECDH-derived)
+    bytes token = 1;  // MODE_CREATE: empty asks the relay for a random
+                      // 16-byte token, or a 32-byte token the listener chose.
+                      // MODE_JOIN: the session's token, 16 bytes if the relay
+                      // generated it, 32 bytes if the listener chose it
+    Mode  mode  = 2;  // Required: MODE_CREATE (listener) or MODE_JOIN (dialer)
+
+    enum Mode {
+        MODE_UNSPECIFIED = 0;  // Rejected
+        MODE_CREATE      = 1;  // Create a session
+        MODE_JOIN        = 2;  // Join an existing session
+    }
 }
 
 message Registered {
-    bytes  token               = 1;  // The 16-byte session token
-    uint32 ttl_seconds         = 2;  // Token validity (offer window)
+    bytes  token               = 1;  // The token from Register, or the
+                                     // relay-generated 16-byte token
+    uint32 ttl_seconds         = 2;  // Token validity (offer window); 0 in
+                                     // the reply to MODE_JOIN
     uint32 session_ttl_seconds = 3;  // Max lifetime of paired session (0 = no limit)
 }
 
@@ -164,10 +174,13 @@ message Auth {
 
 1. Establish a transport connection (WebSocket, TCP, or TLS).
 2. Perform an HPKE key exchange.
-3. If the relay is in PSK mode, send `Frame.Auth{psk}` before registering.
-4. Send `Frame.Register{token: nil}` to request a new session.
+3. If the relay is in PSK mode, send `Frame.Auth{psk}` and wait for the relay's
+   empty `Frame.Auth` before registering.
+4. Send `Frame.Register{mode: MODE_CREATE}` with an empty token to request a
+   new session, or with a 32-byte token of the listener's choosing (see
+   [Static Tokens](#static-tokens)).
 5. Receive `Frame.Registered{token: T, ttl_seconds, session_ttl_seconds}`. `T`
-   is a random 16-byte token.
+   is a random 16-byte token, or the token the listener sent.
 6. Share `T` with the dialer out of band (QR code, text message, NFC, etc.).
 7. Enter read loop. The first incoming `Frame.Message{data}` establishes the
    session — the dialer has arrived.
@@ -176,12 +189,18 @@ message Auth {
 
 1. Establish a transport connection.
 2. Perform an HPKE key exchange.
-3. If the relay is in PSK mode, send `Frame.Auth{psk}` before registering.
-4. Send `Frame.Register{token: T}` with the token received from the listener.
+3. If the relay is in PSK mode, send `Frame.Auth{psk}` and wait for the relay's
+   empty `Frame.Auth` before registering.
+4. Send `Frame.Register{mode: MODE_JOIN, token: T}` with the token received
+   from the listener.
 5. The relay validates `T`, joins the dialer to the session, and sends the
-   dialer a `Frame.Registered{token: T, ttl_seconds, session_ttl_seconds}` to
-   confirm.
+   dialer a `Frame.Registered{token: T, ttl_seconds: 0, session_ttl_seconds}`
+   to confirm.
 6. Enter read loop. Messages are now bridged.
+
+The relay sends no error frame. When it cannot register a client (unknown,
+taken or expired token, a token that fails the checks, a full session table)
+it closes the connection.
 
 ```
 Listener                                    Relay
@@ -189,7 +208,7 @@ Listener                                    Relay
    ├── Connect ──────────────────────────────►│
    ├── HPKE Initiate ────────────────────────►│
    ├── (Auth if PSK) ────────────────────────►│
-   ├── Register{token: nil} ─────────────────►│
+   ├── Register{CREATE} ─────────────────────►│
    │◄─ Registered{token: T, ttl, session_ttl} ┤
    │                                          │
    │  (share T with dialer OOB)               │
@@ -199,20 +218,23 @@ Listener                                    Relay
    │                    ├── Connect ─────────►│
    │                    ├── HPKE Initiate ───►│
    │                    ├── (Auth if PSK) ───►│
-   │                    ├── Register{T} ─────►│
+   │                    ├── Register{JOIN, T}►│
+   │                    │◄─ Registered{T} ────┤
    │◄══════ Message{data} ═══════════════════╝│
    │══════ Message{data} ════════════════════►│
 ```
 
 ### Token Lifecycle
 
-1. **Issued**: the relay generates `T = crypto/rand` 16 bytes and creates a
-   session. The session has one participant: the listener.
-2. **Consumed**: when a dialer sends `Register{token: T}`, the relay joins the
-   dialer's connection to the session. The token is now consumed — no further
-   peer can join with the same `T`.
+1. **Issued**: the relay generates `T = crypto/rand` 16 bytes, or takes the
+   32-byte token the listener sent, and creates a session. The session has one
+   participant: the listener.
+2. **Consumed**: when a dialer sends `Register{mode: MODE_JOIN, token: T}`, the
+   relay joins the dialer's connection to the session. The token is now
+   consumed: no further peer can join with the same `T`.
 3. **Expired**: if the listener disconnects before a dialer joins, the token is
-   discarded and cannot be used.
+   discarded and cannot be used. Once paired, the session ends when either
+   peer's connection closes: the relay removes it and closes the other peer.
 4. **TTL**: tokens have a configurable time-to-live (`token_ttl`, default 5
    minutes). If no dialer joins within the TTL, the session is cleaned up.
 
@@ -222,7 +244,7 @@ fits comfortably in a QR code without the dialer needing to scan anything more
 elaborate. Shorter tokens would be QR-friendly but reduce entropy; longer tokens
 buy nothing practical.
 
-Tokens are:
+Relay-generated tokens are:
 
 - **Single-use**: one dialer per token.
 - **Time-bound**: TTL enforced server-side.
@@ -469,7 +491,8 @@ The `Register` message gains a `Mode` field to make "create" vs "join" explicit:
 
 ```protobuf
 message Register {
-  bytes token = 1;  // 32 bytes in MODE_JOIN; empty or 32 bytes in MODE_CREATE
+  bytes token = 1;  // MODE_CREATE: empty or 32 bytes; MODE_JOIN: the
+                    // session's token (16 bytes if relay-generated, else 32)
   Mode  mode  = 2;  // required: MODE_CREATE or MODE_JOIN
 
   enum Mode {
@@ -487,10 +510,10 @@ Server behavior by `mode`:
 
 | `mode`             | `token`   | Action                                                                        |
 | ------------------ | --------- | ----------------------------------------------------------------------------- |
-| `MODE_UNSPECIFIED` | any       | Reject. Close connection, log "unsupported register mode".                    |
+| `MODE_UNSPECIFIED` | any       | Reject. Close connection (logged at debug).                                   |
 | `MODE_CREATE`      | empty     | Generate random 16-byte token. Register session. (Default listener behavior.) |
-| `MODE_CREATE`      | non-empty | Register session under provided token. Reject on duplicate (no preemption).   |
-| `MODE_JOIN`        | empty     | Reject. Close connection, log "join requires token".                          |
+| `MODE_CREATE`      | non-empty | Check the token, then register the session under it. Reject a duplicate.      |
+| `MODE_JOIN`        | empty     | Reject. Close connection (logged at debug).                                   |
 | `MODE_JOIN`        | non-empty | Look up session. Pair dialer with listener if found.                          |
 
 The relay's behavior is the same regardless of whether the token is precomputed
@@ -1055,10 +1078,10 @@ The relay is designed to be cheap, simple, and predictable. The following are
 known limits, not bugs:
 
 - **Token exhaustion** — an attacker can open many connections and send
-  `Register{token: nil}` to fill the relay's session table until tokens expire.
-  Defenses: `max_concurrent_sessions` cap, automatic cleanup of expired tokens,
-  and the per-IP rate limiter (which runs before HPKE, so attackers do not burn
-  asymmetric crypto).
+  `Register{mode: MODE_CREATE}` to fill the relay's session table until tokens
+  expire. Defenses: `max_concurrent_sessions` cap, automatic cleanup of expired
+  tokens, and the per-IP rate limiter (which runs before HPKE, so attackers do
+  not burn asymmetric crypto).
 - **Session hoarding** — an attacker controlling both ends of a session can hold
   it open for the full `session_ttl`. `session_ttl` bounds the cost of a hoarded
   session independently of `token_ttl`.
