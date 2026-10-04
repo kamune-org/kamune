@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -241,7 +242,26 @@ type model struct {
 	width  int
 	height int
 
+	// closing tracks the goroutines that close sessions and servers off
+	// the event loop. shutdown waits for them.
+	closing sync.WaitGroup
+
 	s styles
+}
+
+// closeWait bounds how long the TUI waits on exit for its sessions and
+// servers to close. Transport.Close gives up on the close frame after
+// 5 seconds.
+const closeWait = 10 * time.Second
+
+// outboxSize is how many messages a chat may have waiting to be sent.
+const outboxSize = 16
+
+// sentMsg reports what came of sending text in a chat.
+type sentMsg struct {
+	at   time.Time
+	err  error
+	text string
 }
 
 // chatSession is the state of a chat that the goroutines serving it
@@ -252,6 +272,9 @@ type chatSession struct {
 	// stop is closed when the chat ends.
 	stop   chan struct{}
 	pongCh chan []byte
+	// outbox holds the messages the user sent that writeLoop has yet to
+	// send.
+	outbox chan string
 	// release is the release channel of the connectedMsg that delivered
 	// t, if it had one.
 	release chan struct{}
@@ -262,6 +285,7 @@ func newChatSession(t *kamune.Transport, release chan struct{}) *chatSession {
 		t:       t,
 		stop:    make(chan struct{}),
 		pongCh:  make(chan []byte, 1),
+		outbox:  make(chan string, outboxSize),
 		release: release,
 	}
 }
@@ -280,11 +304,39 @@ func (s *chatSession) sender(send func(tea.Msg)) func(tea.Msg) {
 	return func(msg tea.Msg) { send(sessionMsg{sess: s, msg: msg}) }
 }
 
-// end stops the goroutines of the session and closes its transport.
-// Transport.Close waits a few seconds at most for the close frame.
-func (s *chatSession) end() {
+// end stops the goroutines of the session. It closes the transport, and
+// then srv if it is set, on a goroutine that wg tracks: Transport.Close
+// sends a frame and may wait a few seconds for it.
+func (s *chatSession) end(wg *sync.WaitGroup, srv *kamune.Server) {
 	close(s.stop)
-	closeSession(s.t, s.release)
+	wg.Go(func() {
+		closeSession(s.t, s.release)
+		if srv != nil {
+			_ = srv.Close()
+		}
+	})
+}
+
+// writeLoop sends the messages queued in the outbox of s, in order, until
+// the session stops, and passes the result of each to send. A send may
+// block for as long as the connection lets it, so it never runs on the
+// event loop.
+func writeLoop(s *chatSession, send func(tea.Msg)) {
+	for {
+		select {
+		case <-s.stop:
+			return
+		case text := <-s.outbox:
+			md, err := s.t.Send(
+				kamune.Bytes([]byte(text)), kamune.RouteExchangeMessages,
+			)
+			res := sentMsg{text: text, err: err}
+			if err == nil {
+				res.at = md.Timestamp()
+			}
+			send(res)
+		}
+	}
 }
 
 // closeSession closes t and then release, if it is set. A server handler
@@ -310,7 +362,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// chat has started already. End it rather than let it take
 			// the place of the chat on screen. Closing it sends a frame,
 			// so it is not done on the event loop.
-			go closeSession(msg.transport, msg.release)
+			m.closing.Go(func() {
+				closeSession(msg.transport, msg.release)
+			})
 			return m, nil
 		}
 		if m.state == stateVerify {
@@ -368,7 +422,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.att != m.att {
 			// The user gave up on this relay server while it was being
 			// set up. Closing it unregisters it from the relay.
-			go msg.srv.Close()
+			m.closing.Go(func() { _ = msg.srv.Close() })
 			return m, nil
 		}
 		m.srv = msg.srv
@@ -445,6 +499,8 @@ func (m *model) updateSession(msg tea.Msg) {
 	case historyLoadedMsg:
 		m.messages = append(msg.messages, m.messages...)
 		m.refreshChat()
+	case sentMsg:
+		m.handleSent(msg)
 	}
 }
 
@@ -702,6 +758,7 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 	send := m.sess.sender(m.send)
 	go receiveLoop(m.sess.t, m.sess.pongCh, send)
 	go keepAliveLoop(m.sess, send)
+	go writeLoop(m.sess, send)
 	sess := m.sess
 	history := loadChatHistory(m.store, t.SessionID(), m.s)
 	load := func() tea.Msg { return sessionMsg{sess: sess, msg: history()} }
@@ -878,9 +935,9 @@ func (m *model) cancelConnect() {
 		m.att.cancel()
 		m.att = nil
 	}
-	if m.srv != nil {
+	if srv := m.srv; srv != nil {
 		// Closing a relay server may wait for the relay to answer.
-		go m.srv.Close()
+		m.closing.Go(func() { _ = srv.Close() })
 		m.srv = nil
 	}
 	m.relayToken = nil
@@ -893,17 +950,39 @@ func (m *model) cleanup() {
 		m.att.cancel()
 		m.att = nil
 	}
-	if m.sess != nil {
-		m.sess.end()
+	// A relay listener outlives its attempt, since closing it ends the
+	// session it took, so it is closed after the session.
+	srv := m.srv
+	m.srv = nil
+	switch {
+	case m.sess != nil:
+		m.sess.end(&m.closing, srv)
 		m.sess = nil
-	}
-	if m.srv != nil {
-		// A relay listener outlives the attempt: closing it would have
-		// ended the session it took.
-		m.srv.Close()
-		m.srv = nil
+	case srv != nil:
+		m.closing.Go(func() { _ = srv.Close() })
 	}
 	m.relayToken = nil
 	m.relaySessionTTL = 0
 	m.sessionExpiry = time.Time{}
+}
+
+// shutdown ends what the UI left open, as when a signal rather than a key
+// stopped it, and waits up to limit for the sessions and servers to
+// close. It reports whether they did. Call it only once the program has
+// stopped.
+func (m *model) shutdown(limit time.Duration) bool {
+	m.cleanup()
+	done := make(chan struct{})
+	go func() {
+		m.closing.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }

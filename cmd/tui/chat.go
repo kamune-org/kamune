@@ -9,7 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -39,36 +38,20 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyEnter:
 			text := m.ta.Value()
-			if strings.TrimSpace(text) == "" {
+			if strings.TrimSpace(text) == "" || m.sess == nil {
 				return m, tiCmd
 			}
-			metadata, err := m.sess.t.Send(
-				kamune.Bytes([]byte(text)), kamune.RouteExchangeMessages,
-			)
-			if err != nil {
-				m.messages = append(m.messages,
-					noticeLine(m.s.err, "Send error: "+err.Error()),
-				)
+			// writeLoop sends it; sentMsg brings back the result.
+			select {
+			case m.sess.outbox <- text:
+				m.ta.Reset()
+			default:
+				m.messages = append(m.messages, noticeLine(m.s.err,
+					"Not sent: too many messages are still on their way. "+
+						"Try again shortly.",
+				))
 				m.refreshChat()
-				return m, tiCmd
 			}
-			m.messages = append(m.messages, messageLine(
-				storage.SenderLocal, metadata.Timestamp(), text,
-			))
-			if err := m.store.AddChatEntry(
-				m.sess.t.SessionID(),
-				[]byte(text),
-				metadata.Timestamp(),
-				storage.SenderLocal,
-			); err != nil {
-				slog.Error("failed to persist sent chat entry",
-					slog.String("session_id", m.sess.t.SessionID()),
-					slog.Any("error", err),
-				)
-				m.messages = append(m.messages, notSavedLine(m.s, err))
-			}
-			m.refreshChat()
-			m.ta.Reset()
 		}
 	}
 
@@ -86,4 +69,32 @@ func (m *model) viewChat() string {
 		}
 	}
 	return header + m.vp.View() + "\n\n" + m.ta.View()
+}
+
+// handleSent shows the message that writeLoop sent, or why it could not,
+// and adds it to the history.
+func (m *model) handleSent(msg sentMsg) {
+	if msg.err != nil {
+		m.messages = append(m.messages,
+			noticeLine(m.s.err, "Send error: "+msg.err.Error()),
+		)
+		m.refreshChat()
+		return
+	}
+	m.messages = append(m.messages,
+		messageLine(storage.SenderLocal, msg.at, msg.text),
+	)
+	if err := m.store.AddChatEntry(
+		m.sess.t.SessionID(),
+		[]byte(msg.text),
+		msg.at,
+		storage.SenderLocal,
+	); err != nil {
+		slog.Error("failed to persist sent chat entry",
+			slog.String("session_id", m.sess.t.SessionID()),
+			slog.Any("error", err),
+		)
+		m.messages = append(m.messages, notSavedLine(m.s, err))
+	}
+	m.refreshChat()
 }

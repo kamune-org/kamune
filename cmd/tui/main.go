@@ -111,4 +111,9 @@ func main() {
 	if err := runUI(p, os.Getenv(logFileEnv)); err != nil {
 		slog.Error("program run", "error", err)
 	}
+	// The UI does not wait for sessions to close; wait here, a little,
+	// so that peers get the close frame and the database is closed last.
+	if !m.shutdown(closeWait) {
+		slog.Warn("exiting before every session was closed")
+	}
 }

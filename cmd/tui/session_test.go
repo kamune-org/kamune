@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -21,7 +22,18 @@ func chatWith(
 	t *testing.T, mode inputMode, handler func(*kamune.Transport) error,
 ) *model {
 	t.Helper()
+	return chatSending(t, mode, handler, func(tea.Msg) {})
+}
+
+// chatSending is chatWith for a model whose goroutines report through
+// send.
+func chatSending(
+	t *testing.T, mode inputMode, handler func(*kamune.Transport) error,
+	send func(tea.Msg),
+) *model {
+	t.Helper()
 	m := newTestModel()
+	m.send = send
 	m.store = openTestStore(t)
 	m.mode = mode
 	m.state = stateConnecting
@@ -234,4 +246,111 @@ func TestSessionMsg_OnlyForTheChatOnScreen(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestChat_KeysDoNotWaitForTheNetwork(t *testing.T) {
+	tests := []struct {
+		name string
+		key  tea.KeyMsg
+		quit bool
+	}{
+		{"esc", tea.KeyMsg{Type: tea.KeyEsc}, false},
+		{"ctrl+c", tea.KeyMsg{Type: tea.KeyCtrlC}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			// The peer never reads, so a write to it blocks.
+			stuck := make(chan struct{})
+			m := chatWith(t, modeDirectDial, func(*kamune.Transport) error {
+				<-stuck
+				return nil
+			})
+			t.Cleanup(func() { close(stuck) })
+
+			update := func(msg tea.Msg) tea.Cmd {
+				got := make(chan tea.Cmd, 1)
+				go func() {
+					_, cmd := m.Update(msg)
+					got <- cmd
+				}()
+				return waitFor(t, got)
+			}
+			m.ta.SetValue("hello")
+			update(tea.KeyMsg{Type: tea.KeyEnter})
+			a.Empty(m.ta.Value())
+			m.ta.SetValue("again")
+			update(tea.KeyMsg{Type: tea.KeyEnter})
+			a.Empty(m.ta.Value())
+
+			cmd := update(tt.key)
+			a.Nil(m.sess)
+			if tt.quit {
+				a.NotNil(cmd)
+				a.IsType(tea.QuitMsg{}, cmd())
+			}
+		})
+	}
+}
+
+func TestChat_MessagesAreSentInOrder(t *testing.T) {
+	a := require.New(t)
+	texts := []string{"one", "two", "three"}
+	got := make(chan string, len(texts))
+	msgs := make(chan tea.Msg, 16)
+	m := chatSending(t, modeDirectDial, func(t *kamune.Transport) error {
+		for range texts {
+			b := kamune.Bytes(nil)
+			if _, err := t.Receive(b); err != nil {
+				return err
+			}
+			got <- string(b.GetValue())
+		}
+		return nil
+	}, func(msg tea.Msg) { msgs <- msg })
+
+	for _, text := range texts {
+		m.ta.SetValue(text)
+		m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	}
+	for _, text := range texts {
+		a.Equal(text, waitFor(t, got))
+	}
+	for range texts {
+		var msg tea.Msg
+		for {
+			msg = waitFor(t, msgs)
+			if sm, ok := msg.(sessionMsg); ok {
+				if _, ok := sm.msg.(sentMsg); ok {
+					break
+				}
+			}
+		}
+		m.Update(msg)
+	}
+	var shown []string
+	for _, l := range m.messages {
+		if l.message {
+			a.Equal(storage.SenderLocal, l.sender)
+			shown = append(shown, l.text)
+		}
+	}
+	a.Equal(texts, shown)
+	history, err := m.store.GetChatHistory(m.sess.t.SessionID())
+	a.NoError(err)
+	a.Len(history, len(texts))
+}
+
+func TestShutdown_WaitsForSessionsToClose(t *testing.T) {
+	a := require.New(t)
+	peerErr := make(chan error, 1)
+	m := chatWith(t, modeDirectDial, func(t *kamune.Transport) error {
+		_, _, err := t.ReceivePayload()
+		peerErr <- err
+		return nil
+	})
+
+	a.True(m.shutdown(time.Minute))
+	a.Nil(m.sess)
+	a.ErrorIs(waitFor(t, peerErr), kamune.ErrPeerDisconnected)
 }
