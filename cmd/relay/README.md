@@ -24,10 +24,39 @@ go build -o relay .
 ./relay -c assets/config.toml
 ```
 
-The default config enables raw TCP on `0.0.0.0:8889`, kamune-over-TLS on
-`0.0.0.0:8890`, WSS on `0.0.0.0:8891`, and the UDP broker on
-`0.0.0.0:4788`. Diagnose and plain WebSocket listeners are disabled. Edit
+The default config enables kamune-over-TLS on `0.0.0.0:8890`, WSS on
+`0.0.0.0:8891`, and raw TCP on `127.0.0.1:8889` (loopback only). The UDP
+broker, the diagnose listener and plain WebSocket (`127.0.0.1:8888` when
+enabled) are off. Plain TCP and WebSocket carry no TLS, so a client cannot tell
+the relay from an impostor on the path; expose them only on a network you
+trust, such as a LAN or VPN, or to a reverse proxy on the same host. Edit
 `assets/config.toml` to change these defaults.
+
+## Docker
+
+Build the image from the repository root and run it:
+
+```bash
+docker build -f cmd/relay/Dockerfile -t kamune-relay .
+docker run --read-only --cap-drop=ALL \
+  --log-opt max-size=10m --log-opt max-file=3 \
+  -p 8890:8890 -p 8891:8891 \
+  -v kamune-relay:/var/lib/kamune-relay kamune-relay
+```
+
+The image runs the relay as the unprivileged user `relay` (uid 10001) with the
+shipped config at `/etc/relay.toml`, so it serves only tls (8890) and wss
+(8891) to the outside: raw TCP listens on the container's loopback and the
+broker is off. Earlier images served raw TCP on all addresses and enabled the
+broker; to keep either, mount a config of your own at `/etc/relay.toml` (and
+publish `4788/udp` for the broker).
+
+The only place the relay writes is its home, the volume
+`/var/lib/kamune-relay`, which holds the self-signed certificate. Keep it in a
+named volume so the certificate, and the fingerprint clients pin, survive
+re-creating the container. The relay logs to stderr, and Docker's default
+`json-file` log driver keeps that log without limit, hence the `--log-opt`
+flags.
 
 ## Configuration
 

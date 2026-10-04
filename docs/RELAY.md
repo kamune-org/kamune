@@ -861,7 +861,9 @@ function as a fallback when hole-punching fails.
 **Design decision: UDP, not TCP.** TCP-based signaling (HTTP, WebSocket) is
 fingerprintable and easy to block. UDP is the right primitive for STUN-echo
 and for one-shot introducer packets. The broker uses a single UDP listener
-on a configurable port (default `127.0.0.1:4788`).
+on a configurable IPv4 address. It is off unless `[broker] enabled = true`;
+the shipped config leaves it off and gives it `0.0.0.0:4788`, since the broker
+only works on an address that peers can reach directly.
 
 **Design decision: two functions, one wire format.** The broker combines STUN
 and signaling into a single wire format with a fixed 4-byte magic (`"KBRK"`)
