@@ -1180,10 +1180,18 @@ Where:
 - **`ReadBytes`**: Reads a single length-prefixed frame. Reads the 2-byte
   big-endian length prefix, then exactly that many payload bytes. Returns the
   payload, or an error if the read fails or the frame is truncated. Successful
-  reads MUST be reliable, in wire order, and free of duplicate frames.
+  reads MUST be reliable, in wire order, and free of duplicate frames. A read
+  that fails before any byte of the frame has arrived, for example because its
+  deadline passed, leaves the stream intact. A read that fails after part of
+  the frame has been consumed MUST close the connection and report it as
+  closed: the consumed bytes cannot be put back, so a later read would start
+  inside the frame.
 - **`WriteBytes`**: Writes a single length-prefixed frame. Prepends a 2-byte
   big-endian length prefix and writes the full payload atomically (retrying on
-  partial writes). Returns an error if the write fails.
+  partial writes). Returns an error if the write fails. A write that fails
+  after part of the frame has been written MUST close the connection and
+  report it as closed, since the peer would read a retried frame as the rest
+  of the partial one.
 - **`SetDeadline`**: Sets an absolute time bound for subsequent `ReadBytes` and
   `WriteBytes` operations. Passing a zero value clears the deadline.
 - **`Close`**: Releases the underlying transport. Subsequent calls return an
@@ -1625,25 +1633,33 @@ The following table lists protocol failure conditions. An implementation MAY
 map them to language- or application-specific errors, but the stated connection
 action is normative.
 
-| Condition                                                                                                                 | Action                                                                                              |
-| ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| An operation is attempted on a server that has already shut down.                                                         | Surfaced as a server-closed error.                                                                  |
-| An operation is attempted on a connection that has already been closed.                                                   | Surfaced as a connection-closed error.                                                              |
-| The remote peer sends a `ROUTE_CLOSE_TRANSPORT` frame.                                                                    | Surfaced as a peer-disconnected error; the connection is closed and the receive loop exits cleanly. |
-| A read deadline is exceeded.                                                                                              | Surfaced as a receive-timeout error. Non-fatal; the caller may retry.                               |
-| A signature on a received message fails verification.                                                                     | Surfaced as a signature error; the connection is terminated.                                        |
-| A received session frame fails AEAD decryption.                                                                           | Surfaced as a decryption error; the connection is terminated.                                       |
-| A challenge echo does not match the original challenge, or the remote-verifier callback rejects the peer.                 | Surfaced as a verification error; the connection is terminated.                                     |
-| A user message exceeds the user-message cap (~60 KiB), or its encoded frame would exceed the wire-format maximum.         | Surfaced as a message-too-large error; the message is not sent.                                     |
-| A received sequence number does not equal the expected value (duplicate or gap).                                          | Surface an out-of-sync error, close the connection, and discard session state.                      |
-| A received route does not match the route expected for the current protocol phase.                                        | Surfaced as an unexpected-route error; the connection is terminated.                                |
-| A received message uses `ROUTE_INVALID` (0) or any unrecognized route value.                                              | Surfaced as an invalid-route error; the message is rejected.                                        |
-| The remote peer's application version is incompatible with the local version (major mismatch, or pre-1.0 minor mismatch). | Surfaced as a version-mismatch error; the connection is terminated.                                 |
-| A peer's identity has exceeded the configured expiry duration.                                                            | Surfaced as a peer-expired error; the peer record is removed on lookup.                             |
-| A resume request references a session ID not found in storage.                                                            | The request is rejected; the initiator may retry with a cold Introduction.                          |
-| A resume request signature fails verification against the stored public key.                                              | The request is rejected; the connection is terminated.                                              |
-| A resume request references a session whose resumption window has elapsed.                                                | The request is rejected; the initiator may retry with a cold Introduction.                          |
-| A resume request presents a token not present in the session's unused token set.                                          | The request is rejected; the initiator may retry with a cold Introduction.                          |
+| Condition                                                                                                                 | Action                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| An operation is attempted on a server that has already shut down.                                                         | Surfaced as a server-closed error.                                                                                                     |
+| An operation is attempted on a connection that has already been closed.                                                   | Surfaced as a connection-closed error.                                                                                                 |
+| A read or write fails part-way through a frame, because the connection drops or ends or a deadline passes.                | Surfaced as a connection-closed error; the connection is closed. The resumption tokens are kept, so the session may be resumed (§6.8). |
+| A receive finds the connection dropped, reset or ended before any byte of the next frame has arrived.                     | Surfaced as a connection-closed error. The connection is not closed; the application closes it without ending the session (§6.6).      |
+| The remote peer sends a `ROUTE_CLOSE_TRANSPORT` frame.                                                                    | Surfaced as a peer-disconnected error; the connection is closed and the receive loop exits cleanly.                                    |
+| A read deadline passes before any byte of the next frame has arrived.                                                     | Surfaced as a receive-timeout error. Non-fatal; the caller may retry.                                                                  |
+| A signature on a received message fails verification.                                                                     | Surfaced as a signature error; the connection is terminated.                                                                           |
+| A received session frame fails AEAD decryption.                                                                           | Surfaced as a decryption error; the connection is terminated.                                                                          |
+| A challenge echo does not match the original challenge, or the remote-verifier callback rejects the peer.                 | Surfaced as a verification error; the connection is terminated.                                                                        |
+| A user message exceeds the user-message cap (~60 KiB), or its encoded frame would exceed the wire-format maximum.         | Surfaced as a message-too-large error; the message is not sent.                                                                        |
+| A received sequence number does not equal the expected value (duplicate or gap).                                          | Surface an out-of-sync error, close the connection, and discard session state.                                                         |
+| A received route does not match the route expected for the current protocol phase.                                        | Surfaced as an unexpected-route error; the connection is terminated.                                                                   |
+| A received message uses `ROUTE_INVALID` (0) or any unrecognized route value.                                              | Surfaced as an invalid-route error; the message is rejected.                                                                           |
+| The remote peer's application version is incompatible with the local version (major mismatch, or pre-1.0 minor mismatch). | Surfaced as a version-mismatch error; the connection is terminated.                                                                    |
+| A peer's identity has exceeded the configured expiry duration.                                                            | Surfaced as a peer-expired error; the peer record is removed on lookup.                                                                |
+| A resume request references a session ID not found in storage.                                                            | The request is rejected; the initiator may retry with a cold Introduction.                                                             |
+| A resume request signature fails verification against the stored public key.                                              | The request is rejected; the connection is terminated.                                                                                 |
+| A resume request references a session whose resumption window has elapsed.                                                | The request is rejected; the initiator may retry with a cold Introduction.                                                             |
+| A resume request presents a token not present in the session's unused token set.                                          | The request is rejected; the initiator may retry with a cold Introduction.                                                             |
+
+Neither a failure part-way through a frame nor a drop between frames ends the
+session, so its resumption tokens are kept. Only after a partial frame does the
+reference implementation close the connection itself. In both cases the
+application should close the transport with `Transport.CloseAbort`, which keeps
+the tokens; `Transport.Close` would end the session (§6.6).
 
 When a received session frame ends the session (`ROUTE_CLOSE_TRANSPORT`, a
 decryption or signature failure, a sequence error, or an unexpected route), the
