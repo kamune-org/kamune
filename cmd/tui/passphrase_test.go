@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -302,6 +304,52 @@ func TestChangePassphrase(t *testing.T) {
 			))
 			a.NoError(err)
 			a.NoError(store.Close())
+		})
+	}
+}
+
+func TestOpenErrorMessage(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	held, err := storage.OpenStorage(
+		storage.WithDBPath(path), storage.WithNoPassphrase(),
+	)
+	a.NoError(err)
+	t.Cleanup(func() { _ = held.Close() })
+	_, inUse := storage.OpenStorage(
+		storage.WithDBPath(path), storage.WithNoPassphrase(),
+		storage.WithTimeout(100*time.Millisecond),
+	)
+	a.Error(inUse)
+
+	tests := []struct {
+		name string
+		err  error
+		// want holds what the message says, or is nil for no message.
+		want []string
+	}{
+		{"in use", inUse, []string{path, "in use by another program"}},
+		{
+			"upgrade failed",
+			fmt.Errorf("%w: %w", storage.ErrUpgradeFailed,
+				errors.New("rewrite store file: lock file is not held")),
+			[]string{path, "older version", "lock file is not held",
+				"directory is writable", "room for a copy"},
+		},
+		{"other", errors.New("disk on fire"), nil},
+		{"none", nil, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			msg := openErrorMessage(path, tt.err)
+			if tt.want == nil {
+				a.Empty(msg)
+				return
+			}
+			for _, w := range tt.want {
+				a.Contains(msg, w)
+			}
 		})
 	}
 }

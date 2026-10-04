@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 
+	bolterrors "go.etcd.io/bbolt/errors"
+
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -177,6 +179,27 @@ func openDB(
 		err = oerr
 	}
 	return nil, nil, err
+}
+
+// openErrorMessage returns what to tell the user about err, an error from
+// opening the database at path, when it has a cause that the user can fix:
+// another program holds the database, or an older version wrote it and it
+// could not be upgraded. It returns "" for any other error.
+func openErrorMessage(path string, err error) string {
+	switch {
+	case errors.Is(err, bolterrors.ErrTimeout):
+		return fmt.Sprintf("The database at %s is in use by another "+
+			"program, such as the bus, the daemon or another TUI.\n"+
+			"Close it and try again.", path)
+	case errors.Is(err, storage.ErrUpgradeFailed):
+		return fmt.Sprintf("The database at %s was written by an older "+
+			"version of Kamune and could not be upgraded: %v.\n"+
+			"Make sure that its directory is writable and that the disk "+
+			"has room for a copy of the file, and try again. Until then, "+
+			"the older version can still open it.", path, err)
+	default:
+		return ""
+	}
 }
 
 // changePassphrase asks p for a new passphrase, twice, and puts it in place

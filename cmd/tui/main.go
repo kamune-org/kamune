@@ -84,6 +84,10 @@ func main() {
 		}
 		os.Exit(1)
 	}
+	if msg := openErrorMessage(dbPath, err); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
+		os.Exit(1)
+	}
 	if err != nil {
 		slog.Error("opening storage", "error", err)
 		os.Exit(1)

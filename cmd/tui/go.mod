@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/kamune-org/kamune v0.7.0
 	github.com/stretchr/testify v1.11.1
+	go.etcd.io/bbolt v1.5.0
 	golang.org/x/term v0.46.0
 	golang.org/x/text v0.42.0
 	google.golang.org/protobuf v1.36.11
@@ -42,7 +43,6 @@ require (
 	github.com/tjfoc/gmsm v1.4.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/xtaci/kcp-go/v5 v5.6.72 // indirect
-	go.etcd.io/bbolt v1.5.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
