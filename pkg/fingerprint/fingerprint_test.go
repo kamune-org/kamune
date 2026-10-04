@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"encoding/base64"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -94,6 +95,23 @@ func TestPseudonym(t *testing.T) {
 
 	// Different seed → different result (astronomically likely)
 	a.NotEqual(Pseudonym([]byte("a")), Pseudonym([]byte("b")))
+}
+
+// TestPseudonymListSizes pins the list sizes that the Pseudonym doc comment
+// gives, with the bits they amount to.
+func TestPseudonymListSizes(t *testing.T) {
+	a := require.New(t)
+	for _, list := range [][]string{adjectives, nouns} {
+		seen := make(map[string]bool, len(list))
+		for _, w := range list {
+			a.False(seen[w], "duplicate word: %s", w)
+			seen[w] = true
+		}
+	}
+	a.Len(adjectives, 221)
+	a.Len(nouns, 171)
+	combinations := float64(len(adjectives) * len(adjectives) * len(nouns) * 99)
+	a.InDelta(29.6, math.Log2(combinations), 0.05)
 }
 
 func TestNumeric(t *testing.T) {

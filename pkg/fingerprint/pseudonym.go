@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-// ~150 adjectives; 2 picked per pseudonym.
+// 221 adjectives; 2 picked per pseudonym.
 var adjectives = []string{
 	"agile", "amber", "ancient", "angry", "azure", "bashful", "bitter",
 	"blissful", "bold", "brave", "breezy", "bright", "brilliant", "brisk",
@@ -42,7 +42,7 @@ var adjectives = []string{
 	"zany", "zealous",
 }
 
-// ~150 nouns; 1 picked per pseudonym.
+// 171 nouns; 1 picked per pseudonym.
 var nouns = []string{
 	"albatross", "alligator", "alpaca", "ant", "anteater", "armadillo",
 	"badger", "barnacle", "barracuda", "bat", "bear", "beaver", "bee",
@@ -74,8 +74,12 @@ var nouns = []string{
 // Pseudonym returns a deterministic human-readable name derived from seed,
 // formatted as "<adjective> <adjective> <noun> <1-99>".
 //
-// With ~150 adjectives, ~150 nouns, and 99 possible suffixes,
-// there are roughly 150 × 150 × 150 × 99 ≈ 334 million combinations.
+// With 221 adjectives, 171 nouns and 99 suffixes there are
+// 221 × 221 × 171 × 99 ≈ 827 million combinations, about 29.6 bits. A
+// pseudonym is a nickname for display, not a fingerprint: anyone can find
+// a key with a given pseudonym, so it must not be used to verify a key
+// (see [Numeric]). Show it apart from a name that a peer chose for itself,
+// which can copy it.
 func Pseudonym(seed []byte) string {
 	hash := sha256.Sum256(seed)
 	adj1 := adjectives[binary.BigEndian.Uint32(hash[0:4])%uint32(len(adjectives))]
