@@ -1013,17 +1013,10 @@ func (d *Daemon) handleCloseSession(cmd Command) {
 	d.mu.Unlock()
 
 	transport := session.stop()
-
-	if store := d.store(); store != nil {
-		if err := store.SetMeta(
-			params.SessionID,
-			storage.NewByteSlicesMeta(storage.ResumptionTokensKey, nil),
-		); err != nil {
-			d.addLogEntry("WARN", "Failed to clear resumption tokens: "+err.Error())
-		}
-	}
 	d.dropRelayPool(params.SessionID)
 
+	// Close deletes the session's resumption tokens, so that neither side
+	// can resume it, without creating a session that is not stored.
 	if transport != nil {
 		if err := transport.Close(); err != nil {
 			slog.Warn("error closing transport", slog.Any("error", err))

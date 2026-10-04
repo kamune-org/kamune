@@ -367,3 +367,52 @@ func TestReconnectSessionStopsOnPermanentError(t *testing.T) {
 		})
 	}
 }
+
+// close_session leaves the closed session no resumption tokens, on both
+// sides, and has nothing to clear for an incognito session, which is not
+// stored.
+func TestCloseSessionLeavesNoResumptionTokens(t *testing.T) {
+	for _, incognito := range []bool{false, true} {
+		t.Run(fmt.Sprintf("incognito=%v", incognito), func(t *testing.T) {
+			a := require.New(t)
+			server, serverRec := newTestDaemon(
+				t, VerificationModeQuick, false,
+			)
+			client, clientRec := newTestDaemon(
+				t, VerificationModeQuick, incognito,
+			)
+			trustPeer(t, server, client)
+			trustPeer(t, client, server)
+			addr := startTestServer(t, server, serverRec)
+			id := dialTestServer(t, client, clientRec, addr)
+			waitForSession(t, server, id)
+			a.True(relayResumable(server.store(), id),
+				"the server stored no resumption tokens")
+
+			client.handleCloseSession(Command{
+				ID:     "close",
+				Params: mustJSON(CloseSessionParams{SessionID: id}),
+			})
+			evt := clientRec.waitFor(t, func(e recordedEvent) bool {
+				return e.ID == "close"
+			})
+			a.Equal(EvtResponse, evt.Evt, "close_session: %v", evt.Data)
+			serverRec.waitFor(t, func(e recordedEvent) bool {
+				return e.Evt == EvtSessionClosed &&
+					e.Data["session_id"] == id
+			})
+
+			for _, d := range []*Daemon{server, client} {
+				a.False(relayResumable(d.store(), id))
+			}
+			ids, err := client.store().ListSessions()
+			a.NoError(err)
+			if incognito {
+				a.Empty(ids, "close_session stored the session")
+			}
+			for _, msg := range logMessages(client) {
+				a.NotContains(msg, "resumption tokens")
+			}
+		})
+	}
+}
