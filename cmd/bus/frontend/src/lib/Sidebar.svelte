@@ -110,6 +110,10 @@
     onRenamed,
   } = $props();
 
+  // The server, a dial or a session keeps the open database in use, and
+  // the backend refuses to change it until they end.
+  let dbInUse = $derived(serverActive || serverLoading || connectLoading || $sessions.length > 0);
+
   let copied = $state(false);
   let tokensExpanded = $state(true);
   let editingName = $state(false);
@@ -857,11 +861,15 @@
     </div>
     <div
       class="db-card"
+      class:db-locked={dbInUse}
       role="button"
-      tabindex="0"
-      onclick={() => onChangeDBPath?.()}
-      onkeydown={(e) => handleItemKeydown(e, () => onChangeDBPath?.())}
-      title="Click to change database path"
+      tabindex={dbInUse ? -1 : 0}
+      aria-disabled={dbInUse}
+      onclick={() => !dbInUse && onChangeDBPath?.()}
+      onkeydown={(e) => !dbInUse && handleItemKeydown(e, () => onChangeDBPath?.())}
+      title={dbInUse
+        ? 'Stop the server and close every session to change the database'
+        : 'Click to change database path'}
     >
       <div class="db-header">
         <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
@@ -877,7 +885,11 @@
         </svg>
       </div>
       <span class="db-path">{$dbPath}</span>
-      <span class="db-hint">Click to change</span>
+      <span class="db-hint"
+        >{dbInUse
+          ? 'In use: stop the server and close sessions to change'
+          : 'Click to change'}</span
+      >
     </div>
   </div>
 </div>
@@ -1283,9 +1295,12 @@
     cursor: pointer;
     transition: all 0.15s;
   }
-  .db-card:hover {
+  .db-card:hover:not(.db-locked) {
     border-color: var(--accent-primary);
     background: var(--bg-hover);
+  }
+  .db-card.db-locked {
+    cursor: default;
   }
   .db-header {
     display: flex;
@@ -1306,7 +1321,7 @@
     color: var(--accent-primary);
     transition: opacity 0.15s;
   }
-  .db-card:hover .db-edit-icon {
+  .db-card:hover:not(.db-locked) .db-edit-icon {
     opacity: 1;
   }
   .db-path {

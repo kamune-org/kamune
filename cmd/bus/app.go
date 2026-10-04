@@ -295,6 +295,16 @@ type App struct {
 
 	startCtx    context.Context
 	startCancel context.CancelFunc
+	// starting counts StartServer calls in progress. CancelStartServer
+	// clears startCancel at once, but the call may still go on to use the
+	// database, so this stays set until it returns.
+	starting int
+	// dialOps counts ConnectToServer calls in progress.
+	dialOps int
+	// closing counts StopServer and DisconnectSession calls that have
+	// taken the server or a session out of the app and are still closing
+	// it, which uses the database.
+	closing int
 
 	dbPath string
 	// db is the open database, or nil until the user unlocks one. Only
@@ -304,9 +314,11 @@ type App struct {
 	// pendingSettings holds settings changed while no database was open.
 	// They are written once one is unlocked. storeMu guards it.
 	pendingSettings map[string]string
-	storageReady    bool
-	pubKey          []byte
-	myName          string
+	// unlockMu serializes unlockDB calls.
+	unlockMu     sync.Mutex
+	storageReady bool
+	pubKey       []byte
+	myName       string
 
 	status          ConnectionStatus
 	statusMsg       string
@@ -408,17 +420,84 @@ func openDB(
 	)
 }
 
-// installStore makes store the open database and writes to it the
-// settings changed while none was open.
-func (a *App) installStore(store *storage.Storage) {
+// ErrStorageBusy is returned when the database would change while the
+// server, a dial or a session still uses the open one.
+var ErrStorageBusy = errors.New(
+	"stop the server and close every session before changing the database",
+)
+
+// ErrStorageOpen is returned when the database to unlock is already the
+// open one.
+var ErrStorageOpen = errors.New("this database is already unlocked")
+
+// storageBusyLocked reports whether anything holds on to the open
+// database: a server that is starting, running or stopping, with its
+// listeners, a dial in progress or a session that is live or closing. The
+// server, dialers and transports keep the Storage they were given, so it
+// must stay open while they run. The caller holds a.mu.
+func (a *App) storageBusyLocked() bool {
+	return a.server != nil || a.starting > 0 || a.dialOps > 0 ||
+		a.closing > 0 || len(a.sessions) > 0 || a.relayListeners != nil ||
+		a.p2pListener != nil
+}
+
+// doneClosing ends a teardown counted in a.closing.
+func (a *App) doneClosing() {
+	a.mu.Lock()
+	a.closing--
+	a.mu.Unlock()
+}
+
+// unlockDB opens the database at path with passphrase, creating it when
+// create is set, and makes it the open database. A database open before
+// is closed only once the new one has opened, so a failed unlock leaves
+// it in use. unlockDB refuses while anything uses the open database, and
+// when path is the database already open.
+func (a *App) unlockDB(path string, passphrase []byte, create bool) error {
+	if path == "" {
+		return errors.New("no database path")
+	}
+	path = filepath.Clean(path)
+
+	a.unlockMu.Lock()
+	defer a.unlockMu.Unlock()
+
+	a.mu.RLock()
+	busy := a.storageBusyLocked()
+	samePath := path == filepath.Clean(a.dbPath)
+	a.mu.RUnlock()
+	if busy {
+		return ErrStorageBusy
+	}
+	if samePath && a.store() != nil {
+		return ErrStorageOpen
+	}
+
+	store, err := openDB(path, passphrase, create)
+	if err != nil {
+		return err
+	}
+
+	// Swap under a.mu, so that no server or dial can start with the
+	// database that is about to close.
+	a.mu.Lock()
+	if a.storageBusyLocked() {
+		a.mu.Unlock()
+		_ = store.Close()
+		return ErrStorageBusy
+	}
+	a.dbPath = path
+	a.pubKey = nil
+	a.storageReady = false
 	a.storeMu.Lock()
 	old := a.db
 	a.db = store
 	pending := a.pendingSettings
 	a.pendingSettings = nil
 	a.storeMu.Unlock()
+	a.mu.Unlock()
 
-	if old != nil && old != store {
+	if old != nil {
 		if err := old.Close(); err != nil {
 			a.addLogEntry("WARN", "Failed to close database: "+err.Error())
 		}
@@ -429,6 +508,7 @@ func (a *App) installStore(store *storage.Storage) {
 				err.Error())
 		}
 	}
+	return nil
 }
 
 // saveSetting stores a bus setting in the open database. While none is
@@ -480,9 +560,8 @@ func (a *App) ServiceStartup(
 	default:
 		// The saved passphrase opens an existing database only. A
 		// missing one is created once the user chooses a passphrase.
-		store, storeErr := openDB(a.dbPath, []byte(passphrase), false)
+		storeErr := a.unlockDB(a.dbPath, []byte(passphrase), false)
 		if storeErr == nil {
-			a.installStore(store)
 			if passphrase == "" {
 				a.addLogEntry("INFO",
 					"Loaded empty passphrase from keychain — no password")
@@ -879,25 +958,6 @@ func (a *App) GetDBPath() string {
 	return a.dbPath
 }
 
-func (a *App) SetDBPath(path string) {
-	a.mu.Lock()
-	a.dbPath = path
-	a.pubKey = nil
-	a.storageReady = false
-	a.mu.Unlock()
-
-	a.storeMu.Lock()
-	if a.db != nil {
-		a.db.Close()
-		a.db = nil
-	}
-	a.storeMu.Unlock()
-
-	a.emitEvent("fingerprint-changed", "", "", "", "")
-	a.emitEvent("request-passphrase")
-	a.addLogEntry("INFO", "DB path changed to: "+path)
-}
-
 func (a *App) OpenFileDialog() string {
 	if a.wails == nil {
 		return ""
@@ -1145,28 +1205,25 @@ func (a *App) SetFingerprintFormat(fmt string) {
 	a.addLogEntry("DEBUG", "Fingerprint format set to: "+fmt)
 }
 
-// SubmitPassphrase opens the database at the current path with
-// passphrase, creating it if it does not exist.
-func (a *App) SubmitPassphrase(passphrase string, saveToKeychain bool) error {
-	a.mu.RLock()
-	path := a.dbPath
-	a.mu.RUnlock()
-
-	a.storeMu.Lock()
-	if a.db != nil {
-		a.db.Close()
-		a.db = nil
-	}
-	a.storeMu.Unlock()
-
-	store, err := openDB(path, []byte(passphrase), true)
-	if err != nil {
+// SubmitPassphrase opens the database at path with passphrase, creating
+// it if it does not exist, and makes it the open database in place of
+// the one open before. It refuses while the server, a dial or a session
+// uses the open database, and when path is the database already open.
+func (a *App) SubmitPassphrase(
+	path, passphrase string, saveToKeychain bool,
+) error {
+	if err := a.unlockDB(path, []byte(passphrase), true); err != nil {
+		if errors.Is(err, ErrStorageBusy) || errors.Is(err, ErrStorageOpen) {
+			return err
+		}
 		return fmt.Errorf("wrong passphrase or corrupted database")
 	}
-	a.installStore(store)
+	a.addLogEntry("INFO", "Opened database: "+path)
 
 	if saveToKeychain {
-		if err := keyring.Set(keychainService, keychainAccount(path), passphrase); err != nil {
+		if err := keyring.Set(
+			keychainService, keychainAccount(path), passphrase,
+		); err != nil {
 			a.addLogEntry("WARN", "Failed to save passphrase to keychain: "+err.Error())
 		} else {
 			a.addLogEntry("INFO", "Passphrase saved to keychain")

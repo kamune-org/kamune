@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/zalando/go-keyring"
 
+	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -41,7 +44,7 @@ func TestSettingsBeforeUnlockDoNotOpenDB(t *testing.T) {
 	a.ErrorIs(err, os.ErrNotExist,
 		"nothing may create the database before it is unlocked")
 
-	a.NoError(app.SubmitPassphrase("secret", false))
+	a.NoError(app.SubmitPassphrase(path, "secret", false))
 	store := app.store()
 	a.NotNil(store)
 	a.True(app.GetStorageReady())
@@ -80,4 +83,247 @@ func TestStartupWithSavedPassphraseDoesNotCreateDB(t *testing.T) {
 	a.False(app.GetStorageReady())
 	_, err := os.Stat(path)
 	a.ErrorIs(err, os.ErrNotExist)
+}
+
+// newUnlockedApp returns an app with a database at a new temporary path,
+// unlocked with passphrase.
+func newUnlockedApp(t *testing.T, passphrase string) (*App, string) {
+	t.Helper()
+	app, path := newLockedApp(t)
+	require.New(t).NoError(app.SubmitPassphrase(path, passphrase, false))
+	return app, path
+}
+
+// createDB creates a database at a new temporary path with passphrase and
+// returns its path.
+func createDB(t *testing.T, passphrase string) string {
+	t.Helper()
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	store, err := openDB(path, []byte(passphrase), true)
+	a.NoError(err)
+	a.NoError(store.Close())
+	return path
+}
+
+func TestUnlockRefusedWhileStorageInUse(t *testing.T) {
+	cases := []struct {
+		name string
+		use  func(app *App)
+	}{
+		{"session", func(app *App) {
+			app.sessions = append(app.sessions, &liveSession{ID: "s1"})
+		}},
+		{"server starting", func(app *App) { app.starting++ }},
+		{"dial", func(app *App) { app.dialOps++ }},
+		{"server or session closing", func(app *App) { app.closing++ }},
+		{"relay listeners", func(app *App) {
+			app.relayListeners = newMultiListener()
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, path := newUnlockedApp(t, "secret")
+			other := createDB(t, "other")
+			open := app.store()
+
+			app.mu.Lock()
+			tc.use(app)
+			app.mu.Unlock()
+			t.Cleanup(func() {
+				app.mu.Lock()
+				app.sessions = nil
+				app.starting = 0
+				app.dialOps = 0
+				app.closing = 0
+				app.relayListeners = nil
+				app.mu.Unlock()
+			})
+
+			a.ErrorIs(
+				app.SubmitPassphrase(other, "other", false), ErrStorageBusy,
+			)
+			a.Same(open, app.store())
+			a.Equal(path, app.GetDBPath())
+			_, err := open.GetSettings("bus", "theme")
+			a.NoError(err, "the database in use must stay open")
+		})
+	}
+}
+
+func TestUnlockOpenDatabaseKeepsIt(t *testing.T) {
+	a := require.New(t)
+	app, path := newUnlockedApp(t, "secret")
+	open := app.store()
+
+	a.ErrorIs(app.SubmitPassphrase(path, "secret", false), ErrStorageOpen)
+	a.ErrorIs(app.SubmitPassphrase(path, "wrong", false), ErrStorageOpen)
+	a.Same(open, app.store())
+	_, err := open.GetSettings("bus", "theme")
+	a.NoError(err, "the open database must stay open")
+}
+
+func TestUnlockOtherDatabaseClosesOldOnlyOnSuccess(t *testing.T) {
+	a := require.New(t)
+	app, path := newUnlockedApp(t, "secret")
+	other := createDB(t, "other")
+	open := app.store()
+
+	a.Error(app.SubmitPassphrase(other, "wrong", false))
+	a.Same(open, app.store())
+	a.Equal(path, app.GetDBPath())
+	_, err := open.GetSettings("bus", "theme")
+	a.NoError(err, "a failed unlock must leave the open database open")
+
+	a.NoError(app.SubmitPassphrase(other, "other", false))
+	a.NotSame(open, app.store())
+	a.Equal(other, app.GetDBPath())
+	a.True(app.GetStorageReady())
+	_, err = open.GetSettings("bus", "theme")
+	a.Error(err, "the database unlocked before must be closed")
+}
+
+// readUntilEnd is a test server handler that reads until the session ends.
+func readUntilEnd(tr *kamune.Transport) error {
+	for {
+		if _, _, err := tr.ReceivePayload(); err != nil {
+			return nil
+		}
+	}
+}
+
+// dialTestTransport returns a session dialed to a test server, which
+// reads from it until it ends.
+func dialTestTransport(t *testing.T) *kamune.Transport {
+	t.Helper()
+	a := require.New(t)
+	addr, _ := startTestServer(t, "srv", readUntilEnd)
+	d, err := kamune.NewDialer(
+		addr, openTestStorage(t),
+		func(*storage.Storage, *storage.Peer) error { return nil },
+		kamune.DialWithTCP(),
+	)
+	a.NoError(err)
+	tr, err := d.Dial()
+	a.NoError(err)
+	t.Cleanup(func() { _ = tr.Close() })
+	return tr
+}
+
+func TestStorageBusyUntilTeardownEnds(t *testing.T) {
+	cases := []struct {
+		name     string
+		teardown func(app *App) error
+	}{
+		{"stop server", func(app *App) error { return app.StopServer() }},
+		{"disconnect session", func(app *App) error {
+			return app.DisconnectSession("s1")
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, _ := newUnlockedApp(t, "secret")
+			other := createDB(t, "other")
+
+			// The test ends the session's receive loop, so the teardown
+			// waits for the test after it has taken the session out.
+			receiveDone := make(chan struct{})
+			app.mu.Lock()
+			app.sessions = append(app.sessions, &liveSession{
+				ID:          "s1",
+				Transport:   dialTestTransport(t),
+				ReceiveDone: receiveDone,
+			})
+			app.mu.Unlock()
+
+			done := make(chan error, 1)
+			go func() { done <- tc.teardown(app) }()
+			a.Eventually(func() bool {
+				return len(app.GetSessions()) == 0
+			}, testWait, time.Millisecond)
+			a.ErrorIs(
+				app.SubmitPassphrase(other, "other", false), ErrStorageBusy,
+				"the database must stay open while the session closes",
+			)
+
+			close(receiveDone)
+			a.NoError(<-done)
+			a.NoError(app.SubmitPassphrase(other, "other", false))
+		})
+	}
+}
+
+func TestCancelledServerStartKeepsStorageBusy(t *testing.T) {
+	a := require.New(t)
+	app, _ := newUnlockedApp(t, "secret")
+	other := createDB(t, "other")
+
+	// A relay that takes the server's connection and never answers, so
+	// the start waits on it until the test closes the connection.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	t.Cleanup(func() { _ = ln.Close() })
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		if c, err := ln.Accept(); err == nil {
+			accepted <- c
+		}
+	}()
+
+	started := make(chan error, 1)
+	go func() {
+		_, _, err := app.StartServer(
+			"", "relay", "tcp://"+ln.Addr().String(), "srv", "", "", "",
+			false, false, "",
+		)
+		started <- err
+	}()
+	var conn net.Conn
+	select {
+	case conn = <-accepted:
+	case <-time.After(testWait):
+		t.Fatal("the server start did not reach the relay")
+	}
+
+	app.CancelStartServer()
+	a.ErrorIs(
+		app.SubmitPassphrase(other, "other", false), ErrStorageBusy,
+		"a cancelled start that still runs uses the database",
+	)
+
+	a.NoError(conn.Close())
+	select {
+	case err := <-started:
+		a.Error(err)
+	case <-time.After(testWait):
+		t.Fatal("the server start did not end")
+	}
+	a.NoError(app.SubmitPassphrase(other, "other", false))
+}
+
+func TestFailedServerStartLeavesStorageFree(t *testing.T) {
+	a := require.New(t)
+	app, _ := newUnlockedApp(t, "secret")
+	other := createDB(t, "other")
+
+	// NewServer rejects a name with a control character, after the direct
+	// P2P listener has been set up.
+	_, _, err := app.StartServer(
+		"127.0.0.1:0", "udp", "", "bad\x01name", "", "", "",
+		true, false, "127.0.0.1:9",
+	)
+	a.Error(err)
+
+	app.mu.RLock()
+	listener := app.p2pListener
+	busy := app.storageBusyLocked()
+	app.mu.RUnlock()
+	if listener != nil {
+		t.Cleanup(func() { _ = listener.Close() })
+	}
+	a.Nil(listener)
+	a.False(busy)
+	a.NoError(app.SubmitPassphrase(other, "other", false))
 }

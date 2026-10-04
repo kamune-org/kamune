@@ -1,12 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import {
-    SubmitPassphrase,
-    HasKeychainPassphrase,
-    GetDBPath,
-    SetDBPath,
-    OpenFileDialog,
-  } from './go.js';
+  import { SubmitPassphrase, HasKeychainPassphrase, GetDBPath, OpenFileDialog } from './go.js';
 
   /**
    * @typedef {Object} Props
@@ -34,11 +28,8 @@
     loading = true;
     error = '';
     try {
-      const currentPath = await GetDBPath();
-      if (dbPath !== currentPath) {
-        await SetDBPath(dbPath);
-      }
-      await SubmitPassphrase(passphrase, saveToKeychain);
+      // The database open before stays open unless this one opens.
+      await SubmitPassphrase(dbPath, passphrase, saveToKeychain);
     } catch (e) {
       error = e.message || e || 'Wrong passphrase or corrupted database';
       loading = false;

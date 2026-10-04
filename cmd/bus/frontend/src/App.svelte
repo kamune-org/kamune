@@ -215,7 +215,6 @@
     EventsOff('log-entry');
     EventsOff('notification');
     EventsOff('storage-ready');
-    EventsOff('request-passphrase');
     EventsOff('server-running');
     EventsOff('version-warning');
     EventsOff('verification-mode-changed');
@@ -293,12 +292,9 @@
         new Notification(title, { body: message });
       }
     });
-    EventsOn('storage-ready', () => {
+    EventsOn('storage-ready', async () => {
       showPassphraseDialog = false;
-    });
-    EventsOn('request-passphrase', () => {
-      showPassphraseDialog = true;
-      passphraseDismissable = false;
+      dbPath.set(await GetDBPath());
     });
     EventsOn('verification-mode-changed', (mode) => {
       verificationMode.set(mode);
@@ -479,7 +475,6 @@
     EventsOff('log-entry');
     EventsOff('notification');
     EventsOff('storage-ready');
-    EventsOff('request-passphrase');
     EventsOff('server-running');
     EventsOff('version-warning');
     EventsOff('verification-mode-changed');

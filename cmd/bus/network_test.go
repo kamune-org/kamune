@@ -240,11 +240,18 @@ func TestServerHandlerChecksTokenPeer(t *testing.T) {
 			acceptAll := func(*storage.Storage, *storage.Peer) error {
 				return nil
 			}
-			srv, err := kamune.NewServer(
-				"", app.serverHandler, app.store(), acceptAll,
+			var srv *kamune.Server
+			handler := func(t *kamune.Transport) error {
+				return app.serverHandler(srv, t)
+			}
+			srv, err = kamune.NewServer(
+				"", handler, app.store(), acceptAll,
 				kamune.ServeWithListener(gatedTestListener{ln, &gate}),
 			)
 			a.NoError(err)
+			app.mu.Lock()
+			app.server = srv
+			app.mu.Unlock()
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
@@ -289,4 +296,49 @@ func TestServerHandlerChecksTokenPeer(t *testing.T) {
 			a.Error(err, "a dropped peer must not be saved")
 		})
 	}
+}
+
+func TestServerHandlerDropsSessionOfStoppedServer(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	app.serverVerifMode = VerificationModeAutoAccept
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	acceptAll := func(*storage.Storage, *storage.Peer) error { return nil }
+	// srv is not the app's server, as after StopServer has taken it out
+	// while a handshake was still in progress.
+	var srv *kamune.Server
+	handler := func(t *kamune.Transport) error {
+		return app.serverHandler(srv, t)
+	}
+	srv, err = kamune.NewServer(
+		"", handler, app.store(), acceptAll,
+		kamune.ServeWithListener(tcpTestListener{ln}),
+	)
+	a.NoError(err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = srv.ListenAndServe()
+	}()
+	defer func() {
+		_ = srv.Close()
+		<-done
+	}()
+
+	d, err := kamune.NewDialer(
+		ln.Addr().String(), openTestStorage(t), acceptAll,
+		kamune.DialWithTCP(),
+	)
+	a.NoError(err)
+	tr, err := d.Dial()
+	a.NoError(err)
+	defer func() { _ = tr.Close() }()
+
+	a.NoError(tr.SetDeadline(time.Now().Add(testWait)))
+	_, _, err = tr.ReceivePayload()
+	a.ErrorIs(err, kamune.ErrPeerDisconnected)
+	a.Empty(app.GetSessions())
 }

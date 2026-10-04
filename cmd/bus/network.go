@@ -32,7 +32,16 @@ func (a *App) StartServer(
 		a.mu.Unlock()
 		return "", "", fmt.Errorf("server is already running")
 	}
+	// The server and its listeners keep the store, so the database must
+	// not change until the server is in a.server or the start has failed,
+	// even after CancelStartServer.
+	a.starting++
 	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.starting--
+		a.mu.Unlock()
+	}()
 
 	started := false
 	cancelled := false
@@ -232,10 +241,16 @@ func (a *App) StartServer(
 	}
 
 	verifMode := a.currentVerifMode()
+	// svr is set before ListenAndServe starts, so before any handler runs.
+	var svr *kamune.Server
+	handler := func(t *kamune.Transport) error {
+		return a.serverHandler(svr, t)
+	}
 	svr, err := kamune.NewServer(
-		addr, a.serverHandler, store, a.verifierFor(verifMode), opts...,
+		addr, handler, store, a.verifierFor(verifMode), opts...,
 	)
 	if err != nil {
+		a.dropStartListeners()
 		a.setStatus(StatusError, "Failed to create server")
 		a.addLogEntry("ERROR", "Failed to create server: "+err.Error())
 		return "", "", fmt.Errorf("create server: %w", err)
@@ -339,6 +354,36 @@ func (a *App) StartServer(
 	return emoji, firstToken, nil
 }
 
+// dropStartListeners closes the relay and P2P listeners, and cancels the
+// P2P tokens, that a StartServer which then failed set up, so that they
+// neither run on nor keep the database in use (see storageBusyLocked).
+func (a *App) dropStartListeners() {
+	a.mu.Lock()
+	ml := a.relayListeners
+	p2pL := a.p2pListener
+	p2pTokens := a.p2pTokens
+	a.relayListeners = nil
+	a.relayTokens = nil
+	a.relayAddr = ""
+	a.relayPassword = ""
+	a.p2pListener = nil
+	a.p2pTokens = make([]p2pToken, 0)
+	a.mu.Unlock()
+
+	if ml != nil {
+		_ = ml.Close()
+	}
+	if p2pL != nil {
+		_ = p2pL.Close()
+	}
+	for _, pt := range p2pTokens {
+		pt.cancel()
+	}
+	if len(p2pTokens) > 0 {
+		a.emitEvent("p2p-tokens", []p2pToken{})
+	}
+}
+
 func (a *App) ConfirmStopServer() bool {
 	a.mu.RLock()
 	sessionCount := len(a.sessions)
@@ -369,8 +414,9 @@ func (a *App) StopServer() error {
 		a.relayListeners.Close()
 		a.relayListeners = nil
 	}
-	if a.server != nil {
-		a.server.Close()
+	svr := a.server
+	if svr != nil {
+		svr.Close()
 		a.server = nil
 	}
 	sessions = append([]*liveSession(nil), a.sessions...)
@@ -380,15 +426,39 @@ func (a *App) StopServer() error {
 	a.relayPassword = ""
 	serverDone = a.serverDone
 	a.serverDone = nil
+	// Closing the sessions, and the handshakes and handlers still in
+	// progress, uses the database, so it stays in use until they end.
+	a.closing++
 	a.mu.Unlock()
+	defer a.doneClosing()
 
 	for _, s := range sessions {
-		s.Transport.Close()
+		// A closed session must not reconnect.
+		if s.reconnectCancel != nil {
+			s.reconnectCancel()
+		}
+		s.mu.Lock()
+		t := s.Transport
+		s.mu.Unlock()
+		t.Close()
 	}
 	for _, s := range sessions {
 		waitOrTimeout(s.ReceiveDone, "session receive: "+s.ID)
 	}
 
+	if svr != nil {
+		// Wait for the handshakes and handlers still in progress. A
+		// handler that has not added its session yet drops it, since the
+		// server is no longer a.server (see serverHandler).
+		ctx, cancel := context.WithTimeout(
+			context.Background(), channelTimeout,
+		)
+		if err := svr.Shutdown(ctx); err != nil {
+			a.addLogEntry("WARN", "Timed out waiting for the server's "+
+				"handshakes and handlers to end")
+		}
+		cancel()
+	}
 	if serverDone != nil {
 		waitOrTimeout(serverDone, "ListenAndServe")
 	}
@@ -510,6 +580,17 @@ func (a *App) ConnectToServer(
 	brokerAddr, peerPubB64, p2pToken string,
 	useP2P bool, useBroker bool,
 ) (ConnectResult, error) {
+	// The dialer and the session keep the store, so the database must not
+	// change until the session is in a.sessions or the dial has failed.
+	a.mu.Lock()
+	a.dialOps++
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.dialOps--
+		a.mu.Unlock()
+	}()
+
 	connected := false
 	defer func() {
 		if !connected {
@@ -879,6 +960,9 @@ func (a *App) DisconnectSession(sessionID string) error {
 			if s.ID == sessionID {
 				session = s
 				a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)
+				// Closing the session uses the database, so it stays
+				// in use until the session has ended.
+				a.closing++
 				break
 			}
 		}
@@ -887,6 +971,7 @@ func (a *App) DisconnectSession(sessionID string) error {
 	if session == nil {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
+	defer a.doneClosing()
 
 	// Invalidate resumption tokens so this explicitly closed
 	// session cannot be resumed later.
@@ -918,11 +1003,19 @@ func (a *App) DisconnectSession(sessionID string) error {
 	return nil
 }
 
-func (a *App) serverHandler(t *kamune.Transport) error {
+// serverHandler runs a session that svr established. A session that
+// reaches it after StopServer has taken svr out of a.server is closed,
+// since StopServer has already closed the sessions it knew about and
+// waits for this handler to return.
+func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 	a.mu.RLock()
+	current := a.server == svr
 	transport := a.serverTransportType
 	verifMode := a.serverVerifMode
 	a.mu.RUnlock()
+	if !current {
+		return a.dropStoppedSession(t)
+	}
 	if transport == "" {
 		transport = "tcp"
 	}
@@ -979,6 +1072,10 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	}
 
 	a.mu.Lock()
+	if a.server != svr {
+		a.mu.Unlock()
+		return a.dropStoppedSession(t)
+	}
 	a.sessions = append(a.sessions, session)
 	info := session.info()
 	a.mu.Unlock()
@@ -990,6 +1087,15 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	go a.keepAliveLoop(session, session.keepAliveDone)
 	a.receiveMessages(session)
 	return nil
+}
+
+// dropStoppedSession closes t, a session that a server handed over after
+// it was stopped.
+func (a *App) dropStoppedSession(t *kamune.Transport) error {
+	a.addLogEntry("INFO", "Closed incoming session "+t.SessionID()+
+		": the server has stopped")
+	_ = t.Close()
+	return kamune.ErrClosedServer
 }
 
 // deriveAndStoreRelayTokens sends this side's relay-token key and keeps
