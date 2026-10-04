@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/ecdh"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -30,55 +28,122 @@ const (
 	DefaultHolePunchTimeout = 5 * time.Second
 	// echoTimeout bounds the wait for the broker's STUN_ECHO reply.
 	echoTimeout = 2 * time.Second
+	// matchRefreshInterval is how often WaitMatch refreshes its
+	// registration while it waits for the peer.
+	matchRefreshInterval = 25 * time.Second
 )
 
-type BrokerClient struct {
-	key *ecdh.PrivateKey
-	pub []byte
+// brokerIDHold is how long a token's broker identity is kept after its
+// last registration ends. The broker keeps a registration for its TTL,
+// 60 s by default, after the last REGISTER, and matches a REGISTER of
+// the same token under another key with it: a dial retried with a new
+// key would be matched with its own stale registration and punch to a
+// closed socket. Under the same key the REGISTER refreshes it instead.
+const brokerIDHold = 2 * time.Minute
 
-	mu         sync.Mutex
-	client     *relaybroker.Client
-	brokerAddr string
+// heldIdentity is the broker identity of one token.
+type heldIdentity struct {
+	id *relaybroker.Client
+	// users counts the registrations that use id.
+	users int
+	// until is when id may be dropped, once users is zero.
+	until time.Time
+}
+
+// BrokerClient runs rendezvous with a kamune broker. It holds no broker
+// identity of its own: every token is registered under an X25519 key of
+// its own (see newBrokerIdentity), so the broker and anyone watching its
+// traffic cannot link one token's registrations to another's by key. A
+// token's key is kept while the token is registered and for
+// brokerIDHold after.
+//
+// The source address still links registrations: the tokens of one p2p
+// listener are registered and refreshed together from its punch socket.
+type BrokerClient struct {
+	mu sync.Mutex
+	// ids holds the identity of each token, by broker address and wire
+	// token.
+	ids map[string]*heldIdentity
 }
 
 func NewBrokerClient() (*BrokerClient, error) {
-	k, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, fmt.Errorf("generate x25519 key: %w", err)
-	}
-	return &BrokerClient{key: k, pub: k.PublicKey().Bytes()}, nil
+	return &BrokerClient{ids: make(map[string]*heldIdentity)}, nil
 }
 
-func (b *BrokerClient) PublicKey() []byte {
-	out := make([]byte, len(b.pub))
-	copy(out, b.pub)
-	return out
+// identityKey is the key of the identity of token at brokerAddr in
+// BrokerClient.ids.
+func identityKey(brokerAddr string, token []byte) string {
+	return brokerAddr + "/" + wireKey(token)
 }
 
-func (b *BrokerClient) Client(brokerAddr string) (*relaybroker.Client, error) {
+// identity returns the broker identity to register token under with the
+// broker at brokerAddr: the one that the token has, while it is in use
+// or held, or a new one. Call release once the registration ends.
+func (b *BrokerClient) identity(
+	brokerAddr string, token []byte,
+) (*relaybroker.Client, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.client != nil && b.brokerAddr == brokerAddr {
-		return b.client, nil
+	now := time.Now()
+	for k, h := range b.ids {
+		if h.users == 0 && now.After(h.until) {
+			delete(b.ids, k)
+		}
 	}
-	c, err := relaybroker.NewClientWithKey(brokerAddr, b.key)
+	key := identityKey(brokerAddr, token)
+	if h, ok := b.ids[key]; ok {
+		h.users++
+		return h.id, nil
+	}
+	id, err := newBrokerIdentity(brokerAddr)
 	if err != nil {
 		return nil, err
 	}
-	b.client = c
-	b.brokerAddr = brokerAddr
-	return c, nil
+	b.ids[key] = &heldIdentity{id: id, users: 1}
+	return id, nil
+}
+
+// release ends a registration of token at brokerAddr under the identity
+// that identity returned. The identity is held for brokerIDHold once no
+// registration uses it.
+func (b *BrokerClient) release(brokerAddr string, token []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	h, ok := b.ids[identityKey(brokerAddr, token)]
+	if !ok || h.users == 0 {
+		return
+	}
+	h.users--
+	if h.users == 0 {
+		h.until = time.Now().Add(brokerIDHold)
+	}
+}
+
+// newBrokerIdentity returns a broker client for the broker at
+// brokerAddr with a new X25519 key. A REGISTER carries the key in the
+// clear, and the broker needs the same key on every refresh of one
+// registration, so use one identity per token, for as long as that
+// token is registered, and never for another token.
+func newBrokerIdentity(brokerAddr string) (*relaybroker.Client, error) {
+	return relaybroker.NewClient(brokerAddr)
 }
 
 // WaitMatch registers token with the broker from a new punch socket and
 // waits, until ctx ends, for the broker's PEER_MATCHED for it. It returns
 // the punch socket, to punch to the matched peer from, and the match.
+// The registration is under the token's broker identity, which a retry
+// within brokerIDHold gets again.
 func (b *BrokerClient) WaitMatch(
 	ctx context.Context, brokerAddr string, token []byte,
 ) (*net.UDPConn, relaybroker.Payload, error) {
 	if len(token) == 0 {
 		return nil, relaybroker.Payload{}, errNoMatchToken
 	}
+	id, err := b.identity(brokerAddr, token)
+	if err != nil {
+		return nil, relaybroker.Payload{}, fmt.Errorf("broker client: %w", err)
+	}
+	defer b.release(brokerAddr, token)
 	punchConn, err := net.ListenUDP(
 		"udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0},
 	)
@@ -103,64 +168,36 @@ func (b *BrokerClient) WaitMatch(
 			fmt.Errorf("clear punch deadline: %w", err)
 	}
 
-	client, err := b.Client(brokerAddr)
-	if err != nil {
-		punchConn.Close()
-		return nil, relaybroker.Payload{}, fmt.Errorf("broker client: %w", err)
-	}
 	pkt := relaybroker.BuildRegister(
-		token, client.PublicKey(), claimIP, claimPort,
+		token, id.PublicKey(), claimIP, claimPort,
 	)
 	if _, err := punchConn.WriteToUDP(pkt, brokerUDPAddr); err != nil {
 		punchConn.Close()
 		return nil, relaybroker.Payload{}, fmt.Errorf("send register: %w", err)
 	}
 
-	buf := make([]byte, 1500)
-	ticker := time.NewTicker(25 * time.Second)
-	defer ticker.Stop()
-
 	for {
-		select {
-		case <-ctx.Done():
-			punchConn.Close()
-			return nil, relaybroker.Payload{}, ctx.Err()
-		case <-ticker.C:
-			// Refresh registration on the broker so it doesn't expire
-			// while we are waiting for the peer to match.
-			_, _ = punchConn.WriteToUDP(pkt, brokerUDPAddr)
-		default:
-		}
-		if err := punchConn.SetReadDeadline(
-			time.Now().Add(500 * time.Millisecond),
-		); err != nil {
-			punchConn.Close()
-			return nil, relaybroker.Payload{}, fmt.Errorf("set read deadline: %w", err)
-		}
-		n, src, err := punchConn.ReadFromUDP(buf)
+		// Refresh the registration on the broker every so often, so
+		// that it does not expire while we wait for the peer.
+		rctx, cancel := context.WithTimeout(ctx, matchRefreshInterval)
+		payload, err := id.ReadNotify(rctx, punchConn)
+		cancel()
 		if err != nil {
-			var ne net.Error
-			if errors.As(err, &ne) && ne.Timeout() {
+			if ctx.Err() != nil {
+				punchConn.Close()
+				return nil, relaybroker.Payload{}, ctx.Err()
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				_, _ = punchConn.WriteToUDP(pkt, brokerUDPAddr)
 				continue
 			}
 			punchConn.Close()
-			return nil, relaybroker.Payload{}, fmt.Errorf("read notify: %w", err)
+			return nil, relaybroker.Payload{}, err
 		}
-		if src == nil || !src.IP.Equal(brokerUDPAddr.IP) ||
-			src.Port != brokerUDPAddr.Port {
-			continue
-		}
-		payload, err := b.parseNotify(buf[:n])
-		if err != nil {
-			continue
-		}
-		if payload.Type == relaybroker.NotifyPeerMatched {
-			// The broker echoes the token's 16-byte wire form.
-			if !relaybroker.TokenMatches(payload.Token, token) {
-				continue
-			}
-			_ = punchConn.SetReadDeadline(time.Time{})
-			return punchConn, *payload, nil
+		// The broker echoes the token's 16-byte wire form.
+		if payload.Type == relaybroker.NotifyPeerMatched &&
+			relaybroker.TokenMatches(payload.Token, token) {
+			return punchConn, payload, nil
 		}
 	}
 }
@@ -218,40 +255,6 @@ func (b *BrokerClient) echoSeparate(
 		return nil, 0, fmt.Errorf("read echo: %w", err)
 	}
 	return parseEchoResponse(buf[:n])
-}
-
-func (b *BrokerClient) parseNotify(pkt []byte) (*relaybroker.Payload, error) {
-	brokerEphPub, nonce, sealed, err := relaybroker.ParseNotify(pkt)
-	if err != nil {
-		return nil, err
-	}
-	brokerPub, err := ecdh.X25519().NewPublicKey(brokerEphPub)
-	if err != nil {
-		return nil, err
-	}
-	shared, err := b.key.ECDH(brokerPub)
-	if err != nil {
-		return nil, err
-	}
-	key := sha256.Sum256(shared)
-	plaintext, err := relaybroker.OpenNotify(
-		key[:], brokerEphPub, nonce, sealed,
-	)
-	if err != nil {
-		return nil, err
-	}
-	np, err := relaybroker.ParseNotifyPayload(plaintext)
-	if err != nil {
-		return nil, err
-	}
-	return &relaybroker.Payload{
-		Type:            np.Type,
-		Token:           append([]byte(nil), np.Token...),
-		OtherPeerEphPub: append([]byte(nil), np.OtherPeerEphPub...),
-		IP:              append(net.IP(nil), np.IP...),
-		Port:            np.Port,
-		TTLSeconds:      np.TTLSeconds,
-	}, nil
 }
 
 func parseEchoResponse(resp []byte) (net.IP, uint16, error) {

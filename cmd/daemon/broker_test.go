@@ -29,8 +29,11 @@ type fakeBroker struct {
 	match bool
 	peer  *net.UDPAddr
 
-	mu         sync.Mutex
+	mu sync.Mutex
+	// registered holds the wire token of each REGISTER, and keys the
+	// X25519 key it carried.
 	registered [][]byte
+	keys       [][]byte
 	changed    chan struct{}
 }
 
@@ -71,6 +74,7 @@ func (b *fakeBroker) serve() {
 		}
 		b.mu.Lock()
 		b.registered = append(b.registered, slices.Clone(token))
+		b.keys = append(b.keys, slices.Clone(peerEphPub))
 		b.mu.Unlock()
 		select {
 		case b.changed <- struct{}{}:
@@ -89,6 +93,21 @@ func (b *fakeBroker) registrations() [][]byte {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return slices.Clone(b.registered)
+}
+
+// keysFor returns the distinct X25519 keys that the REGISTERs of token
+// carried.
+func (b *fakeBroker) keysFor(token []byte) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var keys []string
+	for i, r := range b.registered {
+		key := hex.EncodeToString(b.keys[i])
+		if relaybroker.TokenMatches(r, token) && !slices.Contains(keys, key) {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 // waitRegistered waits for a REGISTER of token and returns the wire
@@ -289,4 +308,153 @@ func TestRemovedP2PTokensAreNotRegistered(t *testing.T) {
 	after := broker.waitRegistered(t, tokenC)[before:]
 	a.Len(after, 1)
 	a.True(relaybroker.TokenMatches(after[0], tokenC))
+}
+
+// Each token is registered under an X25519 key of its own, which its
+// refreshes keep, so the broker cannot link one token to another.
+func TestBrokerRegistrationsUseOwnKeys(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	broker := newFakeBroker(t, false)
+	peers := make([][]byte, 4)
+	tokens := make([][]byte, len(peers))
+	for i := range peers {
+		peers[i] = newTestPeerKey(t)
+		tokens[i] = p2pTokenFor(t, d, peers[i])
+	}
+
+	// Tokens without a p2p server, refreshed by runP2PRefresh.
+	for _, peer := range peers[2:] {
+		_, err := d.GenerateP2PToken(broker.addr(), fingerprint.Base64(peer))
+		a.NoError(err)
+	}
+	for _, pt := range d.GetP2PTokens() {
+		a.True(d.refreshP2PToken(pt))
+	}
+
+	// The p2p server's own token, and one added to it.
+	d.handleStartServer(Command{
+		ID: "start",
+		Params: mustJSON(StartServerParams{
+			Addr: "127.0.0.1:0", Transport: "p2p", BrokerAddr: broker.addr(),
+			PeerPubB64: fingerprint.Base64(peers[0]),
+		}),
+	})
+	rec.waitFor(t, isEvent(EvtServerStarted))
+	_, err := d.GenerateP2PToken(broker.addr(), fingerprint.Base64(peers[1]))
+	a.NoError(err)
+	d.mu.RLock()
+	l, ok := d.p2pListener.(*p2pListener)
+	d.mu.RUnlock()
+	a.True(ok)
+	a.NoError(l.refreshRegistration())
+
+	// Each token has been registered twice; wait for the refreshes.
+	var keys []string
+	deadline := time.Now().Add(testEventTimeout)
+	for _, token := range tokens {
+		for {
+			n := 0
+			for _, r := range broker.registrations() {
+				if relaybroker.TokenMatches(r, token) {
+					n++
+				}
+			}
+			if n >= 2 {
+				break
+			}
+			a.True(time.Now().Before(deadline), "no refresh of %x", token)
+			time.Sleep(10 * time.Millisecond)
+		}
+		got := broker.keysFor(token)
+		a.Len(got, 1, "token %x changed keys", token)
+		keys = append(keys, got[0])
+	}
+
+	// A dial that waits for a match registers its token under the
+	// token's key, which a second dial of it gets back, and a dial of
+	// another token under a key of its own.
+	matcher := newFakeBroker(t, true)
+	client, err := NewBrokerClient()
+	a.NoError(err)
+	for _, token := range [][]byte{tokens[0], tokens[0], tokens[1]} {
+		conn, _, err := client.WaitMatch(t.Context(), matcher.addr(), token)
+		a.NoError(err)
+		a.NoError(conn.Close())
+	}
+	for _, token := range tokens[:2] {
+		dialKeys := matcher.keysFor(token)
+		a.Len(dialKeys, 1)
+		keys = append(keys, dialKeys...)
+	}
+
+	slices.Sort(keys)
+	a.Len(slices.Compact(keys), len(tokens)+2, "a key was reused")
+}
+
+// A dial retried after it found no match registers its token under the
+// same broker key, so that the broker refreshes the first dial's
+// registration instead of matching the retry with it.
+func TestWaitMatchRetryKeepsBrokerKey(t *testing.T) {
+	a := require.New(t)
+	broker := newFakeBroker(t, false)
+	client, err := NewBrokerClient()
+	a.NoError(err)
+	token := []byte(strings.Repeat("r", 32))
+
+	for n := 1; n <= 2; n++ {
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() {
+			_, _, err := client.WaitMatch(ctx, broker.addr(), token)
+			done <- err
+		}()
+		deadline := time.Now().Add(testEventTimeout)
+		for registrationsOf(broker, token) < n {
+			a.True(time.Now().Before(deadline), "dial %d not registered", n)
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+		a.ErrorIs(<-done, context.Canceled)
+	}
+	a.Len(broker.keysFor(token), 1)
+}
+
+// registrationsOf returns how many REGISTERs of token b has received.
+func registrationsOf(b *fakeBroker, token []byte) int {
+	n := 0
+	for _, r := range b.registrations() {
+		if relaybroker.TokenMatches(r, token) {
+			n++
+		}
+	}
+	return n
+}
+
+// A token keeps its broker identity at one broker while it is in use
+// and for brokerIDHold after, and gets a new one once that has passed.
+func TestBrokerIdentityHold(t *testing.T) {
+	a := require.New(t)
+	b, err := NewBrokerClient()
+	a.NoError(err)
+	const brokerAddr = "127.0.0.1:1"
+	token := []byte(strings.Repeat("h", 32))
+
+	first, err := b.identity(brokerAddr, token)
+	a.NoError(err)
+	b.release(brokerAddr, token)
+	again, err := b.identity(brokerAddr, token)
+	a.NoError(err)
+	a.Same(first, again)
+	other, err := b.identity("127.0.0.1:2", token)
+	a.NoError(err)
+	a.NotSame(first, other)
+
+	b.release(brokerAddr, token)
+	b.mu.Lock()
+	b.ids[identityKey(brokerAddr, token)].until = time.Now().Add(-time.Second)
+	b.mu.Unlock()
+	fresh, err := b.identity(brokerAddr, token)
+	a.NoError(err)
+	a.NotSame(first, fresh)
 }

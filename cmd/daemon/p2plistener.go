@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"slices"
@@ -16,16 +15,25 @@ import (
 	"github.com/xtaci/kcp-go/v5"
 )
 
+// listenerToken is a token that a p2p listener registers with the
+// broker, and the broker identity it registers it under.
+type listenerToken struct {
+	token []byte
+	id    *relaybroker.Client
+	// held is set when id comes from BrokerClient.identity, which the
+	// listener releases once it stops registering the token.
+	held bool
+}
+
 type p2pListener struct {
 	bindAddr   string
 	broker     *BrokerClient
 	brokerAddr string
-	token      []byte
-	// extraTokens are the tokens registered after the listener started.
-	extraTokens [][]byte
-	// tokenRemoved is set once token is unregistered.
-	tokenRemoved bool
-	tokenMu      sync.RWMutex
+	// token is the listener's own token, which it registered first.
+	token []byte
+	// tokens are the tokens that the listener registers.
+	tokens  []listenerToken
+	tokenMu sync.RWMutex
 
 	conn *net.UDPConn
 	kcp  *kcp.Listener
@@ -59,7 +67,6 @@ func newP2PListener(
 		bindAddr:   bindAddr,
 		broker:     broker,
 		brokerAddr: brokerAddr,
-		token:      token,
 		conn:       conn,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -76,29 +83,32 @@ func newP2PListener(
 		return nil, fmt.Errorf("broker echo: %w", err)
 	}
 
-	client, err := broker.Client(brokerAddr)
+	// A static token has the identity that BrokerClient keeps for it. A
+	// random one, which the broker assigns anew, gets a new identity.
+	own := listenerToken{held: len(token) > 0}
+	if own.held {
+		own.id, err = broker.identity(brokerAddr, token)
+	} else {
+		own.id, err = newBrokerIdentity(brokerAddr)
+	}
 	if err != nil {
 		l.Close()
 		return nil, fmt.Errorf("broker client: %w", err)
 	}
-	pkt := relaybroker.BuildRegister(
-		token, client.PublicKey(), claimIP, claimPort,
-	)
-	if _, err := conn.WriteToUDP(pkt, brokerUDPAddr); err != nil {
+	if own.held {
+		l.tokens = []listenerToken{{token: token, id: own.id, held: true}}
+	}
+	// Without a token, the broker assigns one; RegisterOn waits for it.
+	rctx, rcancel := context.WithTimeout(ctx, 2*time.Second)
+	token, err = own.id.RegisterOn(rctx, conn, token, claimIP, claimPort)
+	rcancel()
+	if err != nil {
 		l.Close()
-		return nil, fmt.Errorf("send register: %w", err)
+		return nil, fmt.Errorf("broker register: %w", err)
 	}
-
-	if len(token) == 0 {
-		to, cancel := context.WithTimeout(ctx, 2*time.Second)
-		assigned, err := readTokenAssigned(to, conn, broker, brokerUDPAddr)
-		cancel()
-		if err != nil {
-			l.Close()
-			return nil, fmt.Errorf("read assigned token: %w", err)
-		}
-		l.token = assigned
-	}
+	own.token = token
+	l.token = token
+	l.tokens = []listenerToken{own}
 
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		l.Close()
@@ -128,6 +138,12 @@ func (l *p2pListener) Accept() (kamune.Conn, error) {
 func (l *p2pListener) Close() error {
 	l.closeOnce.Do(func() {
 		l.cancel()
+		l.tokenMu.Lock()
+		for _, t := range l.tokens {
+			l.releaseToken(t)
+		}
+		l.tokens = nil
+		l.tokenMu.Unlock()
 		if l.kcp != nil {
 			_ = l.kcp.Close()
 		}
@@ -168,7 +184,22 @@ func (l *p2pListener) refreshLoop() {
 	}
 }
 
-// RegisterToken registers an additional token from the punch socket.
+// wireKey returns the key of token in p2pListener.ids: its wire form,
+// in hex.
+func wireKey(token []byte) string {
+	return hex.EncodeToString(relaybroker.WireToken(token))
+}
+
+// releaseToken releases the broker identity of t, if BrokerClient keeps
+// it.
+func (l *p2pListener) releaseToken(t listenerToken) {
+	if t.held {
+		l.broker.release(l.brokerAddr, t.token)
+	}
+}
+
+// RegisterToken registers an additional token from the punch socket,
+// under the broker identity that BrokerClient keeps for it.
 func (l *p2pListener) RegisterToken(token []byte) error {
 	brokerUDPAddr, err := net.ResolveUDPAddr("udp4", l.brokerAddr)
 	if err != nil {
@@ -178,19 +209,26 @@ func (l *p2pListener) RegisterToken(token []byte) error {
 	if err != nil {
 		return fmt.Errorf("broker echo: %w", err)
 	}
-	client, err := l.broker.Client(l.brokerAddr)
+	id, err := l.broker.identity(l.brokerAddr, token)
 	if err != nil {
 		return fmt.Errorf("broker client: %w", err)
 	}
+	t := listenerToken{token: token, id: id, held: true}
 	pkt := relaybroker.BuildRegister(
-		token, client.PublicKey(), claimIP, claimPort,
+		token, id.PublicKey(), claimIP, claimPort,
 	)
 	if _, err := l.conn.WriteToUDP(pkt, brokerUDPAddr); err != nil {
+		l.releaseToken(t)
 		return fmt.Errorf("send register: %w", err)
 	}
 	l.tokenMu.Lock()
-	l.extraTokens = append(l.extraTokens, token)
-	l.tokenMu.Unlock()
+	defer l.tokenMu.Unlock()
+	if l.ctx.Err() != nil {
+		// Closed meanwhile: Close released the tokens it held.
+		l.releaseToken(t)
+		return net.ErrClosed
+	}
+	l.tokens = append(l.tokens, t)
 	return nil
 }
 
@@ -201,23 +239,20 @@ func (l *p2pListener) RegisterToken(token []byte) error {
 func (l *p2pListener) UnregisterToken(token []byte) {
 	l.tokenMu.Lock()
 	defer l.tokenMu.Unlock()
-	if bytes.Equal(l.token, token) {
-		l.tokenRemoved = true
-	}
-	l.extraTokens = slices.DeleteFunc(l.extraTokens, func(t []byte) bool {
-		return bytes.Equal(t, token)
+	l.tokens = slices.DeleteFunc(l.tokens, func(t listenerToken) bool {
+		if !bytes.Equal(t.token, token) {
+			return false
+		}
+		l.releaseToken(t)
+		return true
 	})
 }
 
 // liveTokens returns the tokens that the listener registers.
-func (l *p2pListener) liveTokens() [][]byte {
+func (l *p2pListener) liveTokens() []listenerToken {
 	l.tokenMu.RLock()
 	defer l.tokenMu.RUnlock()
-	tokens := slices.Clone(l.extraTokens)
-	if !l.tokenRemoved {
-		tokens = append([][]byte{l.token}, tokens...)
-	}
-	return tokens
+	return slices.Clone(l.tokens)
 }
 
 func (l *p2pListener) refreshRegistration() error {
@@ -229,55 +264,17 @@ func (l *p2pListener) refreshRegistration() error {
 	if err != nil {
 		return fmt.Errorf("broker echo: %w", err)
 	}
-	client, err := l.broker.Client(l.brokerAddr)
-	if err != nil {
-		return fmt.Errorf("broker client: %w", err)
-	}
 
 	for _, tok := range l.liveTokens() {
-		if len(tok) == 0 {
+		if len(tok.token) == 0 {
 			continue
 		}
 		pkt := relaybroker.BuildRegister(
-			tok, client.PublicKey(), claimIP, claimPort,
+			tok.token, tok.id.PublicKey(), claimIP, claimPort,
 		)
 		if _, err := l.conn.WriteToUDP(pkt, brokerUDPAddr); err != nil {
 			return fmt.Errorf("send register: %w", err)
 		}
 	}
 	return nil
-}
-
-func readTokenAssigned(
-	ctx context.Context, conn *net.UDPConn,
-	broker *BrokerClient, brokerAddr *net.UDPAddr,
-) ([]byte, error) {
-	buf := make([]byte, 1500)
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-		if err := conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
-			return nil, fmt.Errorf("set deadline: %w", err)
-		}
-		n, src, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			var ne net.Error
-			if errors.As(err, &ne) && ne.Timeout() {
-				continue
-			}
-			return nil, fmt.Errorf("read notify: %w", err)
-		}
-		if src.IP.Equal(brokerAddr.IP) && src.Port == brokerAddr.Port {
-			payload, err := broker.parseNotify(buf[:n])
-			if err != nil {
-				continue
-			}
-			if payload.Type == relaybroker.NotifyTokenAssigned {
-				return payload.Token, nil
-			}
-		}
-	}
 }

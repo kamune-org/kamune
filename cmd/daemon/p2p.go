@@ -55,6 +55,11 @@ type p2pToken struct {
 	brokerAddr string             `json:"-"`
 	ctx        context.Context    `json:"-"`
 	cancel     context.CancelFunc `json:"-"`
+	// broker is the broker identity that runP2PRefresh registers the
+	// token under, or nil for a token that the p2p listener registers.
+	broker *relaybroker.Client `json:"-"`
+	// release, if set, releases broker once runP2PRefresh ends.
+	release func() `json:"-"`
 }
 
 func (d *Daemon) getOrCreateBrokerClient() (*BrokerClient, error) {
@@ -76,10 +81,6 @@ func (d *Daemon) GenerateP2PToken(
 ) (string, error) {
 	if brokerAddr == "" {
 		return "", errors.New("broker address is required")
-	}
-	broker, err := d.getOrCreateBrokerClient()
-	if err != nil {
-		return "", fmt.Errorf("broker client: %w", err)
 	}
 
 	staticToken, err := d.deriveP2PToken(peerPubB64)
@@ -137,7 +138,21 @@ func (d *Daemon) GenerateP2PToken(
 		return hexToken, nil
 	}
 
-	client, err := broker.Client(brokerAddr)
+	// A static token has the broker identity that BrokerClient keeps for
+	// it, while it is registered and for brokerIDHold after. A random
+	// one, which the broker assigns anew, gets a new identity.
+	broker, err := d.getOrCreateBrokerClient()
+	if err != nil {
+		return "", fmt.Errorf("broker client: %w", err)
+	}
+	var client *relaybroker.Client
+	release := func() {}
+	if staticToken != nil {
+		client, err = broker.identity(brokerAddr, staticToken)
+		release = func() { broker.release(brokerAddr, staticToken) }
+	} else {
+		client, err = newBrokerIdentity(brokerAddr)
+	}
 	if err != nil {
 		return "", fmt.Errorf("broker client: %w", err)
 	}
@@ -146,6 +161,7 @@ func (d *Daemon) GenerateP2PToken(
 	claimIP, claimPort, err := client.Echo(echoCtx)
 	echoCancel()
 	if err != nil {
+		release()
 		return "", fmt.Errorf("broker echo: %w", err)
 	}
 
@@ -153,6 +169,7 @@ func (d *Daemon) GenerateP2PToken(
 	token, err := client.Register(ctx, staticToken, claimIP, claimPort)
 	if err != nil {
 		cancel()
+		release()
 		return "", fmt.Errorf("broker register: %w", err)
 	}
 
@@ -175,6 +192,8 @@ func (d *Daemon) GenerateP2PToken(
 		brokerAddr: brokerAddr,
 		ctx:        ctx,
 		cancel:     cancel,
+		broker:     client,
+		release:    release,
 	}
 
 	d.mu.Lock()
@@ -186,30 +205,6 @@ func (d *Daemon) GenerateP2PToken(
 	d.addLogEntry("INFO", "Generated p2p token: "+hexToken)
 	go d.runP2PRefresh(pt)
 	return hexToken, nil
-}
-
-func (d *Daemon) refreshBrokerRegistration(
-	broker *BrokerClient,
-	brokerAddr, hexToken string,
-) error {
-	client, err := broker.Client(brokerAddr)
-	if err != nil {
-		return fmt.Errorf("broker client: %w", err)
-	}
-	ctx, cancel := context.WithTimeout(d.ctx, 5*time.Second)
-	defer cancel()
-	claimIP, claimPort, err := client.Echo(ctx)
-	if err != nil {
-		return fmt.Errorf("broker echo: %w", err)
-	}
-	tokenBytes, err := hex.DecodeString(hexToken)
-	if err != nil {
-		return fmt.Errorf("decode token: %w", err)
-	}
-	if _, err := client.Register(ctx, tokenBytes, claimIP, claimPort); err != nil {
-		return fmt.Errorf("broker register: %w", err)
-	}
-	return nil
 }
 
 func (d *Daemon) deriveP2PToken(peerPubB64 string) ([]byte, error) {
@@ -291,6 +286,9 @@ func (d *Daemon) p2pTokensSnapshot() []p2pToken {
 }
 
 func (d *Daemon) runP2PRefresh(pt p2pToken) {
+	if pt.release != nil {
+		defer pt.release()
+	}
 	ticker := time.NewTicker(p2pTokenRefreshInterval)
 	defer ticker.Stop()
 
@@ -337,17 +335,9 @@ func (d *Daemon) runP2PRefresh(pt p2pToken) {
 }
 
 func (d *Daemon) refreshP2PToken(pt p2pToken) bool {
-	d.mu.RLock()
-	broker := d.brokerClient
-	d.mu.RUnlock()
-	if broker == nil {
-		d.addLogEntry("ERROR", "p2p token refresh: broker client is not initialized")
-		return false
-	}
-	client, err := broker.Client(pt.brokerAddr)
-	if err != nil {
-		d.addLogEntry("ERROR",
-			"p2p token refresh: broker client: "+err.Error())
+	client := pt.broker
+	if client == nil {
+		d.addLogEntry("ERROR", "p2p token refresh: no broker identity")
 		return false
 	}
 	tokenBytes, err := hex.DecodeString(pt.Token)
