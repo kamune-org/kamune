@@ -208,6 +208,62 @@ func TestOpenDB_LimitsTriesInAll(t *testing.T) {
 	}
 }
 
+func TestGivenPassphrase(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		none    bool
+		want    []byte
+		wantErr error
+	}{
+		{name: "ask", want: nil},
+		{name: "from the environment", env: "pw", want: []byte("pw")},
+		{name: "none", none: true, want: []byte{}},
+		{
+			name: "both", env: "pw", none: true,
+			wantErr: errPassphraseConflict,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			got, err := givenPassphrase(tt.env, tt.none)
+			if tt.wantErr != nil {
+				a.ErrorIs(err, tt.wantErr)
+				return
+			}
+			a.NoError(err)
+			a.Equal(tt.want, got)
+		})
+	}
+}
+
+func TestOpenDB_NoPassphraseDoesNotAsk(t *testing.T) {
+	a := require.New(t)
+	dir := t.TempDir()
+	// The scripted prompter has no answers, so any question fails.
+	var out bytes.Buffer
+	none := scripted(&out, nil, nil)
+
+	plain := filepath.Join(dir, "plain")
+	store, pass, err := openDB(plain, []byte{}, none)
+	a.NoError(err)
+	a.Empty(pass)
+	a.NoError(store.Close())
+	store, _, err = openDB(plain, []byte{}, none)
+	a.NoError(err)
+	a.NoError(store.Close())
+	a.Empty(out.String())
+
+	locked := filepath.Join(dir, "locked")
+	store, _, err = openDB(locked, []byte("pw"), none)
+	a.NoError(err)
+	a.NoError(store.Close())
+	_, _, err = openDB(locked, []byte{}, none)
+	a.ErrorIs(err, storage.ErrWrongPassphrase)
+	a.Empty(out.String())
+}
+
 func TestChangePassphrase(t *testing.T) {
 	tests := []struct {
 		name    string

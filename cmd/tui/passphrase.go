@@ -20,6 +20,33 @@ const maxPassphraseAttempts = 3
 // the user settled on no passphrase within maxPassphraseAttempts tries.
 var errNoPassphrase = errors.New("no passphrase chosen")
 
+// errPassphraseConflict is returned by givenPassphrase when the passphrase
+// is given and the -no-passphrase flag is set as well.
+var errPassphraseConflict = errors.New(
+	"-no-passphrase and " + passphraseEnv + " cannot be used together",
+)
+
+// passphraseEnv names the environment variable that holds the database
+// passphrase. When it is unset or empty, the TUI asks for the passphrase.
+const passphraseEnv = "KAMUNE_DB_PASSPHRASE"
+
+// givenPassphrase returns the passphrase to open the database with
+// without asking: env, the value of passphraseEnv, or an empty passphrase
+// when none (the -no-passphrase flag) is set. It returns nil when the user
+// is to be asked.
+func givenPassphrase(env string, none bool) ([]byte, error) {
+	switch {
+	case none && env != "":
+		return nil, errPassphraseConflict
+	case none:
+		return []byte{}, nil
+	case env != "":
+		return []byte(env), nil
+	default:
+		return nil, nil
+	}
+}
+
 // prompter asks the user questions on the terminal before the UI starts.
 type prompter struct {
 	out io.Writer
@@ -105,15 +132,17 @@ func (p prompter) confirmEmpty() (bool, error) {
 	}
 }
 
-// openDB opens the database at path with envPass, or, when envPass is
-// empty, with a passphrase it asks p for, and returns the passphrase that
-// opened it. It asks at most maxPassphraseAttempts times in all, counting
+// openDB opens the database at path with given, a passphrase from
+// givenPassphrase, or, when given is nil, with a passphrase it asks p for,
+// and returns the passphrase that opened it. An empty given passphrase
+// opens or creates the database without one, without asking. It asks at
+// most maxPassphraseAttempts times in all, counting
 // each passphrase that does not open the database, after which it says so,
 // and each try that askPassphrase gives up on. It then returns an error
 // wrapping storage.ErrWrongPassphrase when the last passphrase was wrong,
 // or errNoPassphrase.
 func openDB(
-	path string, envPass []byte, p prompter,
+	path string, given []byte, p prompter,
 ) (*storage.Storage, []byte, error) {
 	open := func(pass []byte) (*storage.Storage, error) {
 		return storage.OpenStorage(
@@ -123,9 +152,9 @@ func openDB(
 			}),
 		)
 	}
-	if len(envPass) > 0 {
-		store, err := open(envPass)
-		return store, envPass, err
+	if given != nil {
+		store, err := open(given)
+		return store, given, err
 	}
 
 	_, statErr := os.Stat(path)
