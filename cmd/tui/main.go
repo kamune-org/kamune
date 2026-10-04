@@ -58,7 +58,8 @@ func main() {
 				return "", io.EOF
 			},
 			readSecret: func() ([]byte, error) {
-				return term.ReadPassword(0)
+				// Fd 0 is not the console handle on Windows.
+				return term.ReadPassword(int(os.Stdin.Fd()))
 			},
 		}
 		var err error
