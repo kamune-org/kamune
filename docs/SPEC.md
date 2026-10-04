@@ -488,11 +488,17 @@ Initiator (Client)                          Responder (Server)
      | Minor differs (major ≥ 1)        | **Warning** — the connection proceeds, but a structured warning is recorded. Client applications SHOULD surface this warning to the user, as the remote peer may have a newer or older feature set. |
      | Only patch differs               | **Silent ignore** — patch versions are always compatible and the difference is not checked.                                                                                                         |
 
-   - The responder's **Remote Verifier** is invoked — a pluggable callback
-     that decides whether to accept or reject the peer. The default
-     implementation displays the peer's emoji and hex fingerprints and prompts
-     for interactive confirmation. Known peers are looked up in persistent
-     storage; new peers may be stored upon acceptance.
+   - The responder's **Remote Verifier** is invoked: a callback, supplied by
+     the application, that decides whether to accept or reject the peer. The
+     reference implementation has no default verifier. A verifier typically
+     accepts a peer already in storage, or shows the peer's fingerprint (§2)
+     for the user to compare. The handshake deadline does not run while the
+     verifier does; the verifier has its own time limit (150 seconds by
+     default in the reference implementation), and an accept that comes later
+     counts as a rejection. The handshake can still fail after the verifier
+     accepts, so a verifier should not store the peer itself; the application
+     stores it once the session is established. The verifier does not run
+     when a session is resumed (§6.8.4).
 
 3. **Responder sends its own `Introduce`** (route: `ROUTE_IDENTITY`):
    - Same structure as step 1, but with the responder's identity.
