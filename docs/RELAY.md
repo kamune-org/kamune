@@ -771,7 +771,8 @@ both peers independently derive a pool of 3 reconnect tokens:
 
 1. Each peer generates an ephemeral X25519 key pair.
 2. Each peer sends its ephemeral public key to the other over the existing
-   encrypted transport.
+   encrypted transport, as a `SessionData` message on `RouteSessionData` whose
+   `ecdh_pubkey` field holds the key.
 3. Both peers compute the X25519 shared secret.
 4. Both peers derive 3 tokens via HKDF-SHA512:
 
@@ -782,6 +783,12 @@ token_i = HKDF-Expand(shared_secret, "kamune/relay-reconnect/v1/" || uint32_be(i
 
 Where `i` ranges from 0 to 2. Each token is 32 bytes. Both peers derive
 identical tokens because ECDH is commutative — `A.B == B.A`.
+
+In Go, `relayconn.BeginRelayTokenExchange` sends the key, and
+`relayconn.CompleteRelayTokenPayload` derives the pool from the peer's
+`SessionData` payload, which the caller's receive loop hands to it.
+`DeriveRelayTokens` is deprecated: it takes the next frame itself, so a frame
+the peer sends first, such as a chat message, is lost.
 
 ### Token Pool
 
