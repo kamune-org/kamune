@@ -2063,3 +2063,73 @@ func TestShutdownWaitsForHandlers(t *testing.T) {
 	defer cancel()
 	a.NoError(server.Shutdown(ctx))
 }
+
+func TestNewServerFailureLeavesPortFree(t *testing.T) {
+	errOption := errors.New("option failed")
+	failing := func(*Server) error { return errOption }
+	cases := []struct {
+		freeAddr func(a *require.Assertions) string
+		bind     func(addr string) (io.Closer, error)
+		option   ServerOptions
+		name     string
+	}{
+		{
+			name:   "tcp",
+			option: ServeWithTCP(),
+			freeAddr: func(a *require.Assertions) string {
+				l, err := net.Listen("tcp", "127.0.0.1:0")
+				a.NoError(err)
+				addr := l.Addr().String()
+				a.NoError(l.Close())
+				return addr
+			},
+			bind: func(addr string) (io.Closer, error) {
+				return net.Listen("tcp", addr)
+			},
+		},
+		{
+			name:   "udp",
+			option: ServeWithUDP(),
+			freeAddr: func(a *require.Assertions) string {
+				c, err := net.ListenPacket("udp", "127.0.0.1:0")
+				a.NoError(err)
+				addr := c.LocalAddr().String()
+				a.NoError(c.Close())
+				return addr
+			},
+			bind: func(addr string) (io.Closer, error) {
+				return net.ListenPacket("udp", addr)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			store, cleanup := newTestStore(t)
+			defer cleanup()
+			verifier := func(*storage.Storage, *storage.Peer) error {
+				return nil
+			}
+			handler := func(*Transport) error { return nil }
+			addr := tc.freeAddr(a)
+
+			_, err := NewServer(
+				addr, handler, store, verifier, tc.option, failing,
+			)
+			a.ErrorIs(err, errOption)
+			c, err := tc.bind(addr)
+			a.NoError(err, "port left bound by the failed NewServer")
+			a.NoError(c.Close())
+
+			// A successful NewServer still binds the port.
+			server, err := NewServer(addr, handler, store, verifier, tc.option)
+			a.NoError(err)
+			defer server.Close()
+			c, err = tc.bind(addr)
+			if err == nil {
+				_ = c.Close()
+			}
+			a.Error(err, "NewServer did not bind the port")
+		})
+	}
+}

@@ -99,6 +99,7 @@ type Server struct {
 	attest      *attest.Attest
 	storage     *storage.Storage
 	handlerFunc HandlerFunc
+	listen      func() (Listener, error)
 	done        chan struct{}
 	// sources counts the connections from each source that are in the
 	// handshake, for the per-source cap.
@@ -912,6 +913,16 @@ func NewServer(
 	if s.serverName == "" {
 		s.serverName = fingerprint.Sum(at.MarshalPublicKey())
 	}
+
+	// Bind last, so that no other failure can leave the socket open.
+	if s.listen != nil {
+		l, err := s.listen()
+		if err != nil {
+			return nil, err
+		}
+		s.listener = l
+		s.listen = nil
+	}
 	return s, nil
 }
 
@@ -929,31 +940,41 @@ func ServeWithServerName(name string) ServerOptions {
 
 // ServeWithTCP configures the server to use TCP connections with the given
 // connection options. If not called, TCP with default options is used.
+// [NewServer] binds the address once everything else has succeeded, and
+// returns the error if binding fails.
 func ServeWithTCP(opts ...ConnOption) ServerOptions {
 	return func(s *Server) error {
 		s.connOpts = opts
-		l, err := net.Listen("tcp", s.addr)
-		if err != nil {
-			return fmt.Errorf("listening tcp: %w", err)
+		s.listener = nil
+		s.listen = func() (Listener, error) {
+			l, err := net.Listen("tcp", s.addr)
+			if err != nil {
+				return nil, fmt.Errorf("listening tcp: %w", err)
+			}
+			return &tcpListener{Listener: l, connOpts: opts}, nil
 		}
-		s.listener = &tcpListener{Listener: l, connOpts: opts}
 		return nil
 	}
 }
 
-// ServeWithUDP configures the server to use UDP/KCP connections. Anyone can
-// forge the source address of a UDP datagram, and kcp-go starts a session
-// for any datagram from a new address; see [ServeWithMaxPendingHandshakes]
-// and [ServeWithMaxPendingPerSource] for how their caps treat such
+// ServeWithUDP configures the server to use UDP/KCP connections. [NewServer]
+// binds the address once everything else has succeeded, and returns the
+// error if binding fails. Anyone can forge the source address of a UDP
+// datagram, and kcp-go starts a session for any datagram from a new
+// address; see [ServeWithMaxPendingHandshakes] and
+// [ServeWithMaxPendingPerSource] for how their caps treat such
 // connections.
 func ServeWithUDP(opts ...ConnOption) ServerOptions {
 	return func(s *Server) error {
 		s.connOpts = opts
-		l, err := kcp.Listen(s.addr)
-		if err != nil {
-			return fmt.Errorf("listening udp: %w", err)
+		s.listener = nil
+		s.listen = func() (Listener, error) {
+			l, err := kcp.Listen(s.addr)
+			if err != nil {
+				return nil, fmt.Errorf("listening udp: %w", err)
+			}
+			return &udpListener{Listener: l, connOpts: opts}, nil
 		}
-		s.listener = &udpListener{Listener: l, connOpts: opts}
 		return nil
 	}
 }
@@ -963,6 +984,7 @@ func ServeWithUDP(opts ...ConnOption) ServerOptions {
 func ServeWithListener(l Listener) ServerOptions {
 	return func(s *Server) error {
 		s.listener = l
+		s.listen = nil
 		return nil
 	}
 }
