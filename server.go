@@ -1010,11 +1010,14 @@ func ServeWithListener(l Listener) ServerOptions {
 // A resumed session does not run the [RemoteVerifier]. The server accepts
 // a resume request that is signed by the peer key stored for the session
 // and carries one of the session's unused tokens, as long as that peer is
-// still in storage and the session was established within the last 24
-// hours. A peer the user approved once can thus reconnect in that time
-// without being asked again. Disable resumption when every connection must
-// be verified, for example in a mode that promises to ask the user each
-// time. To stop one peer from resuming, delete it from storage with
+// still in storage and the session's cold handshake, the one that ran the
+// verifier, was at most 24 hours ago. Resuming does not extend that
+// window: however often a session is resumed, 24 hours after its cold
+// handshake the dialer needs a new cold handshake. A peer the user
+// approved once can thus reconnect in that time without being asked
+// again. Disable resumption when every connection must be verified, for
+// example in a mode that promises to ask the user each time. To stop one
+// peer from resuming, delete it from storage with
 // [storage.Storage.DeletePeer], or delete its sessions with
 // [storage.Storage.DeleteSession].
 func ServeWithResumeEnabled(enabled bool) ServerOptions {

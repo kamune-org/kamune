@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xtaci/kcp-go/v5"
 
+	"github.com/kamune-org/kamune/internal/clock"
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/storage"
@@ -2143,6 +2144,7 @@ func resumeDial(
 	clientStore, serverStore *storage.Storage,
 	sessionID string,
 	verifier RemoteVerifier,
+	opts ...ServerOptions,
 ) (error, error) {
 	t.Helper()
 	a := require.New(t)
@@ -2162,6 +2164,7 @@ func resumeDial(
 		},
 		serverStore,
 		verifier,
+		opts...,
 	)
 	a.NoError(err)
 	serveErr := make(chan error, 1)
@@ -2222,4 +2225,38 @@ func TestResumeSkipsVerifierUntilPeerDeleted(t *testing.T) {
 	)
 	a.ErrorIs(dialErr, ErrResumptionRejected)
 	a.Error(serveErr)
+}
+
+// TestResumeWindowStartsAtColdHandshake checks that resuming a session does
+// not extend its resumption window, which counts from the cold handshake.
+func TestResumeWindowStartsAtColdHandshake(t *testing.T) {
+	a := require.New(t)
+	fake := clock.NewFake(time.Now())
+	clientStore, cleanupClient := newTestStore(t)
+	defer cleanupClient()
+	serverStore, cleanupServer := newTestStore(t, storage.WithClock(fake))
+	defer cleanupServer()
+
+	sessionID := coldDial(t, clientStore, serverStore)
+	cold, err := serverStore.GetEstablishedAt(sessionID)
+	a.NoError(err)
+
+	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	fake.Advance(20 * time.Hour)
+	dialErr, serveErr := resumeDial(
+		t, clientStore, serverStore, sessionID, accept, ServeWithClock(fake),
+	)
+	a.NoError(dialErr)
+	a.NoError(serveErr)
+	after, err := serverStore.GetEstablishedAt(sessionID)
+	a.NoError(err)
+	a.True(cold.Equal(after))
+
+	// 25 hours after the cold handshake but 5 after the resumption.
+	fake.Advance(5 * time.Hour)
+	dialErr, serveErr = resumeDial(
+		t, clientStore, serverStore, sessionID, accept, ServeWithClock(fake),
+	)
+	a.ErrorIs(dialErr, ErrResumptionRejected)
+	a.ErrorContains(serveErr, "session expired")
 }

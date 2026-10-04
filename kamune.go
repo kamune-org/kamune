@@ -61,7 +61,9 @@ const (
 	resumptionRootInfo  = "kamune/resumption-root/v1"
 	resumptionTokenInfo = "kamune/resumption/token/v1/"
 
-	// Resumption constants.
+	// Resumption constants. resumptionGracePeriod counts from a session's
+	// cold handshake, whose time storage keeps as established_at; resuming
+	// the session does not restart it.
 	resumptionGracePeriod = 24 * time.Hour
 	resumptionTokenCount  = 20
 	resumptionTokenSize   = 32

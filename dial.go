@@ -330,8 +330,10 @@ func DialWithClientName(name string) DialOption {
 // against the peer key stored for the session, and the server accepts the
 // dialer by the key it stored (see [ServeWithResumeEnabled]). When the
 // server rejects the request, Dial returns an error wrapping
-// [ErrResumptionRejected]; the application may then dial without this
-// option for a cold handshake, which runs the verifier.
+// [ErrResumptionRejected], for example once 24 hours have passed since the
+// session's cold handshake; resuming does not extend that window. The
+// application may then dial without this option for a cold handshake,
+// which runs the verifier.
 func DialWithResume(sessionID string) DialOption {
 	return func(d *Dialer) error {
 		d.handshakeOpts.sessionID = sessionID
