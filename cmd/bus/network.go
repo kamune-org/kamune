@@ -251,6 +251,15 @@ func (a *App) StartServer(
 		opts = append(opts, kamune.ServeWithTCP())
 	}
 
+	if incognito {
+		// Sessions of an incognito server leave no session record in
+		// storage, and no session stored earlier may be resumed.
+		opts = append(opts,
+			kamune.ServeWithoutPersistence(),
+			kamune.ServeWithResumeEnabled(false),
+		)
+	}
+
 	verifMode := a.currentVerifMode()
 	// svr is set before ListenAndServe starts, so before any handler runs.
 	var svr *kamune.Server
@@ -278,6 +287,7 @@ func (a *App) StartServer(
 	a.pubKey = pubKey
 	a.server = svr
 	a.serverVerifMode = verifMode
+	a.serverIncognito = incognito
 	a.serverDone = done
 	if transport == "udp" && useP2P {
 		a.serverTransportType = "p2p"
@@ -476,7 +486,10 @@ func (a *App) StopServer() error {
 	return nil
 }
 
-func (a *App) restartServer() error {
+// restartServer stops the server and starts it again with the settings
+// it was started with, so that it picks up the current verification and
+// incognito modes. reason ends the log line.
+func (a *App) restartServer(reason string) error {
 	a.mu.RLock()
 	addr := a.serverAddr
 	transport := a.serverTransport
@@ -490,7 +503,7 @@ func (a *App) restartServer() error {
 	useBroker := a.serverUseBroker
 	a.mu.RUnlock()
 
-	a.addLogEntry("INFO", "Restarting server to apply verification mode change")
+	a.addLogEntry("INFO", "Restarting server to "+reason)
 
 	if err := a.StopServer(); err != nil {
 		return fmt.Errorf("stop server: %w", err)
@@ -649,6 +662,10 @@ func (a *App) ConnectToServer(
 
 	var opts []kamune.DialOption
 	opts = append(opts, kamune.DialWithClientName(name))
+	if incognito {
+		// An incognito session leaves no session record in storage.
+		opts = append(opts, kamune.DialWithoutPersistence())
+	}
 	relayTokenHex := token
 
 	// P2P: hole-punch the peer via the broker, then run the kamune
@@ -814,7 +831,9 @@ func (a *App) ConnectToServer(
 	// Store dial params for transparent resumption on involuntary disconnect.
 	// For broker P2P, transparent resumption is not possible because the NAT
 	// mapping is gone and the remote peer is not listening on the broker.
-	if !(transport == "udp" && useP2P && useBroker) {
+	// An incognito session stores no resumption tokens, so it cannot be
+	// resumed either.
+	if !(transport == "udp" && useP2P && useBroker) && !incognito {
 		reconnectCtx, reconnectCancel := context.WithCancel(a.lifeCtx())
 		session.reconnectCtx = reconnectCtx
 		session.reconnectCancel = reconnectCancel
@@ -1023,6 +1042,7 @@ func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 	current := a.server == svr
 	transport := a.serverTransportType
 	verifMode := a.serverVerifMode
+	incognito := a.serverIncognito
 	a.mu.RUnlock()
 	if !current {
 		return a.dropStoppedSession(t)
@@ -1068,7 +1088,7 @@ func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 		keepAliveDone:    make(chan struct{}),
 	}
 
-	if store != nil && !a.GetIncognito() {
+	if store != nil && !incognito {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}

@@ -277,10 +277,12 @@ type App struct {
 	appMenu   *application.Menu
 	mu        sync.RWMutex
 
-	sessions            []*liveSession
-	histSessions        []*historySession
-	server              *kamune.Server
-	serverVerifMode     VerificationMode
+	sessions        []*liveSession
+	histSessions    []*historySession
+	server          *kamune.Server
+	serverVerifMode VerificationMode
+	// serverIncognito is the incognito mode the server was started in.
+	serverIncognito     bool
 	serverDone          chan struct{}
 	serverTransportType string
 
@@ -1111,7 +1113,9 @@ func (a *App) SetVerificationMode(mode int) bool {
 	a.emitEvent("verification-mode-changed", mode)
 
 	if serverRunning {
-		if err := a.restartServer(); err != nil {
+		if err := a.restartServer(
+			"apply the verification mode change",
+		); err != nil {
 			a.addLogEntry("ERROR", "Failed to restart server after mode change: "+err.Error())
 			a.mu.Lock()
 			a.verifMode = oldMode
@@ -1157,13 +1161,39 @@ func (a *App) refuseIncognito(reason string) {
 	a.emitEvent("toast", msg, "warning")
 }
 
+// incognitoRestartNote is the confirmation text shown before a change of
+// incognito mode restarts the server.
+const incognitoRestartNote = "The server decides when it starts whether " +
+	"incoming sessions are stored, so it must restart for the incognito " +
+	"mode change to apply to them. This will disconnect all active " +
+	"sessions."
+
 // SetIncognito turns incognito mode on or off and reports whether it
 // changed. It does nothing until a database is unlocked, and while a
-// server start or a dial is in progress.
+// server start or a dial is in progress. A running server restarts, once
+// the user confirms, so that its sessions follow the new mode.
 func (a *App) SetIncognito(on bool) bool {
 	if a.store() == nil {
 		a.addLogEntry("WARN",
 			"Unlock the database before changing incognito mode")
+		return false
+	}
+
+	a.mu.RLock()
+	unchanged := a.incognito == on
+	serverRunning := a.server != nil
+	busy := a.incognitoBusyLocked()
+	a.mu.RUnlock()
+	if unchanged {
+		return false
+	}
+	if busy {
+		a.refuseIncognito(incognitoBusyNote)
+		return false
+	}
+	if serverRunning && !a.confirm(
+		"Restart Server?", incognitoRestartNote, "Restart Server", "Cancel",
+	) {
 		return false
 	}
 
@@ -1177,6 +1207,14 @@ func (a *App) SetIncognito(on bool) bool {
 		a.refuseIncognito(incognitoBusyNote)
 		return false
 	}
+	if (a.server != nil) != serverRunning {
+		// The server started or stopped while the user was asked, so
+		// whether it must restart is no longer known.
+		a.mu.Unlock()
+		a.refuseIncognito("the server started or stopped meanwhile; " +
+			"try again")
+		return false
+	}
 	a.incognito = on
 	a.mu.Unlock()
 
@@ -1185,6 +1223,21 @@ func (a *App) SetIncognito(on bool) bool {
 	}
 	a.addLogEntry("INFO", "Incognito mode: "+strconv.FormatBool(on))
 	a.emitEvent("incognito-changed", on)
+
+	if serverRunning {
+		if err := a.restartServer(
+			"apply the incognito mode change",
+		); err != nil {
+			a.addLogEntry("ERROR",
+				"Failed to restart server after incognito change: "+
+					err.Error())
+			a.errorDialog(
+				"Restart Failed",
+				"The server stopped and could not start again.\n\n"+
+					"Error: "+err.Error(),
+			)
+		}
+	}
 	return true
 }
 

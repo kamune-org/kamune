@@ -52,10 +52,12 @@ func buildMenu(app *App) *application.Menu {
 	incognitoItem.OnClick(func(_ *application.Context) {
 		current := app.GetIncognito()
 		if current {
-			if app.SetIncognito(false) {
-				incognitoItem.SetChecked(false)
-				menu.Update()
-			}
+			// The click has unchecked the item already, and the mode
+			// may stay on: the user can decline the server restart, and
+			// a start or a dial in progress keeps it.
+			app.SetIncognito(false)
+			incognitoItem.SetChecked(app.GetIncognito())
+			menu.Update()
 			return
 		}
 		incognitoItem.SetChecked(false)
