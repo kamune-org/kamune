@@ -268,12 +268,31 @@ of `open_storage` come before the response.
 
 #### `start_server`
 
-Starts a kamune server. `transport` is `"tcp"` (default), `"udp"`,
-`"relay"`, `"p2p"`, or `"direct-p2p"`. When `"relay"`, `relay_addr` is
-required (supports `tcp://`, `ws://`, `wss://`, `tls://` schemes;
-`?insecure=true` overrides TLS verification). `name` defaults to
-`fingerprint.Pseudonym(pubKey)`. When incognito mode is enabled, a pseudonym is
-always used regardless of `name`.
+Starts a kamune server. The command is checked at once, and the server then
+starts in the background; `server_started`, or an error event, carries the
+command's `id`.
+
+| Param              | Transports                | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`        | all                       | `"tcp"` (the default, when empty or absent), `"udp"`, `"relay"`, `"p2p"` or `"direct-p2p"`. Any other value fails with `invalid_transport`.                                                                                                                                                                                                                                                                                                                                      |
+| `addr`             | tcp, udp, p2p, direct-p2p | The listen address. Required for tcp and udp (`addr_required`); `"0.0.0.0:0"` listens on every interface on a port the system picks. For p2p and direct-p2p, the UDP address the punch socket binds; when absent, any port on every interface. Ignored for relay.                                                                                                                                                                                                                |
+| `relay_addr`       | relay                     | Required. `host:port` with an optional scheme: `wss://` (the default when none is given), `tls://`, `ws://` or `tcp://`. A trailing `?insecure=true` turns off TLS certificate checks. Over `ws://`, `tcp://` or `?insecure=true` an on-path attacker can read the relay password and tokens, and the daemon logs a warning.                                                                                                                                                     |
+| `relay_pin`        | relay                     | The SHA-256 fingerprint of the relay's TLS certificate, 64 hex digits, optionally colon-separated; the relay logs it at startup. A `wss` or `tls` relay must then have exactly that certificate, in place of the checks against the system's roots and the relay's name, so a relay with a self-signed certificate can be used without `?insecure=true`. A pin for a `ws` or `tcp` relay, with `?insecure=true`, or that is not a SHA-256 digest fails with `invalid_relay_pin`. |
+| `password`         | relay                     | The relay's pre-shared key, if it asks for one.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `name`             | all                       | The server's display name, saved as the local name. Defaults to the fingerprint pseudonym of the identity key, which incognito mode always uses (and does not save). A name longer than 64 bytes, not UTF-8, or with a control, format, line separator or paragraph separator character (the zero-width joiner and non-joiner are allowed) fails with `invalid_name`.                                                                                                            |
+| `broker_addr`      | p2p                       | Required. The broker's UDP `host:port`; see [P2P Tokens](#p2p-tokens).                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `peer_pub_b64`     | p2p                       | Registers the [static token](#relay) for this peer instead of a random token that the broker assigns.                                                                                                                                                                                                                                                                                                                                                                            |
+| `direct_peer_addr` | direct-p2p                | Required. The peer's UDP `host:port`, which the server sends packets to for 10 seconds to open the NATs on the way.                                                                                                                                                                                                                                                                                                                                                              |
+
+Before the server starts, the command fails with `invalid_params`,
+`invalid_name`, `invalid_transport`, `addr_required`, `invalid_relay_pin`,
+`storage_not_opened`, `server_already_running` or `server_start_in_progress`.
+A start that fails later reports one of `storage_unavailable`,
+`identity_unavailable`, `relay_listen_failed`, `listener_failed`,
+`broker_client_failed`, `p2p_token_failed`, `p2p_listener_failed`,
+`direct_p2p_failed` or `create_server_failed`, most of them after setting the
+status to `error`. A relay server registers its first token at start;
+connecting to the relay and the relay handshake are limited to 15 seconds.
 
 **Input (TCP):**
 
@@ -337,22 +356,37 @@ always used regardless of `name`.
 
 ```json
 { "type": "evt", "evt": "status_changed", "data": { "status": "connecting", "message": "Starting server..." } }
-{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱", "b64": "base64key...", "hex": "ab12cd34...", "sum": "ab12cd34" } }
+{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱", "b64": "base64key...", "hex": "ab12cd34...", "sum": "ab12cd34", "numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
 { "type": "evt", "evt": "server_running", "data": { "running": true, "transport": "tcp" } }
-{ "type": "evt", "evt": "server_started", "id": "1", "data": { "addr": "127.0.0.1:9000", "transport": "tcp", "name": "MyServer", "public_key": "base64key...", "emoji": ["🦊", "🐱"], "fingerprint_hex": "ab12cd34...", "fingerprint_sum": "ab12cd34" } }
 { "type": "evt", "evt": "status_changed", "data": { "status": "connected", "message": "Server running on 127.0.0.1:9000" } }
+{ "type": "evt", "evt": "history_updated", "data": {} }
+{ "type": "evt", "evt": "server_started", "id": "1", "data": { "addr": "127.0.0.1:9000", "transport": "tcp", "name": "MyServer", "public_key": "base64key...", "emoji": ["🦊", "🐱"], "fingerprint_hex": "ab12cd34...", "fingerprint_sum": "ab12cd34", "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
 ```
 
-For relay transport, also emits:
+`server_started.addr` is the address the server is bound to, with the port the
+system picked when `addr` asked for port 0, and is empty for a relay server.
+`fingerprint_numeric` is the fingerprint for the peer to compare; see
+[Verification Flow](#verification-flow).
+
+A p2p server emits `p2p_tokens` with its token before `fingerprint_changed`. A
+relay server also emits, before `server_started`:
 
 ```json
 { "type": "evt", "evt": "relay_token", "data": { "token": "deadbeef...", "ttl_ns": 600000000000, "session_ttl_ns": 300000000000, "expires_at": "2026-06-21T11:00:00Z" } }
-{ "type": "evt", "evt": "relay_tokens", "data": { "tokens": [{ "token": "deadbeef...", "consumed": false, "ttl_ns": 600000000000, "session_ttl_ns": 300000000000, "expires_at": "2026-06-21T11:00:00Z" }] } }
+{ "type": "evt", "evt": "relay_tokens", "data": { "tokens": [{ "token": "deadbeef...", "consumed": false, "ttl_ns": 600000000000, "session_ttl_ns": 300000000000, "expires_at": "2026-06-21T11:00:00Z", "mode": "random" }] } }
 ```
+
+`relay_token` names the token registered at start, and is emitted only while
+that token is still listed and unused; `relay_tokens` is always emitted.
 
 #### `stop_server`
 
-Stops the running server and all active sessions, without exiting the daemon.
+Stops the running server, or a server start in progress, without exiting the
+daemon. Every live session, incoming or dialed, is closed and reported with
+`session_closed`. Pending `verify_peer` prompts of peers that connected to the
+server are rejected, since the stopped server drops their handshakes, and the
+command waits up to 5 seconds for those handshakes to end. The server's relay
+and P2P tokens are dropped.
 
 **Input:** (no params)
 
@@ -364,14 +398,35 @@ Stops the running server and all active sessions, without exiting the daemon.
 
 ```json
 { "type": "evt", "evt": "status_changed", "data": { "status": "disconnected", "message": "Stopping server..." } }
+{ "type": "evt", "evt": "session_closed", "data": { "session_id": "abc123...", "peer_name": "CrimsonOtter", "is_server": true, "msg_count": 3, "last_activity": "2026-06-21T10:35:00Z", "transport_type": "tcp", "remote_version": "0.5.0", "cause": "incoming", "session_ttl_ns": 0, "session_started_at": "2026-06-21T10:30:00Z" } }
+{ "type": "evt", "evt": "server_running", "data": { "running": false, "transport": "tcp" } }
+{ "type": "evt", "evt": "status_changed", "data": { "status": "disconnected", "message": "Server stopped" } }
+{ "type": "evt", "evt": "history_updated", "data": {} }
 { "type": "evt", "evt": "server_stopped", "data": { "running": false } }
 { "type": "evt", "evt": "response", "id": "1", "data": { "status": "stopped" } }
 ```
 
+`session_closed` comes for each session that was live, and `history_updated`
+follows when there was one. `server_running` and its `status_changed` come
+when a server was running, from the server's own shutdown, so they may come
+before or between the `session_closed` events. A p2p server also emits
+`p2p_tokens` with an empty list.
+
 #### `restart_server`
 
-Stops the server and starts it again with the last used params. Useful after
-`set_verification_mode` to apply the new mode to incoming connections.
+Stops the server as `stop_server` does, which closes all sessions, and starts
+it again with the params of the last `start_server`, `relay_pin` included and
+with the address that command asked for. A relay server registers a new token,
+and a p2p server gets a new random token unless it was started with
+`peer_pub_b64`. Tokens that `generate_relay_token`, `generate_p2p_token` or
+`get_share_info` added are gone, so share cards handed out before stop
+working. It fails with `server_not_started` until a `start_server` has passed
+its checks.
+
+There is no `response` event: the events of `stop_server` up to
+`server_stopped` come first, then those of `start_server`, and
+`server_started`, or an error event, carries the `restart_server` command's
+`id`.
 
 **Input:** (no params)
 
@@ -382,15 +437,24 @@ Stops the server and starts it again with the last used params. Useful after
 **Output:**
 
 ```json
-{ "type": "evt", "evt": "server_stopped", "data": { "running": false } }
+{ "type": "evt", "evt": "status_changed", "data": { "status": "disconnected", "message": "Stopping server..." } }
 { "type": "evt", "evt": "server_running", "data": { "running": false, "transport": "tcp" } }
+{ "type": "evt", "evt": "status_changed", "data": { "status": "disconnected", "message": "Server stopped" } }
+{ "type": "evt", "evt": "server_stopped", "data": { "running": false } }
+{ "type": "evt", "evt": "status_changed", "data": { "status": "connecting", "message": "Starting server..." } }
+{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱", "b64": "base64key...", "hex": "ab12cd34...", "sum": "ab12cd34", "numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
 { "type": "evt", "evt": "server_running", "data": { "running": true, "transport": "tcp" } }
-{ "type": "evt", "evt": "server_started", "id": "1", "data": { "addr": "127.0.0.1:9000", "transport": "tcp", "name": "MyServer", "public_key": "base64key...", "emoji": ["🦊", "🐱"], "fingerprint_hex": "ab12cd34...", "fingerprint_sum": "ab12cd34" } }
+{ "type": "evt", "evt": "status_changed", "data": { "status": "connected", "message": "Server running on 127.0.0.1:9000" } }
+{ "type": "evt", "evt": "history_updated", "data": {} }
+{ "type": "evt", "evt": "server_started", "id": "1", "data": { "addr": "127.0.0.1:9000", "transport": "tcp", "name": "MyServer", "public_key": "base64key...", "emoji": ["🦊", "🐱"], "fingerprint_hex": "ab12cd34...", "fingerprint_sum": "ab12cd34", "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
 ```
 
 #### `cancel_start_server`
 
-Cancels an in-flight server start.
+Cancels an in-flight server start and waits up to 5 seconds for it to stop. It
+fails with `server_start_not_in_progress` when no start is under way,
+`server_already_started` when the start finished first (use `stop_server`),
+and `cancel_timeout` when the start did not stop in time.
 
 **Input:** (no params)
 
@@ -408,7 +472,12 @@ Cancels an in-flight server start.
 
 #### `get_server_status`
 
-Returns the current server state.
+Returns the current server state. `transport`, `relay_addr` and `name` are
+those of the last `start_server` (`name` is empty when it gave none). `addr`
+is the address the server is bound to while it runs, and otherwise the address
+the last `start_server` asked for. `started_at` is the start time of the
+newest session that a peer opened to the server, or empty when there is none;
+the daemon does not report when the server itself started.
 
 **Input:** (no params)
 
@@ -2129,6 +2198,10 @@ verification is triggered by the protocol, not by a client command. Match
 | `direct-p2p`    | `newDirectP2PListener` + `ServeWithListener`                                    | `directP2PDial` via `DialWithFunc`                        |
 
 For relay mode, the relay address supports `tcp://`, `ws://`, `wss://`, and
-`tls://` schemes. An optional `?insecure=true` query parameter overrides TLS
-certificate verification. A PSK `password` can be supplied for relays that
-require one.
+`tls://` schemes, and is `wss://` when it names none. The certificate of a
+`wss` or `tls` relay is verified, so a relay that uses its own self-signed
+certificate is refused unless `relay_pin` pins that certificate. An optional
+`?insecure=true` query parameter turns off TLS certificate verification
+instead. Over `ws://`, `tcp://` or `?insecure=true` an on-path attacker can
+pose as the relay and read the relay password and tokens, and the daemon logs
+a warning. A PSK `password` can be supplied for relays that require one.
