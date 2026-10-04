@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net"
 	"net/netip"
@@ -41,6 +42,15 @@ type p2pListener struct {
 	// listener registers with it and takes packets from it as the
 	// broker's.
 	brokerUDP *net.UDPAddr
+	// claimIP and claimPort are the punch socket's address as the broker
+	// saw it when the listener started, which every REGISTER claims. The
+	// broker only checks the claim's form; it records the REGISTER's
+	// source.
+	claimIP   net.IP
+	claimPort uint16
+	// onRefresh, if set, is called after each refresh that sent every
+	// token's REGISTER, with the time it began.
+	onRefresh func(l *p2pListener, at time.Time)
 	// token is the listener's own token, which it registered first.
 	token []byte
 	// tokens are the tokens that the listener registers.
@@ -61,8 +71,14 @@ type p2pListener struct {
 	closeErr  error
 }
 
+// newP2PListener binds a punch socket at bindAddr and registers token
+// from it with the broker at brokerAddr, or a token that the broker
+// assigns when token is empty. It refreshes the registrations of its
+// tokens every p2pTokenRefreshInterval and calls onRefresh, if not nil,
+// after each refresh that went out.
 func newP2PListener(
 	broker *BrokerClient, brokerAddr string, token []byte, bindAddr string,
+	onRefresh func(l *p2pListener, at time.Time),
 ) (*p2pListener, error) {
 	if broker == nil {
 		return nil, fmt.Errorf("broker is required")
@@ -85,6 +101,7 @@ func newP2PListener(
 		broker:     broker,
 		brokerAddr: brokerAddr,
 		peers:      make(map[netip.Addr]time.Time),
+		onRefresh:  onRefresh,
 		conn:       conn,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -101,6 +118,7 @@ func newP2PListener(
 		l.Close()
 		return nil, fmt.Errorf("broker echo: %w", err)
 	}
+	l.claimIP, l.claimPort = claimIP, claimPort
 
 	// A static token has the identity that BrokerClient keeps for it. A
 	// random one, which the broker assigns anew, gets a new identity.
@@ -191,14 +209,19 @@ func (l *p2pListener) Addr() *net.UDPAddr {
 }
 
 func (l *p2pListener) refreshLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(p2pTokenRefreshInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-l.ctx.Done():
 			return
 		case <-ticker.C:
-			_ = l.refreshRegistration()
+			if err := l.refreshRegistration(); err != nil {
+				slog.Warn(
+					"p2p listener: refresh registrations",
+					slog.Any("error", err),
+				)
+			}
 		}
 	}
 }
@@ -220,17 +243,13 @@ func (l *p2pListener) releaseToken(t listenerToken) {
 // RegisterToken registers an additional token from the punch socket,
 // under the broker identity that BrokerClient keeps for it.
 func (l *p2pListener) RegisterToken(token []byte) error {
-	claimIP, claimPort, err := l.broker.echoSeparate(l.ctx, l.brokerAddr)
-	if err != nil {
-		return fmt.Errorf("broker echo: %w", err)
-	}
 	id, err := l.broker.identity(l.brokerAddr, token)
 	if err != nil {
 		return fmt.Errorf("broker client: %w", err)
 	}
 	t := listenerToken{token: token, id: id, held: true}
 	pkt := relaybroker.BuildRegister(
-		token, id.PublicKey(), claimIP, claimPort,
+		token, id.PublicKey(), l.claimIP, l.claimPort,
 	)
 	if _, err := l.conn.WriteToUDP(pkt, l.brokerUDP); err != nil {
 		l.releaseToken(t)
@@ -270,22 +289,26 @@ func (l *p2pListener) liveTokens() []listenerToken {
 	return slices.Clone(l.tokens)
 }
 
+// refreshRegistration sends a REGISTER for each of the listener's tokens
+// from the punch socket, which keeps the broker's registration alive
+// for its TTL, and calls onRefresh once they have all gone out. It does
+// not ask the broker for the socket's address first: a refresh needs
+// nothing from the broker, and the broker may drop such a request.
 func (l *p2pListener) refreshRegistration() error {
-	claimIP, claimPort, err := l.broker.echoSeparate(l.ctx, l.brokerAddr)
-	if err != nil {
-		return fmt.Errorf("broker echo: %w", err)
-	}
-
+	at := time.Now()
 	for _, tok := range l.liveTokens() {
 		if len(tok.token) == 0 {
 			continue
 		}
 		pkt := relaybroker.BuildRegister(
-			tok.token, tok.id.PublicKey(), claimIP, claimPort,
+			tok.token, tok.id.PublicKey(), l.claimIP, l.claimPort,
 		)
 		if _, err := l.conn.WriteToUDP(pkt, l.brokerUDP); err != nil {
 			return fmt.Errorf("send register: %w", err)
 		}
+	}
+	if l.onRefresh != nil {
+		l.onRefresh(l, at)
 	}
 	return nil
 }

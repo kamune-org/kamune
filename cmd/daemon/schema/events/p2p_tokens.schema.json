@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-evt-p2p-tokens",
   "title": "p2p_tokens data",
-  "description": "Emitted when the P2P token list changes (generated or removed).",
+  "description": "Emitted when the P2P token list changes (generated or removed), and each time the p2p server refreshes its tokens' broker registrations, every 30 seconds.",
   "type": "object",
   "properties": {
     "tokens": {
@@ -12,8 +12,8 @@
         "properties": {
           "token":        { "type": "string" },
           "consumed":     { "type": "boolean" },
-          "ttl_ns":       { "type": "integer", "description": "TTL in nanoseconds." },
-          "expires_at":   { "type": "string", "format": "date-time" },
+          "ttl_ns":       { "type": "integer", "description": "How long, in nanoseconds, the broker keeps the token's registration after a refresh: 60 seconds, the relay broker's default." },
+          "expires_at":   { "type": "string", "format": "date-time", "description": "When the broker drops the registration unless the server refreshes it first. Each refresh moves it on, so it stays about 30 seconds ahead while refreshes go out." },
           "mode":         { "type": "string" },
           "peer_pub_b64": { "type": "string" }
         },

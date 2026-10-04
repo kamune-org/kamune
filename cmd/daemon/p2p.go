@@ -20,7 +20,14 @@ import (
 )
 
 const (
+	// p2pTokenRefreshInterval is how often a p2p listener refreshes the
+	// broker registrations of its tokens.
 	p2pTokenRefreshInterval = 30 * time.Second
+	// p2pTokenTTL is how long the broker keeps a registration after its
+	// last REGISTER: the relay broker's default registration TTL. A
+	// token expires that long after its last refresh, so while refreshes
+	// go out its expiry stays a refresh interval ahead.
+	p2pTokenTTL = 60 * time.Second
 	// defaultMatchTimeout bounds how long a p2p dial waits for the
 	// broker to match its token with the server's.
 	defaultMatchTimeout = 30 * time.Second
@@ -158,8 +165,8 @@ func (d *Daemon) GenerateP2PToken(
 		Token:      hexToken,
 		Mode:       mode,
 		PeerPubB64: peerPubB64,
-		TTL:        p2pTokenRefreshInterval,
-		ExpiresAt:  time.Now().Add(p2pTokenRefreshInterval),
+		TTL:        p2pTokenTTL,
+		ExpiresAt:  time.Now().Add(p2pTokenTTL),
 		brokerAddr: brokerAddr,
 	})
 	snapshot := d.p2pTokensSnapshot()
@@ -196,6 +203,23 @@ func (d *Daemon) deriveP2PToken(peerPubB64 string) ([]byte, error) {
 		return nil, fmt.Errorf("derive static token: %w", err)
 	}
 	return t, nil
+}
+
+// p2pRefreshed extends the expiry of the tokens of l, the running p2p
+// listener, whose registrations were refreshed at at, and emits the
+// token list.
+func (d *Daemon) p2pRefreshed(l *p2pListener, at time.Time) {
+	d.mu.Lock()
+	if d.p2pListener != l {
+		d.mu.Unlock()
+		return
+	}
+	for i := range d.p2pTokens {
+		d.p2pTokens[i].ExpiresAt = at.Add(p2pTokenTTL)
+	}
+	snapshot := d.p2pTokensSnapshot()
+	d.mu.Unlock()
+	d.emit(EvtP2PTokens, "", MapA{"tokens": snapshot})
 }
 
 func (d *Daemon) RemoveP2PToken(token string) error {

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +29,8 @@ type fakeBroker struct {
 	conn  *net.UDPConn
 	match bool
 	peer  *net.UDPAddr
+	// noEcho makes the broker drop STUN_ECHO requests.
+	noEcho atomic.Bool
 
 	mu sync.Mutex
 	// registered holds the wire token of each REGISTER, keys the X25519
@@ -66,7 +69,10 @@ func (b *fakeBroker) serve() {
 		}
 		pkt := buf[:n]
 		if relaybroker.ParseEchoRequest(pkt) == nil {
-			_, _ = b.conn.WriteToUDP(relaybroker.BuildEchoResponse(src), src)
+			if !b.noEcho.Load() {
+				resp := relaybroker.BuildEchoResponse(src)
+				_, _ = b.conn.WriteToUDP(resp, src)
+			}
 			continue
 		}
 		token, peerEphPub, _, _, err := relaybroker.ParseRegister(pkt)
@@ -627,4 +633,48 @@ func TestHolePunchFailsWithoutKick(t *testing.T) {
 			a.ErrorIs(err, ErrHolePunchFailed)
 		})
 	}
+}
+
+// A p2p server's refreshes keep its tokens' expiry a refresh interval
+// ahead, so that a listed token does not expire while the server
+// refreshes it. Neither a refresh nor a new token needs a STUN_ECHO.
+func TestP2PRefreshExtendsTokenExpiry(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	broker := newFakeBroker(t, false)
+	peer := newTestPeerKey(t)
+	d.handleStartServer(Command{
+		ID: "start",
+		Params: mustJSON(StartServerParams{
+			Addr: "127.0.0.1:0", Transport: "p2p",
+			BrokerAddr: broker.addr(), PeerPubB64: fingerprint.Base64(peer),
+		}),
+	})
+	rec.waitFor(t, isEvent(EvtServerStarted))
+	d.mu.RLock()
+	l, ok := d.p2pListener.(*p2pListener)
+	d.mu.RUnlock()
+	a.True(ok)
+
+	broker.noEcho.Store(true)
+	random, err := d.GenerateP2PToken(broker.addr(), "")
+	a.NoError(err)
+	tokens := d.GetP2PTokens()
+	a.Len(tokens, 2)
+
+	refreshed := time.Now()
+	a.NoError(l.refreshRegistration())
+	for _, pt := range d.GetP2PTokens() {
+		a.Equal(p2pTokenTTL, pt.TTL)
+		a.False(pt.ExpiresAt.Before(refreshed.Add(p2pTokenTTL)),
+			"token %s expires at %v", pt.Token, pt.ExpiresAt)
+		token, err := hex.DecodeString(pt.Token)
+		a.NoError(err)
+		deadline := time.Now().Add(testEventTimeout)
+		for registrationsOf(broker, token) < 2 {
+			a.True(time.Now().Before(deadline), "%s not refreshed", pt.Token)
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	a.Contains([]string{tokens[0].Token, tokens[1].Token}, random)
 }

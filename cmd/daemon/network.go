@@ -190,6 +190,7 @@ func (d *Daemon) startServer(
 		}
 		pl, err := newP2PListener(
 			broker, params.BrokerAddr, tokenBytes, params.Addr,
+			d.p2pRefreshed,
 		)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to create p2p listener")
@@ -210,8 +211,8 @@ func (d *Daemon) startServer(
 			Token:      pl.Token(),
 			Mode:       mode,
 			PeerPubB64: params.PeerPubB64,
-			TTL:        p2pTokenRefreshInterval,
-			ExpiresAt:  time.Now().Add(p2pTokenRefreshInterval),
+			TTL:        p2pTokenTTL,
+			ExpiresAt:  time.Now().Add(p2pTokenTTL),
 			brokerAddr: params.BrokerAddr,
 		}
 		d.mu.Lock()

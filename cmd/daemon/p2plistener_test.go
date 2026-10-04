@@ -145,7 +145,9 @@ func TestP2PListenerHandlesPeerMatched(t *testing.T) {
 	client, err := NewBrokerClient()
 	a.NoError(err)
 	token := []byte(strings.Repeat("m", 32))
-	l, err := newP2PListener(client, broker.addr(), token, "127.0.0.1:0")
+	l, err := newP2PListener(
+		client, broker.addr(), token, "127.0.0.1:0", nil,
+	)
 	a.NoError(err)
 	defer l.Close()
 	broker.waitRegistered(t, token)

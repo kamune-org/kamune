@@ -268,37 +268,6 @@ func (b *BrokerClient) echoFrom(
 	return parseEchoResponse(buf[:n])
 }
 
-func (b *BrokerClient) echoSeparate(
-	ctx context.Context, brokerAddr string,
-) (net.IP, uint16, error) {
-	udpAddr, err := net.ResolveUDPAddr("udp4", brokerAddr)
-	if err != nil {
-		return nil, 0, fmt.Errorf("resolve broker: %w", err)
-	}
-	conn, err := net.DialUDP("udp4", nil, udpAddr)
-	if err != nil {
-		return nil, 0, fmt.Errorf("dial broker: %w", err)
-	}
-	defer conn.Close()
-
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		deadline = time.Now().Add(2 * time.Second)
-	}
-	if err := conn.SetDeadline(deadline); err != nil {
-		return nil, 0, fmt.Errorf("set deadline: %w", err)
-	}
-	if _, err := conn.Write(echoRequest); err != nil {
-		return nil, 0, fmt.Errorf("write echo: %w", err)
-	}
-	buf := make([]byte, 64)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return nil, 0, fmt.Errorf("read echo: %w", err)
-	}
-	return parseEchoResponse(buf[:n])
-}
-
 func parseEchoResponse(resp []byte) (net.IP, uint16, error) {
 	for i, c := range resp {
 		if c == 0 {
