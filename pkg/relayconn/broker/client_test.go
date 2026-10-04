@@ -359,3 +359,238 @@ func TestClient_Register_Static_ImmediateReply(t *testing.T) {
 		})
 	}
 }
+
+// --- Caller-owned socket ---------------------------------------------------
+
+// punchSocket opens the unconnected UDP socket a peer would punch from.
+func punchSocket(t *testing.T) *net.UDPConn {
+	t.Helper()
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.New(t).NoError(err)
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
+
+// stranger sends pkt to dst from a socket other than the broker's.
+func stranger(t *testing.T, dst *net.UDPAddr, pkt []byte) {
+	t.Helper()
+	a := require.New(t)
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	a.NoError(err)
+	defer conn.Close()
+	_, err = conn.WriteToUDP(pkt, dst)
+	a.NoError(err)
+}
+
+// sealNotify seals plaintext into a NOTIFY for the peer whose ephemeral
+// public key is peerEphPub, as the broker would.
+func sealNotify(t *testing.T, peerEphPub, plaintext []byte) []byte {
+	t.Helper()
+	a := require.New(t)
+	eph, err := ecdh.X25519().GenerateKey(rand.Reader)
+	a.NoError(err)
+	peerPub, err := ecdh.X25519().NewPublicKey(peerEphPub)
+	a.NoError(err)
+	shared, err := eph.ECDH(peerPub)
+	a.NoError(err)
+	key := sha256.Sum256(shared)
+	brokerEphPub := eph.PublicKey().Bytes()
+	nonce, sealed := SealNotify(key[:], brokerEphPub, plaintext)
+	return buildNotify(brokerEphPub, nonce, sealed, 0)
+}
+
+// sealedPeerMatched builds a PEER_MATCHED NOTIFY for the peer whose
+// ephemeral public key is peerEphPub, naming port as the other peer's.
+func sealedPeerMatched(
+	t *testing.T, peerEphPub []byte, port uint16,
+) []byte {
+	t.Helper()
+	other, err := ecdh.X25519().GenerateKey(rand.Reader)
+	require.New(t).NoError(err)
+	return sealNotify(t, peerEphPub, PeerMatchedPlaintext(
+		nil, other.PublicKey().Bytes(), net.IPv4(192, 0, 2, 1), port,
+	))
+}
+
+// TestClient_EchoOn checks that the echo goes out from the caller's
+// socket and that EchoOn reports that socket's address.
+func TestClient_EchoOn(t *testing.T) {
+	a := require.New(t)
+	tb := newTestBroker(t)
+	c, err := NewClient(tb.addr.String())
+	a.NoError(err)
+	conn := punchSocket(t)
+	local := conn.LocalAddr().(*net.UDPAddr)
+
+	done := make(chan struct{})
+	defer func() { <-done }()
+	go func() {
+		defer close(done)
+		_, src := tb.readOne(t, 2*time.Second)
+		stranger(t, src, []byte("10.0.0.1:1\x00"))
+		tb.respondEcho(t, src)
+	}()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	ip, port, err := c.EchoOn(ctx, conn)
+	a.NoError(err)
+	a.Equal("127.0.0.1", ip.String())
+	a.Equal(uint16(local.Port), port)
+}
+
+// TestClient_RegisterOn registers from the caller's socket and checks
+// that the broker sees that socket as the source, that random mode
+// returns the assigned token while ignoring packets from other sources,
+// and that the PEER_MATCHED of a static registration reaches the same
+// socket through ReadNotify.
+func TestClient_RegisterOn(t *testing.T) {
+	static := make([]byte, 32)
+	for i := range static {
+		static[i] = byte(i + 1)
+	}
+	zeroWire := append(make([]byte, TokenSize), 0x01)
+	assigned := bytes.Repeat([]byte{0x7a}, TokenSize)
+
+	tests := []struct {
+		token     []byte
+		name      string
+		wantToken []byte
+		random    bool
+	}{
+		{name: "random", token: nil, wantToken: assigned, random: true},
+		{
+			name:  "zero wire token",
+			token: zeroWire, wantToken: assigned, random: true,
+		},
+		{name: "static", token: static, wantToken: static},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			tb := newTestBroker(t)
+			c, err := NewClient(tb.addr.String())
+			a.NoError(err)
+			conn := punchSocket(t)
+			local := conn.LocalAddr().(*net.UDPAddr)
+
+			srcCh := make(chan *net.UDPAddr, 1)
+			done := make(chan struct{})
+			defer func() { <-done }()
+			go func() {
+				defer close(done)
+				_, src := tb.readOne(t, 2*time.Second)
+				srcCh <- src
+				if tc.random {
+					// A TOKEN_ASSIGNED from another source must
+					// not be taken for the broker's reply.
+					stranger(t, src, sealNotify(
+						t, c.PublicKey(),
+						TokenAssignedPlaintext(static[:16], 60),
+					))
+					tb.sendNotifyTokenAssigned(
+						t, src, c.PublicKey(), assigned, 60,
+					)
+				}
+			}()
+
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			got, err := c.RegisterOn(
+				ctx, conn, tc.token, net.IPv4(127, 0, 0, 1), 12345,
+			)
+			a.NoError(err)
+			a.Equal(tc.wantToken, got)
+			src := <-srcCh
+			a.Equal(local.Port, src.Port, "REGISTER left another socket")
+			if tc.random {
+				return
+			}
+
+			_, err = tb.conn.WriteToUDP(
+				sealedPeerMatched(t, c.PublicKey(), 4242), src,
+			)
+			a.NoError(err)
+			p, err := c.ReadNotify(ctx, conn)
+			a.NoError(err)
+			a.Equal(NotifyPeerMatched, p.Type)
+			a.Equal(uint16(4242), p.Port)
+		})
+	}
+}
+
+// TestClient_ReadNotify_DropsOtherSources sends a NOTIFY that decrypts
+// with the client's key from a socket other than the broker's, then
+// one from the broker, and checks that only the broker's is returned.
+func TestClient_ReadNotify_DropsOtherSources(t *testing.T) {
+	a := require.New(t)
+	tb := newTestBroker(t)
+	c, err := NewClient(tb.addr.String())
+	a.NoError(err)
+	conn := punchSocket(t)
+	local := conn.LocalAddr().(*net.UDPAddr)
+
+	stranger(t, local, sealedPeerMatched(t, c.PublicKey(), 1111))
+	_, err = tb.conn.WriteToUDP(sealedPeerMatched(t, c.PublicKey(), 2222), local)
+	a.NoError(err)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	p, err := c.ReadNotify(ctx, conn)
+	a.NoError(err)
+	a.Equal(uint16(2222), p.Port)
+}
+
+// TestClient_Listen_DropsOtherSources checks the same source filter on
+// the deprecated Listen channel.
+func TestClient_Listen_DropsOtherSources(t *testing.T) {
+	a := require.New(t)
+	tb := newTestBroker(t)
+	c, err := NewClient(tb.addr.String())
+	a.NoError(err)
+
+	out, clientAddr, err := c.Listen(t.Context())
+	a.NoError(err)
+	stranger(t, clientAddr, sealedPeerMatched(t, c.PublicKey(), 1111))
+	_, err = tb.conn.WriteToUDP(
+		sealedPeerMatched(t, c.PublicKey(), 2222), clientAddr,
+	)
+	a.NoError(err)
+
+	select {
+	case p := <-out:
+		a.Equal(uint16(2222), p.Port)
+	case <-time.After(2 * time.Second):
+		a.Fail("did not receive NOTIFY within 2s")
+	}
+}
+
+// TestClient_ReadNotify_Context checks that ReadNotify gives up when
+// its context ends and leaves the socket without a read deadline.
+func TestClient_ReadNotify_Context(t *testing.T) {
+	a := require.New(t)
+	tb := newTestBroker(t)
+	c, err := NewClient(tb.addr.String())
+	a.NoError(err)
+	conn := punchSocket(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	_, err = c.ReadNotify(ctx, conn)
+	a.ErrorIs(err, context.DeadlineExceeded)
+
+	cctx, ccancel := context.WithCancel(t.Context())
+	ccancel()
+	_, err = c.ReadNotify(cctx, conn)
+	a.ErrorIs(err, context.Canceled)
+
+	// The deadline is cleared, so a later packet is still read.
+	_, err = tb.conn.WriteToUDP(
+		sealedPeerMatched(t, c.PublicKey(), 3333),
+		conn.LocalAddr().(*net.UDPAddr),
+	)
+	a.NoError(err)
+	p, err := c.ReadNotify(t.Context(), conn)
+	a.NoError(err)
+	a.Equal(uint16(3333), p.Port)
+}

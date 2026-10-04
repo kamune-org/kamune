@@ -6,7 +6,6 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -32,9 +31,14 @@ type Payload struct {
 	Type            NotifyType
 }
 
-// Client is the peer-side API for the kamune broker. The same instance is used
-// for Echo, Register, and Listen. The client's ephemeral X25519 key is stable
-// across calls so the broker can identify the same peer for self-match.
+// Client is the peer-side API for the kamune broker. The client's ephemeral
+// X25519 key is stable across calls so the broker can identify the same peer
+// for self-match.
+//
+// The broker sends NOTIFYs to, and gives the matched peer, the source address
+// of the REGISTER. Run a rendezvous on one long-lived UDP socket with EchoOn,
+// RegisterOn and ReadNotify. Echo and Register use a socket of their own that
+// is closed when they return.
 type Client struct {
 	relayAddr *net.UDPAddr
 	key       *ecdh.PrivateKey
@@ -80,6 +84,10 @@ func (c *Client) PublicKey() []byte {
 // Echo sends a STUN_ECHO to the broker and returns the perceived public IP:port.
 // The context is honored for the request and the 2s read deadline. Errors
 // include a deadline-exceeded if the broker doesn't respond in time.
+//
+// Echo sends from a socket of its own and closes it on return, so behind a NAT
+// the port it reports belongs to that socket only. Use EchoOn to learn the
+// address of the socket that will carry the traffic.
 func (c *Client) Echo(ctx context.Context) (net.IP, uint16, error) {
 	conn, err := net.DialUDP("udp4", nil, c.relayAddr)
 	if err != nil {
@@ -111,13 +119,18 @@ func (c *Client) Echo(ctx context.Context) (net.IP, uint16, error) {
 // Register sends a REGISTER to the broker and returns the assigned token. For
 // random mode (token == nil), the broker responds with NOTIFY(TOKEN_ASSIGNED);
 // the returned token is the new random token. For static mode (token != nil),
-// the broker stores the registration and sends no NOTIFY; the returned token is
-// the same as the input. The broker matches and echoes the token in its
-// WireToken form, so check PEER_MATCHED tokens with TokenMatches.
+// the broker stores the registration and the returned token is the same as the
+// input. The broker matches and echoes the token in its WireToken form, so
+// check PEER_MATCHED tokens with TokenMatches.
 //
-// claimIP and claimPort are the peer's perceived public address (use Echo to
-// discover it). They are written into the REGISTER so the broker can echo them
-// back to a matched peer.
+// The broker only checks that claimIP is an IPv4 address and that claimPort is
+// not zero. The address it records, sends NOTIFYs to and gives the matched peer
+// is the REGISTER's source: a socket Register opens and closes on return.
+//
+// Deprecated: a registration made by Register, including a refresh of an
+// existing one, points the broker at a closed socket. Its NOTIFYs are lost and
+// a matched peer is told to punch to a closed port. Use RegisterOn on the
+// socket that will carry the traffic.
 func (c *Client) Register(
 	ctx context.Context, token []byte, claimIP net.IP, claimPort uint16,
 ) ([]byte, error) {
@@ -166,13 +179,14 @@ func (c *Client) Register(
 	return c.decodeAssignedToken(buf[:n])
 }
 
-// Listen opens a UDP socket and returns a channel of decoded NOTIFY payloads.
-// The channel is closed when ctx is cancelled or the underlying socket errors.
-// The peer's local address (where the broker sends NOTIFYs to) is returned so
-// the caller can pass it to the broker via Register.
+// Listen opens a loopback UDP socket and returns a channel of the NOTIFY
+// payloads it receives from the broker's address, along with the socket's
+// address. Packets from any other source are dropped. The channel is closed
+// when ctx is cancelled or the socket fails.
 //
-// The client must be running for the broker to deliver a match NOTIFY. Call
-// Register first to let the broker know the peer's claimIP:claimPort.
+// Deprecated: no REGISTER is ever sent from the socket Listen opens, and the
+// broker sends NOTIFYs only to the address a REGISTER came from, so Listen
+// receives none. Use RegisterOn and ReadNotify on one socket.
 func (c *Client) Listen(ctx context.Context) (
 	<-chan Payload, *net.UDPAddr, error,
 ) {
@@ -191,30 +205,13 @@ func (c *Client) Listen(ctx context.Context) (
 		defer close(out)
 		defer conn.Close()
 
-		buf := make([]byte, 1500)
 		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-			n, _, err := conn.ReadFromUDP(buf)
+			payload, err := c.ReadNotify(ctx, conn)
 			if err != nil {
-				var ne net.Error
-				if errors.As(err, &ne) && ne.Timeout() {
-					continue
-				}
-				// Socket closed (ctx cancelled → caller called Close, or
-				// external close). Exit.
 				return
 			}
-			payload, err := c.decodeNotify(buf[:n])
-			if err != nil {
-				continue
-			}
 			select {
-			case out <- *payload:
+			case out <- payload:
 			case <-ctx.Done():
 				return
 			}
@@ -241,7 +238,7 @@ func (c *Client) decodeAssignedToken(pkt []byte) ([]byte, error) {
 	return payload.Token, nil
 }
 
-// decodeNotify parses a NOTIFY and returns its payload. Used by Listen.
+// decodeNotify parses a NOTIFY and returns its payload.
 func (c *Client) decodeNotify(pkt []byte) (*Payload, error) {
 	plaintext, err := c.openNotify(pkt)
 	if err != nil {
