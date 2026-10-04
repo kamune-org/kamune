@@ -541,3 +541,82 @@ func TestGenerateP2PTokenRegistersFromPunchSocket(t *testing.T) {
 		})
 	}
 }
+
+// HolePunch sends its whole burst of NAT kicks to the peer before it
+// returns. It used to send the burst from a goroutine that it cancelled
+// on return, so the peer got none or one.
+func TestHolePunchSendsKickBurst(t *testing.T) {
+	a := require.New(t)
+	loopback := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}
+	peer, err := net.ListenUDP("udp4", loopback)
+	a.NoError(err)
+	defer peer.Close()
+	punch, err := net.ListenUDP("udp4", loopback)
+	a.NoError(err)
+	client, err := NewBrokerClient()
+	a.NoError(err)
+
+	peerAddr := peer.LocalAddr().(*net.UDPAddr)
+	sess, err := client.HolePunch(
+		t.Context(), punch, peerAddr.IP, uint16(peerAddr.Port),
+		DefaultHolePunchTimeout,
+	)
+	a.NoError(err)
+	defer sess.Close()
+
+	// The kicks were sent before HolePunch returned; wait only for the
+	// loopback to deliver them.
+	a.NoError(peer.SetReadDeadline(time.Now().Add(testEventTimeout)))
+	buf := make([]byte, 1500)
+	kicks := 0
+	for kicks < natKicks {
+		n, src, err := peer.ReadFromUDP(buf)
+		a.NoError(err, "got %d of %d kicks", kicks, natKicks)
+		if n == 1 && buf[0] == 0 &&
+			src.Port == punch.LocalAddr().(*net.UDPAddr).Port {
+			kicks++
+		}
+	}
+}
+
+// HolePunch fails with ErrHolePunchFailed when it can send no kick.
+func TestHolePunchFailsWithoutKick(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*net.UDPConn) context.Context
+	}{
+		{
+			name: "context done",
+			setup: func(*net.UDPConn) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+		},
+		{
+			name: "socket closed",
+			setup: func(conn *net.UDPConn) context.Context {
+				_ = conn.Close()
+				return context.Background()
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			punch, err := net.ListenUDP(
+				"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+			)
+			a.NoError(err)
+			defer punch.Close()
+			client, err := NewBrokerClient()
+			a.NoError(err)
+
+			ctx := tt.setup(punch)
+			_, err = client.HolePunch(
+				ctx, punch, net.IPv4(127, 0, 0, 1), 9, time.Second,
+			)
+			a.ErrorIs(err, ErrHolePunchFailed)
+		})
+	}
+}

@@ -279,22 +279,48 @@ func parseEchoResponse(resp []byte) (net.IP, uint16, error) {
 	return ip, uint16(port64), nil
 }
 
-func sendNATKick(ctx context.Context, conn *net.UDPConn, peerAddr *net.UDPAddr) {
-	for range 5 {
-		if ctx.Err() != nil {
-			return
+// natKicks and natKickGap shape the burst of NAT kicks that sendNATKick
+// sends.
+const (
+	natKicks   = 5
+	natKickGap = 100 * time.Millisecond
+)
+
+// sendNATKick sends natKicks one-byte packets from conn to peerAddr,
+// natKickGap apart, so that the NATs on the way open a mapping for the
+// peer. It stops early when ctx ends, with ctx's error, or when a write
+// fails, with that error. It returns how many packets it sent.
+func sendNATKick(
+	ctx context.Context, conn *net.UDPConn, peerAddr *net.UDPAddr,
+) (int, error) {
+	for i := range natKicks {
+		if err := ctx.Err(); err != nil {
+			return i, err
 		}
 		if _, err := conn.WriteToUDP([]byte{0}, peerAddr); err != nil {
-			return
+			return i, err
+		}
+		if i == natKicks-1 {
+			break
 		}
 		select {
 		case <-ctx.Done():
-			return
-		case <-time.After(100 * time.Millisecond):
+			return i + 1, ctx.Err()
+		case <-time.After(natKickGap):
 		}
 	}
+	return natKicks, nil
 }
 
+// HolePunch sends a burst of NAT kicks from punchConn to the peer at
+// peerIP:peerPort, so that the NATs on the way open a mapping for the
+// peer, and then starts a KCP session to the peer on punchConn. The
+// burst ends early when ctx ends or timeout passes. HolePunch fails with
+// ErrHolePunchFailed when it could send no kick.
+//
+// HolePunch does not wait to hear from the peer, since a peer that runs
+// an older daemon never punches back. When the peer cannot be reached,
+// the handshake over the session fails instead.
 func (b *BrokerClient) HolePunch(
 	ctx context.Context, punchConn *net.UDPConn,
 	peerIP net.IP, peerPort uint16, timeout time.Duration,
@@ -304,15 +330,11 @@ func (b *BrokerClient) HolePunch(
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrHolePunchFailed, err)
-	}
 
 	peerAddr := &net.UDPAddr{IP: peerIP, Port: int(peerPort)}
-
-	punchCtx, punchCancel := context.WithCancel(ctx)
-	defer punchCancel()
-	go sendNATKick(punchCtx, punchConn, peerAddr)
+	if n, err := sendNATKick(ctx, punchConn, peerAddr); n == 0 {
+		return nil, fmt.Errorf("%w: %w", ErrHolePunchFailed, err)
+	}
 
 	var convid uint32
 	if err := binary.Read(rand.Reader, binary.LittleEndian, &convid); err != nil {

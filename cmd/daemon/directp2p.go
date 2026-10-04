@@ -64,7 +64,7 @@ func newDirectP2PListener(listenAddr, peerAddr string) (*directP2PListener, erro
 func (l *directP2PListener) natKickLoop() {
 	timeout := time.After(10 * time.Second)
 	for {
-		sendNATKick(l.ctx, l.conn, l.peerAddr)
+		_, _ = sendNATKick(l.ctx, l.conn, l.peerAddr)
 		select {
 		case <-l.ctx.Done():
 			return
@@ -120,7 +120,7 @@ func directP2PDial(peerAddr string) (kamune.Conn, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	sendNATKick(ctx, conn, peerUDPAddr)
+	_, _ = sendNATKick(ctx, conn, peerUDPAddr)
 
 	var convid uint32
 	binary.Read(rand.Reader, binary.LittleEndian, &convid)
