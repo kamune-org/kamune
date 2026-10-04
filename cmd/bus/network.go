@@ -1308,10 +1308,17 @@ func (a *App) finishRelayToken(session *liveSession, payload []byte) {
 	if store == nil {
 		return
 	}
-	if err := store.SetMeta(
+	err = store.SetMeta(
 		session.ID,
 		storage.NewByteSlicesMeta(storage.RelayTokensKey, slices),
-	); err != nil {
+	)
+	if errors.Is(err, storage.ErrSessionNotFound) {
+		// The session left storage while it ran, as when the user
+		// deletes it from the history. Storage does not recreate it,
+		// and the tokens have nowhere to go.
+		a.addLogEntry("DEBUG", "Relay tokens not stored: the session "+
+			"is no longer in storage | session_id="+session.ID)
+	} else if err != nil {
 		a.addLogEntry("WARN", "Failed to store relay tokens: "+err.Error())
 		return
 	}

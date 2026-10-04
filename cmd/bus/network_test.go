@@ -12,6 +12,7 @@ import (
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/relayconn"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -445,4 +446,73 @@ func TestGetShareInfoP2P(t *testing.T) {
 
 	_, err = app.GetShareInfo()
 	a.ErrorIs(err, ErrNoShareCard)
+}
+
+// TestFinishRelayTokenStoresPool runs the relay token exchange between
+// two ends of a session and checks that the app stores the derived pool
+// for a session in storage, and that one no longer in storage, such as
+// one deleted from the history while it ran, is let go without a
+// warning.
+func TestFinishRelayTokenStoresPool(t *testing.T) {
+	cases := []struct {
+		name   string
+		stored bool
+	}{
+		{"session in storage", true},
+		{"session no longer in storage", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, _ := newUnlockedApp(t, "secret")
+			peers := make(chan *kamune.Transport, 1)
+			release := make(chan struct{})
+			addr, _ := startTestServer(t, "srv",
+				func(tr *kamune.Transport) error {
+					peers <- tr
+					<-release
+					return nil
+				})
+			t.Cleanup(func() { close(release) })
+			d, err := kamune.NewDialer(
+				addr, app.store(), acceptAll, kamune.DialWithTCP(),
+			)
+			a.NoError(err)
+			tr, err := d.Dial()
+			a.NoError(err)
+			t.Cleanup(func() { _ = tr.CloseAbort() })
+			peer := <-peers
+			id := tr.SessionID()
+			if !tc.stored {
+				a.NoError(app.store().DeleteSession(id))
+			}
+
+			pending, err := relayconn.BeginRelayTokenExchange(tr)
+			a.NoError(err)
+			_, err = relayconn.BeginRelayTokenExchange(peer)
+			a.NoError(err)
+			a.NoError(tr.SetDeadline(time.Now().Add(testWait)))
+			md, payload, err := tr.ReceivePayload()
+			a.NoError(err)
+			a.Equal(kamune.RouteSessionData, md.Route())
+
+			session := &liveSession{ID: id, relayToken: pending}
+			app.finishRelayToken(session, payload)
+
+			a.Nil(session.relayToken, "the exchange is over")
+			pool := loadRelayPool(app.store(), id)
+			if tc.stored {
+				a.NotEmpty(pool)
+			} else {
+				a.Empty(pool)
+				sessions, err := app.store().ListSessions()
+				a.NoError(err)
+				a.NotContains(sessions, id,
+					"the session must not be stored again")
+			}
+			for _, e := range app.GetLogEntries() {
+				a.NotEqual("WARN", e.Level, e.Message)
+			}
+		})
+	}
 }
