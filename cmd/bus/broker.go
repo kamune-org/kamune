@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
@@ -186,8 +185,11 @@ func (b *BrokerClient) WaitMatch(
 			// token. For static mode (token != nil), the
 			// payload must match; for random mode (token ==
 			// nil) the broker assigned a fresh token — skip
-			// the check.
-			if len(token) > 0 && !bytes.Equal(payload.Token, token) {
+			// the check. The broker echoes the 16-byte wire
+			// form of the token, which never equals a 32-byte
+			// static token byte for byte.
+			if len(token) > 0 &&
+				!relaybroker.TokenMatches(payload.Token, token) {
 				continue
 			}
 			// Clear the read deadline inherited from the NOTIFY

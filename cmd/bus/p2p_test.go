@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdh"
 	"crypto/ed25519"
@@ -398,6 +399,69 @@ func TestWaitMatch_ContextCancel(t *testing.T) {
 	token := make([]byte, 16)
 	_, _, err = bc.WaitMatch(ctx, addr, token)
 	a.Error(err)
+}
+
+// TestWaitMatch_TokenWireForm checks that WaitMatch accepts a
+// PEER_MATCHED that carries the broker's 16-byte wire form of its token,
+// as the broker sends it for a 32-byte static token, and skips one for
+// another token.
+func TestWaitMatch_TokenWireForm(t *testing.T) {
+	static, err := relayconn.TokenFromKeys(
+		ed25519.PublicKey(make([]byte, 32)),
+		ed25519.PublicKey(bytes.Repeat([]byte{1}, 32)),
+	)
+	require.New(t).NoError(err)
+	random := bytes.Repeat([]byte{7}, 16)
+
+	tests := []struct {
+		name  string
+		token []byte
+	}{
+		{name: "static 32-byte token", token: static},
+		{name: "random 16-byte token", token: random},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			fb := newFakeBroker(t)
+			otherEph, err := ecdh.X25519().GenerateKey(rand.Reader)
+			a.NoError(err)
+			otherIP := net.IPv4(192, 0, 2, 1)
+
+			go func() {
+				_, src := fb.readOne(t, 2*time.Second)
+				fb.respondEcho(t, src)
+				pkt, src := fb.readOne(t, 2*time.Second)
+				wire, ephPub, _, _, err := relaybroker.ParseRegister(pkt)
+				if err != nil {
+					return
+				}
+				// A match for another token comes first and must
+				// be skipped.
+				other := bytes.Repeat([]byte{9}, 16)
+				sendNotify(t, fb, relaybroker.PeerMatchedPlaintext(
+					other, otherEph.PublicKey().Bytes(), otherIP, 1111,
+				), src, ephPub)
+				sendNotify(t, fb, relaybroker.PeerMatchedPlaintext(
+					wire, otherEph.PublicKey().Bytes(), otherIP, 2222,
+				), src, ephPub)
+			}()
+
+			bc, err := NewBrokerClient()
+			a.NoError(err)
+			ctx, cancel := context.WithTimeout(
+				context.Background(), 10*time.Second,
+			)
+			defer cancel()
+			conn, payload, err := bc.WaitMatch(
+				ctx, fb.conn.LocalAddr().String(), tt.token,
+			)
+			a.NoError(err)
+			defer conn.Close()
+			a.Equal(uint16(2222), payload.Port)
+			a.True(relaybroker.TokenMatches(payload.Token, tt.token))
+		})
+	}
 }
 
 // TestHolePunch_HappyPath verifies that HolePunch returns a KCP session
