@@ -60,9 +60,11 @@
 // it, so it sees the Auth PSK, the Register token and the size and
 // timing of Message frames. The exchange does not prove the relay's
 // identity: over ws:// or tcp://, or over TLS without certificate
-// verification, an active on-path attacker can pose as the relay. The
-// relay is "blind" only to the payload of Message frames, which it
-// forwards unchanged between the two peers.
+// verification, an active on-path attacker can pose as the relay. Use
+// wss:// or tls:// with a certificate the client verifies, or pin a
+// self-signed relay certificate with PinnedTLSConfig. The relay is
+// "blind" only to the payload of Message frames, which it forwards
+// unchanged between the two peers.
 //
 // That payload is the kamune protocol the peers run with each other,
 // and its protection comes from kamune, not from this package. Its
