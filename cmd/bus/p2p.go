@@ -132,10 +132,11 @@ func (a *App) hasP2PToken(hexToken string) bool {
 	})
 }
 
-// deriveP2PToken returns a relay token for the given peer. It prefers
-// ECDH-derived tokens stored in a previous session (after handshake), falling
-// back to the static token derived from public keys. Returns nil for
-// random-token mode (when peerPubB64 is empty).
+// deriveP2PToken returns the static relay or broker token for the given
+// peer: relayconn.TokenFromKeys over the local and the peer's public
+// keys, which the peer derives the same way. It returns nil for
+// random-token mode, when peerPubB64 is empty, and an error when the
+// peer's key or the local identity cannot be read.
 func (a *App) deriveP2PToken(peerPubB64 string) ([]byte, error) {
 	if peerPubB64 == "" {
 		return nil, nil
