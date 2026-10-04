@@ -409,11 +409,7 @@ func TestNewWSServer_Upgrades(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				if useTLS {
-					_ = srv.ServeTLS(ln, "", "")
-				} else {
-					_ = srv.Serve(ln)
-				}
+				_ = serveWS(srv, ln, handlers.New(srvc, cfg))
 			}()
 			t.Cleanup(func() {
 				_ = srv.Close()
@@ -440,4 +436,56 @@ func TestNewWSServer_Upgrades(t *testing.T) {
 			a.NoError(conn.Close(websocket.StatusNormalClosure, ""))
 		})
 	}
+}
+
+// TestServeWS_RateLimitsBeforeTLS checks that a wss peer over its quota is
+// refused at accept, before the relay signs a TLS handshake for it.
+func TestServeWS_RateLimitsBeforeTLS(t *testing.T) {
+	a := require.New(t)
+	cfg := config.Config{
+		WSS: config.WSS{Enabled: true, Address: "127.0.0.1:0"},
+		Session: config.Session{
+			TokenTTL:              time.Minute,
+			MaxConcurrentSessions: 10,
+		},
+		RateLimit: config.RateLimit{
+			TimeWindow: time.Minute,
+			Quota:      1,
+			MaxEntries: 100,
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	srvc, err := services.New(ctx, cfg)
+	a.NoError(err)
+	tlsCfg, err := loadTLSConfig("", "")
+	a.NoError(err)
+	srv := newWSServer("127.0.0.1:0", http.NewServeMux(), tlsCfg)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = serveWS(srv, ln, handlers.New(srvc, cfg))
+	}()
+	t.Cleanup(func() {
+		_ = srv.Close()
+		<-done
+	})
+
+	clientCfg := &tls.Config{InsecureSkipVerify: true}
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	first, err := tls.DialWithDialer(
+		dialer, "tcp", ln.Addr().String(), clientCfg,
+	)
+	a.NoError(err, "first connection is within quota")
+	defer first.Close()
+
+	second, err := tls.DialWithDialer(
+		dialer, "tcp", ln.Addr().String(), clientCfg,
+	)
+	if err == nil {
+		second.Close()
+	}
+	a.Error(err, "a peer over quota must not get a TLS handshake")
 }

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kamune-org/kamune/cmd/relay/internal/config"
 )
 
 func TestHandler_WarnsOnceWhenTrustedProxyOmitsHeader(t *testing.T) {
@@ -85,4 +87,49 @@ func TestClearingHijacker_ClearsDeadlines(t *testing.T) {
 	go func() { _, _ = client.Read(make([]byte, 1)) }()
 	_, err = conn.Write([]byte{2})
 	a.NoError(err, "the write deadline must be cleared")
+}
+
+func TestHandler_ListenerOnlyLimitsWithWSListeners(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*config.Config)
+		limited bool
+	}{
+		{name: "ws on", mutate: func(*config.Config) {}, limited: true},
+		{
+			name: "wss on",
+			mutate: func(c *config.Config) {
+				c.WS.Enabled = false
+				c.WSS = config.WSS{Enabled: true, Address: "127.0.0.1:0"}
+			},
+			limited: true,
+		},
+		{
+			name: "no ws listener",
+			mutate: func(c *config.Config) {
+				c.WS.Enabled = false
+				c.TCP = config.TCP{Enabled: true, Address: "127.0.0.1:0"}
+			},
+		},
+		{
+			name: "rate limit off",
+			mutate: func(c *config.Config) {
+				c.RateLimit.Disabled = true
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			cfg := testConfig(1)
+			tc.mutate(&cfg)
+			h := newTestHandler(t, cfg)
+			a.Equal(tc.limited, h.connLimiter != nil)
+
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			a.NoError(err)
+			t.Cleanup(func() { _ = ln.Close() })
+			a.Equal(tc.limited, h.Listener(ln) != ln)
+		})
+	}
 }

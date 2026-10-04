@@ -112,7 +112,7 @@ func Run(cfgPath string) error {
 			slog.Info(
 				"starting ws server", slog.String("address", wsServer.Addr),
 			)
-			if err := wsServer.ListenAndServe(); err != nil &&
+			if err := listenWS(wsServer, h); err != nil &&
 				!errors.Is(err, http.ErrServerClosed) {
 				errCh <- fmt.Errorf("ws: %w", err)
 			}
@@ -150,7 +150,7 @@ func Run(cfgPath string) error {
 			slog.Info(
 				"starting wss server", slog.String("address", wssServer.Addr),
 			)
-			if err := wssServer.ListenAndServeTLS("", ""); err != nil &&
+			if err := listenWS(wssServer, h); err != nil &&
 				!errors.Is(err, http.ErrServerClosed) {
 				errCh <- fmt.Errorf("wss: %w", err)
 			}
@@ -253,6 +253,27 @@ func newWSServer(
 	}
 	srv.SetKeepAlivesEnabled(false)
 	return srv
+}
+
+// listenWS binds srv.Addr and serves srv on it with serveWS.
+func listenWS(srv *http.Server, h *handlers.Handler) error {
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		return err
+	}
+	return serveWS(srv, ln, h)
+}
+
+// serveWS serves srv on ln, over TLS when srv has a TLS config. Each
+// connection from a direct peer is charged to its rate-limit key as it is
+// accepted, before any TLS or HTTP work (see handlers.Handler.Listener).
+// Serve closes ln when it returns.
+func serveWS(srv *http.Server, ln net.Listener, h *handlers.Handler) error {
+	ln = h.Listener(ln)
+	if srv.TLSConfig != nil {
+		return srv.ServeTLS(ln, "", "")
+	}
+	return srv.Serve(ln)
 }
 
 // newBroker binds the UDP broker with its own rate limiters.

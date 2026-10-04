@@ -9,11 +9,17 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
+	"github.com/kamune-org/kamune/cmd/relay/internal/ratelimit"
 	"github.com/kamune-org/kamune/cmd/relay/internal/services"
 )
 
 type Handler struct {
-	service        *services.Service
+	service *services.Service
+	// connLimiter limits ws and wss connections per peer at accept. It is
+	// kept apart from the hub's limiter, which WebSocketHandler charges
+	// per request, so one session from a direct peer does not spend two
+	// units of the same quota.
+	connLimiter    *ratelimit.RateLimiter
 	clientIPHeader string
 	trustedProxies []*net.IPNet
 
@@ -32,8 +38,18 @@ func New(service *services.Service, cfg config.Config) *Handler {
 	if header == "" {
 		header = config.DefaultClientIPHeader
 	}
+	// Each limiter keeps up to max_entries keys and a cleanup goroutine,
+	// so only a relay with a ws or wss listener gets one.
+	var connLimiter *ratelimit.RateLimiter
+	if rl := cfg.RateLimit; rl.IsEnabled() &&
+		(cfg.WS.Enabled || cfg.WSS.Enabled) {
+		connLimiter = ratelimit.New(
+			int(rl.Quota), rl.TimeWindow, rl.MaxEntries,
+		)
+	}
 	return &Handler{
 		service:        service,
+		connLimiter:    connLimiter,
 		clientIPHeader: http.CanonicalHeaderKey(header),
 		trustedProxies: trustedProxies,
 	}

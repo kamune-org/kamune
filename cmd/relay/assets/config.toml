@@ -16,10 +16,15 @@ max_concurrent_sessions = 10_000
 max_message_size = 65536
 
 # Rate limit is ON by default. TCP, TLS and WS share one per-IP limiter, which
-# keys an IPv6 client by its /64. The UDP broker has two more with the same
-# settings, one for echo and one for REGISTER, each tracking up to max_entries
-# IPs. UDP sources are not verified, so spoofed packets can still spend or
-# evict an IP's broker budget, though not its TCP, TLS or WS one.
+# keys an IPv6 client by its /64. A WS or WSS connection from a peer outside
+# trusted_proxies also spends a separate per-IP connection quota with the same
+# settings when it is accepted, before TLS. Every connection counts, a load
+# balancer's TCP health checks on those ports included, so keep their rate
+# under the quota or point them at [diagnose]. The UDP broker has two more
+# limiters with the same settings, one for echo and one for REGISTER, each
+# tracking up to max_entries IPs. UDP sources are not verified, so spoofed
+# packets can still spend or evict an IP's broker budget, though not its TCP,
+# TLS or WS one.
 [rate_limit]
 time_window = "1m"
 quota = 20

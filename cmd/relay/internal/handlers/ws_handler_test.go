@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -152,5 +154,76 @@ func TestWebSocketHandler_UpgradeOutlivesRequestTimeouts(t *testing.T) {
 		got := readFrame(t, dir.to)
 		a.NotNil(got.GetMsg(), "expected Msg frame, got %T", got.Kind)
 		a.Equal(dir.data, string(got.GetMsg().GetData()))
+	}
+}
+
+func TestHandler_Listener(t *testing.T) {
+	tests := []struct {
+		name     string
+		quota    uint64
+		trusted  []string
+		accepted []bool
+	}{
+		{
+			name:     "direct peer over quota is closed",
+			quota:    1,
+			accepted: []bool{true, false, false},
+		},
+		{
+			name:     "trusted proxy is not charged",
+			quota:    1,
+			trusted:  []string{"127.0.0.0/8"},
+			accepted: []bool{true, true, true},
+		},
+		{
+			name:     "rate limit off",
+			accepted: []bool{true, true, true},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			cfg := testConfig(tc.quota)
+			cfg.Server.TrustedProxies = tc.trusted
+			h := newTestHandler(t, cfg)
+
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			a.NoError(err)
+			wrapped := h.Listener(ln)
+			t.Cleanup(func() { _ = wrapped.Close() })
+			accepted := make(chan net.Conn, len(tc.accepted))
+			go func() {
+				for {
+					c, err := wrapped.Accept()
+					if err != nil {
+						return
+					}
+					t.Cleanup(func() { _ = c.Close() })
+					accepted <- c
+				}
+			}()
+
+			for i, want := range tc.accepted {
+				c, err := net.Dial("tcp", ln.Addr().String())
+				a.NoError(err)
+				t.Cleanup(func() { _ = c.Close() })
+				if want {
+					select {
+					case <-accepted:
+					case <-time.After(10 * time.Second):
+						t.Fatalf("connection %d was not accepted", i)
+					}
+					continue
+				}
+				a.NoError(c.SetReadDeadline(time.Now().Add(10 * time.Second)))
+				_, err = c.Read(make([]byte, 1))
+				a.Error(err)
+				var ne net.Error
+				a.False(
+					errors.As(err, &ne) && ne.Timeout(),
+					"connection %d over quota must be closed", i,
+				)
+			}
+		})
 	}
 }
