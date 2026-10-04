@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -70,9 +71,10 @@ func (a *App) SendMessage(sessionID string, text string) error {
 	return nil
 }
 
-// receiveMessages runs the receive loop for a session. On involuntary
-// disconnect (ErrConnClosed) it attempts transparent resumption when
-// reconnectFn is available. When the loop exits, it takes the session out
+// receiveMessages runs the receive loop for a session. When its
+// connection is lost (see connLost) it closes it and attempts transparent
+// resumption when reconnectFn is available. When the loop exits, it takes
+// the session out
 // of the app and emits session-closed, and reports removed and whether
 // the session ended because its connection dropped, rather than because
 // either side closed it. A session that is no longer in the app, because
@@ -92,14 +94,19 @@ func (a *App) receiveMessages(session *liveSession) (dropped, removed bool) {
 			switch {
 			case errors.Is(err, kamune.ErrPeerDisconnected):
 				a.addLogEntry("INFO", "Peer disconnected: "+session.ID)
-			case errors.Is(err, kamune.ErrConnClosed):
-				a.addLogEntry("INFO", "Connection closed: "+session.ID)
+			case errors.Is(err, kamune.ErrReceiveTimeout):
+				continue
+			case connLost(err):
+				a.addLogEntry("INFO", "Connection closed: "+session.ID+
+					": "+err.Error())
+				// The socket may still be open, as after the peer reset
+				// it. Closing it without a close frame keeps the session
+				// resumable.
+				_ = transport.CloseAbort()
 				if session.reconnectFn != nil &&
 					a.reconnectSession(session) {
 					continue
 				}
-			case errors.Is(err, kamune.ErrReceiveTimeout):
-				continue
 			default:
 				a.addLogEntry("ERROR", "Receive error: "+err.Error())
 			}
@@ -193,7 +200,24 @@ func (a *App) receiveMessages(session *liveSession) (dropped, removed bool) {
 		a.setStatus(StatusDisconnected, "Not connected")
 		a.addLogEntry("INFO", "All sessions disconnected")
 	}
-	return errors.Is(endErr, kamune.ErrConnClosed), true
+	return connLost(endErr), true
+}
+
+// connLost reports whether err, from Transport.ReceivePayload, means that
+// the session's connection is gone while the session itself may go on,
+// so that it may be resumed on a new connection: the connection was
+// closed locally, by the peer or by the network (kamune.ErrConnClosed,
+// which also covers resets), or the socket failed with an error that the
+// core does not map to it, such as a host or network that became
+// unreachable. A frame that fails to decrypt or verify, or comes out of
+// order, ends the session for good, and so does a graceful close by the
+// peer.
+func connLost(err error) bool {
+	if errors.Is(err, kamune.ErrConnClosed) {
+		return true
+	}
+	_, ok := errors.AsType[*net.OpError](err)
+	return ok
 }
 
 // notificationPreviewRunes caps how much of a message a notification

@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"net"
+	"os"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -214,6 +219,129 @@ func TestClosedDialedSessionDoesNotReconnect(t *testing.T) {
 			a.EqualValues(1, ln.accepted.Load(),
 				"a closed session must not dial its peer again")
 			a.Empty(app.GetSessions())
+		})
+	}
+}
+
+// faultConn is a connection whose reads fail with err once it is cut, as
+// a reset or an unreachable host would make them.
+type faultConn struct {
+	net.Conn
+	err    error
+	cut    atomic.Bool
+	closed atomic.Bool
+}
+
+// cutOff makes every later read fail with c.err, and ends a read in
+// progress.
+func (c *faultConn) cutOff() {
+	c.cut.Store(true)
+	_ = c.Conn.Close()
+}
+
+func (c *faultConn) Read(b []byte) (int, error) {
+	if c.cut.Load() {
+		return 0, c.err
+	}
+	n, err := c.Conn.Read(b)
+	if err != nil && c.cut.Load() {
+		return 0, c.err
+	}
+	return n, err
+}
+
+func (c *faultConn) SetDeadline(t time.Time) error {
+	if c.cut.Load() {
+		return nil
+	}
+	return c.Conn.SetDeadline(t)
+}
+
+func (c *faultConn) SetReadDeadline(t time.Time) error {
+	if c.cut.Load() {
+		return nil
+	}
+	return c.Conn.SetReadDeadline(t)
+}
+
+func (c *faultConn) Close() error {
+	c.closed.Store(true)
+	return c.Conn.Close()
+}
+
+// TestLostConnectionReconnects cuts a dialed session's connection with a
+// read error and checks that the session closes the dead connection and
+// tries to resume, for a reset that the core reports as ErrConnClosed
+// and for a socket error that it does not map.
+func TestLostConnectionReconnects(t *testing.T) {
+	cases := []struct {
+		name string
+		err  syscall.Errno
+	}{
+		{"connection reset", syscall.ECONNRESET},
+		{"host unreachable", syscall.EHOSTUNREACH},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, _ := newUnlockedApp(t, "secret")
+			addr, _ := startCountingServer(t)
+
+			var fc *faultConn
+			d, err := kamune.NewDialer(
+				addr, openTestStorage(t), acceptAll,
+				kamune.DialWithFunc(func(addr string) (kamune.Conn, error) {
+					c, err := net.Dial("tcp", addr)
+					if err != nil {
+						return nil, err
+					}
+					fc = &faultConn{Conn: c, err: &net.OpError{
+						Op: "read", Net: "tcp",
+						Err: os.NewSyscallError("read", tc.err),
+					}}
+					return kamune.NewConn(fc), nil
+				}),
+			)
+			a.NoError(err)
+			tr, err := d.Dial()
+			a.NoError(err)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			redialed := make(chan struct{})
+			var once sync.Once
+			session := &liveSession{
+				ID:            tr.SessionID(),
+				Transport:     tr,
+				ReceiveDone:   make(chan struct{}),
+				pongCh:        make(chan []byte, 1),
+				keepAliveDone: make(chan struct{}),
+				reconnectCtx:  ctx,
+				reconnectFn: func(string) (*kamune.Transport, error) {
+					once.Do(func() { close(redialed) })
+					return nil, errors.New("test: no resumption")
+				},
+				reconnectCancel: cancel,
+			}
+			app.mu.Lock()
+			app.sessions = append(app.sessions, session)
+			app.mu.Unlock()
+			go app.receiveMessages(session)
+
+			fc.cutOff()
+			select {
+			case <-redialed:
+			case <-time.After(testWait):
+				t.Fatal("the session did not try to resume")
+			}
+			a.True(fc.closed.Load(), "the dead connection must be closed")
+
+			cancel()
+			select {
+			case <-session.ReceiveDone:
+			case <-time.After(testWait):
+				t.Fatal("the receive loop did not end")
+			}
 		})
 	}
 }
