@@ -52,10 +52,12 @@ Then send a message:
 
 ## Environment Variables
 
-| Variable               | Description                                                                                                                                         |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KAMUNE_DB_PATH`       | Override the default database path (`~/.config/kamune/db`). Used when the storage is opened with `storage.WithDBPath`.                              |
-| `KAMUNE_DB_PASSPHRASE` | Passphrase for `open_storage` when `db_no_passphrase` is `false`. If empty, `open_storage` fails and directs the client to use `submit_passphrase`. |
+| Variable               | Description                                                                                                                                                                                                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KAMUNE_DB_PASSPHRASE` | Passphrase for `open_storage` when `db_no_passphrase` is `false`. If empty, `open_storage` fails with `storage_open_failed` and reason `passphrase_required`, and the client supplies the passphrase with `submit_passphrase`. The daemon never saves this passphrase to the keychain. |
+
+The daemon does not read `KAMUNE_DB_PATH`: `open_storage` needs the database
+path in `storage_path`.
 
 ## Testing
 
