@@ -30,10 +30,11 @@ type fakeBroker struct {
 	peer  *net.UDPAddr
 
 	mu sync.Mutex
-	// registered holds the wire token of each REGISTER, and keys the
-	// X25519 key it carried.
+	// registered holds the wire token of each REGISTER, keys the X25519
+	// key it carried and sources the address it came from.
 	registered [][]byte
 	keys       [][]byte
+	sources    []string
 	changed    chan struct{}
 }
 
@@ -75,6 +76,7 @@ func (b *fakeBroker) serve() {
 		b.mu.Lock()
 		b.registered = append(b.registered, slices.Clone(token))
 		b.keys = append(b.keys, slices.Clone(peerEphPub))
+		b.sources = append(b.sources, src.String())
 		b.mu.Unlock()
 		select {
 		case b.changed <- struct{}{}:
@@ -108,6 +110,22 @@ func (b *fakeBroker) keysFor(token []byte) []string {
 		}
 	}
 	return keys
+}
+
+// sourcesFor returns the distinct addresses that the REGISTERs of token
+// came from.
+func (b *fakeBroker) sourcesFor(token []byte) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var sources []string
+	for i, r := range b.registered {
+		src := b.sources[i]
+		if relaybroker.TokenMatches(r, token) &&
+			!slices.Contains(sources, src) {
+			sources = append(sources, src)
+		}
+	}
+	return sources
 }
 
 // waitRegistered waits for a REGISTER of token and returns the wire
@@ -323,16 +341,7 @@ func TestBrokerRegistrationsUseOwnKeys(t *testing.T) {
 		tokens[i] = p2pTokenFor(t, d, peers[i])
 	}
 
-	// Tokens without a p2p server, refreshed by runP2PRefresh.
-	for _, peer := range peers[2:] {
-		_, err := d.GenerateP2PToken(broker.addr(), fingerprint.Base64(peer))
-		a.NoError(err)
-	}
-	for _, pt := range d.GetP2PTokens() {
-		a.True(d.refreshP2PToken(pt))
-	}
-
-	// The p2p server's own token, and one added to it.
+	// The p2p server's own token, and those added to it.
 	d.handleStartServer(Command{
 		ID: "start",
 		Params: mustJSON(StartServerParams{
@@ -341,8 +350,10 @@ func TestBrokerRegistrationsUseOwnKeys(t *testing.T) {
 		}),
 	})
 	rec.waitFor(t, isEvent(EvtServerStarted))
-	_, err := d.GenerateP2PToken(broker.addr(), fingerprint.Base64(peers[1]))
-	a.NoError(err)
+	for _, peer := range peers[1:] {
+		_, err := d.GenerateP2PToken(broker.addr(), fingerprint.Base64(peer))
+		a.NoError(err)
+	}
 	d.mu.RLock()
 	l, ok := d.p2pListener.(*p2pListener)
 	d.mu.RUnlock()
@@ -457,4 +468,76 @@ func TestBrokerIdentityHold(t *testing.T) {
 	fresh, err := b.identity(brokerAddr, token)
 	a.NoError(err)
 	a.NotSame(first, fresh)
+}
+
+// generate_p2p_token registers its token from the p2p server's punch
+// socket, the address that the broker gives a peer who dials the token,
+// and fails when no p2p server runs for the broker.
+func TestGenerateP2PTokenRegistersFromPunchSocket(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	broker := newFakeBroker(t, false)
+	other := newFakeBroker(t, false)
+	peerA := newTestPeerKey(t)
+	peerB := newTestPeerKey(t)
+
+	generate := func(id ID, brokerAddr string, peer []byte) recordedEvent {
+		params := MapS{"broker_addr": brokerAddr}
+		if peer != nil {
+			params["peer_pub_b64"] = fingerprint.Base64(peer)
+		}
+		d.handleGenerateP2PToken(Command{ID: id, Params: mustJSON(params)})
+		return rec.waitFor(t, func(e recordedEvent) bool { return e.ID == id })
+	}
+
+	evt := generate("no-server", broker.addr(), peerB)
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("p2p_server_not_running", evt.Data["code"], evt.Data["error"])
+	a.Empty(broker.registrations())
+	a.Empty(d.GetP2PTokens())
+
+	d.handleStartServer(Command{
+		ID: "start",
+		Params: mustJSON(StartServerParams{
+			Addr: "127.0.0.1:0", Transport: "p2p",
+			BrokerAddr: broker.addr(), PeerPubB64: fingerprint.Base64(peerA),
+		}),
+	})
+	rec.waitFor(t, isEvent(EvtServerStarted))
+	d.mu.RLock()
+	l, ok := d.p2pListener.(*p2pListener)
+	d.mu.RUnlock()
+	a.True(ok)
+	punch := l.Addr().String()
+
+	evt = generate("other-broker", other.addr(), peerB)
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("broker_addr_mismatch", evt.Data["code"], evt.Data["error"])
+	a.Empty(other.registrations())
+
+	tests := []struct {
+		name string
+		peer []byte
+		mode string
+	}{
+		{name: "random", mode: "random"},
+		{name: "static", peer: peerB, mode: "static"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			evt := generate(ID("gen-"+tt.name), broker.addr(), tt.peer)
+			a.Equal(EvtResponse, evt.Evt, "generate failed: %v", evt.Data)
+			tokenHex, _ := evt.Data["token"].(string)
+			token, err := hex.DecodeString(tokenHex)
+			a.NoError(err)
+			broker.waitRegistered(t, token)
+			a.Equal([]string{punch}, broker.sourcesFor(token))
+			idx := slices.IndexFunc(d.GetP2PTokens(), func(pt p2pToken) bool {
+				return pt.Token == tokenHex
+			})
+			a.NotEqual(-1, idx)
+			a.Equal(tt.mode, d.GetP2PTokens()[idx].Mode)
+		})
+	}
 }

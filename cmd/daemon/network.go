@@ -203,7 +203,6 @@ func (d *Daemon) startServer(
 		if len(tokenBytes) > 0 {
 			mode = "static"
 		}
-		tokenCtx, tokenCancel := context.WithCancel(d.ctx)
 		pt := p2pToken{
 			Token:      pl.Token(),
 			Mode:       mode,
@@ -211,8 +210,6 @@ func (d *Daemon) startServer(
 			TTL:        p2pTokenRefreshInterval,
 			ExpiresAt:  time.Now().Add(p2pTokenRefreshInterval),
 			brokerAddr: params.BrokerAddr,
-			ctx:        tokenCtx,
-			cancel:     tokenCancel,
 		}
 		d.mu.Lock()
 		d.p2pListener = pl
@@ -973,7 +970,7 @@ func (d *Daemon) handleRenameSession(cmd Command) {
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "ok"})
 }
 
-// handleGenerateP2PToken creates a new p2p token for the running server.
+// handleGenerateP2PToken adds a p2p token to the running p2p server.
 func (d *Daemon) handleGenerateP2PToken(cmd Command) {
 	var params struct {
 		BrokerAddr string `json:"broker_addr"`
@@ -984,18 +981,16 @@ func (d *Daemon) handleGenerateP2PToken(cmd Command) {
 		return
 	}
 
-	if _, err := d.getOrCreateBrokerClient(); err != nil {
-		d.emitError(
-			cmd.ID,
-			"broker_client_failed",
-			fmt.Sprintf("broker client: %v", err),
-		)
-		return
-	}
-
 	tokenHex, err := d.GenerateP2PToken(params.BrokerAddr, params.PeerPubB64)
 	if err != nil {
-		d.emitError(cmd.ID, "p2p_token_failed", fmt.Sprintf("generate p2p token: %v", err))
+		code := "p2p_token_failed"
+		switch {
+		case errors.Is(err, errNoP2PServer):
+			code = "p2p_server_not_running"
+		case errors.Is(err, errBrokerMismatch):
+			code = "broker_addr_mismatch"
+		}
+		d.emitError(cmd.ID, code, fmt.Sprintf("generate p2p token: %v", err))
 		return
 	}
 	d.emit(EvtResponse, cmd.ID, MapA{

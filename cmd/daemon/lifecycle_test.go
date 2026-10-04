@@ -104,18 +104,13 @@ func TestMultiListenerConcurrentAddAndClose(t *testing.T) {
 	}
 }
 
-func TestStopP2PResourcesClosesAndCancels(t *testing.T) {
+func TestStopP2PResourcesClosesListener(t *testing.T) {
 	a := require.New(t)
 	d := newQuietDaemon()
 	listener := newTestListener()
-	tokenCtx, tokenCancel := context.WithCancel(context.Background())
 
 	d.p2pListener = listener
-	d.p2pTokens = []p2pToken{{
-		Token:  "token",
-		ctx:    tokenCtx,
-		cancel: tokenCancel,
-	}}
+	d.p2pTokens = []p2pToken{{Token: "token"}}
 
 	d.stopP2PResources()
 
@@ -123,11 +118,6 @@ func TestStopP2PResourcesClosesAndCancels(t *testing.T) {
 	case <-listener.closed:
 	default:
 		t.Fatal("p2p listener was not closed")
-	}
-	select {
-	case <-tokenCtx.Done():
-	default:
-		t.Fatal("p2p token context was not cancelled")
 	}
 	a.Nil(d.p2pListener)
 	a.Empty(d.p2pTokens)

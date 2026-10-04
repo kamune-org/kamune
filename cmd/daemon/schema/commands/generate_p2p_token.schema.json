@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-generate-p2p-token",
   "title": "generate_p2p_token params",
-  "description": "Creates a new P2P token for the running server.",
+  "description": "Adds a P2P token to the running p2p server, which registers it with its broker, and refreshes it, from its punch socket. With peer_pub_b64 the token is the static token derived from both keys; without it, the server's random token is returned, or a random token is added when it has none. Fails with p2p_server_not_running when no p2p server runs and with broker_addr_mismatch when broker_addr is not the server's broker.",
   "type": "object",
   "properties": {
-    "broker_addr":  { "type": "string", "description": "Broker address." },
+    "broker_addr":  { "type": "string", "description": "Broker address. Must be the broker_addr the p2p server was started with." },
     "peer_pub_b64": { "type": "string", "description": "Base64-encoded public key of the target peer." }
   },
   "required": ["broker_addr"]
