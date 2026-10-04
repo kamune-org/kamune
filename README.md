@@ -55,11 +55,26 @@ suite.
 
 ## How does it work?
 
-Communication happens in three phases:
+Communication happens in five phases:
 
-1. **Exchange** — Parties agree on an HPKE shared secret to encrypt the handshake.
-2. **Handshake** — Ephemeral ML-KEM-768 key exchange, session ID derivation, and mutual challenge-response verification.
-3. **Communication** — Signed, encrypted, and sequenced message frames with replay protection.
+1. **Exchange**: Parties set up an HPKE channel, with the hybrid
+   MLKEM768-X25519 KEM, that encrypts the messages of the next three phases.
+2. **Introduction**: Each peer sends its name, Ed25519 identity public key and
+   version, signed with that key. The application's verifier decides whether
+   to accept the peer.
+3. **Handshake**: An ephemeral ML-KEM-768 key exchange gives a shared secret,
+   from which both sides derive the session keys. Each side contributes half
+   of the session ID.
+4. **Challenge**: Each side sends a challenge under the new keys and checks
+   that the other echoes it back, which confirms that both derived the same
+   keys.
+5. **Communication**: Signed, encrypted, and sequenced message frames with
+   replay protection.
+
+A dialer can resume a session within 24 hours of its first handshake. The
+resumption skips the Introduction and the verifier, and runs the Handshake and
+Challenge again with new keys (see
+[SPEC §6.8](docs/SPEC.md#68-session-resumption)).
 
 For a comprehensive technical specification, see [SPEC.md](docs/SPEC.md).
 
