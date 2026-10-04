@@ -11,7 +11,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -89,15 +88,16 @@ func TestHandleChatMessage_ReportsUnsavedMessage(t *testing.T) {
 	a := require.New(t)
 	m := newTestModel()
 	m.state = stateChat
-	m.sess = newChatSession(
-		dialPipe(t, func(*kamune.Transport) error { return nil }), nil,
-	)
-	m.store = openTestStore(t)
-	a.NoError(m.store.Close())
+	m.sess = &chatSession{}
+	store := openTestStore(t)
+	a.NoError(store.Close())
 
-	m.Update(sessionMsg{
-		m.sess, chatMessageMsg{sender: storage.SenderPeer, text: "hello"},
-	})
+	// The receive goroutine saves the message before Update sees it.
+	var got tea.Msg
+	saving(store, "SESSION", func(msg tea.Msg) { got = msg })(
+		chatMessageMsg{sender: storage.SenderPeer, text: "hello"},
+	)
+	m.Update(sessionMsg{m.sess, got})
 	a.Len(m.messages, 2)
 	a.Equal("hello", m.messages[0].text)
 	a.Contains(m.messages[1].text, "not saved to history")

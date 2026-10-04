@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
@@ -14,6 +16,18 @@ import (
 // minMessageWidth is the narrowest column that a message is wrapped into
 // beside its prefix. In a narrower view, the message goes below the prefix.
 const minMessageWidth = 16
+
+// maxTranscriptLines bounds how many entries the chat view keeps. Older
+// ones leave the view, not the history.
+const maxTranscriptLines = 500
+
+// maxShownRunes and maxShownLines bound how much of one message a
+// transcript shows. A peer can send close to 64 KiB in one message; what
+// is beyond these limits is left out of the view, not of the history.
+const (
+	maxShownRunes = 2000
+	maxShownLines = 40
+)
 
 // chatLine is one entry of a transcript: a chat message, or a notice from
 // the TUI itself. Entries are kept unrendered, so that they can be laid out
@@ -29,11 +43,12 @@ type chatLine struct {
 }
 
 // messageLine returns a chat message for a transcript. text is sanitized
-// (see sanitizeText), since it comes from a peer or the database.
+// (see sanitizeText), since it comes from a peer or the database, and
+// clipped (see clipMessage).
 func messageLine(sender storage.Sender, at time.Time, text string) chatLine {
 	return chatLine{
 		time:    at,
-		text:    sanitizeText(text),
+		text:    clipMessage(sanitizeText(text)),
 		sender:  sender,
 		message: true,
 	}
@@ -45,6 +60,25 @@ func messageLine(sender storage.Sender, at time.Time, text string) chatLine {
 // breaks become spaces (see sanitizeLine).
 func noticeLine(style lipgloss.Style, text string) chatLine {
 	return chatLine{style: style, text: sanitizeLine(text)}
+}
+
+// clipMessage cuts text to at most maxShownRunes runes on maxShownLines
+// lines, and says how much it left out.
+func clipMessage(text string) string {
+	runes, lines := 0, 1
+	for i, r := range text {
+		if runes == maxShownRunes || (r == '\n' && lines == maxShownLines) {
+			return text[:i] + fmt.Sprintf(
+				" … (%d more characters not shown)",
+				utf8.RuneCountInString(text[i:]),
+			)
+		}
+		runes++
+		if r == '\n' {
+			lines++
+		}
+	}
+	return text
 }
 
 // notSavedLine returns the notice shown when a message could not be added
@@ -71,13 +105,17 @@ const noticeIndent = 2
 func (s styles) renderLines(lines []chatLine, width int) string {
 	out := make([]string, 0, len(lines))
 	for _, l := range lines {
-		if !l.message {
-			out = append(out, renderNotice(l, width))
-			continue
-		}
-		out = append(out, s.renderMessage(l, width))
+		out = append(out, s.renderLine(l, width))
 	}
 	return strings.Join(out, "\n")
+}
+
+// renderLine lays out one entry of a transcript; see renderLines.
+func (s styles) renderLine(l chatLine, width int) string {
+	if !l.message {
+		return renderNotice(l, width)
+	}
+	return s.renderMessage(l, width)
 }
 
 func renderNotice(l chatLine, width int) string {

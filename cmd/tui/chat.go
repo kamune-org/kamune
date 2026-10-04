@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -33,7 +32,7 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyEsc:
 			m.cleanup()
-			m.messages = nil
+			m.clearTranscript()
 			m.state = stateWelcome
 			return m, nil
 		case tea.KeyEnter:
@@ -46,11 +45,10 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case m.sess.outbox <- text:
 				m.ta.Reset()
 			default:
-				m.messages = append(m.messages, noticeLine(m.s.err,
+				m.addLines(noticeLine(m.s.err,
 					"Not sent: too many messages are still on their way. "+
 						"Try again shortly.",
 				))
-				m.refreshChat()
 			}
 		}
 	}
@@ -71,30 +69,16 @@ func (m *model) viewChat() string {
 	return header + m.vp.View() + "\n\n" + m.ta.View()
 }
 
-// handleSent shows the message that writeLoop sent, or why it could not,
-// and adds it to the history.
+// handleSent shows the message that writeLoop sent and added to the
+// history, or why it could not send it.
 func (m *model) handleSent(msg sentMsg) {
 	if msg.err != nil {
-		m.messages = append(m.messages,
-			noticeLine(m.s.err, "Send error: "+msg.err.Error()),
-		)
-		m.refreshChat()
+		m.addLines(noticeLine(m.s.err, "Send error: "+msg.err.Error()))
 		return
 	}
-	m.messages = append(m.messages,
-		messageLine(storage.SenderLocal, msg.at, msg.text),
-	)
-	if err := m.store.AddChatEntry(
-		m.sess.t.SessionID(),
-		[]byte(msg.text),
-		msg.at,
-		storage.SenderLocal,
-	); err != nil {
-		slog.Error("failed to persist sent chat entry",
-			slog.String("session_id", m.sess.t.SessionID()),
-			slog.Any("error", err),
-		)
-		m.messages = append(m.messages, notSavedLine(m.s, err))
+	lines := []chatLine{messageLine(storage.SenderLocal, msg.at, msg.text)}
+	if msg.saveErr != nil {
+		lines = append(lines, notSavedLine(m.s, msg.saveErr))
 	}
-	m.refreshChat()
+	m.addLines(lines...)
 }

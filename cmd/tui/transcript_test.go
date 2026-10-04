@@ -1,15 +1,18 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -236,4 +239,138 @@ func TestHistoryIsSanitized(t *testing.T) {
 	requireNoTerminalControls(a, view)
 	a.Contains(view, "Peer: hiclick")
 	requireIndented(a, strings.TrimRight(view, " \n"))
+}
+
+func TestClipMessage(t *testing.T) {
+	long := strings.Repeat("é", maxShownRunes+10)
+	tall := strings.Repeat("x\n", maxShownLines+5)
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"short", "hello", "hello"},
+		{"at the rune limit", long[:2*maxShownRunes], long[:2*maxShownRunes]},
+		{
+			"over the rune limit", long,
+			long[:2*maxShownRunes] + " … (10 more characters not shown)",
+		},
+		{
+			"over the line limit", tall,
+			strings.Repeat("x\n", maxShownLines-1) + "x" +
+				" … (11 more characters not shown)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			a.Equal(tt.want, clipMessage(tt.input))
+		})
+	}
+}
+
+// chatModel returns a model in a chat with no connection behind it, for
+// tests of the transcript.
+func chatModel() *model {
+	m := newTestModel()
+	m.state = stateChat
+	m.sess = &chatSession{}
+	return m
+}
+
+// requireLaidOut checks that the transcript laid out piece by piece is
+// what laying it all out at once gives.
+func requireLaidOut(a *require.Assertions, m *model) {
+	a.Equal(
+		m.s.renderLines(m.messages, contentWidth(m.vp)),
+		strings.Join(m.rendered, "\n"),
+	)
+}
+
+func TestTranscript_IsBounded(t *testing.T) {
+	a := require.New(t)
+	m := chatModel()
+	at := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	for i := range 2*maxTranscriptLines + 5 {
+		m.Update(sessionMsg{m.sess, chatMessageMsg{
+			sender: storage.SenderPeer,
+			text:   fmt.Sprint("message ", i),
+			time:   at,
+		}})
+	}
+	a.Len(m.messages, maxTranscriptLines)
+	a.False(m.messages[0].message)
+	a.Contains(m.messages[0].text, "View Chat History")
+	a.Equal(
+		fmt.Sprint("message ", 2*maxTranscriptLines+4),
+		m.messages[len(m.messages)-1].text,
+	)
+	requireLaidOut(a, m)
+
+	// A message near the frame size is cut short on screen.
+	m.Update(sessionMsg{m.sess, chatMessageMsg{
+		sender: storage.SenderPeer,
+		text:   strings.Repeat("a", 60*1024),
+		time:   at,
+	}})
+	last := m.messages[len(m.messages)-1].text
+	a.Less(utf8.RuneCountInString(last), maxShownRunes+50)
+	a.Contains(last, "more characters not shown")
+	requireLaidOut(a, m)
+}
+
+func TestTranscript_LaidOutAfterEveryChange(t *testing.T) {
+	a := require.New(t)
+	m := chatModel()
+	at := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	add := func(text string) {
+		m.Update(sessionMsg{m.sess, chatMessageMsg{
+			sender: storage.SenderPeer, text: text, time: at,
+		}})
+	}
+
+	add("first")
+	requireLaidOut(a, m)
+	m.Update(sessionMsg{m.sess, historyLoadedMsg{messages: []chatLine{
+		noticeLine(m.s.muted, "Session ID is X."),
+		messageLine(storage.SenderLocal, at, "from history"),
+	}}})
+	a.Len(m.messages, 3)
+	requireLaidOut(a, m)
+	add(strings.Repeat("word ", 40))
+	requireLaidOut(a, m)
+	m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	requireLaidOut(a, m)
+	add("after resize")
+	requireLaidOut(a, m)
+	a.Contains(m.vp.View(), "after resize")
+}
+
+func TestReceive_SavesBeforeUpdate(t *testing.T) {
+	a := require.New(t)
+	msgs := make(chan tea.Msg, 16)
+	m := chatSending(t, modeDirectDial, func(t *kamune.Transport) error {
+		_, err := t.Send(
+			kamune.Bytes([]byte("hi")), kamune.RouteExchangeMessages,
+		)
+		return err
+	}, func(msg tea.Msg) { msgs <- msg })
+
+	for {
+		sm, ok := waitFor(t, msgs).(sessionMsg)
+		if !ok {
+			continue
+		}
+		if c, ok := sm.msg.(chatMessageMsg); ok {
+			a.Equal("hi", c.text)
+			a.NoError(c.saveErr)
+			break
+		}
+	}
+	// Update has not seen the message, yet it is in the history.
+	history, err := m.store.GetChatHistory(m.sess.t.SessionID())
+	a.NoError(err)
+	a.Len(history, 1)
+	a.Equal("hi", string(history[0].Data))
+	a.Empty(m.messages)
 }

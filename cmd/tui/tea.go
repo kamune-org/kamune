@@ -137,9 +137,11 @@ type relayReadyMsg struct {
 type tickMsg time.Time
 
 type chatMessageMsg struct {
-	sender storage.Sender
-	text   string
-	time   time.Time
+	time time.Time
+	// saveErr is why the message could not be added to the history.
+	saveErr error
+	text    string
+	sender  storage.Sender
 }
 
 type peerDisconnectedMsg struct{}
@@ -230,6 +232,10 @@ type model struct {
 	vp       viewport.Model
 	ta       textarea.Model
 	messages []chatLine
+	// rendered holds messages laid out for a view renderedWidth cells
+	// wide, when it has as many entries as messages.
+	rendered      []string
+	renderedWidth int
 
 	// History
 	sessions    []storage.SessionSummary
@@ -259,9 +265,11 @@ const outboxSize = 16
 
 // sentMsg reports what came of sending text in a chat.
 type sentMsg struct {
-	at   time.Time
-	err  error
-	text string
+	at  time.Time
+	err error
+	// saveErr is why the sent message could not be added to the history.
+	saveErr error
+	text    string
 }
 
 // chatSession is the state of a chat that the goroutines serving it
@@ -318,10 +326,11 @@ func (s *chatSession) end(wg *sync.WaitGroup, srv *kamune.Server) {
 }
 
 // writeLoop sends the messages queued in the outbox of s, in order, until
-// the session stops, and passes the result of each to send. A send may
-// block for as long as the connection lets it, so it never runs on the
-// event loop.
-func writeLoop(s *chatSession, send func(tea.Msg)) {
+// the session stops, adds each one sent to the history in store, and
+// passes the result of each to send. A send may block for as long as the
+// connection lets it, and the history is a database write, so neither
+// runs on the event loop.
+func writeLoop(s *chatSession, store *storage.Storage, send func(tea.Msg)) {
 	for {
 		select {
 		case <-s.stop:
@@ -333,10 +342,49 @@ func writeLoop(s *chatSession, send func(tea.Msg)) {
 			res := sentMsg{text: text, err: err}
 			if err == nil {
 				res.at = md.Timestamp()
+				res.saveErr = saveEntry(
+					store, s.t.SessionID(), text, res.at,
+					storage.SenderLocal,
+				)
 			}
 			send(res)
 		}
 	}
+}
+
+// saving returns a send function for the receive loop of the session sid
+// that adds each chat message to the history in store before it passes
+// the message on to send. The database write thus runs on the receive
+// goroutine, not on the event loop.
+func saving(
+	store *storage.Storage, sid string, send func(tea.Msg),
+) func(tea.Msg) {
+	return func(msg tea.Msg) {
+		if c, ok := msg.(chatMessageMsg); ok {
+			c.saveErr = saveEntry(store, sid, c.text, c.time, c.sender)
+			msg = c
+		}
+		send(msg)
+	}
+}
+
+// saveEntry adds a chat message to the history of the session sid in
+// store, if there is a store.
+func saveEntry(
+	store *storage.Storage, sid, text string, at time.Time,
+	sender storage.Sender,
+) error {
+	if store == nil {
+		return nil
+	}
+	err := store.AddChatEntry(sid, []byte(text), at, sender)
+	if err != nil {
+		slog.Error("failed to persist chat entry",
+			slog.String("session_id", sid),
+			slog.Any("error", err),
+		)
+	}
+	return err
 }
 
 // closeSession closes t and then release, if it is set. A server handler
@@ -487,17 +535,15 @@ func (m *model) updateSession(msg tea.Msg) {
 	case chatMessageMsg:
 		m.handleChatMessage(msg)
 	case peerDisconnectedMsg:
-		m.messages = append(m.messages, noticeLine(
+		m.addLines(noticeLine(
 			m.s.highlight, "Peer disconnected. Press Esc to return.",
 		))
-		m.refreshChat()
 	case receiveErrorMsg:
-		m.messages = append(m.messages,
-			noticeLine(m.s.err, "Error: "+msg.err.Error()),
-		)
-		m.refreshChat()
+		m.addLines(noticeLine(m.s.err, "Error: "+msg.err.Error()))
 	case historyLoadedMsg:
 		m.messages = append(msg.messages, m.messages...)
+		m.rendered = nil
+		m.trimTranscript()
 		m.refreshChat()
 	case sentMsg:
 		m.handleSent(msg)
@@ -522,11 +568,64 @@ func (m *model) View() string {
 	return ""
 }
 
-// refreshChat lays the transcript out for the chat viewport and scrolls to
-// its end.
+// refreshChat shows the transcript in the chat viewport and scrolls to
+// its end. Only the entries that have not been laid out for the width of
+// the viewport yet are laid out.
 func (m *model) refreshChat() {
-	m.vp.SetContent(m.s.renderLines(m.messages, contentWidth(m.vp)))
+	width := contentWidth(m.vp)
+	if width != m.renderedWidth || len(m.rendered) != len(m.messages) {
+		m.rendered = m.rendered[:0]
+		m.renderedWidth = width
+		for _, l := range m.messages {
+			m.rendered = append(m.rendered, m.s.renderLine(l, width))
+		}
+	}
+	m.vp.SetContent(strings.Join(m.rendered, "\n"))
 	m.vp.GotoBottom()
+}
+
+// addLines adds lines to the end of the chat transcript and shows them.
+func (m *model) addLines(lines ...chatLine) {
+	width := contentWidth(m.vp)
+	laidOut := width == m.renderedWidth &&
+		len(m.rendered) == len(m.messages)
+	m.messages = append(m.messages, lines...)
+	if laidOut {
+		for _, l := range lines {
+			m.rendered = append(m.rendered, m.s.renderLine(l, width))
+		}
+	}
+	m.trimTranscript()
+	m.refreshChat()
+}
+
+// trimTranscript drops the oldest entries of the chat transcript beyond
+// maxTranscriptLines, and puts a notice in their place.
+func (m *model) trimTranscript() {
+	over := len(m.messages) - maxTranscriptLines
+	if over <= 0 {
+		return
+	}
+	over++ // room for the notice
+	laidOut := len(m.rendered) == len(m.messages)
+	notice := noticeLine(m.s.muted,
+		"Earlier messages are left out here; View Chat History has them.",
+	)
+	m.messages = append([]chatLine{notice}, m.messages[over:]...)
+	if laidOut {
+		m.rendered = append(
+			[]string{m.s.renderLine(notice, m.renderedWidth)},
+			m.rendered[over:]...,
+		)
+	} else {
+		m.rendered = nil
+	}
+}
+
+// clearTranscript empties the chat transcript.
+func (m *model) clearTranscript() {
+	m.messages = nil
+	m.rendered = nil
 }
 
 // refreshHistory lays the messages of the history browser out for its
@@ -746,6 +845,7 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 		vp.Height = m.height - m.ta.Height() - lipgloss.Height("\n\n")
 	}
 
+	m.clearTranscript()
 	if peer := t.RemotePeer(); peer != nil {
 		warn, _ := checkMinorMismatch(kamune.AppVersion, peer.AppVersion)
 		if warn != "" {
@@ -756,9 +856,10 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 	m.vp.SetContent("Session ID is " + t.SessionID() + ". Loading history…")
 
 	send := m.sess.sender(m.send)
-	go receiveLoop(m.sess.t, m.sess.pongCh, send)
+	recv := saving(m.store, t.SessionID(), send)
+	go receiveLoop(m.sess.t, m.sess.pongCh, recv)
 	go keepAliveLoop(m.sess, send)
-	go writeLoop(m.sess, send)
+	go writeLoop(m.sess, m.store, send)
 	sess := m.sess
 	history := loadChatHistory(m.store, t.SessionID(), m.s)
 	load := func() tea.Msg { return sessionMsg{sess: sess, msg: history()} }
@@ -909,25 +1010,14 @@ func tuiSendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duratio
 	}
 }
 
+// handleChatMessage shows a message from the peer, which the receive
+// goroutine has added to the history.
 func (m *model) handleChatMessage(msg chatMessageMsg) {
-	m.messages = append(m.messages,
-		messageLine(storage.SenderPeer, msg.time, msg.text),
-	)
-	if m.store != nil {
-		if err := m.store.AddChatEntry(
-			m.sess.t.SessionID(),
-			[]byte(msg.text),
-			msg.time,
-			storage.SenderPeer,
-		); err != nil {
-			slog.Error("failed to persist received chat entry",
-				slog.String("session_id", m.sess.t.SessionID()),
-				slog.Any("error", err),
-			)
-			m.messages = append(m.messages, notSavedLine(m.s, err))
-		}
+	lines := []chatLine{messageLine(storage.SenderPeer, msg.time, msg.text)}
+	if msg.saveErr != nil {
+		lines = append(lines, notSavedLine(m.s, msg.saveErr))
 	}
-	m.refreshChat()
+	m.addLines(lines...)
 }
 
 func (m *model) cancelConnect() {
