@@ -85,7 +85,9 @@ transmitted.
   per §4. This gives the token mechanism forward secrecy: a token stolen from
   session _k_ is worthless after session _k+1_'s handshake completes, since it
   isn't derivable from the new shared secret. The fresh set keeps the
-  session's original Resumption Window.
+  session's original Resumption Window. A peer that keeps session state out
+  of storage (SPEC §11.6) stores no fresh set; the tokens left of the old set
+  are invalidated when the resumed session ends.
 - **Expiration.** A session's tokens become invalid after the Resumption
   Window elapses from the session's cold handshake (`establishedAt`),
   regardless of how many tokens remain unused. A resumption does not restart

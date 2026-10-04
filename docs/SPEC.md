@@ -58,6 +58,7 @@
     - 11.3 [Stored Entities](#113-stored-entities)
     - 11.4 [Peer Expiration](#114-peer-expiration)
     - 11.5 [Upgrades and Deleted Data](#115-upgrades-and-deleted-data)
+    - 11.6 [Sessions Without Persistence](#116-sessions-without-persistence)
 12. [Security Properties](#12-security-properties)
     - 12.1 [Confidentiality](#121-confidentiality)
     - 12.2 [Integrity](#122-integrity)
@@ -928,7 +929,9 @@ Initiator                                   Responder
   derive a fresh set from the new session's shared secret (§7.6). A token stolen
   from session _k_ is worthless after session _k+1_'s handshake completes, since
   it is not derivable from the new shared secret. The fresh set keeps the
-  session's original resumption window.
+  session's original resumption window. A peer that keeps session state out of
+  storage (§11.6) stores no fresh set; the tokens left of the old set are
+  invalidated when the resumed session ends.
 - **Expiration.** A session's tokens become invalid after the resumption window
   (24 hours) elapses from the session's cold handshake, the time at which a
   cold Introduction and Handshake first established it (stored as
@@ -1571,13 +1574,13 @@ message, so listing sessions does not read their whole logs. Storing a message
 for a session that is not stored, such as one deleted while still connected,
 stores that session again with the message.
 
-Every cold handshake stores a new session. To bound what a peer adds by
-connecting and closing repeatedly, storing a new session also deletes the
-oldest idle sessions with the same peer, those with no messages and no display
-name, beyond 8 per peer, counting the new one. The limit is configurable and
-can be turned off. It does not bound sessions that hold messages. An idle
-session that is still connected can be deleted this way, and it then cannot be
-resumed.
+Every cold handshake stores a new session, unless persistence is off (§11.6).
+To bound what a peer adds by connecting and closing repeatedly, storing a new
+session also deletes the oldest idle sessions with the same peer, those with no
+messages and no display name, beyond 8 per peer, counting the new one. The
+limit is configurable and can be turned off. It does not bound sessions that
+hold messages. An idle session that is still connected can be deleted this way,
+and it then cannot be resumed.
 
 The resumption root itself is not stored — only the derived token set. A
 database compromise exposes only the remaining unused tokens for sessions
@@ -1622,6 +1625,22 @@ resumption token, deleting idle sessions or expired peers, or replacing a
 value, leave the old value in a free page until the next compaction. Freed
 disk blocks of the old file, such as blocks an SSD remaps, and copies of the
 file such as backups, are not scrubbed.
+
+### 11.6 Sessions Without Persistence
+
+A server or dialer can be set to keep session state out of storage, for
+incognito use (`ServeWithoutPersistence` and `DialWithoutPersistence` in the
+reference implementation). Its cold sessions store nothing: no remote peer
+key, `established_at` or resumption tokens are written, the peer's last-seen
+time is not updated, and closing such a session writes nothing either, so
+these sessions cannot be resumed. The storage is still read for the local
+identity and passed to the remote verifier, which decides on its own whether to
+store the peer.
+
+These settings do not stop a session stored earlier from being resumed. Such a
+resumption consumes one of the session's tokens and stores no new set, and the
+session's remaining tokens are still invalidated when it ends (§6.6). A server
+that must not resume stored sessions should also disable resumption (§6.8.4).
 
 ---
 
