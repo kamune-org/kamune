@@ -112,7 +112,7 @@
   <rect x="343" y="116" width="214" height="56" rx="12" fill="none" stroke="#f0883e" stroke-width="1" opacity="0.2" filter="url(#glow)"/>
   <rect x="345" y="118" width="210" height="5" rx="3" fill="url(#gOrange)"/>
   <text x="450" y="142" text-anchor="middle" fill="#f0883e" font-size="14" font-weight="700">User Passphrase</text>
-  <text x="450" y="160" text-anchor="middle" fill="#8b949e" font-size="9">Interactive prompt or KAMUNE_DB_PASSPHRASE</text>
+  <text x="450" y="160" text-anchor="middle" fill="#8b949e" font-size="9">Prompt or KAMUNE_DB_PASSPHRASE</text>
 
   <!-- deriveSalt label (left of passphrase) -->
   <rect x="100" y="126" width="120" height="36" rx="7" fill="#21262d" stroke="#56d4dd" stroke-width="1"/>
@@ -120,19 +120,19 @@
   <text x="160" y="146" text-anchor="middle" fill="#56d4dd" font-size="10" font-weight="600">deriveSalt</text>
   <text x="160" y="158" text-anchor="middle" fill="#6e7681" font-size="8">32 random bytes</text>
 
-  <!-- Arrow: deriveSalt → HKDF -->
+  <!-- Arrow: deriveSalt → Argon2id -->
   <path d="M 220 144 C 260 144, 280 192, 330 192" fill="none" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
   <text x="268" y="165" fill="#56d4dd" font-size="7.5" font-weight="600">salt</text>
 
-  <!-- Arrow: Passphrase → HKDF -->
+  <!-- Arrow: Passphrase → Argon2id -->
   <line x1="450" y1="172" x2="450" y2="182" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowDownOrange)"/>
-  <text x="462" y="180" fill="#f0883e" font-size="7.5" font-weight="600">IKM</text>
+  <text x="462" y="180" fill="#f0883e" font-size="7.5" font-weight="600">password</text>
 
-  <!-- HKDF Step 1 -->
+  <!-- Argon2id Step 1 -->
   <rect x="335" y="188" width="230" height="36" rx="8" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="335" y="188" width="230" height="4" rx="2" fill="url(#gBlue)"/>
-  <text x="450" y="208" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">HKDF-SHA512</text>
-  <text x="450" y="220" text-anchor="middle" fill="#8b949e" font-size="8" font-family="'SF Mono','Fira Code',monospace">info: "derived-passphrase-key"</text>
+  <text x="450" y="208" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">Argon2id</text>
+  <text x="450" y="220" text-anchor="middle" fill="#8b949e" font-size="8" font-family="'SF Mono','Fira Code',monospace">t=3, m=64 MiB, p=4, 32 bytes</text>
 
   <!-- Step 1 output label -->
   <text x="385" y="238" fill="#484f58" font-size="8">Step 1</text>
@@ -173,16 +173,16 @@
   <!-- KEK operation: Decrypt wrapped-key -->
   <rect x="340" y="350" width="220" height="50" rx="8" fill="#21262d" stroke="#e3b341" stroke-width="1.5"/>
   <rect x="340" y="350" width="220" height="4" rx="2" fill="url(#gYellow)"/>
-  <text x="450" y="372" text-anchor="middle" fill="#e3b341" font-size="10" font-weight="700">KEK.Decrypt(wrapped-key)</text>
-  <text x="450" y="388" text-anchor="middle" fill="#8b949e" font-size="8">Unwraps the random 32-byte master secret</text>
-  <text x="450" y="400" text-anchor="middle" fill="#6e7681" font-size="8">wrapped-key is stored in DB as ciphertext</text>
+  <text x="450" y="369" text-anchor="middle" fill="#e3b341" font-size="10" font-weight="700">KEK.Decrypt(wrapped-key)</text>
+  <text x="450" y="382" text-anchor="middle" fill="#8b949e" font-size="8">Unwraps the random 32-byte master secret</text>
+  <text x="450" y="393" text-anchor="middle" fill="#6e7681" font-size="8">wrapped-key is stored in DB as ciphertext</text>
 
   <!-- Arrow from wrapped-key storage to KEK -->
   <rect x="660" y="340" width="160" height="50" rx="7" fill="#21262d" stroke="#30363d" stroke-width="1"/>
   <rect x="660" y="340" width="160" height="50" rx="7" fill="url(#hatch)" opacity="0.2"/>
   <rect x="660" y="340" width="160" height="3" rx="2" fill="#484f58" opacity="0.5"/>
   <text x="740" y="362" text-anchor="middle" fill="#8b949e" font-size="10" font-weight="600">wrapped-key</text>
-  <text x="740" y="376" text-anchor="middle" fill="#6e7681" font-size="8">Stored in DB (plaintext bucket)</text>
+  <text x="740" y="376" text-anchor="middle" fill="#6e7681" font-size="8">Stored in the default bucket</text>
   <text x="740" y="388" text-anchor="middle" fill="#6e7681" font-size="8">Encrypted by KEK</text>
 
   <!-- Arrow from DB to KEK operation -->
@@ -201,7 +201,7 @@
   <rect x="353" y="426" width="194" height="48" rx="12" fill="none" stroke="#7ee787" stroke-width="1" opacity="0.2" filter="url(#glow)"/>
   <rect x="355" y="428" width="190" height="5" rx="3" fill="url(#gGreen)"/>
   <text x="450" y="452" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="700">Master Secret</text>
-  <text x="450" y="466" text-anchor="middle" fill="#8b949e" font-size="9">32 random bytes (generated once)</text>
+  <text x="450" y="466" text-anchor="middle" fill="#8b949e" font-size="9">32 random bytes</text>
 
   <!-- secretSalt label (left) -->
   <rect x="100" y="438" width="120" height="36" rx="7" fill="#21262d" stroke="#56d4dd" stroke-width="1"/>
@@ -225,7 +225,7 @@
   <text x="450" y="524" text-anchor="middle" fill="#8b949e" font-size="8" font-family="'SF Mono','Fira Code',monospace">info: "data-encryption-key"</text>
 
   <!-- Step 3 output label -->
-  <text x="385" y="544" fill="#484f58" font-size="8">Step 3 — Final cipher for all data</text>
+  <text x="385" y="544" fill="#484f58" font-size="8">Step 3</text>
 
   <!-- ══════════════════════════════════════════════════════════════ -->
   <!-- SECTION 3: What the DEK encrypts — Bucket Map                 -->
@@ -250,17 +250,17 @@
   <!-- ═══════ Bucket 1: Local Identity ═══════ -->
   <rect x="40" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#f778ba" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="40" y="586" width="190" height="4" rx="2" fill="url(#gPink)"/>
-  <text x="135" y="608" text-anchor="middle" fill="#f778ba" font-size="11" font-weight="700">local_identity</text>
-  <text x="135" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: fixed key name</text>
-  <text x="135" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Identity protobuf</text>
-  <text x="135" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Ed25519 private key</text>
+  <text x="135" y="608" text-anchor="middle" fill="#f778ba" font-size="11" font-weight="700">kamune-store</text>
+  <text x="135" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: attest</text>
+  <text x="135" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Ed25519 private key</text>
+  <text x="135" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">PKCS #8 (local identity)</text>
   <text x="135" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">Encrypted with DEK</text>
 
   <!-- ═══════ Bucket 2: Peers ═══════ -->
   <rect x="250" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="250" y="586" width="190" height="4" rx="2" fill="url(#gBlue)"/>
   <text x="345" y="608" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">peers</text>
-  <text x="345" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: SHA3-512(pubKey)</text>
+  <text x="345" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: &lt;name&gt; of the public key</text>
   <text x="345" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Protobuf Peer</text>
   <text x="345" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Name, PubKey, AppVersion</text>
   <text x="345" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">FirstSeen, LastSeen</text>
@@ -268,20 +268,20 @@
   <!-- ═══════ Bucket 3: Session Metadata ═══════ -->
   <rect x="460" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="460" y="586" width="190" height="4" rx="2" fill="url(#gPurple)"/>
-  <text x="555" y="608" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">session_metadata</text>
-  <text x="555" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: sessionID</text>
-  <text x="555" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: SessionState protobuf</text>
-  <text x="555" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Display name, timestamps</text>
-  <text x="555" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">Encrypted with DEK</text>
+  <text x="555" y="608" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">sessions/&lt;name&gt;/meta</text>
+  <text x="555" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: entry name</text>
+  <text x="555" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: one sealed value per entry</text>
+  <text x="555" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">session_id, peer, name, message_count,</text>
+  <text x="555" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">established_at, resumption/relay tokens</text>
 
   <!-- ═══════ Bucket 4: Chat History ═══════ -->
   <rect x="670" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#e3b341" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="670" y="586" width="190" height="4" rx="2" fill="url(#gYellow)"/>
-  <text x="765" y="608" text-anchor="middle" fill="#e3b341" font-size="11" font-weight="700">chat_&lt;sessionID&gt;</text>
-  <text x="765" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: 14-byte composite</text>
-  <text x="765" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Message payload protobuf</text>
-  <text x="765" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">ts(8B) + sender(2B)</text>
-  <text x="765" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">+ random(4B)</text>
+  <text x="765" y="608" text-anchor="middle" fill="#e3b341" font-size="11" font-weight="700">sessions/&lt;name&gt;/chat</text>
+  <text x="765" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: 0xff + 8-byte index</text>
+  <text x="765" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: padded message entry</text>
+  <text x="765" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">receive time, sender's time,</text>
+  <text x="765" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">sender, payload</text>
 
   <!-- ══════════════════════════════════════════════════════════════ -->
   <!-- LEGEND / NOTES                                                -->
@@ -290,7 +290,7 @@
 
   <!-- Legend row 1 -->
   <rect x="50" y="704" width="10" height="10" rx="2" fill="url(#gOrange)"/>
-  <text x="66" y="714" fill="#8b949e" font-size="9">User passphrase (never stored)</text>
+  <text x="66" y="714" fill="#8b949e" font-size="9">User passphrase (not in the DB)</text>
 
   <rect x="250" y="704" width="10" height="10" rx="2" fill="url(#gTeal)"/>
   <text x="266" y="714" fill="#8b949e" font-size="9">Salts (stored plaintext in DB)</text>
@@ -302,5 +302,5 @@
   <text x="636" y="714" fill="#8b949e" font-size="9">DEK (encrypts all data)</text>
 
   <!-- Legend row 2 -->
-  <text x="50" y="734" fill="#6e7681" font-size="9">Database: BoltDB (bbolt) at ~/.config/kamune/db · All sensitive values encrypted with DEK (XChaCha20-Poly1305)</text>
+  <text x="50" y="734" fill="#6e7681" font-size="9">BoltDB at ~/.config/kamune/db · Values sealed with the DEK · &lt;name&gt; = HMAC-SHA256(nameKey, label ‖ 0x00 ‖ id) · SPEC §11.2, §11.3</text>
 </svg>
