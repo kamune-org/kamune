@@ -9,8 +9,24 @@ import (
 	"time"
 )
 
-// maxPacketSize bounds the broker packets the client reads.
-const maxPacketSize = 1500
+// readBufSize holds the largest IPv4 UDP payload, so no datagram is too
+// long to read. With a shorter buffer Windows fails the read with
+// WSAEMSGSIZE instead of truncating the datagram, and anyone who can send
+// to the socket could end a read that way.
+const readBufSize = 64 << 10
+
+// readErrBurst is how many reads in a row may fail before readBroker gives
+// up. A read can fail for one datagram while the socket still works, as
+// when Windows reports an ICMP port unreachable for an earlier send as
+// WSAECONNRESET; a run of failures points to a fault of the socket.
+const readErrBurst = 16
+
+// packetReader is the part of *net.UDPConn that readBroker uses. Tests
+// wrap it to inject read errors.
+type packetReader interface {
+	ReadFromUDP(b []byte) (int, *net.UDPAddr, error)
+	SetReadDeadline(t time.Time) error
+}
 
 // The broker records the source address of each REGISTER, sends the
 // registration's NOTIFYs to it and hands it to the matched peer to punch
@@ -104,8 +120,10 @@ func (c *Client) RegisterOn(
 // ReadNotify reads conn until a NOTIFY arrives from the broker's address
 // that decrypts with the client's key, and returns its payload. It drops
 // packets from other sources and packets that do not decrypt, so no
-// other goroutine may read conn meanwhile. ReadNotify waits until ctx
-// ends and clears conn's read deadline before it returns.
+// other goroutine may read conn meanwhile. A read that fails for a single
+// datagram is dropped too; ReadNotify fails only when 16 reads in a row
+// fail or conn is closed. ReadNotify waits until ctx ends and clears
+// conn's read deadline before it returns.
 func (c *Client) ReadNotify(
 	ctx context.Context, conn *net.UDPConn,
 ) (Payload, error) {
@@ -127,11 +145,13 @@ func (c *Client) ReadNotify(
 // readBroker reads packets from conn until accept returns true for one
 // that came from the broker's address. It gives up when ctx ends or,
 // when ctx has no deadline and timeout is positive, once timeout has
-// passed. When ctx ends it returns ctx's error. It clears conn's read
-// deadline before it returns.
+// passed. When ctx ends it returns ctx's error. A read that fails for
+// another reason than the deadline or a closed socket counts as a
+// dropped packet, until readErrBurst reads in a row have failed. It
+// clears conn's read deadline before it returns.
 func (c *Client) readBroker(
 	ctx context.Context,
-	conn *net.UDPConn,
+	conn packetReader,
 	timeout time.Duration,
 	accept func(pkt []byte) bool,
 ) error {
@@ -157,19 +177,31 @@ func (c *Client) readBroker(
 		_ = conn.SetReadDeadline(time.Time{})
 	}()
 
-	buf := make([]byte, maxPacketSize)
+	buf := make([]byte, readBufSize)
+	failed := 0
 	for {
 		n, src, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
 			}
-			// The socket can time out a moment before ctx does.
-			if ctxDeadline && errors.Is(err, os.ErrDeadlineExceeded) {
-				return context.DeadlineExceeded
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				// The socket can time out a moment before ctx does.
+				if ctxDeadline {
+					return context.DeadlineExceeded
+				}
+				return err
 			}
-			return err
+			if errors.Is(err, net.ErrClosed) {
+				return err
+			}
+			failed++
+			if failed >= readErrBurst {
+				return fmt.Errorf("%d reads in a row failed: %w", failed, err)
+			}
+			continue
 		}
+		failed = 0
 		if c.fromBroker(src) && accept(buf[:n]) {
 			return nil
 		}
