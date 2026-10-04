@@ -34,7 +34,19 @@ so a root command such as `go build ./cmd/daemon` fails.
 - **Build daemon**: `go build -o daemon .` in `cmd/daemon/`, or `make daemon`
   from root for cross-platform release builds
 - **Build chat TUI**: `go build -o tui .` in `cmd/tui/`
-- **Build bus GUI**: `wails3 build` in `cmd/bus/` (requires Wails v3 CLI)
+- **Build bus GUI**: `wails3 build` in `cmd/bus/` (requires Wails v3 CLI and
+  npm)
+
+Bus notes: `cmd/bus/frontend/bindings` and `cmd/bus/frontend/dist` are
+generated and gitignored, and `wails3 build` makes both. Before `npm run check`
+or `npm run build` in `cmd/bus/frontend/`, run `npm install` there and
+`wails3 generate bindings -clean=true -time-type=Date` in `cmd/bus/`, as
+`build/Taskfile.yml` does; the CLI default, `-time-type=string`, would type
+`time.Time` fields as `string` instead of `Date`.
+`wails3 task common:build:frontend` in `cmd/bus/` makes both without building
+the app. `go test` and `go vet` in `cmd/bus/` need `frontend/dist`, which the
+app embeds, and on Linux the GTK 4 and WebKitGTK 6.0 development packages that
+Wails v3.0.0-beta.23 builds against.
 
 ## Commits
 
