@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -131,5 +132,62 @@ func TestHandler_ListenerOnlyLimitsWithWSListeners(t *testing.T) {
 			t.Cleanup(func() { _ = ln.Close() })
 			a.Equal(tc.limited, h.Listener(ln) != ln)
 		})
+	}
+}
+
+func TestHandler_WarnsOnceWhenLocalPeerIsRateLimited(t *testing.T) {
+	const warning = "server.trusted_proxies is empty"
+	// With a quota of one, each path refuses the second and third tries.
+	paths := []struct {
+		name string
+		try  func(h *Handler, peer string)
+	}{
+		{
+			name: "request",
+			try: func(h *Handler, peer string) {
+				r := newRequest(net.JoinHostPort(peer, "1234"))
+				h.WebSocketHandler(httptest.NewRecorder(), r)
+			},
+		},
+		{
+			name: "connection",
+			try: func(h *Handler, peer string) {
+				h.allowConn(net.TCPAddrFromAddrPort(netip.AddrPortFrom(
+					netip.MustParseAddr(peer), 1234,
+				)))
+			},
+		},
+	}
+	tests := []struct {
+		name    string
+		peer    string
+		trusted []string
+		warned  int
+	}{
+		{name: "loopback peer", peer: "127.0.0.1", warned: 1},
+		{name: "private peer", peer: "10.1.2.3", warned: 1},
+		{name: "ipv6 loopback peer", peer: "::1", warned: 1},
+		{name: "public peer", peer: "203.0.113.9", warned: 0},
+		{
+			name:    "trusted proxies set",
+			peer:    "10.1.2.3",
+			trusted: []string{"192.0.2.0/24"},
+			warned:  0,
+		},
+	}
+	for _, p := range paths {
+		for _, tc := range tests {
+			t.Run(p.name+"/"+tc.name, func(t *testing.T) {
+				a := require.New(t)
+				out := captureLog(t, slog.LevelInfo)
+				cfg := testConfig(1)
+				cfg.Server.TrustedProxies = tc.trusted
+				h := newTestHandler(t, cfg)
+				for range 3 {
+					p.try(h, tc.peer)
+				}
+				a.Equal(tc.warned, strings.Count(out.String(), warning))
+			})
+		}
 	}
 }

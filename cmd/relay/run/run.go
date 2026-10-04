@@ -14,8 +14,10 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -40,6 +42,7 @@ func Run(cfgPath string) error {
 	if err != nil {
 		return fmt.Errorf("new service: %w", err)
 	}
+	warnSharedRateLimit(cfg)
 
 	h := handlers.New(srvc, cfg)
 
@@ -255,6 +258,68 @@ func newWSServer(
 	}
 	srv.SetKeepAlivesEnabled(false)
 	return srv
+}
+
+// proxiedListener is a ws or wss listener that may sit behind a proxy.
+type proxiedListener struct {
+	name, address string
+}
+
+// sharedRateLimitListeners returns the ws and wss listeners bound to a
+// loopback, private or link-local address while the rate limiter is on and
+// server.trusted_proxies is empty. That is how a relay behind a reverse
+// proxy, CDN origin or tunnel such as cloudflared is usually set up. There,
+// every connection comes from the proxy's address, so all clients share
+// one quota, and a few requests from anyone lock everyone out.
+func sharedRateLimitListeners(cfg config.Config) []proxiedListener {
+	if !cfg.RateLimit.IsEnabled() || len(cfg.Server.TrustedProxies) > 0 {
+		return nil
+	}
+	var found []proxiedListener
+	for _, l := range []struct {
+		proxiedListener
+		enabled bool
+	}{
+		{proxiedListener{"ws", cfg.WS.Address}, cfg.WS.Enabled},
+		{proxiedListener{"wss", cfg.WSS.Address}, cfg.WSS.Enabled},
+	} {
+		if l.enabled && privateBind(l.address) {
+			found = append(found, l.proxiedListener)
+		}
+	}
+	return found
+}
+
+// privateBind reports whether addr binds a loopback, private or link-local
+// address rather than a public or unspecified one.
+func privateBind(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	ip = ip.Unmap()
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+}
+
+// warnSharedRateLimit logs a warning for each listener
+// sharedRateLimitListeners returns.
+func warnSharedRateLimit(cfg config.Config) {
+	for _, l := range sharedRateLimitListeners(cfg) {
+		slog.Warn(
+			"listener is on a private address and "+
+				"server.trusted_proxies is empty: if a proxy or tunnel "+
+				"fronts it, all clients share the proxy's rate limit",
+			slog.String("listener", l.name),
+			slog.String("address", l.address),
+		)
+	}
 }
 
 // listenWS binds srv.Addr and serves srv on it with serveWS.

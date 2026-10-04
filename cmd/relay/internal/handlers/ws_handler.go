@@ -36,6 +36,7 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	if rl := h.service.Hub().RateLimiter(); rl != nil &&
 		!rl.Allow(rateLimitKey(remoteAddr)) {
 		logRateLimited(remoteAddr)
+		h.warnSharedLimit(remoteAddr)
 		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}

@@ -494,3 +494,81 @@ func TestServeWS_RateLimitsBeforeTLS(t *testing.T) {
 	}
 	a.Error(err, "a peer over quota must not get a TLS handshake")
 }
+
+func TestSharedRateLimitListeners(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*config.Config)
+		wantFor []string
+	}{
+		{
+			name: "loopback ws behind a tunnel",
+			mutate: func(c *config.Config) {
+				c.WS = config.WS{Enabled: true, Address: "127.0.0.1:8080"}
+			},
+			wantFor: []string{"ws"},
+		},
+		{
+			name: "localhost ws",
+			mutate: func(c *config.Config) {
+				c.WS = config.WS{Enabled: true, Address: "localhost:8080"}
+			},
+			wantFor: []string{"ws"},
+		},
+		{
+			name: "private wss and ipv6 loopback ws",
+			mutate: func(c *config.Config) {
+				c.WS = config.WS{Enabled: true, Address: "[::1]:8080"}
+				c.WSS = config.WSS{Enabled: true, Address: "10.1.2.3:443"}
+			},
+			wantFor: []string{"ws", "wss"},
+		},
+		{
+			name: "public bind",
+			mutate: func(c *config.Config) {
+				c.WS = config.WS{Enabled: true, Address: "0.0.0.0:8888"}
+				c.WSS = config.WSS{Enabled: true, Address: ":8891"}
+			},
+		},
+		{
+			name: "disabled listener",
+			mutate: func(c *config.Config) {
+				c.WS = config.WS{Enabled: false, Address: "127.0.0.1:8080"}
+			},
+		},
+		{
+			name: "trusted proxies set",
+			mutate: func(c *config.Config) {
+				c.WS = config.WS{Enabled: true, Address: "127.0.0.1:8080"}
+				c.Server.TrustedProxies = []string{"127.0.0.1/32"}
+			},
+		},
+		{
+			name: "rate limit off",
+			mutate: func(c *config.Config) {
+				c.WS = config.WS{Enabled: true, Address: "127.0.0.1:8080"}
+				c.RateLimit.Disabled = true
+			},
+		},
+		{
+			name: "hostname bind",
+			mutate: func(c *config.Config) {
+				c.WS = config.WS{Enabled: true, Address: "relay.example:80"}
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			cfg := config.Config{
+				TCP: config.TCP{Enabled: true, Address: "127.0.0.1:8889"},
+			}
+			tc.mutate(&cfg)
+			var got []string
+			for _, l := range sharedRateLimitListeners(cfg) {
+				got = append(got, l.name)
+			}
+			a.Equal(tc.wantFor, got)
+		})
+	}
+}

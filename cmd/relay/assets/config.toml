@@ -1,6 +1,10 @@
 # Shared relay-wide settings.
 [server]
 password = ""
+# Behind a reverse proxy, CDN or tunnel (cloudflared), list the addresses it
+# connects from here, or every client shares the proxy's rate limit. While
+# this is empty, the relay warns at startup when ws or wss is on a private
+# address, and once when it rate limits a ws or wss peer on a private address.
 # A request whose TCP peer is in trusted_proxies is keyed by the address in
 # client_ip_header, and no other header. X-Forwarded-For is read from the
 # right, skipping trusted hops. Any other header (X-Real-IP, CF-Connecting-IP,

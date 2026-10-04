@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -26,6 +27,9 @@ type Handler struct {
 	// noHeaderOnce reports, once, a trusted proxy's request that had no
 	// usable address in clientIPHeader.
 	noHeaderOnce sync.Once
+	// sharedLimitOnce reports, once, a local peer refused by a rate
+	// limiter while trustedProxies is empty.
+	sharedLimitOnce sync.Once
 }
 
 func New(service *services.Service, cfg config.Config) *Handler {
@@ -75,6 +79,36 @@ func (h *Handler) clientIP(r *http.Request) string {
 		)
 	})
 	return ip
+}
+
+// warnSharedLimit logs a warning the first time peer, the TCP peer of a
+// ws or wss request or connection that a rate limiter refused, is on a
+// loopback, private or link-local address while trusted_proxies is empty.
+// Such a peer is most likely a reverse proxy or a tunnel such as
+// cloudflared on the same host or network, whatever address the listener
+// is bound to, and every client behind it shares its quota.
+func (h *Handler) warnSharedLimit(peer string) {
+	if len(h.trustedProxies) > 0 {
+		return
+	}
+	addr, err := netip.ParseAddr(peer)
+	if err != nil {
+		return
+	}
+	addr = addr.Unmap()
+	if !addr.IsLoopback() && !addr.IsPrivate() &&
+		!addr.IsLinkLocalUnicast() {
+		return
+	}
+	h.sharedLimitOnce.Do(func() {
+		slog.Warn(
+			"rate limited a ws peer on a local address while "+
+				"server.trusted_proxies is empty: if it is a proxy or "+
+				"tunnel, all its clients share one rate limit "+
+				"(logged once)",
+			slog.String("peer", peer),
+		)
+	})
 }
 
 func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {

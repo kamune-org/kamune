@@ -47,5 +47,6 @@ func (h *Handler) allowConn(addr net.Addr) bool {
 		return true
 	}
 	logRateLimited(ip)
+	h.warnSharedLimit(ip)
 	return false
 }
