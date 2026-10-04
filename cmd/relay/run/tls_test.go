@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -8,17 +9,22 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
+	"log/slog"
 	"math/big"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kamune-org/kamune/pkg/relayconn"
 )
 
 // testTLSConfig returns a server TLS config with a new self-signed
@@ -219,15 +225,55 @@ func readIfExists(t *testing.T, paths ...string) map[string][]byte {
 	return out
 }
 
-func TestCertFingerprint(t *testing.T) {
+// lockedBuffer is a bytes.Buffer that a slog handler can share with
+// goroutines left over from other tests.
+type lockedBuffer struct {
+	buf bytes.Buffer
+	mu  sync.Mutex
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestCertStore_LogsFingerprint checks that serverConfig logs the SHA-256
+// fingerprint of the certificate it serves, as the lowercase hex digest
+// that openssl prints without colons, and that relayconn parses it back
+// to the digest a client pins.
+func TestCertStore_LogsFingerprint(t *testing.T) {
 	a := require.New(t)
+	out := &lockedBuffer{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(out, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
 	cfg := testTLSConfig(t)
-	der := leafDER(t, cfg)
-	sum := sha256.Sum256(der)
-	got := certFingerprint(cfg.Certificates[0])
-	a.Equal(hex.EncodeToString(sum[:]), got)
-	a.Len(got, 64)
-	a.Empty(certFingerprint(tls.Certificate{}))
+	sum := sha256.Sum256(leafDER(t, cfg))
+
+	var logged string
+	for line := range strings.Lines(out.String()) {
+		var rec struct {
+			Msg      string `json:"msg"`
+			Listener string `json:"listener"`
+			SHA256   string `json:"sha256"`
+		}
+		a.NoError(json.Unmarshal([]byte(line), &rec))
+		if rec.Msg == "tls certificate" && rec.Listener == "test" {
+			logged = rec.SHA256
+		}
+	}
+	a.Equal(hex.EncodeToString(sum[:]), logged)
+	pin, err := relayconn.ParseCertFingerprint(logged)
+	a.NoError(err)
+	a.Equal(sum[:], pin)
 }
 
 // writeSelfSignedPEM writes a self-signed cert+key pair to disk, so that

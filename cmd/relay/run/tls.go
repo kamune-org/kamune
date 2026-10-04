@@ -3,11 +3,9 @@ package run
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -20,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune/cmd/relay/internal/config"
+	"github.com/kamune-org/kamune/pkg/relayconn"
 )
 
 // Names of the files in the data directory that hold the self-signed
@@ -60,10 +59,13 @@ func (s *certStore) serverConfig(
 	if err != nil {
 		return nil, err
 	}
+	// Both loaders fail on a pair without a certificate, so the leaf,
+	// the certificate the relay sends, is always there.
+	fingerprint := relayconn.CertFingerprint(cert.Certificate[0])
 	slog.Info(
 		"tls certificate",
 		slog.String("listener", name),
-		slog.String("sha256", certFingerprint(cert)),
+		slog.String("sha256", fingerprint),
 	)
 	return newServerTLSConfig(cert), nil
 }
@@ -110,18 +112,6 @@ func loadCert(certFile, keyFile string) (tls.Certificate, error) {
 		)
 	}
 	return pair, nil
-}
-
-// certFingerprint returns the SHA-256 digest of cert's leaf, the
-// certificate the relay sends, as 64 lowercase hex digits. It is the
-// digest "openssl x509 -noout -fingerprint -sha256" prints, without the
-// colons.
-func certFingerprint(cert tls.Certificate) string {
-	if len(cert.Certificate) == 0 {
-		return ""
-	}
-	sum := sha256.Sum256(cert.Certificate[0])
-	return hex.EncodeToString(sum[:])
 }
 
 // loadOrCreateSelfSigned returns the self-signed certificate kept in dir.
