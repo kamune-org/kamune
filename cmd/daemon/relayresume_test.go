@@ -399,7 +399,7 @@ func TestRelayTokenSent(t *testing.T) {
 
 			_, _, _, _, err := listenRelay(
 				t.Context(), testEventTimeout, tt.addr, tt.password,
-				false, token,
+				nil, token,
 			)
 			a.Error(err)
 			a.Equal(tt.want, relayTokenSent(err), err.Error())

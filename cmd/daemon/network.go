@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,6 +53,22 @@ func (d *Daemon) checkTransport(
 	return transport, true
 }
 
+// checkRelayPin emits invalid_relay_pin and returns false when pin, the
+// relay_pin of a start_server or dial command with transport, is not one
+// that parseRelayPin takes for relayAddr. Other transports ignore it.
+func (d *Daemon) checkRelayPin(
+	id ID, transport, relayAddr, pin string,
+) bool {
+	if transport != "relay" {
+		return true
+	}
+	if _, err := parseRelayPin(relayAddr, pin); err != nil {
+		d.emitError(id, "invalid_relay_pin", err.Error())
+		return false
+	}
+	return true
+}
+
 // handleStartServer starts a kamune server. Supports tcp, udp, and relay
 // transports (mirrors cmd/bus/network.go:16-179).
 func (d *Daemon) handleStartServer(cmd Command) {
@@ -68,6 +85,9 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		return
 	}
 	params.Transport = transport
+	if !d.checkRelayPin(cmd.ID, transport, params.RelayAddr, params.RelayPin) {
+		return
+	}
 
 	if !d.requireStorage(cmd.ID) {
 		return
@@ -96,6 +116,7 @@ func (d *Daemon) handleStartServer(cmd Command) {
 	d.serverAddr = params.Addr
 	d.serverTransport = params.Transport
 	d.serverRelayAddr = params.RelayAddr
+	d.serverRelayPin = params.RelayPin
 	d.serverName = params.Name
 	d.serverPassword = params.Password
 	d.serverBrokerAddr = params.BrokerAddr
@@ -175,9 +196,11 @@ func (d *Daemon) startServer(
 			return
 		}
 		d.warnRelayAddr(params.RelayAddr)
+		// handleStartServer checked the pin.
+		pin, _ := parseRelayPin(params.RelayAddr, params.RelayPin)
 		ml := newMultiListener()
 		listener, token, ttl, sessionTTL, err := listenRelayTracked(
-			ctx, d, params.RelayAddr, params.Password, false, nil,
+			ctx, d, params.RelayAddr, params.Password, pin, nil,
 		)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -203,6 +226,7 @@ func (d *Daemon) startServer(
 		d.mu.Lock()
 		d.relayAddr = params.RelayAddr
 		d.relayPassword = params.Password
+		d.relayPin = pin
 		d.relaySessionTTL = sessionTTL
 		d.relayListeners = ml
 		d.relayTokens = []relayToken{firstToken}
@@ -512,6 +536,7 @@ func (d *Daemon) handleRestartServer(cmd Command) {
 	addr := d.serverAddr
 	transport := d.serverTransport
 	relayAddr := d.serverRelayAddr
+	relayPin := d.serverRelayPin
 	name := d.serverName
 	password := d.serverPassword
 	brokerAddr := d.serverBrokerAddr
@@ -533,7 +558,8 @@ func (d *Daemon) handleRestartServer(cmd Command) {
 		ID: cmd.ID,
 		Params: mustJSON(StartServerParams{
 			Addr: addr, Transport: transport,
-			RelayAddr: relayAddr, Password: password, Name: name,
+			RelayAddr: relayAddr, RelayPin: relayPin,
+			Password: password, Name: name,
 			BrokerAddr: brokerAddr, PeerPubB64: peerPubB64,
 			DirectPeerAddr: directPeerAddr,
 		}),
@@ -646,6 +672,9 @@ func (d *Daemon) handleDial(cmd Command) {
 		return
 	}
 	params.Transport = transport
+	if !d.checkRelayPin(cmd.ID, transport, params.RelayAddr, params.RelayPin) {
+		return
+	}
 
 	if !d.requireStorage(cmd.ID) {
 		return
@@ -720,9 +749,11 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	switch params.Transport {
 	case "relay":
 		d.warnRelayAddr(params.RelayAddr)
+		// handleDial checked the pin.
+		pin, _ := parseRelayPin(params.RelayAddr, params.RelayPin)
 		fn, err := dialRelayFuncWithSessionTTL(
 			ctx, d.relayTimeout, params.RelayAddr, params.Token,
-			params.Password, false, &sessionTTL,
+			params.Password, pin, &sessionTTL,
 		)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to prepare relay dial")
@@ -1194,6 +1225,7 @@ func (d *Daemon) makeReconnectFn(
 	}
 	addr := params.Addr
 	relayAddr := params.RelayAddr
+	relayPin, _ := parseRelayPin(params.RelayAddr, params.RelayPin)
 	password := params.Password
 	isDirectP2P := params.Transport == "direct-p2p"
 	directPeerAddr := params.DirectPeerAddr
@@ -1226,7 +1258,7 @@ func (d *Daemon) makeReconnectFn(
 				if tokens := decodeTokenList(m.Value()); len(tokens) > 0 {
 					fn, err := dialRelayFuncMultiToken(
 						ctx, d.relayTimeout, relayAddr, password,
-						false, tokens,
+						relayPin, tokens,
 					)
 					if err == nil {
 						resumeOpts = append(
@@ -1484,6 +1516,8 @@ type relayTarget struct {
 	listeners *multiListener
 	addr      string
 	password  string
+	// pin is the relay's certificate fingerprint, or nil.
+	pin []byte
 }
 
 // currentRelayTarget returns the relay of the running relay server, and
@@ -1495,6 +1529,7 @@ func (d *Daemon) currentRelayTarget() (relayTarget, bool) {
 		listeners: d.relayListeners,
 		addr:      d.relayAddr,
 		password:  d.relayPassword,
+		pin:       d.relayPin,
 	}, d.relayListeners != nil
 }
 
@@ -1511,7 +1546,7 @@ func (d *Daemon) addRelayToken(
 	mode, peerPubB64, resumeOf string,
 ) (relayToken, string, error) {
 	listener, token, ttl, sessionTTL, err := listenRelayTracked(
-		d.ctx, d, target.addr, target.password, false, staticToken,
+		d.ctx, d, target.addr, target.password, target.pin, staticToken,
 	)
 	if err != nil {
 		return relayToken{}, "relay_listen_failed", err
@@ -1723,6 +1758,11 @@ func (d *Daemon) shareRelayInfo(
 	if target.password != "" {
 		urlStr += "&password=1"
 	}
+	var pin string
+	if target.pin != nil {
+		pin = hex.EncodeToString(target.pin)
+		urlStr += "&pin=" + pin
+	}
 	d.emit(EvtResponse, cmd.ID, MapA{
 		"url":                 urlStr,
 		"transport":           "relay",
@@ -1733,7 +1773,7 @@ func (d *Daemon) shareRelayInfo(
 		"fingerprint_numeric": fp.Numeric,
 		"relay_info": &relayShareInfo{
 			Address: host, Scheme: scheme, Token: rt.Token,
-			Password: target.password != "",
+			Password: target.password != "", Pin: pin,
 		},
 	})
 }
@@ -2010,12 +2050,14 @@ func detectLocalIP() (string, error) {
 	return "", fmt.Errorf("no non-loopback IPv4 address found")
 }
 
-// relayShareInfo is the share-info payload for relay transports.
+// relayShareInfo is the share-info payload for relay transports. Pin is
+// the relay's certificate fingerprint in hex, when the server pins it.
 type relayShareInfo struct {
 	Address  string `json:"address"`
 	Scheme   string `json:"scheme"`
 	Token    string `json:"token"`
 	Password bool   `json:"password"`
+	Pin      string `json:"pin,omitempty"`
 }
 
 // waitOrTimeout waits for ch or returns after channelTimeout.
@@ -2035,6 +2077,7 @@ func (d *Daemon) stopRelayResources() {
 	d.shareListener = nil
 	d.relayAddr = ""
 	d.relayPassword = ""
+	d.relayPin = nil
 	d.mu.Unlock()
 	if listeners != nil {
 		_ = listeners.Close()

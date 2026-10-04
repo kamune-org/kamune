@@ -30,8 +30,11 @@ type StartServerParams struct {
 	Addr      string `json:"addr"`
 	Transport string `json:"transport,omitempty"` // "tcp" (default), "udp", "relay"
 	RelayAddr string `json:"relay_addr,omitempty"`
-	Password  string `json:"password,omitempty"`
-	Name      string `json:"name,omitempty"`
+	// RelayPin is the SHA-256 fingerprint of the relay's certificate;
+	// see parseRelayPin.
+	RelayPin string `json:"relay_pin,omitempty"`
+	Password string `json:"password,omitempty"`
+	Name     string `json:"name,omitempty"`
 
 	BrokerAddr     string `json:"broker_addr,omitempty"`
 	PeerPubB64     string `json:"peer_pub_b64,omitempty"`
@@ -43,9 +46,12 @@ type DialParams struct {
 	Addr      string `json:"addr"`
 	Transport string `json:"transport,omitempty"` // "tcp" (default), "udp", "relay"
 	RelayAddr string `json:"relay_addr,omitempty"`
-	Token     string `json:"token,omitempty"`
-	Password  string `json:"password,omitempty"`
-	Name      string `json:"name,omitempty"`
+	// RelayPin is the SHA-256 fingerprint of the relay's certificate;
+	// see parseRelayPin.
+	RelayPin string `json:"relay_pin,omitempty"`
+	Token    string `json:"token,omitempty"`
+	Password string `json:"password,omitempty"`
+	Name     string `json:"name,omitempty"`
 
 	BrokerAddr     string `json:"broker_addr,omitempty"`
 	PeerPubB64     string `json:"peer_pub_b64,omitempty"`

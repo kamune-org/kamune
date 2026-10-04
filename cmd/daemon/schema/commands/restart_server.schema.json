@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-restart-server",
   "title": "restart_server params",
-  "description": "Stops the server, which closes all sessions, and starts it again with the last used params. Fails with server_not_started when no start_server has been accepted yet.",
+  "description": "Stops the server, which closes all sessions, and starts it again with the last used params, relay_pin included. Fails with server_not_started when no start_server has been accepted yet.",
   "type": "object",
   "properties": {},
   "additionalProperties": false

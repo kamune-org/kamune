@@ -1,8 +1,14 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
+	"math/big"
 	"net"
 	"slices"
 	"sync"
@@ -24,6 +30,9 @@ import (
 // connection closed.
 type fakeRelay struct {
 	ln net.Listener
+	// scheme is the scheme of the relay's address: tcp, or tls for a
+	// relay from newFakeTLSRelay.
+	scheme string
 	// ttl is the token TTL, in seconds, that the relay reports.
 	ttl atomic.Uint32
 	// wrongToken makes the relay answer a listener registration that
@@ -52,8 +61,39 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 	a := require.New(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	a.NoError(err)
+	return startFakeRelay(t, ln, "tcp")
+}
+
+// newFakeTLSRelay starts a fake relay that serves TLS with a self-signed
+// certificate, and returns it with the certificate in DER form.
+func newFakeTLSRelay(t *testing.T) (*fakeRelay, []byte) {
+	a := require.New(t)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	a.NoError(err)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "fake relay"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	a.NoError(err)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	ln = tls.NewListener(ln, &tls.Config{
+		Certificates: []tls.Certificate{{
+			Certificate: [][]byte{der}, PrivateKey: key,
+		}},
+	})
+	return startFakeRelay(t, ln, "tls"), der
+}
+
+// startFakeRelay serves a fake relay on ln, whose address has scheme.
+func startFakeRelay(t *testing.T, ln net.Listener, scheme string) *fakeRelay {
 	r := &fakeRelay{
 		ln:      ln,
+		scheme:  scheme,
 		waiting: make(map[string]*exchange.Channel),
 		conns:   make(map[string][]net.Conn),
 		changed: make(chan struct{}, 1),
@@ -64,7 +104,9 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 	return r
 }
 
-func (r *fakeRelay) addr() string { return "tcp://" + r.ln.Addr().String() }
+func (r *fakeRelay) addr() string {
+	return r.scheme + "://" + r.ln.Addr().String()
+}
 
 func (r *fakeRelay) serve() {
 	for {

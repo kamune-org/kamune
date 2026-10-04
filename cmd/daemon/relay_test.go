@@ -197,7 +197,7 @@ func TestRelayMultiTokenDialHasOneTimeLimit(t *testing.T) {
 	}
 
 	dial, err := dialRelayFuncMultiToken(
-		t.Context(), 200*time.Millisecond, relay.addr(), "", false, tokens,
+		t.Context(), 200*time.Millisecond, relay.addr(), "", nil, tokens,
 	)
 	a.NoError(err)
 	_, err = dial("")

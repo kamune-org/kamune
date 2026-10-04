@@ -150,14 +150,18 @@ type Daemon struct {
 	serverBoundAddr      string
 	serverTransport      string
 	serverRelayAddr      string
+	serverRelayPin       string
 	serverName           string
 	serverPassword       string
 	serverBrokerAddr     string
 	serverPeerPubB64     string
 	serverDirectPeerAddr string
 
-	relayAddr       string
-	relayPassword   string
+	relayAddr     string
+	relayPassword string
+	// relayPin is the certificate fingerprint that the running relay
+	// server's relay must have, or nil; see relayTLSConfig.
+	relayPin        []byte
 	relaySessionTTL time.Duration
 	relayTimeout    time.Duration
 	matchTimeout    time.Duration

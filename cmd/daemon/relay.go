@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -29,15 +30,65 @@ const defaultRelayResumeWindow = 10 * time.Minute
 
 func wrapRelayError(scheme, host string, password bool, err error) error {
 	var hint string
-	if strings.Contains(err.Error(), "received close frame") {
+	var unknown x509.UnknownAuthorityError
+	switch {
+	case strings.Contains(err.Error(), "received close frame"):
 		hint = "; relay closed the connection"
 		if password {
 			hint += " — wrong password?"
 		} else {
 			hint += " — try providing a password or check the token"
 		}
+	case errors.As(err, &unknown):
+		hint = "; no trusted authority vouches for the relay's " +
+			"certificate — pass its SHA-256 fingerprint in relay_pin"
 	}
 	return fmt.Errorf("%s://%s%s: %w", scheme, host, hint, err)
+}
+
+// errInvalidRelayPin is returned by parseRelayPin.
+var errInvalidRelayPin = errors.New("invalid relay_pin")
+
+// parseRelayPin parses pin, the SHA-256 fingerprint of the certificate
+// that the relay at relayAddr must have, as relayconn.ParseCertFingerprint
+// reads it: 64 hex digits, optionally separated by colons. An empty pin
+// gives nil. Only a wss or tls relay has a certificate to pin, and a
+// pinned relay cannot also turn certificate checks off with
+// ?insecure=true.
+func parseRelayPin(relayAddr, pin string) ([]byte, error) {
+	if strings.TrimSpace(pin) == "" {
+		return nil, nil
+	}
+	scheme, _, insecure := parseRelayAddr(relayAddr)
+	if scheme != "wss" && scheme != "tls" {
+		return nil, fmt.Errorf(
+			"%w: a %s relay has no certificate to pin; use wss:// or "+
+				"tls://", errInvalidRelayPin, scheme,
+		)
+	}
+	if insecure != nil && *insecure {
+		return nil, fmt.Errorf(
+			"%w: a pinned relay cannot use ?insecure=true",
+			errInvalidRelayPin,
+		)
+	}
+	fp, err := relayconn.ParseCertFingerprint(pin)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRelayPin, err)
+	}
+	return fp, nil
+}
+
+// relayTLSConfig returns the TLS config of a wss or tls relay. With pin,
+// the SHA-256 fingerprint of the relay's certificate, it trusts exactly
+// that certificate, in place of the checks against the system's roots
+// and the relay's name, which a self-signed certificate cannot pass.
+// Otherwise it checks the certificate, unless insecure is set.
+func relayTLSConfig(insecure bool, pin []byte) (*tls.Config, error) {
+	if pin != nil {
+		return relayconn.PinnedTLSConfig(pin)
+	}
+	return &tls.Config{InsecureSkipVerify: insecure}, nil
 }
 
 // relayExpirySlack is how long before its expiry a relay token's link may
@@ -203,11 +254,15 @@ func startExpiryTimer(t *tokenTracker) {
 
 // listenRelayTracked registers with the relay at relayAddr, for at most
 // a.relayTimeout, and returns a listener that tracks the token's expiry
-// and use.
-func listenRelayTracked(ctx context.Context, a *Daemon, relayAddr, password string, insecureSkipVerify bool, staticToken []byte) (kamune.Listener, string, time.Duration, time.Duration, error) {
+// and use. pin is the relay's certificate fingerprint; see relayTLSConfig.
+func listenRelayTracked(
+	ctx context.Context,
+	a *Daemon,
+	relayAddr, password string,
+	pin, staticToken []byte,
+) (kamune.Listener, string, time.Duration, time.Duration, error) {
 	listener, tokenHex, ttl, sessionTTL, err := listenRelay(
-		ctx, a.relayTimeout, relayAddr, password, insecureSkipVerify,
-		staticToken,
+		ctx, a.relayTimeout, relayAddr, password, pin, staticToken,
 	)
 	if err != nil {
 		return nil, "", 0, 0, err
@@ -295,12 +350,13 @@ func parseInsecureFlag(s string) (host string, override *bool) {
 }
 
 // listenRelay registers with the relay at relayAddr. Connecting and the
-// relay handshake end after timeout, or when ctx does.
+// relay handshake end after timeout, or when ctx does. pin is the relay's
+// certificate fingerprint, or nil; see relayTLSConfig.
 func listenRelay(
 	ctx context.Context,
 	timeout time.Duration,
 	relayAddr, password string,
-	insecureSkipVerify bool,
+	pin []byte,
 	staticToken []byte,
 ) (kamune.Listener, string, time.Duration, time.Duration, error) {
 	if strings.TrimSpace(relayAddr) == "" {
@@ -316,19 +372,21 @@ func listenRelay(
 	}
 
 	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
-	if insecureOverride != nil {
-		insecureSkipVerify = *insecureOverride
+	tlsCfg, err := relayTLSConfig(
+		insecureOverride != nil && *insecureOverride, pin,
+	)
+	if err != nil {
+		return nil, "", 0, 0, err
 	}
 
 	var result *relayconn.ListenResult
-	var err error
 	switch scheme {
 	case "tcp":
 		result, err = relayconn.ListenRelayTCP(ctx, host, opts...)
 	case "wss":
-		result, err = relayconn.ListenRelayWSS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+		result, err = relayconn.ListenRelayWSS(ctx, host, tlsCfg, opts...)
 	case "tls":
-		result, err = relayconn.ListenRelayTLS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+		result, err = relayconn.ListenRelayTLS(ctx, host, tlsCfg, opts...)
 	default:
 		result, err = relayconn.ListenRelay(ctx, host, opts...)
 	}
@@ -385,12 +443,13 @@ func registerSent(err error) bool {
 // dialRelayFuncMultiToken returns a dial function that tries each of the given
 // relay tokens in order, returning the first successful connection. All
 // the tries together end after timeout, or when ctx does, so a stalled
-// relay holds the dial for timeout however many tokens there are.
+// relay holds the dial for timeout however many tokens there are. pin is
+// the relay's certificate fingerprint, or nil; see relayTLSConfig.
 func dialRelayFuncMultiToken(
 	ctx context.Context,
 	timeout time.Duration,
 	relayAddr, password string,
-	insecureSkipVerify bool,
+	pin []byte,
 	tokens [][]byte,
 ) (func(string) (kamune.Conn, error), error) {
 	if strings.TrimSpace(relayAddr) == "" {
@@ -401,8 +460,11 @@ func dialRelayFuncMultiToken(
 	}
 
 	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
-	if insecureOverride != nil {
-		insecureSkipVerify = *insecureOverride
+	tlsCfg, err := relayTLSConfig(
+		insecureOverride != nil && *insecureOverride, pin,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	return func(addr string) (kamune.Conn, error) {
@@ -425,7 +487,6 @@ func dialRelayFuncMultiToken(
 			if password != "" {
 				opts = append(opts, relayconn.WithPassword(password))
 			}
-			tlsCfg := &tls.Config{InsecureSkipVerify: insecureSkipVerify}
 			switch scheme {
 			case "tcp":
 				conn, err = relayconn.DialRelayTCP(dctx, host, tok, opts...)
@@ -455,12 +516,13 @@ func dialRelayFuncMultiToken(
 // dialRelayFuncWithSessionTTL returns a dial function that joins the relay
 // session of tokenHex. Connecting and the relay handshake end after
 // timeout, or when ctx does. When sessionTTL is not nil, the dial
-// function stores the session TTL the relay reports in it.
+// function stores the session TTL the relay reports in it. pin is the
+// relay's certificate fingerprint, or nil; see relayTLSConfig.
 func dialRelayFuncWithSessionTTL(
 	ctx context.Context,
 	timeout time.Duration,
 	relayAddr, tokenHex, password string,
-	insecureSkipVerify bool,
+	pin []byte,
 	sessionTTL *time.Duration,
 ) (func(string) (kamune.Conn, error), error) {
 	if strings.TrimSpace(relayAddr) == "" {
@@ -476,8 +538,11 @@ func dialRelayFuncWithSessionTTL(
 	}
 
 	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
-	if insecureOverride != nil {
-		insecureSkipVerify = *insecureOverride
+	tlsCfg, err := relayTLSConfig(
+		insecureOverride != nil && *insecureOverride, pin,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	return func(addr string) (kamune.Conn, error) {
@@ -493,9 +558,13 @@ func dialRelayFuncWithSessionTTL(
 		case "tcp":
 			conn, err = relayconn.DialRelayTCP(ctx, host, token, opts...)
 		case "wss":
-			conn, err = relayconn.DialRelayWSS(ctx, host, token, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+			conn, err = relayconn.DialRelayWSS(
+				ctx, host, token, tlsCfg, opts...,
+			)
 		case "tls":
-			conn, err = relayconn.DialRelayTLS(ctx, host, token, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+			conn, err = relayconn.DialRelayTLS(
+				ctx, host, token, tlsCfg, opts...,
+			)
 		default:
 			conn, err = relayconn.DialRelay(ctx, host, token, opts...)
 		}
