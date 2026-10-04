@@ -14,6 +14,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/kamune-org/kamune/internal/clock"
+	"github.com/kamune-org/kamune/internal/engine"
 	"github.com/kamune-org/kamune/pkg/attest"
 )
 
@@ -864,19 +865,61 @@ func TestRemoveSessionToken_RejectsAlreadyRemovedToken(t *testing.T) {
 	a.ErrorIs(err, ErrNotFound)
 }
 
-func TestSetMetaCreatesMissingSession(t *testing.T) {
+// TestSetMetaDoesNotCreateSession checks that clearing the resumption
+// tokens of a session, as a transport does when it closes, does not bring
+// back a session that was deleted while it was live.
+func TestSetMetaDoesNotCreateSession(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(a *require.Assertions, s *Storage, id string)
+	}{
+		{"never stored", func(*require.Assertions, *Storage, string) {}},
+		{"deleted", func(a *require.Assertions, s *Storage, id string) {
+			tok := makeToken(0x01, 32)
+			a.NoError(s.PutSessionResumption(id, nil, [][]byte{tok}, true))
+			a.NoError(s.DeleteSession(id))
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			store, cleanup := newTestStorage(t)
+			defer cleanup()
+			tc.setup(a, store, "sess")
+
+			err := store.SetMeta(
+				"sess", NewByteSlicesMeta(ResumptionTokensKey, nil),
+			)
+			a.ErrorIs(err, ErrSessionNotFound)
+			// Transports clear the tokens with DeleteMeta, which must
+			// leave a missing session alone too.
+			err = store.DeleteMeta("sess", ResumptionTokensKey)
+			a.ErrorIs(err, engine.ErrMissingNamespace)
+			sessions, err := store.ListSessions()
+			a.NoError(err)
+			a.NotContains(sessions, "sess")
+		})
+	}
+}
+
+func TestSetMetaUpdatesExistingSession(t *testing.T) {
 	a := require.New(t)
 	store, cleanup := newTestStorage(t)
 	defer cleanup()
 
 	tok := makeToken(0x01, 32)
-	err := store.SetMeta(
-		"new-sess", NewByteSlicesMeta(ResumptionTokensKey, [][]byte{tok}),
-	)
+	a.NoError(store.PutSessionResumption("sess", nil, [][]byte{tok}, true))
+	a.NoError(store.SetMeta("sess", NewByteSlicesMeta(ResumptionTokensKey, nil)))
+	_, err := store.PopList("sess", ResumptionTokensKey)
+	a.ErrorIs(err, ErrNotFound)
+
+	relay := makeToken(0x02, 32)
+	a.NoError(store.SetMeta(
+		"sess", NewByteSlicesMeta(RelayTokensKey, [][]byte{relay}),
+	))
+	got, err := store.PopList("sess", RelayTokensKey)
 	a.NoError(err)
-	got, err := store.PopList("new-sess", ResumptionTokensKey)
-	a.NoError(err)
-	a.Equal(tok, got)
+	a.Equal(relay, got)
 }
 
 func TestPutSessionResumptionDoesNotResetEstablishedAt(t *testing.T) {

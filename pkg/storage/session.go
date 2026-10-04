@@ -118,12 +118,22 @@ func (s *Storage) GetMeta(sessionID, key string) (Meta, error) {
 	return NewBytesMeta(key, val), nil
 }
 
-// SetMeta writes a Meta's key-value pair into a session's meta namespace,
-// creating the session if it does not exist.
+// SetMeta writes a Meta's key-value pair into a session's meta namespace.
+// The session must exist: it is created by [Storage.CreateSession] or
+// [Storage.PutSessionResumption]. Otherwise SetMeta returns
+// [ErrSessionNotFound] and writes nothing, so that a write after
+// [Storage.DeleteSession], such as clearing the resumption tokens of a
+// session that closes later, does not bring the session back.
 func (s *Storage) SetMeta(sessionID string, m Meta) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
-		meta := sessionMetaEnsure(b, sessionID)
-		return meta.PutEncrypted(m.key, m.value)
+		meta := b.Sub([]byte(engine.SessionsNamespace)).
+			Sub([]byte(sessionID)).
+			Ensure([]byte("meta"))
+		err := meta.PutEncrypted(m.key, m.value)
+		if errors.Is(err, engine.ErrMissingNamespace) {
+			return ErrSessionNotFound
+		}
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("set session meta %s/%s: %w", sessionID, m.Key(), err)
