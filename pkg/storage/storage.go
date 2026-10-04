@@ -242,6 +242,9 @@ func (s *Storage) PublicKey() ([]byte, error) {
 	return at.MarshalPublicKey(), nil
 }
 
+// Attester returns the stored identity, creating and storing a new one
+// when there is none. Concurrent first calls all return the same stored
+// identity.
 func (s *Storage) Attester() (*attest.Attest, error) {
 	key := []byte("attest")
 	var id []byte
@@ -259,22 +262,33 @@ func (s *Storage) Attester() (*attest.Attest, error) {
 		return nil, fmt.Errorf("getting identity: %w", err)
 	}
 
-	at, err := attest.New()
-	if err != nil {
-		return nil, fmt.Errorf("new attest: %w", err)
-	}
-	data, err := at.MarshalPrivateKey()
-	if err != nil {
-		return nil, fmt.Errorf("marshalling private key: %w", err)
-	}
+	// Check again in the transaction that writes, so that a concurrent
+	// call that created the identity first is not overwritten.
+	var created *attest.Attest
 	err = s.engine.Command(func(b engine.Namespace) error {
-		return b.Ensure([]byte(engine.DefaultNamespace)).PutEncrypted(key, data)
+		ns := b.Ensure([]byte(engine.DefaultNamespace))
+		var err error
+		id, err = ns.GetEncrypted(key)
+		if !errors.Is(err, engine.ErrMissingItem) {
+			return err
+		}
+		created, err = attest.New()
+		if err != nil {
+			return fmt.Errorf("new attest: %w", err)
+		}
+		id, err = created.MarshalPrivateKey()
+		if err != nil {
+			return fmt.Errorf("marshalling private key: %w", err)
+		}
+		return ns.PutEncrypted(key, id)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("persisting generated attest: %w", err)
 	}
-
-	return at, nil
+	if created != nil {
+		return created, nil
+	}
+	return attest.Load(id)
 }
 
 // sessionChat returns the chat sub-namespace for a session.

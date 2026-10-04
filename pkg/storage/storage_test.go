@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,6 +39,48 @@ func newTestStorage(t *testing.T) (*Storage, func()) {
 		a.NoError(os.Remove(f.Name()))
 	}
 	return storage, cleanup
+}
+
+// TestAttesterConcurrentFirstCalls has several goroutines ask a fresh
+// database for its identity at once and checks they all get the one that
+// is stored.
+func TestAttesterConcurrentFirstCalls(t *testing.T) {
+	const callers = 16
+	for round := range 5 {
+		a := require.New(t)
+		s, err := OpenStorage(
+			WithDBPath(filepath.Join(t.TempDir(), "db")),
+			WithNoPassphrase(),
+		)
+		a.NoError(err)
+
+		var (
+			wg    sync.WaitGroup
+			start = make(chan struct{})
+			keys  = make([][]byte, callers)
+			errs  = make([]error, callers)
+		)
+		for i := range callers {
+			wg.Go(func() {
+				<-start
+				at, err := s.Attester()
+				errs[i] = err
+				if err == nil {
+					keys[i] = at.MarshalPublicKey()
+				}
+			})
+		}
+		close(start)
+		wg.Wait()
+
+		stored, err := s.PublicKey()
+		a.NoError(err)
+		for i := range callers {
+			a.NoError(errs[i])
+			a.Equal(stored, keys[i], "round %d caller %d", round, i)
+		}
+		a.NoError(s.Close())
+	}
 }
 
 // ---------------------------------------------------------------------------
