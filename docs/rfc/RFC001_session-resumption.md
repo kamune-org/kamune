@@ -39,11 +39,11 @@ reconnect.
 
 ## 3. Terminology
 
-| Term                  | Definition                                                                                          |
-| --------------------- | --------------------------------------------------------------------------------------------------- |
-| **Resumption Root**   | A per-session secret derived once at handshake completion, used solely to derive resumption tokens. |
-| **Resumption Token**  | A single-use 32-byte value derived from the Resumption Root; presented to authorize resumption.     |
-| **Resumption Window** | The time period after a session's establishment during which its tokens remain valid.               |
+| Term                  | Definition                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Resumption Root**   | A per-session secret derived once at handshake completion, used solely to derive resumption tokens.                 |
+| **Resumption Token**  | A single-use 32-byte value derived from the Resumption Root; presented to authorize resumption.                     |
+| **Resumption Window** | The time period after a session's cold handshake during which its tokens remain valid. Resuming does not extend it. |
 
 ## 4. Token Derivation
 
@@ -84,11 +84,15 @@ transmitted.
   set and derive a fresh set of `N` tokens from the new session's shared secret,
   per §4. This gives the token mechanism forward secrecy: a token stolen from
   session _k_ is worthless after session _k+1_'s handshake completes, since it
-  isn't derivable from the new shared secret.
+  isn't derivable from the new shared secret. The fresh set keeps the
+  session's original Resumption Window.
 - **Expiration.** A session's tokens become invalid after the Resumption
-  Window elapses from the session's `Established` timestamp, regardless of
-  how many tokens remain unused. A session with no unused tokens, or past its
-  window, is **unresumeable** — the peer must fall back to a full Introduction.
+  Window elapses from the session's cold handshake (`establishedAt`),
+  regardless of how many tokens remain unused. A resumption does not restart
+  the window, so a session needs a cold Introduction, with the remote
+  verifier, at least once per window. A session with no unused tokens, or past
+  its window, is **unresumeable** — the peer must fall back to a full
+  Introduction.
 
 ## 6. New Routes
 
@@ -125,7 +129,8 @@ On receiving `ResumeRequest`, the responder application:
 2. Deserializes the message as a `SignedTransport` and verifies the signature
    against the stored public key. If invalid, reject.
 3. Checks the resumption window hasn't elapsed. Tokens are valid for 24 hours
-   from the session's `establishedAt` timestamp. If expired, reject.
+   from the session's `establishedAt` timestamp, which records its cold
+   handshake; a resumption does not change it. If expired, reject.
 4. Checks `Token` is present in the unused token set for that session. If not
    found (already used, or never valid), reject.
 5. On success: marks the token used, sends `ResumeAccept{Accepted: true}`,
@@ -213,11 +218,11 @@ entities (§11.2). After Challenge Exchange, core writes unused tokens and
 with `PopList`; the responder consumes a presented token with
 `RemoveListItem`.
 
-| Field           | Type         | Notes                                   |
-| --------------- | ------------ | --------------------------------------- |
-| `sessionID`     | string       | Key for this record.                    |
-| `unusedTokens`  | set of bytes | Remaining single-use resumption tokens. |
-| `establishedAt` | timestamp    | Start of the resumption window.         |
+| Field           | Type         | Notes                                                                                  |
+| --------------- | ------------ | -------------------------------------------------------------------------------------- |
+| `sessionID`     | string       | Key for this record.                                                                   |
+| `unusedTokens`  | set of bytes | Remaining single-use resumption tokens.                                                |
+| `establishedAt` | timestamp    | Time of the cold handshake, which starts the resumption window. A resumption keeps it. |
 
 The `resumptionRoot` itself does not need to be stored — only the derived token
 set, since tokens are derived once at `Established` and never re-derived from
@@ -225,8 +230,9 @@ the root later. This limits exposure: a stored-data compromise reveals only the
 remaining unused tokens for sessions within their window, not a generator
 capable of producing tokens for future sessions.
 
-The resumption window is 24 hours from `establishedAt`. After that, the session
-is unresumeable and the peer must fall back to a full Introduction.
+The resumption window is 24 hours from `establishedAt`, however often the
+session is resumed. After that, the session is unresumeable and the peer must
+fall back to a full Introduction.
 
 ## 10. Security Considerations
 

@@ -110,7 +110,7 @@ disconnect from a network failure.
 | **Fingerprint**          | A human-readable representation of a public key (emoji, hex, base64, or pseudonym).                                                                                                                                                |
 | **Transcript Hash**      | A SHA-256 hash over the inner handshake field values, bound into challenge derivation to prevent replay and downgrade attacks.                                                                                                     |
 | **Resumption Token**     | A single-use, 32-byte cryptographic value derived from the session's shared secret, presented by the initiator to authorize session resumption without repeating the Introduction phase.                                           |
-| **Resumption Window**    | The 24-hour period after a session is established during which its resumption tokens remain valid.                                                                                                                                 |
+| **Resumption Window**    | The 24-hour period after a session's cold handshake during which its resumption tokens remain valid. Resuming the session does not extend it.                                                                                      |
 | **Resumption Root**      | A secret derived once at session establishment from the shared secret and session ID, used solely to derive the resumption token set. Never exposed to the application.                                                            |
 
 ---
@@ -876,12 +876,16 @@ Initiator                                   Responder
   reaches `Established`), both peers discard the entire previous token set and
   derive a fresh set from the new session's shared secret (§7.6). A token stolen
   from session _k_ is worthless after session _k+1_'s handshake completes, since
-  it is not derivable from the new shared secret.
+  it is not derivable from the new shared secret. The fresh set keeps the
+  session's original resumption window.
 - **Expiration.** A session's tokens become invalid after the resumption window
-  (24 hours) elapses from the session's `Established` timestamp, regardless of
-  how many tokens remain unused. A session with no unused tokens or past its
-  window is **unresumeable** — the initiator must fall back to a full
-  Introduction.
+  (24 hours) elapses from the session's cold handshake, the time at which a
+  cold Introduction and Handshake first established it (stored as
+  `established_at`), regardless of how many tokens remain unused. A resumption
+  does not restart the window, so the initiator must run a cold Introduction,
+  and with it the remote verifier, at least once every 24 hours. A session with
+  no unused tokens or past its window is **unresumeable** — the initiator must
+  fall back to a full Introduction.
 - **Invalidation on explicit close.** Tokens are cleared when the session is
   intentionally closed (§6.6) or ends on a received frame that cannot be
   processed (§14). Involuntary disconnections (network failure, crash, relay
@@ -924,8 +928,8 @@ On receiving a resume request, the responder:
    rejected.
 2. Verifies the signature against the stored public key of the initiator. If
    invalid, the request is rejected and the connection is terminated.
-3. Checks the resumption window has not elapsed. If expired, the request is
-   rejected.
+3. Checks that the resumption window, counted from the session's cold
+   handshake, has not elapsed. If expired, the request is rejected.
 4. Checks the presented token is present in the session's unused token set. If
    not found (already used, or never valid), the request is rejected.
 5. On success: marks the token used, sends a resume-accept with
@@ -1626,7 +1630,7 @@ is one of `frameTargetSize` − 1 bytes, which no user message reaches (§4.1).
 | `sessionSuffixLength`      | 12 characters                          | Length of the session-ID suffix emitted by the responder                                                                |
 | `handshakeTimeout`         | 30 seconds                             | Maximum time for the complete handshake                                                                                 |
 | `pingDataSize`             | 8 bytes                                | Size of the random token in each ping message                                                                           |
-| `resumptionGracePeriod`    | 24 hours                               | Time window after session establishment during which resumption tokens are valid                                        |
+| `resumptionGracePeriod`    | 24 hours                               | Time window after a session's cold handshake during which its resumption tokens are valid; resuming does not extend it  |
 | `resumptionTokenCount`     | 20                                     | Number of resumption tokens derived per session                                                                         |
 | `resumptionTokenSize`      | 32 bytes                               | Size of each resumption token (HKDF-SHA512 output)                                                                      |
 
