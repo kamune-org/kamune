@@ -703,3 +703,38 @@ func newTransportTestStorage(t *testing.T) *storage.Storage {
 	})
 	return store
 }
+
+func TestTransportCloseDoesNotRecreateSession(t *testing.T) {
+	cases := []struct {
+		setup func(a *require.Assertions, store *storage.Storage, id string)
+		name  string
+	}{
+		{
+			name:  "never stored",
+			setup: func(*require.Assertions, *storage.Storage, string) {},
+		},
+		{
+			name: "deleted while open",
+			setup: func(a *require.Assertions, store *storage.Storage, id string) {
+				a.NoError(store.PutSessionResumption(
+					id, nil, [][]byte{bytes.Repeat([]byte{0x33}, 32)}, true,
+				))
+				a.NoError(store.DeleteSession(id))
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			store := newTransportTestStorage(t)
+			tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
+			tr.storage = store
+			tc.setup(a, store, tr.sessionID)
+
+			a.NoError(tr.Close())
+			sessions, err := store.ListSessions()
+			a.NoError(err)
+			a.Empty(sessions)
+		})
+	}
+}

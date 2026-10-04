@@ -14,6 +14,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/kamune-org/kamune/internal/engine"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -288,15 +289,15 @@ func (t *Transport) checkRoute(route Route) error {
 	return nil
 }
 
+// invalidateResumptionTokens deletes the session's stored resumption tokens.
+// It never creates the session: when the session is not in storage, for
+// example because the user deleted it, there is nothing to invalidate.
 func (t *Transport) invalidateResumptionTokens() {
 	if t.storage == nil || t.sessionID == "" {
 		return
 	}
-	err := t.storage.SetMeta(
-		t.sessionID,
-		storage.NewByteSlicesMeta(storage.ResumptionTokensKey, nil),
-	)
-	if err != nil {
+	err := t.storage.DeleteMeta(t.sessionID, storage.ResumptionTokensKey)
+	if err != nil && !errors.Is(err, engine.ErrMissingNamespace) {
 		slog.Error(
 			"invalidate resumption tokens", slog.Any("error", err),
 		)
