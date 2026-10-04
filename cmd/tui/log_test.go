@@ -89,7 +89,9 @@ func TestHandleChatMessage_ReportsUnsavedMessage(t *testing.T) {
 	a := require.New(t)
 	m := newTestModel()
 	m.state = stateChat
-	m.transport = dialPipe(t, func(*kamune.Transport) error { return nil })
+	m.sess = newChatSession(
+		dialPipe(t, func(*kamune.Transport) error { return nil }),
+	)
 	m.store = openTestStore(t)
 	a.NoError(m.store.Close())
 

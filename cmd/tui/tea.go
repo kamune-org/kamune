@@ -201,15 +201,11 @@ type model struct {
 	promptTimeout time.Duration
 
 	// Chat
-	transport     *kamune.Transport
-	pingFailures  int
-	lastPongAt    time.Time
-	pongCh        chan []byte
-	keepAliveDone chan struct{}
-	vp            viewport.Model
-	ta            textarea.Model
-	messages      []chatLine
-	versionWarn   string
+	sess        *chatSession
+	vp          viewport.Model
+	ta          textarea.Model
+	messages    []chatLine
+	versionWarn string
 
 	// History
 	sessions    []storage.SessionSummary
@@ -225,6 +221,31 @@ type model struct {
 	s styles
 }
 
+// chatSession is the state of a chat that the goroutines serving it
+// share. They get it as an argument and never read the model, which only
+// Update may touch.
+type chatSession struct {
+	t *kamune.Transport
+	// stop is closed when the chat ends.
+	stop   chan struct{}
+	pongCh chan []byte
+}
+
+func newChatSession(t *kamune.Transport) *chatSession {
+	return &chatSession{
+		t:      t,
+		stop:   make(chan struct{}),
+		pongCh: make(chan []byte, 1),
+	}
+}
+
+// end stops the goroutines of the session and closes its transport.
+// Transport.Close waits a few seconds at most for the close frame.
+func (s *chatSession) end() {
+	close(s.stop)
+	_ = s.t.Close()
+}
+
 func (m *model) Init() tea.Cmd {
 	return textinput.Blink
 }
@@ -232,11 +253,10 @@ func (m *model) Init() tea.Cmd {
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case connectedMsg:
-		m.transport = msg.transport
 		if msg.sessionTTL > 0 {
 			m.relaySessionTTL = msg.sessionTTL
 		}
-		return m.enterChat()
+		return m.enterChat(msg.transport)
 	case connectFailedMsg:
 		if m.state != stateConnecting {
 			return m, nil
@@ -533,8 +553,9 @@ func tickCountdown() tea.Cmd {
 	})
 }
 
-func (m *model) enterChat() (tea.Model, tea.Cmd) {
+func (m *model) enterChat(t *kamune.Transport) (tea.Model, tea.Cmd) {
 	m.state = stateChat
+	m.sess = newChatSession(t)
 	if m.mode == modeDirectServe && m.srv != nil {
 		// The TUI shows one chat at a time, so stop taking peers: a
 		// handshake that reached the server now would wait for a prompt
@@ -548,11 +569,11 @@ func (m *model) enterChat() (tea.Model, tea.Cmd) {
 		m.sessionExpiry = time.Now().Add(m.relaySessionTTL)
 	}
 
-	if peer := m.transport.RemotePeer(); peer != nil {
-		err := m.store.CreateSession(m.transport.SessionID(), peer.PublicKey)
+	if peer := t.RemotePeer(); peer != nil {
+		err := m.store.CreateSession(t.SessionID(), peer.PublicKey)
 		if err != nil {
 			slog.Warn("failed to create session record",
-				slog.String("session_id", m.transport.SessionID()),
+				slog.String("session_id", t.SessionID()),
 				slog.Any("error", err),
 			)
 		}
@@ -600,37 +621,40 @@ func (m *model) enterChat() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.vp = vp
-	m.vp.SetContent("Session ID is " + m.transport.SessionID() + ". Loading history…")
+	m.vp.SetContent("Session ID is " + t.SessionID() + ". Loading history…")
 
-	m.pongCh = make(chan []byte, 1)
-	m.startReceiving()
-	m.keepAliveDone = make(chan struct{})
-	go m.keepAliveLoop()
+	go receiveLoop(m.sess.t, m.sess.pongCh, m.send)
+	go keepAliveLoop(m.sess, m.send)
+	load := loadChatHistory(m.store, t.SessionID(), m.s)
 	if !m.sessionExpiry.IsZero() {
-		return m, tea.Batch(loadChatHistory(m), tickCountdown())
+		return m, tea.Batch(load, tickCountdown())
 	}
-	return m, loadChatHistory(m)
+	return m, load
 }
 
-func loadChatHistory(m *model) tea.Cmd {
+// loadChatHistory returns a command that reads the history of the session
+// sid. It runs on a goroutine of its own, so it gets what it needs as
+// arguments rather than reading the model.
+func loadChatHistory(
+	store *storage.Storage, sid string, s styles,
+) tea.Cmd {
 	return func() tea.Msg {
-		entries, err := m.store.GetChatHistory(m.transport.SessionID())
+		entries, err := store.GetChatHistory(sid)
 		if err != nil {
 			slog.Warn("failed to load chat history",
-				slog.String("session_id", m.transport.SessionID()),
+				slog.String("session_id", sid),
 				slog.Any("error", err),
 			)
 			return historyLoadedMsg{messages: []chatLine{noticeLine(
-				m.s.err, "Could not load chat history: "+err.Error(),
+				s.err, "Could not load chat history: "+err.Error(),
 			)}}
 		}
-		sid := m.transport.SessionID()
 		header := "Session ID is " + sid + ". Happy Chatting!"
 		if len(entries) > 0 {
 			header = fmt.Sprintf("Session ID is %s. Restored %d message(s). Happy Chatting!",
 				sid, len(entries))
 		}
-		msgs := []chatLine{noticeLine(m.s.muted, header)}
+		msgs := []chatLine{noticeLine(s.muted, header)}
 		for _, ent := range entries {
 			msgs = append(msgs,
 				messageLine(ent.Sender, ent.Timestamp, string(ent.Data)),
@@ -638,10 +662,6 @@ func loadChatHistory(m *model) tea.Cmd {
 		}
 		return historyLoadedMsg{messages: msgs}
 	}
-}
-
-func (m *model) startReceiving() {
-	go receiveLoop(m.transport, m.pongCh, m.send)
 }
 
 // receiveLoop reads frames from t and passes what they mean to send until
@@ -700,27 +720,28 @@ func receiveLoop(
 	}
 }
 
-// keepAliveLoop sends periodic pings to detect dead connections. After
-// 3 consecutive failures, the peer is considered unresponsive.
-func (m *model) keepAliveLoop() {
+// keepAliveLoop sends periodic pings to detect dead connections until
+// the session stops. After 3 consecutive failures, the peer is considered
+// unresponsive.
+func keepAliveLoop(sess *chatSession, send func(tea.Msg)) {
 	const pingTimeout = 10 * time.Second
-	defer close(m.keepAliveDone)
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
+	var failures int
 	for {
 		select {
-		case <-m.doneCh:
+		case <-sess.stop:
 			return
 		case <-ticker.C:
-			if err := tuiSendPing(m.transport, m.pongCh, pingTimeout); err != nil {
-				m.pingFailures++
-				if m.pingFailures >= 3 {
-					m.send(peerDisconnectedMsg{})
-					return
-				}
-			} else {
-				m.pingFailures = 0
-				m.lastPongAt = time.Now()
+			err := tuiSendPing(sess.t, sess.pongCh, pingTimeout)
+			if err == nil {
+				failures = 0
+				continue
+			}
+			failures++
+			if failures >= 3 {
+				send(peerDisconnectedMsg{})
+				return
 			}
 		}
 	}
@@ -758,13 +779,13 @@ func (m *model) handleChatMessage(msg chatMessageMsg) *model {
 	)
 	if m.store != nil {
 		if err := m.store.AddChatEntry(
-			m.transport.SessionID(),
+			m.sess.t.SessionID(),
 			[]byte(msg.text),
 			msg.time,
 			storage.SenderPeer,
 		); err != nil {
 			slog.Error("failed to persist received chat entry",
-				slog.String("session_id", m.transport.SessionID()),
+				slog.String("session_id", m.sess.t.SessionID()),
 				slog.Any("error", err),
 			)
 			m.messages = append(m.messages, notSavedLine(m.s, err))
@@ -795,17 +816,15 @@ func (m *model) cleanup() {
 		m.connCancel()
 		m.connCancel = nil
 	}
+	if m.sess != nil {
+		m.sess.end()
+		m.sess = nil
+	}
 	if m.doneCh != nil {
+		// Only now that the transport has sent its close frame may the
+		// server handler return, which closes the connection.
 		close(m.doneCh)
 		m.doneCh = nil
-	}
-	if m.keepAliveDone != nil {
-		<-m.keepAliveDone
-		m.keepAliveDone = nil
-	}
-	if m.transport != nil {
-		m.transport.Close()
-		m.transport = nil
 	}
 	if m.srv != nil {
 		m.srv.Close()

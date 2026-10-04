@@ -43,7 +43,7 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if strings.TrimSpace(text) == "" {
 				return m, tiCmd
 			}
-			metadata, err := m.transport.Send(
+			metadata, err := m.sess.t.Send(
 				kamune.Bytes([]byte(text)), kamune.RouteExchangeMessages,
 			)
 			if err != nil {
@@ -57,13 +57,13 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 				storage.SenderLocal, metadata.Timestamp(), text,
 			))
 			if err := m.store.AddChatEntry(
-				m.transport.SessionID(),
+				m.sess.t.SessionID(),
 				[]byte(text),
 				metadata.Timestamp(),
 				storage.SenderLocal,
 			); err != nil {
 				slog.Error("failed to persist sent chat entry",
-					slog.String("session_id", m.transport.SessionID()),
+					slog.String("session_id", m.sess.t.SessionID()),
 					slog.Any("error", err),
 				)
 				m.messages = append(m.messages, notSavedLine(m.s, err))
