@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -288,4 +290,41 @@ func TestLogEntryInfo(t *testing.T) {
 
 	a.Equal("INFO", entry.Level)
 	a.Equal("test log", entry.Message)
+}
+
+// TestWriteLogFile checks that exported logs are written readable by
+// their owner only, also over an existing file that others could read.
+func TestWriteLogFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix file modes")
+	}
+	entries := []LogEntryInfo{
+		{Timestamp: time.Unix(0, 0).UTC(), Level: "INFO", Message: "one"},
+		{Timestamp: time.Unix(60, 0).UTC(), Level: "WARN", Message: "two"},
+	}
+	tests := []struct {
+		name     string
+		existing bool
+	}{
+		{name: "new file"},
+		{name: "existing file", existing: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			path := filepath.Join(t.TempDir(), "logs.txt")
+			if tt.existing {
+				a.NoError(os.WriteFile(path, []byte("old text"), 0o644))
+				a.NoError(os.Chmod(path, 0o644))
+			}
+			a.NoError(writeLogFile(path, entries))
+			info, err := os.Stat(path)
+			a.NoError(err)
+			a.Equal(os.FileMode(0o600), info.Mode().Perm())
+			data, err := os.ReadFile(path)
+			a.NoError(err)
+			a.Equal("1970-01-01T00:00:00Z [INFO] one\n"+
+				"1970-01-01T00:01:00Z [WARN] two\n", string(data))
+		})
+	}
 }

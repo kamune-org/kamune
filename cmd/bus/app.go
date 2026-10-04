@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -1803,22 +1804,38 @@ func (a *App) ExportLogsToFile() error {
 	}
 
 	go func() {
-		f, err := os.Create(filePath)
-		if err != nil {
-			a.addLogEntry("ERROR", "Export logs: create file: "+err.Error())
-			return
-		}
-		defer f.Close()
-
-		for _, e := range entries {
-			if _, err := fmt.Fprintf(f, "%s [%s] %s\n", e.Timestamp.Format(time.RFC3339), e.Level, e.Message); err != nil {
-				a.addLogEntry("ERROR", "Export logs: write: "+err.Error())
-				return
-			}
+		if err := writeLogFile(filePath, entries); err != nil {
+			a.addLogEntry("ERROR", "Export logs: "+err.Error())
 		}
 	}()
 
 	return nil
+}
+
+// writeLogFile writes entries to the file at path, one line each. The
+// logs can name peers, sessions and addresses, so the file is readable
+// by its owner only, also when it replaces an existing file.
+func writeLogFile(path string, entries []LogEntryInfo) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+	defer f.Close()
+	if err := f.Chmod(0o600); err != nil {
+		return fmt.Errorf("restrict file: %w", err)
+	}
+	w := bufio.NewWriter(f)
+	for _, e := range entries {
+		_, err := fmt.Fprintf(w, "%s [%s] %s\n",
+			e.Timestamp.Format(time.RFC3339), e.Level, e.Message)
+		if err != nil {
+			return fmt.Errorf("write: %w", err)
+		}
+	}
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+	return f.Close()
 }
 
 func (a *App) GetLogLevel() string {
