@@ -803,21 +803,22 @@ protocol is asymmetric:
 
 ```
 Listener: MODE_CREATE(tokens[1]) → session created     (tokens[0] consumed earlier)
-Dialer:   MODE_JOIN(tokens[0])   → ErrTokenNotFound
+Dialer:   MODE_JOIN(tokens[0])   → connection closed (no such session)
           MODE_JOIN(tokens[1])   → matched → connected
 ```
 
-Each missed `MODE_JOIN` is a fast error response (no session exists for that
-token) — at most 3 cheap relay round-trips. This eliminates the coordination
-problem: the listener picks one token, the dialer searches all of them. No
-shared counter or index agreement is needed.
+The relay answers a missed `MODE_JOIN` by closing the connection, so each try
+costs the dialer a new connection and an HPKE exchange and counts against its
+rate limit (see [Rate Limiting](#rate-limiting)); the search takes at most 3
+tries. This eliminates the coordination problem: the listener picks one token,
+the dialer searches all of them. No shared counter or index agreement is needed.
 
 **Why 3 tokens (not 1 or 10):** A single token offers no retry margin — if the
 first reconnection attempt fails (network error, timing race), the session must
 cold-start. A pool of 10 wastes entropy and storage. Three tokens give the peers
-3 attempts to reconnect before pool exhaustion, with the relay's existing per-IP
-rate limiter (20 connections/min) limiting how fast an attacker could probe
-tokens during the rare cold-start recovery path.
+3 attempts to reconnect before pool exhaustion, with the relay's per-address
+rate limiter (20 connections a minute by default) limiting how fast an attacker
+could probe tokens during the rare cold-start recovery path.
 
 ### Lifecycle
 
