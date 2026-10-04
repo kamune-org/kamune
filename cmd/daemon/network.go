@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -634,19 +633,22 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 			)
 			return
 		}
-		tokenBytes, err := hex.DecodeString(params.P2PToken)
+		tokenBytes, err := parseP2PToken(params.P2PToken)
 		if err != nil {
-			d.emitError(
-				cmd.ID,
-				"invalid_p2p_token",
-				fmt.Sprintf("decode p2p token: %v", err),
-			)
+			d.emitError(cmd.ID, "invalid_p2p_token", err.Error())
 			return
 		}
+		matchCtx, matchCancel := context.WithTimeout(ctx, d.matchTimeout)
 		punchConn, payload, err := broker.WaitMatch(
-			ctx, params.BrokerAddr, tokenBytes,
+			matchCtx, params.BrokerAddr, tokenBytes,
 		)
+		matchCancel()
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				err = fmt.Errorf(
+					"no peer matched the token within %v", d.matchTimeout,
+				)
+			}
 			d.emitError(cmd.ID, "p2p_match_failed", fmt.Sprintf("wait match: %v", err))
 			return
 		}
@@ -655,6 +657,7 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 			payload.IP, payload.Port, DefaultHolePunchTimeout,
 		)
 		if err != nil {
+			punchConn.Close()
 			d.emitError(cmd.ID, "hole_punch_failed", fmt.Sprintf("hole punch: %v", err))
 			return
 		}

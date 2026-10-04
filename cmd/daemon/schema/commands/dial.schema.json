@@ -13,7 +13,7 @@
     "name":              { "type": "string", "description": "Client display name." },
     "broker_addr":       { "type": "string", "description": "Broker address for P2P relay." },
     "peer_pub_b64":      { "type": "string", "description": "Base64-encoded public key of the target peer." },
-    "p2p_token":         { "type": "string", "description": "Hex-encoded P2P token from the server." },
+    "p2p_token":         { "type": "string", "description": "Hex-encoded P2P token from the server: 32 hex characters for a token the broker assigned, 64 for a static token. Required when transport is \"p2p\". The dial waits at most 30 seconds for the broker to match it with the server." },
     "direct_peer_addr":  { "type": "string", "description": "Direct peer address for transport \"direct-p2p\"." }
   },
   "required": ["addr"]

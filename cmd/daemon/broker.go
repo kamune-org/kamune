@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
@@ -23,7 +22,15 @@ var echoRequest = []byte{'K', 'B', 'R', 'K', 0x01, 0x01}
 
 var ErrHolePunchFailed = errors.New("hole-punch failed")
 
-const DefaultHolePunchTimeout = 5 * time.Second
+// errNoMatchToken is returned by WaitMatch for an empty token, which no
+// PEER_MATCHED can match.
+var errNoMatchToken = errors.New("a p2p token is required to match a peer")
+
+const (
+	DefaultHolePunchTimeout = 5 * time.Second
+	// echoTimeout bounds the wait for the broker's STUN_ECHO reply.
+	echoTimeout = 2 * time.Second
+)
 
 type BrokerClient struct {
 	key *ecdh.PrivateKey
@@ -63,9 +70,15 @@ func (b *BrokerClient) Client(brokerAddr string) (*relaybroker.Client, error) {
 	return c, nil
 }
 
+// WaitMatch registers token with the broker from a new punch socket and
+// waits, until ctx ends, for the broker's PEER_MATCHED for it. It returns
+// the punch socket, to punch to the matched peer from, and the match.
 func (b *BrokerClient) WaitMatch(
 	ctx context.Context, brokerAddr string, token []byte,
 ) (*net.UDPConn, relaybroker.Payload, error) {
+	if len(token) == 0 {
+		return nil, relaybroker.Payload{}, errNoMatchToken
+	}
 	punchConn, err := net.ListenUDP(
 		"udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0},
 	)
@@ -142,7 +155,8 @@ func (b *BrokerClient) WaitMatch(
 			continue
 		}
 		if payload.Type == relaybroker.NotifyPeerMatched {
-			if len(token) > 0 && !bytes.Equal(payload.Token, token) {
+			// The broker echoes the token's 16-byte wire form.
+			if !relaybroker.TokenMatches(payload.Token, token) {
 				continue
 			}
 			_ = punchConn.SetReadDeadline(time.Time{})
@@ -151,12 +165,15 @@ func (b *BrokerClient) WaitMatch(
 	}
 }
 
+// echoFrom sends a STUN_ECHO from conn and returns the address the broker
+// sees for conn. It waits for the reply for at most echoTimeout, and not
+// past ctx's deadline.
 func (b *BrokerClient) echoFrom(
 	ctx context.Context, conn *net.UDPConn, brokerAddr *net.UDPAddr,
 ) (net.IP, uint16, error) {
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		deadline = time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(echoTimeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
 	}
 	if err := conn.SetDeadline(deadline); err != nil {
 		return nil, 0, fmt.Errorf("set deadline: %w", err)

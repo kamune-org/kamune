@@ -14,10 +14,35 @@ import (
 
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/relayconn"
+	relaybroker "github.com/kamune-org/kamune/pkg/relayconn/broker"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-const p2pTokenRefreshInterval = 30 * time.Second
+const (
+	p2pTokenRefreshInterval = 30 * time.Second
+	// defaultMatchTimeout bounds how long a p2p dial waits for the
+	// broker to match its token with the server's.
+	defaultMatchTimeout = 30 * time.Second
+)
+
+// errInvalidP2PToken is returned by parseP2PToken.
+var errInvalidP2PToken = errors.New(
+	"p2p_token must be 32 or 64 hex characters",
+)
+
+// parseP2PToken decodes a p2p token given to dial: a random token the
+// broker assigned (16 bytes) or a static one derived from two peers'
+// keys (32 bytes), in hex.
+func parseP2PToken(s string) ([]byte, error) {
+	token, err := hex.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidP2PToken, err)
+	}
+	if len(token) != relaybroker.TokenSize && len(token) != 32 {
+		return nil, errInvalidP2PToken
+	}
+	return token, nil
+}
 
 type p2pToken struct {
 	Token      string             `json:"token"`
