@@ -258,7 +258,7 @@ func handleRelayConn(
 
 	case pb.Register_MODE_JOIN:
 		if len(token) == 0 {
-			slog.Warn(
+			slog.Debug(
 				"relay: join without token",
 				slog.String("remote", remoteAddr),
 			)
@@ -273,7 +273,7 @@ func handleRelayConn(
 		sentToken = token
 
 	default: // MODE_UNSPECIFIED
-		slog.Warn(
+		slog.Debug(
 			"relay: unspecified register mode",
 			slog.String("remote", remoteAddr),
 		)
@@ -310,7 +310,10 @@ func handleRelayConn(
 	}
 	_ = ch.SetDeadline(time.Time{})
 
-	slog.Info("relay: peer registered",
+	// Debug only: a listener's line and its dialer's, close together,
+	// would tell anyone who reads the log which addresses talked to
+	// each other, the record the relay is meant not to keep.
+	slog.Debug("relay: peer registered",
 		slog.String("remote", remoteAddr),
 		slog.Bool("listener", mode == pb.Register_MODE_CREATE),
 	)
