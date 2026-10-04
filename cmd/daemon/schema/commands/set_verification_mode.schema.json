@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-set-verification-mode",
   "title": "set_verification_mode params",
-  "description": "Sets the peer verification mode. 0=Strict, 1=Quick, 2=AutoAccept.",
+  "description": "Sets the peer verification mode. 0=Strict, 1=Quick, 2=AutoAccept. The mode applies to the next peer verified, by a running server too; the server is not restarted, and live sessions and relay tokens are kept.",
   "type": "object",
   "properties": {
     "mode": { "type": "integer", "enum": [0, 1, 2] }

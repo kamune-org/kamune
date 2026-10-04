@@ -487,9 +487,8 @@ func (d *Daemon) stopServer() {
 	}
 }
 
-// handleRestartServer stops the server and starts it again with the last used
-// params. Used after set_verification_mode to apply the new mode to incoming
-// server connections.
+// handleRestartServer stops the server, which closes all sessions, and
+// starts it again with the last used params.
 func (d *Daemon) handleRestartServer(cmd Command) {
 	d.mu.RLock()
 	addr := d.serverAddr

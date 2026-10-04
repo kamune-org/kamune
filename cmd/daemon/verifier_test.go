@@ -305,3 +305,67 @@ func TestVerificationRestoresTheLatestStatus(t *testing.T) {
 	a.Equal(StatusConnected, s)
 	a.Equal("Connected to first", msg)
 }
+
+// set_verification_mode applies to a running server without restarting
+// it: the live sessions, incoming and dialed, stay open, and the next
+// peer that connects is verified in the new mode.
+func TestSetVerificationModeKeepsSessions(t *testing.T) {
+	a := require.New(t)
+	server, serverRec := newTestDaemon(t, VerificationModeQuick, false)
+	client, clientRec := newTestDaemon(t, VerificationModeQuick, false)
+	trustPeer(t, server, client)
+	trustPeer(t, client, server)
+
+	addr := startTestServer(t, server, serverRec)
+	id := dialTestServer(t, client, clientRec, addr)
+	waitForSession(t, server, id)
+
+	server.handleSetVerificationMode(Command{
+		ID: "mode",
+		Params: mustJSON(SetVerificationModeParams{
+			Mode: int(VerificationModeStrict),
+		}),
+	})
+	evt := serverRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "mode"
+	})
+	a.Equal(EvtResponse, evt.Evt, "set_verification_mode: %v", evt.Data)
+
+	server.mu.RLock()
+	_, live := server.sessions[id]
+	running := server.server != nil
+	server.mu.RUnlock()
+	a.True(live, "the server closed its session")
+	a.True(running, "the server stopped")
+	serverRec.mu.Lock()
+	for _, e := range serverRec.events {
+		a.NotEqual(EvtServerStopped, e.Evt, "the server was restarted")
+	}
+	serverRec.mu.Unlock()
+
+	// Strict mode asks about a known peer too.
+	client.handleDial(Command{
+		ID: "dial2", Params: mustJSON(DialParams{Addr: addr}),
+	})
+	evt = serverRec.waitFor(t, isEvent(EvtVerifyPeer))
+	a.Equal("strict", evt.Data["mode"])
+	a.Equal(true, evt.Data["known"])
+	reqID, ok := evt.Data["request_id"].(float64)
+	a.True(ok)
+	server.handleVerifyResponse(Command{
+		ID: "accept",
+		Params: mustJSON(VerifyResponseParams{
+			RequestID: int64(reqID), Accepted: true,
+		}),
+	})
+	evt = clientRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "dial2" &&
+			(e.Evt == EvtSessionStarted || e.Evt == EvtError)
+	})
+	a.Equal(EvtSessionStarted, evt.Evt, "dial failed: %v", evt.Data)
+
+	client.mu.RLock()
+	_, live = client.sessions[id]
+	client.mu.RUnlock()
+	a.True(live, "the first session was closed")
+}

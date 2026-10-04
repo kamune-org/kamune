@@ -49,20 +49,27 @@ type pendingVerification struct {
 
 // inboundVerifier returns the verifier for peers that connect to the
 // server. Anyone who can reach the server can open its prompts, so it
-// limits them: see beginVerification.
+// limits them: see beginVerification. It verifies each peer in the mode
+// in effect then, so set_verification_mode applies to a running server
+// without a restart.
 func (d *Daemon) inboundVerifier() kamune.RemoteVerifier {
-	return d.getVerifier(true)
+	return func(store *storage.Storage, peer *storage.Peer) error {
+		return d.getVerifier(true)(store, peer)
+	}
 }
 
 // outboundVerifier returns the verifier for peers the user dials, by the
 // dial command or a reconnect. These are never rejected for the prompts
 // that inbound peers hold open, so a flood of inbound connections cannot
-// stop the user from reaching a peer.
+// stop the user from reaching a peer. Like inboundVerifier, it verifies
+// each peer in the mode in effect then.
 func (d *Daemon) outboundVerifier() kamune.RemoteVerifier {
-	return d.getVerifier(false)
+	return func(store *storage.Storage, peer *storage.Peer) error {
+		return d.getVerifier(false)(store, peer)
+	}
 }
 
-// getVerifier returns a kamune.RemoteVerifier based on the current mode. An
+// getVerifier returns a kamune.RemoteVerifier for the current mode. An
 // unknown mode gets the Strict verifier. inbound tells whether it checks
 // peers that connect to the server or peers the user dials.
 func (d *Daemon) getVerifier(inbound bool) kamune.RemoteVerifier {
@@ -317,9 +324,10 @@ func (d *Daemon) handleVerifyResponse(cmd Command) {
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "ok"})
 }
 
-// handleSetVerificationMode sets the verification mode, persists it, and
-// restarts the server if running (to apply the new mode to incoming
-// connections).
+// handleSetVerificationMode sets the verification mode and persists it.
+// The verifiers read the mode when they verify a peer, so the new mode
+// applies to the next peer verified, by a running server too. The server
+// is not restarted, and live sessions and relay tokens are kept.
 func (d *Daemon) handleSetVerificationMode(cmd Command) {
 	var params SetVerificationModeParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
@@ -335,7 +343,6 @@ func (d *Daemon) handleSetVerificationMode(cmd Command) {
 
 	d.mu.Lock()
 	d.verifMode = mode
-	serverRunning := d.server != nil
 	d.mu.Unlock()
 
 	if store := d.store(); store != nil {
@@ -346,10 +353,6 @@ func (d *Daemon) handleSetVerificationMode(cmd Command) {
 	d.emit(EvtResponse, cmd.ID, MapS{
 		"status": "ok", "mode": fmt.Sprintf("%d", params.Mode),
 	})
-
-	if serverRunning {
-		d.handleRestartServer(Command{ID: ""})
-	}
 }
 
 // handleGetVerificationMode returns the current verification mode.
