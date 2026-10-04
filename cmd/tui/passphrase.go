@@ -29,11 +29,11 @@ type prompter struct {
 	readSecret func() ([]byte, error)
 }
 
-// passphrase asks for the database passphrase up to
-// maxPassphraseAttempts times (see askPassphrase).
-func (p prompter) passphrase(isNew bool) ([]byte, error) {
+// passphrase asks for a database passphrase, with label as the prompt,
+// up to maxPassphraseAttempts times (see askPassphrase).
+func (p prompter) passphrase(label string, isNew bool) ([]byte, error) {
 	for range maxPassphraseAttempts {
-		pass, ok, err := p.askPassphrase(isNew)
+		pass, ok, err := p.askPassphrase(label, isNew)
 		if err != nil || ok {
 			return pass, err
 		}
@@ -41,15 +41,18 @@ func (p prompter) passphrase(isNew bool) ([]byte, error) {
 	return nil, errNoPassphrase
 }
 
-// askPassphrase asks once for the database passphrase. When the database
-// does not exist yet (isNew), it asks twice, since a typo would lock the
-// user out of the identity about to be created. An empty passphrase is the
-// same as storage.WithNoPassphrase: anyone who can copy the database file
-// can read it. It is accepted only after the user confirms that. ok is
-// false when the user settled on no passphrase: an empty one was not
-// confirmed or the two did not match.
-func (p prompter) askPassphrase(isNew bool) (pass []byte, ok bool, err error) {
-	pass, err = p.secret("Passphrase: ")
+// askPassphrase asks once for a database passphrase, with label as the
+// prompt. When the passphrase is a new one (isNew), for a database that
+// does not exist yet or for a change, it asks twice, since a typo would
+// lock the user out of the database. An empty passphrase is the same as
+// storage.WithNoPassphrase: anyone who can copy the database file can read
+// it. It is accepted only after the user confirms that. ok is false when
+// the user settled on no passphrase: an empty one was not confirmed or the
+// two did not match.
+func (p prompter) askPassphrase(
+	label string, isNew bool,
+) (pass []byte, ok bool, err error) {
+	pass, err = p.secret(label + ": ")
 	if err != nil {
 		return nil, false, err
 	}
@@ -63,7 +66,7 @@ func (p prompter) askPassphrase(isNew bool) (pass []byte, ok bool, err error) {
 	if !isNew {
 		return pass, true, nil
 	}
-	again, err := p.secret("Repeat passphrase: ")
+	again, err := p.secret("Repeat " + strings.ToLower(label) + ": ")
 	if err != nil {
 		return nil, false, err
 	}
@@ -103,15 +106,15 @@ func (p prompter) confirmEmpty() (bool, error) {
 }
 
 // openDB opens the database at path with envPass, or, when envPass is
-// empty, with a passphrase it asks p for. It asks at most
-// maxPassphraseAttempts times in all, counting each passphrase that does
-// not open the database, after which it says so, and each try that
-// askPassphrase gives up on. It then returns an error wrapping
-// storage.ErrWrongPassphrase when the last passphrase was wrong, or
-// errNoPassphrase.
+// empty, with a passphrase it asks p for, and returns the passphrase that
+// opened it. It asks at most maxPassphraseAttempts times in all, counting
+// each passphrase that does not open the database, after which it says so,
+// and each try that askPassphrase gives up on. It then returns an error
+// wrapping storage.ErrWrongPassphrase when the last passphrase was wrong,
+// or errNoPassphrase.
 func openDB(
 	path string, envPass []byte, p prompter,
-) (*storage.Storage, error) {
+) (*storage.Storage, []byte, error) {
 	open := func(pass []byte) (*storage.Storage, error) {
 		return storage.OpenStorage(
 			storage.WithDBPath(path),
@@ -121,16 +124,17 @@ func openDB(
 		)
 	}
 	if len(envPass) > 0 {
-		return open(envPass)
+		store, err := open(envPass)
+		return store, envPass, err
 	}
 
 	_, statErr := os.Stat(path)
 	isNew := errors.Is(statErr, fs.ErrNotExist)
 	err := errNoPassphrase
 	for range maxPassphraseAttempts {
-		pass, ok, perr := p.askPassphrase(isNew)
+		pass, ok, perr := p.askPassphrase("Passphrase", isNew)
 		if perr != nil {
-			return nil, perr
+			return nil, nil, perr
 		}
 		if !ok {
 			err = errNoPassphrase
@@ -138,10 +142,29 @@ func openDB(
 		}
 		store, oerr := open(pass)
 		if !errors.Is(oerr, storage.ErrWrongPassphrase) {
-			return store, oerr
+			return store, pass, oerr
 		}
 		fmt.Fprintln(p.out, "Wrong passphrase.")
 		err = oerr
 	}
-	return nil, err
+	return nil, nil, err
+}
+
+// changePassphrase asks p for a new passphrase, twice, and puts it in place
+// of oldPass, the passphrase that opened store. An empty passphrase needs
+// the same confirmation as at startup. An error wrapping storage.ErrReopen
+// means that the new passphrase is in effect, but store must be closed and
+// the database opened again.
+func changePassphrase(
+	store *storage.Storage, oldPass []byte, p prompter,
+) error {
+	newPass, err := p.passphrase("New passphrase", true)
+	if err != nil {
+		return err
+	}
+	if err := store.ChangePassphrase(oldPass, newPass); err != nil {
+		return err
+	}
+	fmt.Fprintln(p.out, "Passphrase changed.")
+	return nil
 }

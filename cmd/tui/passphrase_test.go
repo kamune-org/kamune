@@ -91,7 +91,7 @@ func TestPrompterPassphrase(t *testing.T) {
 			a := require.New(t)
 			var out bytes.Buffer
 			got, err := scripted(&out, tt.secrets, tt.lines).
-				passphrase(tt.isNew)
+				passphrase("Passphrase", tt.isNew)
 			switch {
 			case tt.eof:
 				a.ErrorIs(err, io.EOF)
@@ -123,22 +123,25 @@ func TestOpenDB_AsksAgainAfterAWrongPassphrase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "db")
 
 	var out bytes.Buffer
-	store, err := openDB(path, nil, scripted(&out, []string{"pw", "pw"}, nil))
+	store, _, err := openDB(
+		path, nil, scripted(&out, []string{"pw", "pw"}, nil),
+	)
 	a.NoError(err)
 	a.Contains(out.String(), "Repeat passphrase")
 	a.NoError(store.Close())
 
 	out.Reset()
-	store, err = openDB(path, nil, scripted(
+	store, pass, err := openDB(path, nil, scripted(
 		&out, []string{"wrong", "pw"}, nil,
 	))
 	a.NoError(err)
+	a.Equal("pw", string(pass))
 	a.NoError(store.Close())
 	a.Equal(1, strings.Count(out.String(), "Wrong passphrase."))
 	a.NotContains(out.String(), "Repeat passphrase")
 
 	out.Reset()
-	_, err = openDB(path, nil, scripted(
+	_, _, err = openDB(path, nil, scripted(
 		&out, []string{"a", "b", "c", "pw"}, nil,
 	))
 	a.ErrorIs(err, storage.ErrWrongPassphrase)
@@ -146,9 +149,9 @@ func TestOpenDB_AsksAgainAfterAWrongPassphrase(t *testing.T) {
 		maxPassphraseAttempts, strings.Count(out.String(), "Wrong passphrase."),
 	)
 
-	_, err = openDB(path, []byte("wrong"), scripted(&out, nil, nil))
+	_, _, err = openDB(path, []byte("wrong"), scripted(&out, nil, nil))
 	a.ErrorIs(err, storage.ErrWrongPassphrase)
-	store, err = openDB(path, []byte("pw"), scripted(&out, nil, nil))
+	store, _, err = openDB(path, []byte("pw"), scripted(&out, nil, nil))
 	a.NoError(err)
 	a.NoError(store.Close())
 }
@@ -157,7 +160,7 @@ func TestOpenDB_LimitsTriesInAll(t *testing.T) {
 	a := require.New(t)
 	dir := t.TempDir()
 	existing := filepath.Join(dir, "db")
-	store, err := openDB(
+	store, _, err := openDB(
 		existing, nil, scripted(&bytes.Buffer{}, []string{"pw", "pw"}, nil),
 	)
 	a.NoError(err)
@@ -192,13 +195,57 @@ func TestOpenDB_LimitsTriesInAll(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			a := require.New(t)
 			var out bytes.Buffer
-			_, err := openDB(tt.path, nil, scripted(&out, tt.secrets, tt.lines))
+			_, _, err := openDB(
+				tt.path, nil, scripted(&out, tt.secrets, tt.lines),
+			)
 			a.ErrorIs(err, tt.wantErr)
 			a.Equal(
 				maxPassphraseAttempts, strings.Count(out.String(), "Passphrase: "),
 			)
 			a.Equal(tt.wrong, strings.Count(out.String(), "Wrong passphrase."))
 			a.NoFileExists(filepath.Join(dir, "new"))
+		})
+	}
+}
+
+func TestChangePassphrase(t *testing.T) {
+	tests := []struct {
+		name    string
+		secrets []string
+		lines   []string
+		newPass string
+	}{
+		{"to another", []string{"new", "new"}, nil, "new"},
+		{"to none, confirmed", []string{""}, []string{"y"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			path := filepath.Join(t.TempDir(), "db")
+			var out bytes.Buffer
+			store, pass, err := openDB(
+				path, nil, scripted(&out, []string{"old", "old"}, nil),
+			)
+			a.NoError(err)
+
+			out.Reset()
+			err = changePassphrase(
+				store, pass, scripted(&out, tt.secrets, tt.lines),
+			)
+			a.NoError(err)
+			a.NoError(store.Close())
+			a.Contains(out.String(), "New passphrase: ")
+			a.Contains(out.String(), "Passphrase changed.")
+
+			_, _, err = openDB(path, nil, scripted(
+				&out, []string{"old", "old", "old"}, nil,
+			))
+			a.ErrorIs(err, storage.ErrWrongPassphrase)
+			store, _, err = openDB(path, nil, scripted(
+				&out, []string{tt.newPass}, []string{"y"},
+			))
+			a.NoError(err)
+			a.NoError(store.Close())
 		})
 	}
 }

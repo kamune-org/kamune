@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,10 @@ import (
 )
 
 func main() {
+	changePass := flag.Bool("change-passphrase", false,
+		"set a new database passphrase and exit")
+	flag.Parse()
+
 	fmt.Println("╔══════════════════════════════╗")
 	fmt.Println("║      Kamune Chat (TUI)        ║")
 	fmt.Println("╚══════════════════════════════╝")
@@ -58,7 +63,7 @@ func main() {
 			return term.ReadPassword(int(os.Stdin.Fd()))
 		},
 	}
-	store, err := openDB(
+	store, pass, err := openDB(
 		dbPath, []byte(os.Getenv("KAMUNE_DB_PASSPHRASE")), pr,
 	)
 	if errors.Is(err, storage.ErrWrongPassphrase) {
@@ -70,6 +75,20 @@ func main() {
 	if err != nil {
 		slog.Error("opening storage", "error", err)
 		os.Exit(1)
+	}
+	if *changePass {
+		err := changePassphrase(store, pass, pr)
+		_ = store.Close()
+		if errors.Is(err, storage.ErrReopen) {
+			fmt.Fprintf(os.Stderr, "The new passphrase is in effect, but "+
+				"the database could not be opened again: %v\n", err)
+			os.Exit(1)
+		}
+		if err != nil {
+			slog.Error("changing passphrase", "error", err)
+			os.Exit(1)
+		}
+		return
 	}
 	defer store.Close()
 
