@@ -12,12 +12,36 @@ import (
 	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/exchange"
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 type handshakeOpts struct {
 	remoteVerifier RemoteVerifier
 	sessionID      string
 	timeout        time.Duration
+	// noPersistence keeps session state out of storage. See
+	// [ServeWithoutPersistence] and [DialWithoutPersistence].
+	noPersistence bool
+}
+
+// recordSession writes the session state of t to store once a handshake has
+// completed, unless persistence is turned off, and hands store to t so that
+// the session's resumption tokens are invalidated when it ends. cold is
+// false for a resumed session.
+//
+// With persistence off a cold session stays out of storage altogether. A
+// resumed session is stored already, so t still gets store: it writes no
+// new tokens, but its remaining ones are invalidated when it ends.
+func (o handshakeOpts) recordSession(
+	store *storage.Storage, t *Transport, cold bool,
+) {
+	if o.noPersistence {
+		if !cold {
+			t.storage = store
+		}
+		return
+	}
+	persistEstablishedSession(store, t, cold)
 }
 
 // requestHandshake initiates a handshake as the client/initiator.

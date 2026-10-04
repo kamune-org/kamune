@@ -61,8 +61,8 @@ type Server struct {
 	handlerFunc   HandlerFunc
 	serverName    string
 	addr          string
-	handshakeOpts handshakeOpts
 	connOpts      []ConnOption
+	handshakeOpts handshakeOpts
 	mu            sync.Mutex
 	resumeEnabled bool
 	closed        bool
@@ -223,7 +223,7 @@ func (s *Server) handleNewConnection(
 	t.conn = cn
 	t.takeAcceptedMeta(cn)
 	t.remotePeer = peer
-	persistEstablishedSession(s.storage, t, true)
+	s.handshakeOpts.recordSession(s.storage, t, true)
 
 	slog.Info(
 		"session established",
@@ -304,7 +304,7 @@ func (s *Server) handleResume(
 	t.conn = cn
 	t.takeAcceptedMeta(cn)
 	t.remotePeer = peer
-	persistEstablishedSession(s.storage, t, false)
+	s.handshakeOpts.recordSession(s.storage, t, false)
 
 	slog.Info(
 		"session resumed",
@@ -426,6 +426,25 @@ func ServeWithListener(l Listener) ServerOptions {
 func ServeWithResumeEnabled(enabled bool) ServerOptions {
 	return func(s *Server) error {
 		s.resumeEnabled = enabled
+		return nil
+	}
+}
+
+// ServeWithoutPersistence keeps the server from writing session state to
+// storage, for incognito use. Sessions it accepts leave no session record:
+// no peer key, established_at or resumption tokens are stored, and closing
+// such a session writes nothing either. Those sessions cannot be resumed.
+//
+// The storage is still read for the server's identity and handed to the
+// [RemoteVerifier], which decides on its own whether to store the peer. The
+// option does not stop the server from resuming a session stored earlier,
+// which consumes one of that session's tokens and stores no new ones; the
+// session's remaining tokens are still invalidated when it ends. Use it
+// together with [ServeWithResumeEnabled] (false) to refuse resumption as
+// well.
+func ServeWithoutPersistence() ServerOptions {
+	return func(s *Server) error {
+		s.handshakeOpts.noPersistence = true
 		return nil
 	}
 }

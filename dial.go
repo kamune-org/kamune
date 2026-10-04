@@ -22,8 +22,8 @@ type Dialer struct {
 	dialFunc      func(addr string) (Conn, error)
 	clientName    string
 	address       string
-	handshakeOpts handshakeOpts
 	connOpts      []ConnOption
+	handshakeOpts handshakeOpts
 	dialTimeout   time.Duration
 }
 
@@ -135,7 +135,7 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 	// derived from the handshake, we can switch to the plain connection.
 	t.conn = cn
 	t.remotePeer = peer
-	persistEstablishedSession(d.storage, t, true)
+	d.handshakeOpts.recordSession(d.storage, t, true)
 
 	slog.Info(
 		"session established",
@@ -185,7 +185,7 @@ func (d *Dialer) attemptResume(
 
 	t.conn = cn
 	t.remotePeer = peer
-	persistEstablishedSession(d.storage, t, false)
+	d.handshakeOpts.recordSession(d.storage, t, false)
 
 	slog.Info("session resumed", slog.String("session_id", t.sessionID))
 
@@ -295,6 +295,24 @@ func DialWithClientName(name string) DialOption {
 func DialWithResume(sessionID string) DialOption {
 	return func(d *Dialer) error {
 		d.handshakeOpts.sessionID = sessionID
+		return nil
+	}
+}
+
+// DialWithoutPersistence keeps the dialer from writing session state to
+// storage, for incognito use. Sessions it establishes leave no session
+// record: no peer key, established_at or resumption tokens are stored, and
+// closing such a session writes nothing either. Those sessions cannot be
+// resumed.
+//
+// The storage is still read for the dialer's identity and handed to the
+// [RemoteVerifier], which decides on its own whether to store the peer. With
+// [DialWithResume], the dialer still consumes a stored token of the session
+// it resumes, but stores no new ones, and the session's remaining tokens are
+// still invalidated when it ends.
+func DialWithoutPersistence() DialOption {
+	return func(d *Dialer) error {
+		d.handshakeOpts.noPersistence = true
 		return nil
 	}
 }

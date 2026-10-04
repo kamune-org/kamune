@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -354,4 +355,173 @@ func TestAcceptedMeta_ReachesHandler(t *testing.T) {
 
 	a.Equal(&label, <-got)
 	a.NoError(<-serveErr)
+}
+
+func TestWithoutPersistenceLeavesNoSessionRecord(t *testing.T) {
+	cases := []struct {
+		name       string
+		serverOpts []ServerOptions
+		dialOpts   []DialOption
+		wantServer int
+		wantClient int
+	}{
+		{
+			name:       "default persists both sides",
+			wantServer: 1,
+			wantClient: 1,
+		},
+		{
+			name:       "server without persistence",
+			serverOpts: []ServerOptions{ServeWithoutPersistence()},
+			wantClient: 1,
+		},
+		{
+			name:       "dialer without persistence",
+			dialOpts:   []DialOption{DialWithoutPersistence()},
+			wantServer: 1,
+		},
+		{
+			name:       "both without persistence",
+			serverOpts: []ServerOptions{ServeWithoutPersistence()},
+			dialOpts:   []DialOption{DialWithoutPersistence()},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			clientStore, cleanupClient := newTestStore(t)
+			defer cleanupClient()
+			serverStore, cleanupServer := newTestStore(t)
+			defer cleanupServer()
+
+			clientNet, serverNet := net.Pipe()
+			clientConn := newConn(clientNet)
+			serverConn := newConn(serverNet)
+			t.Cleanup(func() {
+				_ = clientConn.Close()
+				_ = serverConn.Close()
+			})
+
+			verifier := func(*storage.Storage, *storage.Peer) error {
+				return nil
+			}
+			server, err := NewServer(
+				"",
+				func(tr *Transport) error {
+					_, err := tr.Receive(Bytes(nil))
+					if errors.Is(err, ErrPeerDisconnected) {
+						return nil
+					}
+					return err
+				},
+				serverStore,
+				verifier,
+				tc.serverOpts...,
+			)
+			a.NoError(err)
+			serveErr := make(chan error, 1)
+			go func() {
+				serveErr <- server.serve(serverConn)
+			}()
+
+			dialer, err := NewDialer("", clientStore, verifier, append(
+				tc.dialOpts,
+				DialWithFunc(func(string) (Conn, error) {
+					return clientConn, nil
+				}),
+			)...)
+			a.NoError(err)
+			tr, err := dialer.Dial()
+			a.NoError(err)
+			a.NoError(tr.Close())
+			a.NoError(<-serveErr)
+
+			sessions, err := serverStore.ListSessions()
+			a.NoError(err)
+			a.Len(sessions, tc.wantServer, "server sessions")
+			sessions, err = clientStore.ListSessions()
+			a.NoError(err)
+			a.Len(sessions, tc.wantClient, "client sessions")
+		})
+	}
+}
+
+func TestWithoutPersistenceResumedSessionLosesTokensOnClose(t *testing.T) {
+	cases := []struct {
+		name       string
+		serverOpts []ServerOptions
+		dialOpts   []DialOption
+	}{
+		{
+			name:       "server without persistence",
+			serverOpts: []ServerOptions{ServeWithoutPersistence()},
+		},
+		{
+			name:     "dialer without persistence",
+			dialOpts: []DialOption{DialWithoutPersistence()},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			clientStore, cleanupClient := newTestStore(t)
+			defer cleanupClient()
+			serverStore, cleanupServer := newTestStore(t)
+			defer cleanupServer()
+			sessionID := coldDial(t, clientStore, serverStore)
+
+			clientNet, serverNet := net.Pipe()
+			clientConn := newConn(clientNet)
+			serverConn := newConn(serverNet)
+			t.Cleanup(func() {
+				_ = clientConn.Close()
+				_ = serverConn.Close()
+			})
+
+			verifier := func(*storage.Storage, *storage.Peer) error {
+				return nil
+			}
+			server, err := NewServer(
+				"",
+				func(tr *Transport) error {
+					_, err := tr.Receive(Bytes(nil))
+					if errors.Is(err, ErrPeerDisconnected) {
+						return nil
+					}
+					return err
+				},
+				serverStore,
+				verifier,
+				tc.serverOpts...,
+			)
+			a.NoError(err)
+			serveErr := make(chan error, 1)
+			go func() {
+				serveErr <- server.serve(serverConn)
+			}()
+
+			dialer, err := NewDialer("", clientStore, verifier, append(
+				tc.dialOpts,
+				DialWithResume(sessionID),
+				DialWithFunc(func(string) (Conn, error) {
+					return clientConn, nil
+				}),
+			)...)
+			a.NoError(err)
+			tr, err := dialer.Dial()
+			a.NoError(err)
+			a.Equal(sessionID, tr.SessionID())
+			a.NoError(tr.Close())
+			a.NoError(<-serveErr)
+
+			stores := map[string]*storage.Storage{
+				"server": serverStore,
+				"client": clientStore,
+			}
+			for side, store := range stores {
+				_, err := store.PopList(sessionID, storage.ResumptionTokensKey)
+				a.ErrorIs(err, storage.ErrNotFound, "%s tokens", side)
+			}
+		})
+	}
 }
