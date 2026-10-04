@@ -532,6 +532,26 @@ func (k dataKey) put(bucket *bolt.Bucket) error {
 	return k.wrap.put(bucket)
 }
 
+// Compact rewrites the database file with only its live data and
+// atomically replaces it, as [BoltStore.RotateDataKey] does, but keeps the
+// data key. Bolt never overwrites the pages that a delete or an update
+// frees, so until then the old values and bucket names they hold stay in
+// the file, readable by anyone with the data key. Freed disk blocks of the
+// old file, and copies of it made elsewhere, are not scrubbed.
+//
+// It needs the store's lock file, and it blocks every other use of the
+// store until it is done. On error the store is unchanged, unless the
+// error wraps [ErrReopen]: then the store must be opened again.
+func (s *BoltStore) Compact() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, err := s.rewrite(rewriteOp{}); err != nil {
+		return fmt.Errorf("compact: %w", err)
+	}
+	return nil
+}
+
 // RotatePassphrase re-wraps the data encryption key under a new passphrase,
 // with key derivation parameters no weaker than the stored ones or
 // [defaultKDF] (see [kdfParams.atLeast]). Encrypted data is untouched,

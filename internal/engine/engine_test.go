@@ -32,3 +32,5 @@ func TestNilNamespace(t *testing.T) {
 	}
 	a.Equal(0, count)
 }
+
+var _ Compacter = (*BoltStore)(nil)

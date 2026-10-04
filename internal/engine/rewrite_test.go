@@ -285,6 +285,71 @@ func TestRotation_ThroughSymlink(t *testing.T) {
 	a.NoError(db.Close())
 }
 
+// TestCompact_LeavesNoDeletedData deletes a bucket and a key and checks
+// that, after Compact, neither their values nor the bucket name are left
+// anywhere in the file, while live data still opens.
+func TestCompact_LeavesNoDeletedData(t *testing.T) {
+	a := require.New(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "db")
+	gone := []byte("deleted-session-name")
+
+	db, err := NewBoltDB(path, []byte("pass"))
+	a.NoError(err)
+	a.NoError(db.Command(func(b Namespace) error {
+		peers := b.Sub([]byte(PeersNamespace))
+		err := peers.PutEncrypted([]byte("peer"), []byte("peer-data"))
+		if err != nil {
+			return err
+		}
+		if err := peers.PutEncrypted([]byte("old"), []byte("x")); err != nil {
+			return err
+		}
+		chat := b.Sub([]byte(SessionsNamespace)).Ensure(gone)
+		for i := range 100 {
+			err := chat.PutEncrypted(fmt.Appendf(nil, "k%03d", i), []byte("m"))
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+	var stale [][]byte
+	a.NoError(db.db.View(func(tx *bolt.Tx) error {
+		stale = append(stale, bytes.Clone(
+			tx.Bucket(peersNamespace).Get([]byte("old")),
+		))
+		return tx.Bucket(sessionsNamespace).Bucket(gone).ForEach(
+			func(_, v []byte) error {
+				stale = append(stale, bytes.Clone(v))
+				return nil
+			},
+		)
+	}))
+	a.NoError(db.Command(func(b Namespace) error {
+		if err := b.Sub([]byte(PeersNamespace)).Delete([]byte("old")); err != nil {
+			return err
+		}
+		return b.Sub([]byte(SessionsNamespace)).DeleteNamespace(gone)
+	}))
+
+	a.NoError(db.Compact())
+	requirePeerData(t, db)
+	a.NoError(db.Close())
+
+	raw := readFile(t, path)
+	a.False(bytes.Contains(raw, gone), "deleted bucket name in file")
+	for i, v := range stale {
+		a.False(bytes.Contains(raw, v), "deleted value %d in file", i)
+	}
+	requireOnlyDB(t, dir)
+
+	db, err = NewBoltDB(path, []byte("pass"))
+	a.NoError(err)
+	defer db.Close()
+	requirePeerData(t, db)
+}
+
 func TestRotation_RefusedWithoutLockFile(t *testing.T) {
 	a := require.New(t)
 	dir := t.TempDir()
@@ -304,6 +369,7 @@ func TestRotation_RefusedWithoutLockFile(t *testing.T) {
 
 	a.ErrorIs(db.RotateDataKey([]byte("old"), []byte("new")), errNoLock)
 	a.ErrorIs(db.RotatePassphrase([]byte("old"), []byte("new")), errNoLock)
+	a.ErrorIs(db.Compact(), errNoLock)
 	a.Equal(before, readFile(t, path))
 	requirePeerData(t, db)
 }

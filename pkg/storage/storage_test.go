@@ -634,6 +634,99 @@ func TestDeleteSessionRemovesRecord(t *testing.T) {
 	a.ErrorIs(err, ErrSessionNotFound)
 }
 
+// rawValues returns every value stored in the bolt file at path, keyed by
+// the value itself.
+func rawValues(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	a := require.New(t)
+	db, err := bolt.Open(path, 0600, nil)
+	a.NoError(err)
+	defer db.Close()
+	values := map[string]bool{}
+	var walk func(b *bolt.Bucket) error
+	walk = func(b *bolt.Bucket) error {
+		return b.ForEach(func(k, v []byte) error {
+			if v == nil {
+				return walk(b.Bucket(k))
+			}
+			values[string(v)] = true
+			return nil
+		})
+	}
+	a.NoError(db.View(func(tx *bolt.Tx) error {
+		return tx.ForEach(func(_ []byte, b *bolt.Bucket) error {
+			return walk(b)
+		})
+	}))
+	return values
+}
+
+// TestDeleteLeavesNoTraceInFile deletes a session with its history and a
+// peer, and checks that none of the values they had, nor the session ID,
+// are left anywhere in the database file, where bolt would otherwise keep
+// them in free pages.
+func TestDeleteLeavesNoTraceInFile(t *testing.T) {
+	a := require.New(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "db")
+	open := func() *Storage {
+		s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
+		a.NoError(err)
+		return s
+	}
+	const gone = "QKZDELETEDSESSIONID23456"
+
+	s := open()
+	var pubs [][]byte
+	for _, name := range []string{"kept", "deleted"} {
+		att, err := attest.New()
+		a.NoError(err)
+		pub := att.MarshalPublicKey()
+		pubs = append(pubs, pub)
+		a.NoError(s.StorePeer(&Peer{Name: name, PublicKey: pub}))
+	}
+	a.NoError(s.CreateSession("kept-session", pubs[0]))
+	a.NoError(s.CreateSession(gone, pubs[1]))
+	for i := range 100 {
+		for _, id := range []string{"kept-session", gone} {
+			a.NoError(s.AddChatEntry(
+				id, fmt.Appendf(nil, "message %d", i), time.Now(),
+				SenderPeer,
+			))
+		}
+	}
+	a.NoError(s.Close())
+	before := rawValues(t, path)
+
+	s = open()
+	a.NoError(s.DeleteSession(gone))
+	a.NoError(s.DeletePeer(pubs[1]))
+	history, err := s.GetChatHistory("kept-session")
+	a.NoError(err)
+	a.Len(history, 100)
+	a.NoError(s.Close())
+
+	after := rawValues(t, path)
+	raw, err := os.ReadFile(path)
+	a.NoError(err)
+	a.NotContains(string(raw), gone)
+	deleted := 0
+	for v := range before {
+		if after[v] {
+			continue
+		}
+		deleted++
+		a.False(
+			bytes.Contains(raw, []byte(v)),
+			"a deleted value is still in the file",
+		)
+	}
+	a.GreaterOrEqual(deleted, 100, "the deleted history and peer")
+	entries, err := os.ReadDir(dir)
+	a.NoError(err)
+	a.Len(entries, 2, "only the database and its lock file")
+}
+
 func TestAddChatEntryToCreatedSession(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)

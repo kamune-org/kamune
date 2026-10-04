@@ -85,6 +85,13 @@ type Store interface {
 	RotateDataKey(old, new []byte) error
 }
 
+// Compacter is implemented by a [Store] that can rewrite its storage to
+// hold only live data. Without it, deleted values and names can stay in
+// free space until it is reused.
+type Compacter interface {
+	Compact() error
+}
+
 // Namespace is the interface for pluggable namespace implementations.
 type Namespace interface {
 	Sub(name []byte) Namespace

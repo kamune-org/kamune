@@ -26,8 +26,8 @@ var copyTxSize = 1 << 20
 
 // rewriteOp is a change made by rewriting the database file.
 type rewriteOp struct {
-	// update changes the state to copy. It runs in a write transaction on
-	// the old file that is rolled back after the copy.
+	// update, when set, changes the state to copy. It runs in a write
+	// transaction on the old file that is rolled back after the copy.
 	update func(*bolt.Tx) error
 	// mapValue, when set, is applied to every value as it is copied, with
 	// the names of the buckets that hold it and its key. It must not keep
@@ -118,8 +118,10 @@ func writeCopy(db *bolt.DB, path string, op rewriteOp) (string, error) {
 	}
 	defer src.Rollback()
 
-	if err := op.update(src); err != nil {
-		return "", err
+	if op.update != nil {
+		if err := op.update(src); err != nil {
+			return "", err
+		}
 	}
 
 	f, err := os.CreateTemp(
