@@ -90,22 +90,39 @@ to send and the JSON to expect back.
 
 ### `SessionInfo` Shape
 
-Several events return a full `SessionInfo` object. Its shape:
+`session_started`, `session_closed`, `list_sessions` and `get_session_info`
+(for a live session) carry a `SessionInfo` object. Its shape, for a dialed
+relay session:
 
 ```json
 {
   "session_id": "abc123def456...",
   "peer_name": "CrimsonOtter",
-  "is_server": true,
+  "is_server": false,
   "msg_count": 3,
   "last_activity": "2026-06-21T10:30:00Z",
-  "transport_type": "tcp",
+  "transport_type": "relay",
   "remote_version": "0.5.0",
+  "cause": "dial",
   "session_ttl_ns": 3600000000000,
   "session_started_at": "2026-06-21T10:25:00Z",
-  "remote_addr": "192.168.1.10:9000"
+  "remote_addr": "wss://relay.example.com:8443"
 }
 ```
+
+| Field                | Description                                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `session_id`         | The kamune session ID.                                                                                                                                                   |
+| `peer_name`          | The name the peer introduced itself with, or the one `rename_session` set.                                                                                               |
+| `is_server`          | `true` for a session that a peer opened to the server, `false` for one from `dial`.                                                                                      |
+| `msg_count`          | Messages stored for the session before it started, plus those sent or received since. Stored messages are not counted in incognito mode.                                 |
+| `last_activity`      | Time of the last message sent or received since the session started, or of its start. Omitted while unset.                                                               |
+| `transport_type`     | `tcp`, `udp`, `relay`, `p2p` or `direct-p2p`. Omitted when empty.                                                                                                        |
+| `remote_version`     | The peer's kamune version. Omitted when empty.                                                                                                                           |
+| `cause`              | `dial` for a dialed session, `incoming` for one that a peer opened to the server.                                                                                        |
+| `session_ttl_ns`     | The relay's session TTL for a relay session. Dialed sessions over other transports carry `0`.                                                                            |
+| `session_started_at` | When the daemon set the session up.                                                                                                                                      |
+| `remote_addr`        | Where a dialed session was dialed: the server's address, the `relay_addr` for relay, `p2p` for p2p and the peer's address for direct-p2p. Omitted for incoming sessions. |
 
 ### Storage
 
@@ -443,8 +460,10 @@ token from the server.
     "peer_name": "CrimsonOtter",
     "is_server": false,
     "msg_count": 0,
+    "last_activity": "2026-06-21T10:30:00Z",
     "transport_type": "tcp",
     "remote_version": "0.5.0",
+    "cause": "dial",
     "session_ttl_ns": 0,
     "session_started_at": "2026-06-21T10:30:00Z",
     "remote_addr": "127.0.0.1:9000"
@@ -481,7 +500,7 @@ Closes a specific session.
 **Output:**
 
 ```json
-{ "type": "evt", "evt": "session_closed", "data": { "session_id": "xyz789...", "peer_name": "CrimsonOtter", "is_server": false, "msg_count": 3, "transport_type": "tcp", "session_started_at": "2026-06-21T10:30:00Z", "remote_addr": "127.0.0.1:9000" } }
+{ "type": "evt", "evt": "session_closed", "data": { "session_id": "xyz789...", "peer_name": "CrimsonOtter", "is_server": false, "msg_count": 3, "last_activity": "2026-06-21T10:35:00Z", "transport_type": "tcp", "remote_version": "0.5.0", "cause": "dial", "session_ttl_ns": 0, "session_started_at": "2026-06-21T10:30:00Z", "remote_addr": "127.0.0.1:9000" } }
 { "type": "evt", "evt": "response", "id": "1", "data": { "status": "closed", "session_id": "xyz789..." } }
 ```
 
@@ -537,6 +556,7 @@ Returns all active sessions.
         "last_activity": "2026-06-21T10:30:00Z",
         "transport_type": "tcp",
         "remote_version": "0.5.0",
+        "cause": "dial",
         "session_ttl_ns": 0,
         "session_started_at": "2026-06-21T10:30:00Z",
         "remote_addr": "127.0.0.1:9000"
@@ -787,8 +807,8 @@ Returns all active P2P tokens.
 
 #### `get_session_info`
 
-Returns info for a single session, either live or from history. Returns `null`
-if the session ID is not found.
+Returns info for a single session: a live one, or else one from the history
+list. A session ID that is neither fails with `session_not_found`.
 
 **Input:**
 
@@ -817,7 +837,8 @@ if the session ID is not found.
     "last_activity": "2026-06-21T10:30:00Z",
     "transport_type": "tcp",
     "remote_version": "0.5.0",
-    "session_ttl_ns": 3600000000000,
+    "cause": "dial",
+    "session_ttl_ns": 0,
     "session_started_at": "2026-06-21T10:25:00Z",
     "remote_addr": "192.168.1.10:9000"
   }
@@ -835,9 +856,10 @@ if the session ID is not found.
     "type": "history",
     "session_id": "abc123...",
     "name": "Alice",
-    "message_count": 15,
+    "msg_count": 15,
     "first_message": "2026-06-20T09:00:00Z",
-    "last_message": "2026-06-20T10:30:00Z"
+    "last_message": "2026-06-20T10:30:00Z",
+    "loaded": false
   }
 }
 ```
@@ -1689,8 +1711,10 @@ in [Commands](#connections).
     "peer_name": "IncomingPeer",
     "is_server": true,
     "msg_count": 0,
+    "last_activity": "2026-06-21T10:30:00Z",
     "transport_type": "tcp",
     "remote_version": "0.5.0",
+    "cause": "incoming",
     "session_ttl_ns": 0,
     "session_started_at": "2026-06-21T10:30:00Z"
   }
@@ -1711,7 +1735,11 @@ from `close_session` is documented in [Commands](#connections).
     "peer_name": "CrimsonOtter",
     "is_server": false,
     "msg_count": 3,
+    "last_activity": "2026-06-21T10:35:00Z",
     "transport_type": "tcp",
+    "remote_version": "0.5.0",
+    "cause": "dial",
+    "session_ttl_ns": 0,
     "session_started_at": "2026-06-21T10:30:00Z",
     "remote_addr": "127.0.0.1:9000"
   }
