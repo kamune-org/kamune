@@ -95,3 +95,45 @@ func TestPseudonym(t *testing.T) {
 	// Different seed → different result (astronomically likely)
 	a.NotEqual(Pseudonym([]byte("a")), Pseudonym([]byte("b")))
 }
+
+func TestNumeric(t *testing.T) {
+	// The expected values come from an independent implementation; a
+	// change to them changes what peers on different versions compare.
+	tests := []struct {
+		name  string
+		input []byte
+		want  string
+	}{
+		{
+			"test",
+			[]byte("test"),
+			"41642 86682 35305 82016 29480 54574 64229 44344",
+		},
+		{
+			"empty",
+			[]byte{},
+			"04862 39572 21856 50821 90755 86540 92977 97264",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			a.Equal(tt.want, Numeric(tt.input))
+		})
+	}
+}
+
+func TestNumericFormat(t *testing.T) {
+	a := require.New(t)
+	for i := range 256 {
+		got := Numeric([]byte{byte(i)})
+		groups := strings.Split(got, " ")
+		a.Len(groups, numericGroups)
+		for _, g := range groups {
+			a.Len(g, numericGroupDigits)
+			_, err := strconv.Atoi(g)
+			a.NoError(err)
+		}
+	}
+	a.NotEqual(Numeric([]byte("a")), Numeric([]byte("b")))
+}
