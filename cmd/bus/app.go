@@ -693,7 +693,10 @@ func (a *App) ServiceShutdown() error {
 		}
 	}
 	for _, s := range sessions {
-		s.Transport.Close()
+		s.mu.Lock()
+		t := s.Transport
+		s.mu.Unlock()
+		t.Close()
 	}
 	for _, s := range sessions {
 		waitOrTimeout(s.ReceiveDone, "session receive: "+s.ID)

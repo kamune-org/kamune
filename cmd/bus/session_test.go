@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -127,5 +129,91 @@ func TestResumedServerSessionReplacesStaleOne(t *testing.T) {
 			a.ErrorIs(err, kamune.ErrConnClosed)
 			break
 		}
+	}
+}
+
+// countingListener counts the connections it accepts.
+type countingListener struct {
+	net.Listener
+	accepted atomic.Int32
+}
+
+func (l *countingListener) Accept() (kamune.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	l.accepted.Add(1)
+	return kamune.NewConn(c), nil
+}
+
+// startCountingServer runs a kamune server that admits every peer and
+// reads each session until it ends. It returns the server's address and
+// its listener.
+func startCountingServer(t *testing.T) (string, *countingListener) {
+	t.Helper()
+	a := require.New(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	cl := &countingListener{Listener: ln}
+	srv, err := kamune.NewServer(
+		"", readUntilEnd, openTestStorage(t), acceptAll,
+		kamune.ServeWithListener(cl),
+	)
+	a.NoError(err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = srv.ListenAndServe()
+	}()
+	t.Cleanup(func() {
+		_ = srv.Close()
+		<-done
+	})
+	return ln.Addr().String(), cl
+}
+
+// TestClosedDialedSessionDoesNotReconnect closes a dialed session on
+// purpose and checks that its receive loop ends without dialing the peer
+// again to resume it.
+func TestClosedDialedSessionDoesNotReconnect(t *testing.T) {
+	cases := []struct {
+		name  string
+		close func(app *App, id string) error
+	}{
+		{"stop server", func(app *App, _ string) error {
+			return app.StopServer()
+		}},
+		{"disconnect session", func(app *App, id string) error {
+			return app.DisconnectSession(id)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, _ := newUnlockedApp(t, "secret")
+			app.mu.Lock()
+			app.verifMode = VerificationModeAutoAccept
+			app.mu.Unlock()
+			addr, ln := startCountingServer(t)
+
+			res, err := app.ConnectToServer(
+				addr, "tcp", "", "", "", "", "", "", "", false, false,
+			)
+			a.NoError(err)
+			session := liveSessionByID(app, res.SessionID)
+			a.NotNil(session)
+			a.NotNil(session.reconnectFn)
+
+			a.NoError(tc.close(app, res.SessionID))
+			select {
+			case <-session.ReceiveDone:
+			case <-time.After(testWait):
+				t.Fatal("the receive loop of the closed session did not end")
+			}
+			a.EqualValues(1, ln.accepted.Load(),
+				"a closed session must not dial its peer again")
+			a.Empty(app.GetSessions())
+		})
 	}
 }

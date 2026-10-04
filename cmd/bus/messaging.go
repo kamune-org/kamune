@@ -294,6 +294,12 @@ func sendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duration) 
 // disconnect using resumption tokens. It retries with exponential backoff up to
 // maxAttempts times. Returns true if reconnection succeeded (caller should
 // restart the receive loop).
+//
+// DisconnectSession, StopServer and ServiceShutdown cancel reconnectCtx
+// before they read the session's transport under session.mu and close it,
+// so a session they close never dials its peer again, and a transport
+// dialed meanwhile is closed rather than put in place of the one they
+// close.
 func (a *App) reconnectSession(session *liveSession) bool {
 	const (
 		maxAttempts = 10
@@ -310,6 +316,9 @@ func (a *App) reconnectSession(session *liveSession) bool {
 				return false
 			}
 		}
+		if session.reconnectCtx.Err() != nil {
+			return false
+		}
 
 		a.addLogEntry(
 			"INFO", fmt.Sprintf("Reconnecting session %s (attempt %d/%d)", session.ID, attempt+1, maxAttempts),
@@ -322,13 +331,13 @@ func (a *App) reconnectSession(session *liveSession) bool {
 			continue
 		}
 
+		newStopCh := make(chan struct{})
+		session.mu.Lock()
 		if session.reconnectCtx.Err() != nil {
+			session.mu.Unlock()
 			_ = t.Close()
 			return false
 		}
-
-		newStopCh := make(chan struct{})
-		session.mu.Lock()
 		session.Transport = t
 		session.pingFailures = 0
 		session.pongCh = make(chan []byte, 1)
