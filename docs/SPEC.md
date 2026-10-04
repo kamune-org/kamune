@@ -107,7 +107,7 @@ disconnect from a network failure.
 | **HPKE**                 | Hybrid Public Key Encryption (RFC 9180). Performs key encapsulation and key schedule derivation in a single operation during the Exchange phase. Configured with MLKEM768-X25519 KEM, HKDF-SHA512 KDF, and ChaCha20-Poly1305 AEAD. |
 | **Enigma**               | The symmetric encryption/decryption engine wrapping XChaCha20-Poly1305 with keys derived via HKDF-SHA512.                                                                                                                          |
 | **Route**                | A typed tag on each message's Metadata identifying its purpose and protocol phase.                                                                                                                                                 |
-| **Fingerprint**          | A human-readable representation of a public key (emoji, hex, base64, or pseudonym).                                                                                                                                                |
+| **Fingerprint**          | A human-readable representation of a public key for people to compare: numeric, emoji, hex or base64 (see §6.2.1).                                                                                                                 |
 | **Transcript Hash**      | A SHA-256 hash over the inner handshake field values, bound into challenge derivation to prevent replay and downgrade attacks.                                                                                                     |
 | **Resumption Token**     | A single-use, 32-byte cryptographic value derived from the session's shared secret, presented by the initiator to authorize session resumption without repeating the Introduction phase.                                           |
 | **Resumption Window**    | The 24-hour period after a session's cold handshake during which its resumption tokens remain valid. Resuming the session does not extend it.                                                                                      |
@@ -507,14 +507,14 @@ Initiator (Client)                          Responder (Server)
    - The responder's **Remote Verifier** is invoked: a callback, supplied by
      the application, that decides whether to accept or reject the peer. The
      reference implementation has no default verifier. A verifier typically
-     accepts a peer already in storage, or shows the peer's fingerprint (§2)
-     for the user to compare. The handshake deadline does not run while the
-     verifier does; the verifier has its own time limit (150 seconds by
-     default in the reference implementation), and an accept that comes later
-     counts as a rejection. The handshake can still fail after the verifier
-     accepts, so a verifier should not store the peer itself; the application
-     stores it once the session is established. The verifier does not run
-     when a session is resumed (§6.8.4).
+     accepts a peer already in storage, or shows the peer's fingerprint
+     (§6.2.1) for the user to compare. The handshake deadline does not run
+     while the verifier does; the verifier has its own time limit (150 seconds
+     by default in the reference implementation), and an accept that comes
+     later counts as a rejection. The handshake can still fail after the
+     verifier accepts, so a verifier should not store the peer itself; the
+     application stores it once the session is established. The verifier does
+     not run when a session is resumed (§6.8.4).
 
 3. **Responder sends its own `Introduce`** (route: `ROUTE_IDENTITY`):
    - Same structure as step 1, but with the responder's identity.
@@ -524,6 +524,29 @@ Initiator (Client)                          Responder (Server)
 
 After both introductions are verified and accepted, both sides hold each
 other's authenticated public key and proceed to the Handshake.
+
+#### 6.2.1 Key Fingerprints
+
+A verifier that asks its user to confirm a peer typically shows a fingerprint
+of the peer's identity key, which the user compares with the fingerprint the
+peer sees for its own key. Both sides compute it over the PKIX/DER encoding of
+the key, as carried in `Introduce.PublicKey`.
+
+The numeric fingerprint is the form to compare. It is computed from the
+SHA-512 of the encoded key: the first 40 bytes of the hash are read as eight
+5-byte big-endian integers, each is taken modulo 100000 and written as five
+decimal digits with leading zeros, and the eight groups are separated by
+spaces. It carries about 132.9 bits (8 × log2(100000)), so finding another key
+with the same fingerprint takes about 2^132 hashes.
+
+The emoji fingerprint, 8 emojis out of 96 picked by 32-bit chunks of the
+SHA-256 of the key, carries only about 52.7 bits. An attacker can search for a
+key with the same emojis, so it should not be the only comparison. A hex dump
+of the PKIX encoding shows the same first 12 bytes for every Ed25519 key; only
+the last 32 bytes tell keys apart. The base64 form, the unpadded base64url of
+the SHA-256 of the key, is also the default peer name. A pseudonym derived
+from the key (two adjectives, a noun and a number, about 29.6 bits) is a
+nickname for display, not a fingerprint, and must not be used to verify a key.
 
 ### 6.3 Handshake
 
