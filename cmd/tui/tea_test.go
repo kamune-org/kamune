@@ -52,14 +52,13 @@ func TestViewChat_NoCountdownWhenZero(t *testing.T) {
 
 // connectInMode starts a chat in mode for a session that a connection
 // attempt delivers with msg, after the relay server of the attempt, if
-// ready is set, has registered. It returns the model, and the times just
-// before and just after the session was delivered.
+// ready is set, has registered. It returns the model.
 func connectInMode(
 	t *testing.T, mode inputMode, ready *relayReadyMsg, msg connectedMsg,
-) (m *model, before, after time.Time) {
+) *model {
 	t.Helper()
 	a := require.New(t)
-	m = newTestModel()
+	m := newTestModel()
 	m.store = openTestStore(t)
 	m.mode = mode
 	m.state = stateConnecting
@@ -73,50 +72,52 @@ func connectInMode(
 	}
 	msg.att = m.att
 	msg.transport, _ = peerSession(t)
-	before = time.Now()
 	m.Update(msg)
-	after = time.Now()
 	a.Equal(stateChat, m.state)
-	return m, before, after
+	return m
 }
 
-func TestConnected_SessionTTLAndExpiry(t *testing.T) {
+func TestConnected_SessionExpiry(t *testing.T) {
+	expiry := time.Now().Add(42 * time.Minute)
 	tests := []struct {
 		name  string
 		mode  inputMode
 		ready *relayReadyMsg
 		msg   connectedMsg
-		// ttl is the session TTL that the model should keep, and
-		// expires whether the chat should show a countdown.
-		ttl     time.Duration
-		expires bool
 	}{
 		{
-			name:    "relay serve",
-			mode:    modeRelayServe,
-			ready:   &relayReadyMsg{sessionTTL: 30 * time.Minute},
-			ttl:     30 * time.Minute,
-			expires: true,
+			name:  "relay serve",
+			mode:  modeRelayServe,
+			ready: &relayReadyMsg{sessionTTL: time.Hour},
+			msg:   connectedMsg{expiry: expiry},
+		},
+		{
+			name:  "relay serve, no limit",
+			mode:  modeRelayServe,
+			ready: &relayReadyMsg{},
 		},
 		{
 			name: "relay dial",
 			mode: modeRelayDial,
-			msg:  connectedMsg{sessionTTL: 15 * time.Minute},
-			ttl:  15 * time.Minute,
+			msg:  connectedMsg{expiry: expiry},
 		},
+		{name: "relay dial, no limit", mode: modeRelayDial},
 		{name: "direct dial", mode: modeDirectDial},
 		{name: "direct serve", mode: modeDirectServe},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := require.New(t)
-			m, before, after := connectInMode(t, tt.mode, tt.ready, tt.msg)
-			a.Equal(tt.ttl, m.relaySessionTTL)
-			if !tt.expires {
-				a.True(m.sessionExpiry.IsZero(), "expiry %v", m.sessionExpiry)
-				return
+			m := connectInMode(t, tt.mode, tt.ready, tt.msg)
+			// The chat ends when the relay says, not a TTL after it
+			// started.
+			a.True(tt.msg.expiry.Equal(m.sessionExpiry),
+				"expiry %v", m.sessionExpiry)
+			if tt.msg.expiry.IsZero() {
+				a.NotContains(m.viewChat(), "Session expires")
+			} else {
+				a.Contains(m.viewChat(), "Session expires in 4")
 			}
-			a.WithinRange(m.sessionExpiry, before.Add(tt.ttl), after.Add(tt.ttl))
 		})
 	}
 }

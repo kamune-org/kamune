@@ -44,6 +44,8 @@ type fakeRelay struct {
 
 	mu      sync.Mutex
 	waiting map[string]*relaySession
+	// joined is when a dialer last joined a session.
+	joined time.Time
 }
 
 // relaySession is a session on a fakeRelay that waits for its dialer.
@@ -192,6 +194,7 @@ func (r *fakeRelay) serve(c net.Conn) {
 		r.mu.Lock()
 		sess, ok := r.waiting[key]
 		delete(r.waiting, key)
+		r.joined = time.Now()
 		r.mu.Unlock()
 		if !ok {
 			return
@@ -208,6 +211,13 @@ func (r *fakeRelay) serve(c net.Conn) {
 		sess.joined <- p
 		forward(p, sess.listener)
 	}
+}
+
+// joinedAt returns when a dialer last joined a session on r.
+func (r *fakeRelay) joinedAt() time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.joined
 }
 
 // forward passes the messages that from sends on to to until from fails,
@@ -261,9 +271,12 @@ func selfSignedCert(t *testing.T) tls.Certificate {
 
 // relayResult is what a relay server or a relay dial came to.
 type relayResult struct {
-	t   *kamune.Transport
-	ttl time.Duration
-	err error
+	t *kamune.Transport
+	// expiry is when the relay ends the session, and ttl the session
+	// TTL that the relay gave a server.
+	expiry time.Time
+	ttl    time.Duration
+	err    error
 }
 
 // relayPair runs a relay server and a relay dial to it through r with
@@ -277,8 +290,10 @@ func relayPair(
 	delivered := make(chan relayResult, 1)
 	srv, token, ttl, err := relayServe(
 		ctx, r, serverPass, openTestStore(t), accept,
-		func(tr *kamune.Transport, release chan struct{}) {
-			delivered <- relayResult{t: tr}
+		func(
+			tr *kamune.Transport, release chan struct{}, expiry time.Time,
+		) {
+			delivered <- relayResult{t: tr, expiry: expiry}
 			<-release
 		},
 		func(error) {},
@@ -290,11 +305,11 @@ func relayPair(
 
 	dialed := make(chan relayResult, 1)
 	go func() {
-		tr, ttl, err := relayDial(
+		tr, expiry, err := relayDial(
 			ctx, r, hex.EncodeToString(token), dialPass,
 			openTestStore(t), accept,
 		)
-		dialed <- relayResult{t: tr, ttl: ttl, err: err}
+		dialed <- relayResult{t: tr, expiry: expiry, err: err}
 	}()
 	dialer = waitFor(t, dialed)
 	if dialer.err != nil {
@@ -355,7 +370,6 @@ func TestRelay_SessionOverTCP(t *testing.T) {
 	a.NoError(server.err)
 	a.NoError(dialer.err)
 	a.Equal(time.Hour, server.ttl)
-	a.Equal(time.Hour, dialer.ttl)
 	a.Equal(server.t.SessionID(), dialer.t.SessionID())
 
 	received := make(chan []byte, 1)
@@ -468,7 +482,7 @@ func TestRelayTarget_Pinned(t *testing.T) {
 func TestRelay_PinnedChatThroughTheUI(t *testing.T) {
 	a := require.New(t)
 	relay := startFakeRelay(t, true, time.Hour, "")
-	server, dialer := relayChat(t, "tls://"+relay.addr, "",
+	server, dialer, _ := relayChat(t, "tls://"+relay.addr, "",
 		relayconn.CertFingerprint(relay.cert.Raw),
 	)
 	a.Equal(server.sess.t.SessionID(), dialer.sess.t.SessionID())
@@ -537,13 +551,20 @@ func relayModel(t *testing.T, key rune) (*model, chan tea.Msg) {
 	return m, msgs
 }
 
+// chatTimes are when relayChat did what it does.
+type chatTimes struct {
+	// dial is just before the dialer's Enter, and prompt just after the
+	// server showed its prompt.
+	dial, prompt time.Time
+}
+
 // relayChat starts a relay server and a relay dial to it, with the relay
 // address addr, password and certificate fingerprint pin typed into their
 // input screens, and accepts the peer on both sides. It returns the
 // models in their chats.
 func relayChat(
 	t *testing.T, addr, password, pin string,
-) (server, dialer *model) {
+) (server, dialer *model, at chatTimes) {
 	t.Helper()
 	a := require.New(t)
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
@@ -561,6 +582,7 @@ func relayChat(
 	dialer.inputs[1].SetValue(hex.EncodeToString(server.relayToken))
 	dialer.inputs[relayPasswordInput(dialer.mode)].SetValue(password)
 	dialer.inputs[relayPasswordInput(dialer.mode)+1].SetValue(pin)
+	at.dial = time.Now()
 	dialer.Update(enter)
 	a.Equal(stateConnecting, dialer.state)
 
@@ -580,16 +602,35 @@ func relayChat(
 		}
 		m.Update(msg)
 		if m.state == stateVerify {
+			if m == server {
+				at.prompt = time.Now()
+			}
 			m.Update(accept)
 		}
 		a.NotEqual(stateWelcome, m.state, "error: %v", m.connectErr)
 	}
-	return server, dialer
+	return server, dialer, at
 }
 
 func TestRelay_ChatThroughTheUI(t *testing.T) {
 	a := require.New(t)
 	relay := startFakeRelay(t, false, time.Hour, "s3cret")
-	server, dialer := relayChat(t, "tcp://"+relay.addr, "s3cret", "")
+	server, dialer, _ := relayChat(t, "tcp://"+relay.addr, "s3cret", "")
 	a.Equal(server.sess.t.SessionID(), dialer.sess.t.SessionID())
+}
+
+func TestRelay_ExpiryCountsFromTheJoin(t *testing.T) {
+	a := require.New(t)
+	const ttl = time.Hour
+	relay := startFakeRelay(t, false, ttl, "")
+	server, dialer, at := relayChat(t, "tcp://"+relay.addr, "", "")
+	joined := relay.joinedAt()
+
+	// The relay ends the session ttl after the dialer joined it, on both
+	// sides. The dialer counts from just before it joined, and the
+	// server from the peer's first frame, which comes before the prompt.
+	a.WithinRange(dialer.sessionExpiry, at.dial.Add(ttl), joined.Add(ttl))
+	a.WithinRange(server.sessionExpiry, joined.Add(ttl), at.prompt.Add(ttl))
+	a.Contains(server.viewChat(), "Session expires in")
+	a.Contains(dialer.viewChat(), "Session expires in")
 }

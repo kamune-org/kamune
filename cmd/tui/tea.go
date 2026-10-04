@@ -64,8 +64,9 @@ type connectedMsg struct {
 	// release, when set, is closed once the session is over. The server
 	// handler that delivered transport waits for it, since the
 	// connection is closed when the handler returns.
-	release    chan struct{}
-	sessionTTL time.Duration
+	release chan struct{}
+	// expiry is when the relay ends the session, if it does.
+	expiry time.Time
 }
 
 type connectFailedMsg struct {
@@ -226,11 +227,15 @@ type model struct {
 	// Connecting
 	connectErr error
 	// att is the connection attempt in progress, if any.
-	att             *attempt
-	srv             *kamune.Server
-	relayToken      []byte
+	att        *attempt
+	srv        *kamune.Server
+	relayToken []byte
+	// relaySessionTTL is how long the relay of a relay server keeps a
+	// session after the peer joins it, or zero for no limit.
 	relaySessionTTL time.Duration
-	sessionExpiry   time.Time
+	// sessionExpiry is when the relay ends the chat's session, if it
+	// does.
+	sessionExpiry time.Time
 
 	// Verify
 	verifyReq *verifyRequest
@@ -430,9 +435,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// got through while the prompt for another was open.
 			answer(m.verifyReq.responseCh, errPromptNotShown)
 			m.verifyReq = nil
-		}
-		if msg.sessionTTL > 0 {
-			m.relaySessionTTL = msg.sessionTTL
 		}
 		return m.enterChat(msg)
 	case connectFailedMsg:
@@ -764,20 +766,25 @@ func (m *model) startConnect() tea.Cmd {
 	case modeRelayDial:
 		token := m.inputs[1].Value()
 		go func() {
-			t, sessionTTL, err := relayDial(
+			t, expiry, err := relayDial(
 				att.ctx, relay, token, password, store, vfn,
 			)
 			if err != nil {
 				send(connectFailedMsg{att, err})
 				return
 			}
-			send(connectedMsg{
-				att: att, transport: t, sessionTTL: sessionTTL,
-			})
+			send(connectedMsg{att: att, transport: t, expiry: expiry})
 		}()
 
 	case modeRelayServe:
 		go func() {
+			deliver := func(
+				t *kamune.Transport, release chan struct{}, expiry time.Time,
+			) {
+				send(connectedMsg{
+					att: att, transport: t, release: release, expiry: expiry,
+				})
+			}
 			srv, token, sessionTTL, err := relayServe(
 				att.ctx, relay, password, store, vfn, deliver, stopped,
 			)
@@ -835,9 +842,7 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 	// The attempt is over; this stops the verifier of any other peer.
 	m.att.cancel()
 	m.att = nil
-	if m.mode == modeRelayServe && m.relaySessionTTL > 0 {
-		m.sessionExpiry = time.Now().Add(m.relaySessionTTL)
-	}
+	m.sessionExpiry = msg.expiry
 
 	if peer := t.RemotePeer(); peer != nil {
 		rememberPeer(m.store, peer)

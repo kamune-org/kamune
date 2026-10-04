@@ -293,6 +293,12 @@ func (m *model) viewConnecting() string {
 			tokenHex := fmt.Sprintf("%x", m.relayToken)
 			label += "\n\nToken: " + m.s.highlight.Render(tokenHex)
 			label += "\n\n" + m.s.muted.Render("Share this token with your peer.")
+			if m.relaySessionTTL > 0 {
+				label += "\n" + m.s.muted.Render(fmt.Sprintf(
+					"The relay ends the session %s after your peer joins.",
+					m.relaySessionTTL,
+				))
+			}
 		}
 	}
 	b.WriteString(label)
