@@ -121,3 +121,32 @@ func TestSessionPersistence(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteHistoryOfLiveSession deletes the history of a session that
+// is still open and checks that the session is closed first, so that no
+// later message brings the history back.
+func TestDeleteHistoryOfLiveSession(t *testing.T) {
+	a := require.New(t)
+	app, _ := newUnlockedApp(t, "secret")
+	app.mu.Lock()
+	app.verifMode = VerificationModeAutoAccept
+	app.mu.Unlock()
+	events := recordEvents(app)
+
+	id, peer, _ := openPeerSession(t, app, false)
+	_, err := peer.Send(
+		kamune.Bytes([]byte("hi")), kamune.RouteExchangeMessages,
+	)
+	a.NoError(err)
+	a.Eventually(func() bool {
+		return len(events.named("message-received")) == 1
+	}, testWait, time.Millisecond)
+
+	a.NoError(app.DeleteHistorySession(id))
+
+	a.Empty(app.GetSessions(), "the live session must be closed")
+	sessions, err := app.store().ListSessions()
+	a.NoError(err)
+	a.NotContains(sessions, id)
+	a.Empty(app.GetHistorySessions())
+}

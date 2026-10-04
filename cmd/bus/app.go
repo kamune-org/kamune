@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -2013,16 +2014,29 @@ func (a *App) RenameHistorySession(sessionID string, name string) error {
 	return nil
 }
 
-func (a *App) DeleteHistorySession(sessionID string) {
+// DeleteHistorySession deletes the stored history of sessionID. A
+// session that is still live is closed first, as DisconnectSession does:
+// a message stored for it afterwards would bring its history back.
+func (a *App) DeleteHistorySession(sessionID string) error {
 	store := a.store()
 	if store == nil {
-		return
+		return ErrStorageLocked
+	}
+
+	a.mu.RLock()
+	live := slices.ContainsFunc(a.sessions, func(s *liveSession) bool {
+		return s.ID == sessionID
+	})
+	a.mu.RUnlock()
+	if live {
+		// A session that ended meanwhile is not found, which is fine.
+		_ = a.DisconnectSession(sessionID)
 	}
 
 	err := store.DeleteSession(sessionID)
 	if err != nil {
 		a.addLogEntry("ERROR", "Failed to delete history session: "+err.Error())
-		return
+		return err
 	}
 
 	a.mu.Lock()
@@ -2036,6 +2050,7 @@ func (a *App) DeleteHistorySession(sessionID string) {
 
 	a.emitEvent("history-updated")
 	a.addLogEntry("INFO", "Deleted history session: "+sessionID)
+	return nil
 }
 
 func (a *App) RefreshHistory() {

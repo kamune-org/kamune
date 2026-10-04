@@ -1480,13 +1480,24 @@
             Are you sure you want to permanently delete this session's history? This cannot be
             undone.
           </p>
+          {#if $sessions.some((s) => s.id === $dialogs.showDelete)}
+            <p class="dialog-hint">The session is still open. It is closed first.</p>
+          {/if}
         </div>
         <div class="dialog-actions">
           <button class="dialog-btn dialog-btn-secondary" onclick={closeAllDialogs}>Cancel</button>
           <button
             class="dialog-btn dialog-btn-danger"
             onclick={async () => {
-              await DeleteHistorySession($dialogs.showDelete);
+              try {
+                await DeleteHistorySession($dialogs.showDelete);
+              } catch (e) {
+                toast.set({
+                  message: 'Failed to delete the history: ' + (e?.message || e),
+                  type: 'error',
+                });
+                setTimeout(() => toast.set(null), 4000);
+              }
               await loadHistory();
               closeAllDialogs();
             }}>Delete</button
