@@ -227,3 +227,66 @@ func TestHandler_Listener(t *testing.T) {
 		})
 	}
 }
+
+func TestWebSocketHandler_Origin(t *testing.T) {
+	h := newTestHandler(t, testConfig(0))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", h.WebSocketHandler)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	addr := strings.TrimPrefix(srv.URL, "http://")
+	_, port, err := net.SplitHostPort(addr)
+	require.New(t).NoError(err)
+	// A page whose name was rebound to the relay's address sends its own
+	// host as both Host and Origin.
+	rebound := net.JoinHostPort("evil.example", port)
+	// client reaches srv whatever host the URL names.
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(
+			ctx context.Context, network, _ string,
+		) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		},
+	}}
+
+	tests := []struct {
+		name   string
+		host   string
+		origin string
+		ok     bool
+	}{
+		{name: "native client sends none", host: addr, ok: true},
+		{name: "same host", host: addr, origin: "http://" + addr},
+		{name: "dns rebinding", host: rebound, origin: "http://" + rebound},
+		{name: "cross origin page", host: addr, origin: "https://evil.example"},
+		{name: "null origin", host: addr, origin: "null"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			opts := &websocket.DialOptions{
+				HTTPClient: client,
+				HTTPHeader: http.Header{},
+			}
+			if tc.origin != "" {
+				opts.HTTPHeader.Set("Origin", tc.origin)
+			}
+			ctx, cancel := context.WithTimeout(
+				context.Background(), 10*time.Second,
+			)
+			defer cancel()
+			conn, resp, err := websocket.Dial(
+				ctx, "ws://"+tc.host+"/ws", opts,
+			)
+			if tc.ok {
+				a.NoError(err)
+				_ = conn.CloseNow()
+				return
+			}
+			a.Error(err)
+			a.NotNil(resp)
+			a.Equal(http.StatusForbidden, resp.StatusCode)
+		})
+	}
+}

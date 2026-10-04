@@ -40,11 +40,22 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := websocket.Accept(
-		clearingHijacker{w}, r, &websocket.AcceptOptions{
-			InsecureSkipVerify: true,
-		},
-	)
+	// No relay client runs in a browser: native clients send no Origin
+	// header, and a browser always sends one. Refuse any request that
+	// carries it, so a web page cannot have its visitors open sessions
+	// here. Accept's own check is not enough, as it passes an Origin
+	// naming the request's Host, which a page gets by rebinding its DNS
+	// name to this relay's address, a loopback or LAN one included.
+	if origin := r.Header.Values("Origin"); len(origin) > 0 {
+		slog.Debug(
+			"ws: refused request with an origin",
+			slog.String("remote", remoteAddr),
+			slog.Any("origin", origin),
+		)
+		http.Error(w, "origin not allowed", http.StatusForbidden)
+		return
+	}
+	conn, err := websocket.Accept(clearingHijacker{w}, r, nil)
 	if err != nil {
 		// A request that is not a valid upgrade is the client's
 		// error, and costs it nothing to repeat.
