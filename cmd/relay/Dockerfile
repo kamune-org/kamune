@@ -4,6 +4,10 @@
 # Default config is included; the container runs with no args or env vars.
 # Override it by mounting a config at /etc/relay.toml. To use
 # KAMUNE_RELAY_CONFIG instead, replace the entrypoint so relay runs without -c.
+#
+# The relay logs to stderr. Docker's default json-file driver keeps that log
+# without limit, so cap it when running the container, for example:
+#   docker run --log-opt max-size=10m --log-opt max-file=3 kamune-relay
 
 FROM golang:1.26-alpine AS builder
 

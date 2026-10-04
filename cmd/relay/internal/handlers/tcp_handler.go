@@ -45,7 +45,7 @@ func acceptLoop(ctx context.Context, listener net.Listener, hub *services.Hub) {
 
 		if rl := hub.RateLimiter(); rl != nil &&
 			!rl.Allow(rateLimitKey(extractIP(remoteAddr))) {
-			slog.Warn("rate limit exceeded", slog.String("remote", remoteAddr))
+			logRateLimited(remoteAddr)
 			conn.Close()
 			continue
 		}

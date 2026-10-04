@@ -313,6 +313,11 @@ func TestNewWSServer_OneRequestPerConnection(t *testing.T) {
 				a.NoError(err)
 			}
 			srv := newWSServer("127.0.0.1:0", http.NewServeMux(), tlsCfg)
+			a.NotNil(srv.ErrorLog)
+			a.Equal(
+				handlers.HTTPErrorLog().Writer(), srv.ErrorLog.Writer(),
+				"TLS handshake errors must go to slog at debug",
+			)
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			a.NoError(err)
 			done := make(chan struct{})

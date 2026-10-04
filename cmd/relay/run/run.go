@@ -234,7 +234,8 @@ const (
 // on success, so a connection only ever needs one request: keep-alives are
 // off and HTTP/2 is not offered. Without that, a client could keep a
 // socket open indefinitely after a response, or send request after
-// request on it.
+// request on it. A failed TLS handshake is logged at debug, as a client
+// can cause one per connection.
 func newWSServer(
 	addr string, handler http.Handler, tlsCfg *tls.Config,
 ) *http.Server {
@@ -250,6 +251,7 @@ func newWSServer(
 		WriteTimeout:      wsRequestTimeout,
 		IdleTimeout:       wsIdleTimeout,
 		MaxHeaderBytes:    wsMaxHeaderBytes,
+		ErrorLog:          handlers.HTTPErrorLog(),
 	}
 	srv.SetKeepAlivesEnabled(false)
 	return srv

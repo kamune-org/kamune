@@ -1,9 +1,6 @@
 package handlers
 
-import (
-	"log/slog"
-	"net"
-)
+import "net"
 
 // Listener wraps ln, the listener of a ws or wss server, so that each
 // connection from a peer outside trusted_proxies spends one unit of the
@@ -49,6 +46,6 @@ func (h *Handler) allowConn(addr net.Addr) bool {
 	if h.connLimiter.Allow(rateLimitKey(ip)) {
 		return true
 	}
-	slog.Warn("rate limit exceeded", slog.String("remote", ip))
+	logRateLimited(ip)
 	return false
 }

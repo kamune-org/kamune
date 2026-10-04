@@ -35,7 +35,7 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	remoteAddr := h.clientIP(r)
 	if rl := h.service.Hub().RateLimiter(); rl != nil &&
 		!rl.Allow(rateLimitKey(remoteAddr)) {
-		slog.Warn("rate limit exceeded", slog.String("remote", remoteAddr))
+		logRateLimited(remoteAddr)
 		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
@@ -46,7 +46,13 @@ func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		},
 	)
 	if err != nil {
-		slog.Error("ws: failed to accept", slog.Any("error", err))
+		// A request that is not a valid upgrade is the client's
+		// error, and costs it nothing to repeat.
+		slog.Debug(
+			"ws: failed to accept",
+			slog.String("remote", remoteAddr),
+			slog.Any("error", err),
+		)
 		return
 	}
 
@@ -144,7 +150,12 @@ func handleRelayConn(
 
 	ch, err := exchange.Accept(rw)
 	if err != nil {
-		slog.Error("relay: hpke accept failed", slog.Any("error", err))
+		// Usually a client speaking another protocol or hanging up.
+		slog.Debug(
+			"relay: hpke accept failed",
+			slog.String("remote", remoteAddr),
+			slog.Any("error", err),
+		)
 		return
 	}
 
