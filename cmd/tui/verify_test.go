@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune"
@@ -58,9 +59,11 @@ func TestViewVerify_PeerClaimsComeAfterFingerprints(t *testing.T) {
 			AppVersion: "0.7.0\x1b]52;c;aGk=\x07\n" +
 				strings.Repeat("9", 100),
 		},
-		emojiFP: "E1 E2",
-		hexFP:   "AA:BB",
-		isNew:   true,
+		numericFP:      "11111 22222",
+		localNumericFP: "33333 44444",
+		emojiFP:        "E1 E2",
+		hexFP:          "AA:BB",
+		isNew:          true,
 	}
 
 	view := m.viewVerify()
@@ -72,9 +75,13 @@ func TestViewVerify_PeerClaimsComeAfterFingerprints(t *testing.T) {
 		}
 	}
 	a.Equal(1, headings)
+	numericAt := strings.Index(view, "11111 22222")
 	hexAt := strings.Index(view, "AA:BB")
 	claimAt := strings.Index(view, "Claimed name (unverified): Alice")
-	a.Positive(hexAt)
+	a.Positive(numericAt)
+	a.Less(numericAt, strings.Index(view, "33333 44444"))
+	a.Less(numericAt, strings.Index(view, "E1 E2"))
+	a.Greater(hexAt, numericAt)
 	a.Greater(claimAt, hexAt)
 	a.Less(strings.Index(view, "not known"), claimAt)
 	for _, ln := range strings.Split(view, "\n") {
@@ -100,6 +107,12 @@ func TestViewVerify_KnownPeerShowsStoredName(t *testing.T) {
 	}
 
 	view := m.viewVerify()
+	a.Contains(view, "If its app shows no numeric fingerprint, compare")
+	a.Contains(view, "the hex fingerprint instead.")
+	for _, ln := range strings.Split(view, "\n") {
+		ln = strings.TrimRight(ln, " ")
+		a.LessOrEqual(lipgloss.Width(ln), 80, "line %q", ln)
+	}
 	a.Contains(view, "connected before")
 	a.Contains(view, "Stored name: Alice")
 	a.Contains(view, "Claimed name (unverified): Mallory")

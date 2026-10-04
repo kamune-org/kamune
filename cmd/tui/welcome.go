@@ -276,7 +276,20 @@ func (m *model) viewVerify() string {
 	// The fingerprints and the local verdict come first: the name and the
 	// version are the peer's own claims, so they go below them, each on a
 	// line of its own.
-	b.WriteString("Emoji fingerprint:\n  " + req.emojiFP)
+	b.WriteString("Peer's numeric fingerprint:\n  " +
+		m.s.highlight.Render(req.numericFP))
+	if req.localNumericFP != "" {
+		b.WriteString("\nYour numeric fingerprint:\n  " + req.localNumericFP)
+	}
+	// Not every app shows a numeric fingerprint; bus and the daemon show
+	// the hex one.
+	b.WriteString("\n" + m.s.muted.Render(
+		"Over a channel you trust, ask the peer to read out the numeric\n"+
+			"fingerprint of its own key, and check it against the peer's\n"+
+			"number above. If its app shows no numeric fingerprint, compare\n"+
+			"the hex fingerprint instead.",
+	))
+	b.WriteString("\n\nEmoji fingerprint:\n  " + req.emojiFP)
 	b.WriteString("\n\nHex fingerprint:\n  " + m.s.muted.Render(req.hexFP))
 
 	if req.isNew {

@@ -53,11 +53,15 @@ type connectFailedMsg struct {
 type verifyRequest struct {
 	peer *storage.Peer
 	// knownName is the name stored for the peer's key, if it is known.
-	knownName  string
-	emojiFP    string
-	hexFP      string
-	responseCh chan<- error
-	isNew      bool
+	knownName string
+	// numericFP and localNumericFP are the fingerprint.Numeric of the
+	// peer's key and of the local identity key.
+	numericFP      string
+	localNumericFP string
+	emojiFP        string
+	hexFP          string
+	responseCh     chan<- error
+	isNew          bool
 }
 
 type relayReadyMsg struct {
@@ -331,16 +335,20 @@ func (m *model) mkVerifier() kamune.RemoteVerifier {
 			knownName = known.Name
 		}
 		key := peer.PublicKey
-		emojiFP := strings.Join(fingerprint.Emoji(key), " • ")
-		hexFP := fingerprint.Hex(key)
+		var localFP string
+		if own, err := store.PublicKey(); err == nil {
+			localFP = fingerprint.Numeric(own)
+		}
 		respCh := make(chan error, 1)
 		m.program.Send(verifyRequest{
-			peer:       peer,
-			isNew:      isNew,
-			knownName:  knownName,
-			emojiFP:    emojiFP,
-			hexFP:      hexFP,
-			responseCh: respCh,
+			peer:           peer,
+			isNew:          isNew,
+			knownName:      knownName,
+			numericFP:      fingerprint.Numeric(key),
+			localNumericFP: localFP,
+			emojiFP:        strings.Join(fingerprint.Emoji(key), " • "),
+			hexFP:          fingerprint.Hex(key),
+			responseCh:     respCh,
 		})
 		err := <-respCh
 		if err == nil && isNew {
