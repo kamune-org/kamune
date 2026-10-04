@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -639,4 +640,83 @@ func TestDialDoneDuringShutdownClosesSession(t *testing.T) {
 	serverRec.waitFor(t, func(e recordedEvent) bool {
 		return e.Evt == EvtSessionClosed && e.Data["session_id"] == id
 	})
+}
+
+// connListener is a tcp listener for a kamune server that hands each
+// connection it accepts to conns as well.
+type connListener struct {
+	net.Listener
+	conns chan net.Conn
+}
+
+func (l *connListener) Accept() (kamune.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	l.conns <- c
+	return kamune.NewConn(c), nil
+}
+
+// A dialed session that ends on its own closes its connection: when the
+// peer stops sending and the session cannot be resumed, the daemon does
+// not keep the socket open after the session is gone.
+func TestDialedSessionClosesItsConnWhenItEnds(t *testing.T) {
+	a := require.New(t)
+	client, clientRec := newTestDaemon(
+		t, VerificationModeAutoAccept, true,
+	)
+
+	store, err := storage.OpenStorage(
+		storage.WithDBPath(filepath.Join(t.TempDir(), "server.db")),
+		storage.WithNoPassphrase(),
+	)
+	a.NoError(err)
+	t.Cleanup(func() { _ = store.Close() })
+	tcp, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	listener := &connListener{Listener: tcp, conns: make(chan net.Conn, 1)}
+	// ended receives the error that ended the server's session.
+	ended := make(chan error, 1)
+	srv, err := kamune.NewServer(
+		tcp.Addr().String(),
+		func(tr *kamune.Transport) error {
+			for {
+				_, _, err := tr.ReceivePayload()
+				if err != nil &&
+					!errors.Is(err, kamune.ErrReceiveTimeout) {
+					ended <- err
+					return nil
+				}
+			}
+		},
+		store,
+		func(*storage.Storage, *storage.Peer) error { return nil },
+		kamune.ServeWithListener(listener),
+	)
+	a.NoError(err)
+	go func() { _ = srv.ListenAndServe() }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	id := dialTestServer(t, client, clientRec, tcp.Addr().String())
+	session := waitForSession(t, client, id)
+	conn := <-listener.conns
+
+	// The server stops sending, which the client reads as a dropped
+	// connection. An incognito session is not resumed, so it ends.
+	a.NoError(conn.(*net.TCPConn).CloseWrite())
+	evt := clientRec.waitFor(t, func(e recordedEvent) bool {
+		return e.Evt == EvtSessionClosed && e.Data["session_id"] == id
+	})
+	a.Equal(id, evt.Data["session_id"])
+
+	select {
+	case err := <-ended:
+		a.ErrorIs(err, kamune.ErrConnClosed)
+	case <-time.After(testEventTimeout):
+		t.Fatal("the client kept its connection open")
+	}
+	// Keep the client's transport reachable until here, so that no
+	// finalizer closes its socket for it.
+	a.NotNil(session.snapshotTransport())
 }

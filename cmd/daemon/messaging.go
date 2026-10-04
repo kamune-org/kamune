@@ -194,10 +194,20 @@ func (d *Daemon) sendMessage(
 // closes session.ReceiveDone when the receive loop exits and cleans up the
 // session from the map, also when the loop panics. On involuntary
 // disconnect (ErrConnClosed) it attempts transparent resumption when
-// reconnectFn is available (mirrors cmd/bus/messaging.go:64-80).
+// reconnectFn is available (mirrors cmd/bus/messaging.go:64-80). A
+// session that ends on its own is stopped and its transport closed; see
+// endSession.
 func (d *Daemon) receiveMessages(session *liveSession) {
 	defer close(session.ReceiveDone)
-	defer d.finishSession(session)
+	// endErr is the error that ended the session, if any.
+	var endErr error
+	defer func() {
+		// A session the daemon closed itself is no longer listed, and
+		// its closer stopped it.
+		if d.finishSession(session) {
+			endSession(session, endErr)
+		}
+	}()
 
 	for {
 		transport := session.snapshotTransport()
@@ -209,6 +219,10 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 				d.dropRelayPool(session.ID)
 			case errors.Is(err, kamune.ErrConnClosed):
 				d.addLogEntry("INFO", "Connection closed: "+session.ID)
+				// Release the dropped connection; a reconnect
+				// makes a new one. CloseAbort keeps the
+				// resumption tokens.
+				_ = transport.CloseAbort()
 				if d.reconnectSession(session) {
 					continue
 				}
@@ -217,6 +231,7 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 			default:
 				d.addLogEntry("ERROR", "Receive error: "+err.Error())
 			}
+			endErr = err
 			break
 		}
 
@@ -260,6 +275,25 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 		d.emit(EvtSessionUpdated, "", MapS{"session_id": session.ID})
 		d.addLogEntry("DEBUG", "Received message from "+session.ID)
 	}
+}
+
+// endSession stops session, a dialed session that ended on its own with
+// err, and closes its transport: the kamune library leaves the connection
+// open when it drops, and after some receive errors. A connection that
+// dropped or that the peer closed is closed at once. Otherwise the peer
+// may still be there: Close tells it that the session is over, and the
+// session can no longer be resumed.
+func endSession(session *liveSession, err error) {
+	t := session.stop()
+	if t == nil {
+		return
+	}
+	if errors.Is(err, kamune.ErrPeerDisconnected) ||
+		errors.Is(err, kamune.ErrConnClosed) {
+		_ = t.CloseAbort()
+		return
+	}
+	_ = t.Close()
 }
 
 // receiveMessagesBlocking is the blocking receive loop used by the server
