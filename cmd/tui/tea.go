@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -64,6 +65,42 @@ type verifyRequest struct {
 	responseCh     chan<- error
 	isNew          bool
 }
+
+// verifyEndedMsg tells Update that the verifier stopped waiting for the
+// answer to the prompt of the request with responseCh, so that the prompt
+// can close.
+type verifyEndedMsg struct {
+	responseCh chan<- error
+	err        error
+}
+
+// verifyPromptTimeout is how long the verifier waits for the user to
+// answer a prompt before it rejects the peer. The kamune handshake allows
+// the verifier a little longer.
+const verifyPromptTimeout = 2 * time.Minute
+
+var (
+	// errPromptOpen rejects a peer that arrives while the prompt for
+	// another peer is open.
+	errPromptOpen = fmt.Errorf(
+		"%w: another peer is being verified", kamune.ErrVerificationFailed,
+	)
+	// errPromptNotShown rejects a peer whose prompt cannot be shown, as
+	// when a chat has started already.
+	errPromptNotShown = fmt.Errorf(
+		"%w: no prompt can be shown now", kamune.ErrVerificationFailed,
+	)
+	// errPromptTimeout rejects a peer that the user did not answer for
+	// within verifyPromptTimeout.
+	errPromptTimeout = fmt.Errorf(
+		"%w: no answer in time", kamune.ErrVerificationFailed,
+	)
+	// errAttemptCancelled rejects a peer whose connection attempt was
+	// cancelled while its prompt was open.
+	errAttemptCancelled = fmt.Errorf(
+		"%w: connection attempt cancelled", kamune.ErrVerificationFailed,
+	)
+)
 
 type relayReadyMsg struct {
 	token      []byte
@@ -136,10 +173,12 @@ var menuItems = []string{
 }
 
 type model struct {
-	program *tea.Program
-	store   *storage.Storage
-	state   appState
-	cursor  int
+	// send passes a message to the program's event loop. Goroutines use
+	// it to report to Update.
+	send   func(tea.Msg)
+	store  *storage.Storage
+	state  appState
+	cursor int
 
 	// Input
 	mode   inputMode
@@ -158,6 +197,8 @@ type model struct {
 
 	// Verify
 	verifyReq *verifyRequest
+	// promptTimeout overrides verifyPromptTimeout when it is positive.
+	promptTimeout time.Duration
 
 	// Chat
 	transport     *kamune.Transport
@@ -206,10 +247,22 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case verifyRequest:
 		if m.state != stateConnecting {
+			// Nobody would see the prompt. Reject the peer now rather
+			// than leave its handshake waiting for an answer.
+			answer(msg.responseCh, errPromptNotShown)
 			return m, nil
 		}
 		m.verifyReq = &msg
 		m.state = stateVerify
+		return m, nil
+	case verifyEndedMsg:
+		if m.state != stateVerify || m.verifyReq == nil ||
+			m.verifyReq.responseCh != msg.responseCh {
+			return m, nil
+		}
+		m.verifyReq = nil
+		m.connectErr = msg.err
+		m.state = stateConnecting
 		return m, nil
 	case tickMsg:
 		if m.state == stateChat && !m.sessionExpiry.IsZero() {
@@ -326,8 +379,24 @@ func (m *model) refreshHistory() {
 	m.histVP.SetContent(m.s.renderLines(m.histMsgs, contentWidth(m.histVP)))
 }
 
-func (m *model) mkVerifier() kamune.RemoteVerifier {
+// mkVerifier returns the verifier for a connection attempt whose context
+// is ctx. It shows one prompt at a time and rejects a peer that arrives
+// while a prompt is open. It waits for the user's answer for at most the
+// prompt timeout, and no longer than ctx lasts, so a peer whose prompt is
+// never answered cannot hold its handshake open.
+func (m *model) mkVerifier(ctx context.Context) kamune.RemoteVerifier {
+	send := m.send
+	timeout := m.promptTimeout
+	if timeout <= 0 {
+		timeout = verifyPromptTimeout
+	}
+	var prompting atomic.Bool
 	return func(store *storage.Storage, peer *storage.Peer) error {
+		if !prompting.CompareAndSwap(false, true) {
+			return errPromptOpen
+		}
+		defer prompting.Store(false)
+
 		var isNew bool
 		var knownName string
 		if known, err := store.FindPeer(peer.PublicKey); err != nil {
@@ -341,7 +410,7 @@ func (m *model) mkVerifier() kamune.RemoteVerifier {
 			localFP = fingerprint.Numeric(own)
 		}
 		respCh := make(chan error, 1)
-		m.program.Send(verifyRequest{
+		send(verifyRequest{
 			peer:           peer,
 			isNew:          isNew,
 			knownName:      knownName,
@@ -351,7 +420,18 @@ func (m *model) mkVerifier() kamune.RemoteVerifier {
 			hexFP:          fingerprint.Hex(key),
 			responseCh:     respCh,
 		})
-		err := <-respCh
+
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		var err error
+		select {
+		case err = <-respCh:
+		case <-timer.C:
+			err = errPromptTimeout
+			send(verifyEndedMsg{responseCh: respCh, err: err})
+		case <-ctx.Done():
+			err = errAttemptCancelled
+		}
 		if err == nil && isNew {
 			peer.FirstSeen = time.Now()
 			if serr := store.StorePeer(peer); serr != nil {
@@ -362,21 +442,30 @@ func (m *model) mkVerifier() kamune.RemoteVerifier {
 	}
 }
 
+// answer gives the verifier waiting on ch the answer err, unless it has
+// one already.
+func answer(ch chan<- error, err error) {
+	select {
+	case ch <- err:
+	default:
+	}
+}
+
 func (m *model) startConnect() tea.Cmd {
-	vfn := m.mkVerifier()
 	m.connCtx, m.connCancel = context.WithCancel(context.Background())
+	vfn := m.mkVerifier(m.connCtx)
 
 	switch m.mode {
 	case modeDirectDial:
 		go func() {
 			t, err := dial(m.inputs[0].Value(), m.store, vfn)
 			if err != nil {
-				m.program.Send(connectFailedMsg{err})
+				m.send(connectFailedMsg{err})
 				return
 			}
 			warn, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
 			m.versionWarn = warn
-			m.program.Send(connectedMsg{transport: t})
+			m.send(connectedMsg{transport: t})
 		}()
 		return nil
 
@@ -398,12 +487,12 @@ func (m *model) startConnect() tea.Cmd {
 		go func() {
 			t, sessionTTL, err := relayDial(addr, token, "", m.store, vfn)
 			if err != nil {
-				m.program.Send(connectFailedMsg{err})
+				m.send(connectFailedMsg{err})
 				return
 			}
 			warn, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
 			m.versionWarn = warn
-			m.program.Send(connectedMsg{transport: t, sessionTTL: sessionTTL})
+			m.send(connectedMsg{transport: t, sessionTTL: sessionTTL})
 		}()
 		return nil
 
@@ -416,11 +505,11 @@ func (m *model) startConnect() tea.Cmd {
 		go func() {
 			srv, token, sessionTTL, err := relayServe(addr, "", m.store, vfn, connCh, doneCh)
 			if err != nil {
-				m.program.Send(connectFailedMsg{err})
+				m.send(connectFailedMsg{err})
 				return
 			}
 			m.srv = srv
-			m.program.Send(relayReadyMsg{token: token, sessionTTL: sessionTTL})
+			m.send(relayReadyMsg{token: token, sessionTTL: sessionTTL})
 		}()
 		return waitConn(m.connCtx, connCh, true)
 	}
@@ -446,6 +535,15 @@ func tickCountdown() tea.Cmd {
 
 func (m *model) enterChat() (tea.Model, tea.Cmd) {
 	m.state = stateChat
+	if m.mode == modeDirectServe && m.srv != nil {
+		// The TUI shows one chat at a time, so stop taking peers: a
+		// handshake that reached the server now would wait for a prompt
+		// that cannot be shown. Close leaves the session handed to the
+		// handler running. A relay listener takes a single peer, and
+		// closing it would end this session too, so it stays open.
+		_ = m.srv.Close()
+		m.srv = nil
+	}
 	if m.mode == modeRelayServe && m.relaySessionTTL > 0 {
 		m.sessionExpiry = time.Now().Add(m.relaySessionTTL)
 	}
@@ -543,7 +641,7 @@ func loadChatHistory(m *model) tea.Cmd {
 }
 
 func (m *model) startReceiving() {
-	go receiveLoop(m.transport, m.pongCh, m.program.Send)
+	go receiveLoop(m.transport, m.pongCh, m.send)
 }
 
 // receiveLoop reads frames from t and passes what they mean to send until
@@ -617,7 +715,7 @@ func (m *model) keepAliveLoop() {
 			if err := tuiSendPing(m.transport, m.pongCh, pingTimeout); err != nil {
 				m.pingFailures++
 				if m.pingFailures >= 3 {
-					m.program.Send(peerDisconnectedMsg{})
+					m.send(peerDisconnectedMsg{})
 					return
 				}
 			} else {

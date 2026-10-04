@@ -13,9 +13,10 @@ import (
 
 func newTestModel() *model {
 	return &model{
-		s:  defaultStyles(),
-		vp: viewport.New(80, 24),
-		ta: textarea.New(),
+		send: func(tea.Msg) {},
+		s:    defaultStyles(),
+		vp:   viewport.New(80, 24),
+		ta:   textarea.New(),
 	}
 }
 

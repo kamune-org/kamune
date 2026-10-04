@@ -225,6 +225,13 @@ func (m *model) viewConnecting() string {
 		}
 	}
 	b.WriteString(label)
+	if m.connectErr != nil {
+		// A server keeps listening after a peer is rejected; say why
+		// the last one was.
+		b.WriteString("\n\n" + m.s.err.Render(
+			"Error: "+sanitizeText(m.connectErr.Error()),
+		))
+	}
 
 	b.WriteString("\n\n" + m.s.muted.Render("[Esc] cancel"))
 	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
@@ -251,8 +258,9 @@ func (m *model) updateVerify(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	m.connectErr = nil
 	if accept {
-		m.verifyReq.responseCh <- nil
+		answer(m.verifyReq.responseCh, nil)
 		m.verifyReq = nil
 		m.state = stateConnecting
 		if m.srv != nil {
@@ -262,7 +270,7 @@ func (m *model) updateVerify(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	err := fmt.Errorf("peer verification rejected")
-	m.verifyReq.responseCh <- err
+	answer(m.verifyReq.responseCh, err)
 	m.verifyReq = nil
 	if m.srv != nil {
 		m.state = stateConnecting

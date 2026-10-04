@@ -106,7 +106,7 @@ func main() {
 
 	m := &model{store: store, state: stateWelcome, s: defaultStyles()}
 	p := tea.NewProgram(m)
-	m.program = p
+	m.send = p.Send
 
 	if err := runUI(p, os.Getenv(logFileEnv)); err != nil {
 		slog.Error("program run", "error", err)
