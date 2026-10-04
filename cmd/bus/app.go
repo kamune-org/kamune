@@ -87,6 +87,11 @@ const (
 	VerificationModeAutoAccept VerificationMode = 2
 )
 
+// valid reports whether m is one of the defined verification modes.
+func (m VerificationMode) valid() bool {
+	return m >= VerificationModeStrict && m <= VerificationModeAutoAccept
+}
+
 // p2pListenerI is the interface shared by broker-based and direct P2P
 // listeners. Both support Close and Addr; only the broker variant has
 // Token and refresh logic.
@@ -667,20 +672,21 @@ func (a *App) initFromStorage() {
 
 		modeStr, modeErr := store.GetSettings("bus", "verification_mode")
 		if modeErr == nil && modeStr != "" {
-			if mode, err := strconv.Atoi(modeStr); err == nil {
-				a.mu.Lock()
-				a.verifMode = VerificationMode(mode)
-				a.mu.Unlock()
-
-				for _, item := range a.verifRadioItems {
-					item.SetChecked(false)
-				}
-				if mode >= 0 && mode < len(a.verifRadioItems) {
-					a.verifRadioItems[mode].SetChecked(true)
-				}
-				a.updateMenu()
-				a.emitEvent("verification-mode-changed", mode)
+			mode, ok := parseVerificationMode(modeStr)
+			if !ok {
+				a.addLogEntry("WARN", fmt.Sprintf(
+					"Unknown stored verification mode %q, using Strict",
+					modeStr,
+				))
+				mode = VerificationModeStrict
 			}
+			a.mu.Lock()
+			a.verifMode = mode
+			a.mu.Unlock()
+
+			checkVerifRadio(a.verifRadioItems, int(mode))
+			a.updateMenu()
+			a.emitEvent("verification-mode-changed", int(mode))
 		}
 
 		incognitoStr, incognitoErr := store.GetSettings("bus", "incognito")
@@ -855,6 +861,12 @@ func (a *App) GetVerificationMode() int {
 }
 
 func (a *App) SetVerificationMode(mode int) bool {
+	if !VerificationMode(mode).valid() {
+		a.addLogEntry("WARN",
+			fmt.Sprintf("Rejected unknown verification mode %d", mode))
+		return false
+	}
+
 	a.mu.RLock()
 	if a.verifMode == VerificationMode(mode) {
 		a.mu.RUnlock()
@@ -1088,6 +1100,25 @@ func (a *App) ClearKeychainPassphrase() error {
 	}
 	a.addLogEntry("INFO", "Passphrase cleared from keychain")
 	return nil
+}
+
+// parseVerificationMode parses a stored verification mode. ok is false
+// for a value that is not a defined mode.
+func parseVerificationMode(s string) (m VerificationMode, ok bool) {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	m = VerificationMode(n)
+	return m, m.valid()
+}
+
+// checkVerifRadio checks the menu item of mode and unchecks the others.
+// A mode without an item leaves every item unchecked.
+func checkVerifRadio(items []*application.MenuItem, mode int) {
+	for i, item := range items {
+		item.SetChecked(i == mode)
+	}
 }
 
 func verifModeName(m VerificationMode) string {

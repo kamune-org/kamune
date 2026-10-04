@@ -43,15 +43,16 @@ func (a *App) getVerifier() kamune.RemoteVerifier {
 	return a.verifierFor(a.currentVerifMode())
 }
 
-// verifierFor returns the verifier for mode.
+// verifierFor returns the verifier for mode. A mode that is not defined
+// gets the strict verifier, so a bad value never turns verification off.
 func (a *App) verifierFor(mode VerificationMode) kamune.RemoteVerifier {
 	switch mode {
-	case VerificationModeStrict:
-		return a.createStrictVerifier()
 	case VerificationModeQuick:
 		return a.createQuickVerifier()
-	default:
+	case VerificationModeAutoAccept:
 		return a.createAutoAcceptVerifier()
+	default:
+		return a.createStrictVerifier()
 	}
 }
 

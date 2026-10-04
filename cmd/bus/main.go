@@ -36,18 +36,9 @@ func buildMenu(app *App) *application.Menu {
 
 	setVerifMode := func(mode int) {
 		if !app.SetVerificationMode(mode) {
-			prev := app.GetVerificationMode()
-			for _, item := range radioItems {
-				item.SetChecked(false)
-			}
-			radioItems[prev].SetChecked(true)
-			menu.Update()
-			return
+			mode = app.GetVerificationMode()
 		}
-		for _, item := range radioItems {
-			item.SetChecked(false)
-		}
-		radioItems[mode].SetChecked(true)
+		checkVerifRadio(radioItems, mode)
 		menu.Update()
 	}
 

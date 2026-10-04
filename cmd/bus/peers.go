@@ -178,8 +178,7 @@ func (a *App) rememberPeer(
 	}
 
 	name := strings.TrimSpace(peer.Name)
-	prompted := mode == VerificationModeStrict ||
-		mode == VerificationModeQuick
+	prompted := mode != VerificationModeAutoAccept
 	keyB64 := fingerprint.Base64(peer.PublicKey)
 	if !prompted || name == "" || a.isOtherPeersName(keyB64, name) {
 		name = fingerprint.Pseudonym(peer.PublicKey)

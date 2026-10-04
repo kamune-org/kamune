@@ -296,3 +296,113 @@ func TestPromptTimeoutClosesRequest(t *testing.T) {
 	a.Len(events.promptIDs(), 1)
 	a.Equal(events.promptIDs(), events.closedIDs())
 }
+
+func TestParseVerificationMode(t *testing.T) {
+	cases := []struct {
+		in   string
+		want VerificationMode
+		ok   bool
+	}{
+		{"0", VerificationModeStrict, true},
+		{"1", VerificationModeQuick, true},
+		{"2", VerificationModeAutoAccept, true},
+		{"3", 0, false},
+		{"-1", 0, false},
+		{"7", 0, false},
+		{"quick", 0, false},
+		{"", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			a := require.New(t)
+			got, ok := parseVerificationMode(tc.in)
+			a.Equal(tc.ok, ok)
+			if tc.ok {
+				a.Equal(tc.want, got)
+			}
+		})
+	}
+}
+
+// TestUnknownModeVerifiesStrictly checks that a mode outside the defined
+// ones gets the strict verifier, which asks even about a stored peer,
+// instead of falling through to Auto-Accept.
+func TestUnknownModeVerifiesStrictly(t *testing.T) {
+	cases := []struct {
+		name   string
+		mode   VerificationMode
+		prompt bool
+	}{
+		{"strict", VerificationModeStrict, true},
+		{"quick", VerificationModeQuick, false},
+		{"auto-accept", VerificationModeAutoAccept, false},
+		{"negative", -1, true},
+		{"three", 3, true},
+		{"large", 42, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, cleanup := newTestAppWithStorage(t)
+			defer cleanup()
+			peer := newTestPeer(t, "Bob")
+			a.NoError(app.store().StorePeer(&storage.Peer{
+				Name: "Bob", PublicKey: peer.PublicKey,
+			}))
+
+			errCh := runVerifier(app, app.verifierFor(tc.mode), peer)
+			if tc.prompt {
+				ids := waitPending(t, app, 1)
+				app.VerifyResponse(ids[0], false)
+				a.ErrorIs(waitVerdict(t, errCh), kamune.ErrVerificationFailed)
+				return
+			}
+			a.NoError(waitVerdict(t, errCh))
+			a.Empty(pendingIDs(app))
+		})
+	}
+}
+
+func TestSetVerificationModeRejectsUnknownMode(t *testing.T) {
+	for _, mode := range []int{-1, 3, 7} {
+		a := require.New(t)
+		app, cleanup := newTestAppWithStorage(t)
+		app.verifMode = VerificationModeQuick
+
+		a.False(app.SetVerificationMode(mode), "mode %d", mode)
+		a.Equal(int(VerificationModeQuick), app.GetVerificationMode())
+		stored, _ := app.store().GetSettings("bus", "verification_mode")
+		a.Empty(stored, "an unknown mode must not be stored")
+		cleanup()
+	}
+}
+
+func TestInitFromStorageUnknownModeIsStrict(t *testing.T) {
+	cases := []struct {
+		stored string
+		want   VerificationMode
+	}{
+		{"1", VerificationModeQuick},
+		{"2", VerificationModeAutoAccept},
+		{"3", VerificationModeStrict},
+		{"-1", VerificationModeStrict},
+		{"auto", VerificationModeStrict},
+	}
+	for _, tc := range cases {
+		t.Run(tc.stored, func(t *testing.T) {
+			a := require.New(t)
+			app, cleanup := newTestAppWithStorage(t)
+			defer cleanup()
+			app.verifMode = VerificationModeQuick
+			_, err := app.store().PublicKey()
+			a.NoError(err)
+			a.NoError(app.store().SetSettings(
+				"bus", "verification_mode", tc.stored,
+			))
+
+			app.initFromStorage()
+
+			a.Equal(int(tc.want), app.GetVerificationMode())
+		})
+	}
+}
