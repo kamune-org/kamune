@@ -6,7 +6,7 @@
   "type": "object",
   "properties": {
     "session_id": { "type": "string" },
-    "name":       { "type": "string" }
+    "name":       { "type": "string", "description": "New peer name of the session. A name longer than 64 bytes, or with a control, format, line separator or paragraph separator character, such as a line break, a bidirectional control or a zero-width space, fails with invalid_name; the zero-width joiner and non-joiner are allowed." }
   },
   "required": ["session_id", "name"]
 }

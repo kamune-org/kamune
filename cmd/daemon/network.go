@@ -60,6 +60,9 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
+	if !d.checkName(cmd.ID, params.Name) {
+		return
+	}
 	transport, ok := d.checkTransport(cmd.ID, params.Transport, params.Addr)
 	if !ok {
 		return
@@ -635,6 +638,9 @@ func (d *Daemon) handleDial(cmd Command) {
 		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
+	if !d.checkName(cmd.ID, params.Name) {
+		return
+	}
 	transport, ok := d.checkTransport(cmd.ID, params.Transport, params.Addr)
 	if !ok {
 		return
@@ -1051,6 +1057,9 @@ func (d *Daemon) handleRenameSession(cmd Command) {
 	var params RenameSessionParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
 		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+	if !d.checkName(cmd.ID, params.Name) {
 		return
 	}
 

@@ -489,6 +489,9 @@ func (d *Daemon) handleSetMyName(cmd Command) {
 		)
 		return
 	}
+	if !d.checkName(cmd.ID, params.Name) {
+		return
+	}
 
 	store := d.store()
 	if store != nil {

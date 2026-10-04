@@ -247,6 +247,19 @@ func (d *Daemon) emit(evt Evt, correlationID ID, data any) {
 	}
 }
 
+// checkName emits invalid_name and returns false when name, a peer name
+// that a command gives, fails kamune.ValidatePeerName: one longer than
+// kamune.MaxPeerNameLength bytes, not UTF-8, or with a character that
+// can change how it, or the text around it, looks. The kamune library
+// holds the names that peers introduce themselves with to the same rule.
+func (d *Daemon) checkName(id ID, name string) bool {
+	if err := kamune.ValidatePeerName(name); err != nil {
+		d.emitError(id, "invalid_name", err.Error())
+		return false
+	}
+	return true
+}
+
 // emitError sends an error event
 func (d *Daemon) emitError(correlationID ID, code string, errMsg string) {
 	d.emit(EvtError, correlationID, MapS{"error": errMsg, "code": code})
@@ -890,6 +903,9 @@ func (d *Daemon) handleAddPeer(cmd Command) {
 		d.emitError(cmd.ID, "invalid_peer_key", err.Error())
 		return
 	}
+	if !d.checkName(cmd.ID, params.Name) {
+		return
+	}
 
 	store := d.store()
 	if store == nil {
@@ -935,6 +951,9 @@ func (d *Daemon) handleRenamePeer(cmd Command) {
 	pub, err := decodePeerPubKey(params.PublicKey)
 	if err != nil {
 		d.emitError(cmd.ID, "invalid_peer_key", err.Error())
+		return
+	}
+	if !d.checkName(cmd.ID, params.Name) {
 		return
 	}
 
