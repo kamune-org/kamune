@@ -265,15 +265,20 @@ func (a *App) StartServer(
 	}
 
 	verifMode := a.currentVerifMode()
+	// The verification prompts for the server's peers close when it
+	// stops.
+	serverCtx, serverCancel := context.WithCancel(a.lifeCtx())
 	// svr is set before ListenAndServe starts, so before any handler runs.
 	var svr *kamune.Server
 	handler := func(t *kamune.Transport) error {
 		return a.serverHandler(svr, t)
 	}
 	svr, err := kamune.NewServer(
-		addr, handler, store, a.verifierFor(verifMode), opts...,
+		addr, handler, store, a.verifierWithin(serverCtx, verifMode),
+		opts...,
 	)
 	if err != nil {
+		serverCancel()
 		a.dropStartListeners()
 		a.setStatus(StatusError, "Failed to create server")
 		a.addLogEntry("ERROR", "Failed to create server: "+err.Error())
@@ -290,6 +295,7 @@ func (a *App) StartServer(
 	a.mu.Lock()
 	a.pubKey = pubKey
 	a.server = svr
+	a.serverCancel = serverCancel
 	a.serverVerifMode = verifMode
 	a.serverIncognito = incognito
 	a.serverDone = done
@@ -310,6 +316,7 @@ func (a *App) StartServer(
 	go func() {
 		defer close(done)
 		err := svr.ListenAndServe()
+		serverCancel()
 		if err != nil {
 			a.addLogEntry("ERROR", "Server stopped: "+err.Error())
 		}
@@ -430,6 +437,12 @@ func (a *App) StopServer() error {
 	if svr != nil {
 		svr.Close()
 		a.server = nil
+	}
+	// This closes the verification prompts for the server's peers, so
+	// that their handshakes end and none is admitted after the stop.
+	if a.serverCancel != nil {
+		a.serverCancel()
+		a.serverCancel = nil
 	}
 	sessions = append([]*liveSession(nil), a.sessions...)
 	a.sessions = nil

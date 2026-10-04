@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -16,6 +17,13 @@ import (
 // the connection was opened for.
 var ErrPeerKeyMismatch = errors.New(
 	"peer key does not match the peer selected for this connection",
+)
+
+// ErrVerificationCancelled rejects a peer whose prompt was closed because
+// the server or the dial it came through stopped before the user
+// answered.
+var ErrVerificationCancelled = errors.New(
+	"the verification was cancelled before it was answered",
 )
 
 // ErrTooManyVerifications rejects a peer that would need a prompt while
@@ -46,13 +54,22 @@ func (a *App) getVerifier() kamune.RemoteVerifier {
 // verifierFor returns the verifier for mode. A mode that is not defined
 // gets the strict verifier, so a bad value never turns verification off.
 func (a *App) verifierFor(mode VerificationMode) kamune.RemoteVerifier {
+	return a.verifierWithin(a.lifeCtx(), mode)
+}
+
+// verifierWithin returns the verifier for mode whose prompts end, and
+// reject their peer, once ctx ends: ctx is the lifetime of the server or
+// the dial that the verifier is for.
+func (a *App) verifierWithin(
+	ctx context.Context, mode VerificationMode,
+) kamune.RemoteVerifier {
 	switch mode {
 	case VerificationModeQuick:
-		return a.createQuickVerifier()
+		return a.createQuickVerifier(ctx)
 	case VerificationModeAutoAccept:
 		return a.createAutoAcceptVerifier()
 	default:
-		return a.createStrictVerifier()
+		return a.createStrictVerifier(ctx)
 	}
 }
 
@@ -81,10 +98,12 @@ func (a *App) pinPeer(
 // saves the peer: rememberPeer does that once the session is established.
 
 // createStrictVerifier asks the user about every peer, known or not.
-func (a *App) createStrictVerifier() kamune.RemoteVerifier {
+func (a *App) createStrictVerifier(
+	ctx context.Context,
+) kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
 		id := a.identifyPeer(store, peer)
-		return a.promptVerification(id, peer.PublicKey, "strict")
+		return a.promptVerification(ctx, id, peer.PublicKey, "strict")
 	}
 }
 
@@ -92,19 +111,22 @@ func (a *App) createStrictVerifier() kamune.RemoteVerifier {
 // and asks the user about any other peer. The name a peer claims plays
 // no part: a stored peer is shown under its stored name whatever it
 // claims, and an unknown peer is asked about whatever name it claims.
-func (a *App) createQuickVerifier() kamune.RemoteVerifier {
+func (a *App) createQuickVerifier(
+	ctx context.Context,
+) kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
 		id := a.identifyPeer(store, peer)
 		if id.Known {
 			a.addLogEntry("INFO", "Auto-accepted known peer: "+id.logName())
 			return nil
 		}
-		return a.promptVerification(id, peer.PublicKey, "quick")
+		return a.promptVerification(ctx, id, peer.PublicKey, "quick")
 	}
 }
 
 // promptVerification asks the user whether to admit the peer id, whose
-// key is key, and waits for the answer.
+// key is key, and waits for the answer. Once ctx ends, the prompt closes
+// and the peer is rejected with ErrVerificationCancelled.
 //
 // Each request gets its own ID, and the frontend queues requests and
 // shows them one at a time, so a new request never replaces the one the
@@ -113,8 +135,11 @@ func (a *App) createQuickVerifier() kamune.RemoteVerifier {
 // Every request ends with a verify-peer-closed event, whether it was
 // answered or timed out, so the frontend can drop it from its queue.
 func (a *App) promptVerification(
-	id peerIdentity, key []byte, mode string,
+	ctx context.Context, id peerIdentity, key []byte, mode string,
 ) error {
+	if ctx.Err() != nil {
+		return ErrVerificationCancelled
+	}
 	emoji := strings.Join(fingerprint.Emoji(key), " • ")
 	hex := fingerprint.Hex(key)
 
@@ -159,7 +184,7 @@ func (a *App) promptVerification(
 		"mode":         mode,
 	})
 
-	return a.awaitVerification(reqID, result)
+	return a.awaitVerification(ctx, reqID, result)
 }
 
 func verifyingStatus(label string) string {
@@ -214,7 +239,9 @@ func (a *App) verificationTimeout() time.Duration {
 	return verificationTimeout
 }
 
-func (a *App) awaitVerification(reqID int64, result chan error) error {
+func (a *App) awaitVerification(
+	ctx context.Context, reqID int64, result chan error,
+) error {
 	timeout := a.verificationTimeout()
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
@@ -222,6 +249,12 @@ func (a *App) awaitVerification(reqID int64, result chan error) error {
 	select {
 	case verdict := <-result:
 		return verdict
+	case <-ctx.Done():
+		a.addLogEntry("INFO", fmt.Sprintf(
+			"Verification request %d closed: its server or dial stopped",
+			reqID,
+		))
+		return ErrVerificationCancelled
 	case <-timer.C:
 		a.addLogEntry("WARN", fmt.Sprintf(
 			"Verification request %d timed out after %v", reqID, timeout,

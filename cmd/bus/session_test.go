@@ -345,3 +345,48 @@ func TestLostConnectionReconnects(t *testing.T) {
 		})
 	}
 }
+
+// TestStopServerClosesVerificationPrompts stops a server while a peer
+// waits for the user to verify it, and checks that the prompt closes and
+// the peer is turned away.
+func TestStopServerClosesVerificationPrompts(t *testing.T) {
+	a := require.New(t)
+	app, _ := newUnlockedApp(t, "secret")
+	app.mu.Lock()
+	app.verifMode = VerificationModeStrict
+	app.mu.Unlock()
+	events := recordEvents(app)
+	addr := freeTCPAddr(t)
+	_, _, err := app.StartServer(
+		addr, "tcp", "", "srv", "", "", "", false, false, "",
+	)
+	a.NoError(err)
+
+	// The server listens once StartServer returns.
+	d, err := kamune.NewDialer(
+		addr, openTestStorage(t), acceptAll, kamune.DialWithTCP(),
+	)
+	a.NoError(err)
+	dialed := make(chan error, 1)
+	go func() {
+		tr, err := d.Dial()
+		if err == nil {
+			_ = tr.Close()
+		}
+		dialed <- err
+	}()
+	ids := waitPending(t, app, 1)
+
+	a.NoError(app.StopServer())
+	a.Eventually(func() bool {
+		return len(pendingIDs(app)) == 0
+	}, testWait, time.Millisecond, "the prompt must close with the server")
+	a.Contains(events.closedIDs(), ids[0])
+	select {
+	case err := <-dialed:
+		a.Error(err, "the peer must not be admitted")
+	case <-time.After(testWait):
+		t.Fatal("the dial did not end")
+	}
+	a.Empty(app.GetSessions())
+}

@@ -289,8 +289,11 @@ type App struct {
 	server          *kamune.Server
 	serverVerifMode VerificationMode
 	// serverIncognito is the incognito mode the server was started in.
-	serverIncognito     bool
-	serverDone          chan struct{}
+	serverIncognito bool
+	serverDone      chan struct{}
+	// serverCancel ends the context of the running server, which closes
+	// the verification prompts for its peers.
+	serverCancel        context.CancelFunc
 	serverTransportType string
 
 	relayAddr       string
@@ -680,6 +683,10 @@ func (a *App) ServiceShutdown() error {
 	if a.server != nil {
 		a.server.Close()
 		a.server = nil
+	}
+	if a.serverCancel != nil {
+		a.serverCancel()
+		a.serverCancel = nil
 	}
 	sessions = append([]*liveSession(nil), a.sessions...)
 	a.sessions = nil
