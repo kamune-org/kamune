@@ -193,10 +193,15 @@ tasks:
       Signs the .app bundle for distribution.
       Uses signing identity from `wails3 setup` (stored in ~/.config/wails/defaults.yaml).
       Override with: task darwin:sign -- --identity "Developer ID Application: ..."
+      Signs with build/darwin/entitlements.plist, which grants the camera
+      the QR scan needs under the hardened runtime. Set ENTITLEMENTS to use
+      another file.
+    vars:
+      ENTITLEMENTS: '{{.ENTITLEMENTS | default "build/darwin/entitlements.plist"}}'
     deps:
       - task: package
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}.app" {{.CLI_ARGS}}
+      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}.app" --entitlements "{{.ENTITLEMENTS}}" {{.CLI_ARGS}}
 
   sign:notarize:
     summary: Signs and notarizes the application bundle
@@ -206,7 +211,13 @@ tasks:
 
       First-time setup:
         wails3 setup
+
+      Signs with build/darwin/entitlements.plist, which grants the camera
+      the QR scan needs under the hardened runtime. Set ENTITLEMENTS to use
+      another file.
+    vars:
+      ENTITLEMENTS: '{{.ENTITLEMENTS | default "build/darwin/entitlements.plist"}}'
     deps:
       - task: package
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}.app" --notarize {{.CLI_ARGS}}
+      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}.app" --notarize --entitlements "{{.ENTITLEMENTS}}" {{.CLI_ARGS}}

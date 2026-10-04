@@ -23,5 +23,7 @@
             <string>true</string>
         <key>NSHumanReadableCopyright</key>
             <string>(c) Kamune Org</string>
+        <key>NSCameraUsageDescription</key>
+            <string>Bus uses the camera to scan connection QR codes.</string>
     </dict>
 </plist>
