@@ -1258,6 +1258,10 @@ known limits, not bugs:
 The relay operator is responsible for:
 
 - Running behind a CDN or tunnel for IP-hiding in hostile networks.
+- Behind a reverse proxy, CDN or tunnel, listing the addresses it connects
+  from in `server.trusted_proxies` and naming its client address header in
+  `server.client_ip_header`; otherwise all clients share the proxy's rate
+  limit (see [CDN-Backed Deployments](#cdn-backed-deployments)).
 - Setting `[server] password` to enable PSK mode if the relay is exposed.
 - Tuning `max_concurrent_sessions`, `token_ttl`, and `session_ttl` to match
   expected load.
@@ -1299,10 +1303,25 @@ Client ──wss://relay.cdn.com/ws──► CDN ──ws://relay:8080/ws──�
   │  other CDN sites               │  plain WS on private network
 ```
 
-The relay operator does not need a TLS certificate. The CDN provides one. The
-relay listens on `[server] address = "127.0.0.1:8080"` with
-`[ws] enabled = true` — plain WebSocket behind the CDN is perfectly safe.
-Clients use the WebSocket-over-TLS client API against the CDN hostname.
+With the relay on a private network or behind a tunnel, the relay operator does
+not need a TLS certificate: the CDN provides the one clients see. The relay runs
+a `[ws]` listener and clients use the WebSocket-over-TLS client API against the
+CDN hostname. The leg from the CDN to the relay is plain WebSocket, which
+carries the relay's own HPKE channel but does not authenticate the relay, so
+keep it on a private network or a tunnel and let only the CDN reach the
+listener. A CDN that reaches the relay over the internet needs a `[wss]`
+listener instead (see [CDN Config](#cdn-config)).
+
+**Rate limiting behind a CDN.** Every connection reaches the relay from a CDN
+address. With `server.trusted_proxies` empty, all clients share that address's
+quota (20 per minute by default), and a few requests from anyone lock everyone
+else out. List the CDN's published address ranges in `trusted_proxies` and set
+`server.client_ip_header` to the header that carries the client address
+(`CF-Connecting-IP` for Cloudflare); the relay then limits each client by its
+own address (see [Rate Limiting](#rate-limiting)). The relay warns about a
+shared quota only when the proxy connects from a loopback, private or
+link-local address, so it says nothing about a CDN that connects over the
+internet.
 
 #### Cloudflare Tunnel (recommended)
 
@@ -1323,26 +1342,42 @@ Client ──wss://relay.cdn.com/ws──► Cloudflare edge
 - Free tier handles unlimited traffic.
 - DPI sees traffic to Cloudflare IPs, not the relay.
 
-The relay itself needs no changes — it listens on localhost as usual.
+The relay listens on localhost, where cloudflared connects from `127.0.0.1`.
+List that address in `server.trusted_proxies` (or the address cloudflared
+connects from, such as a sidecar's) and set
+`client_ip_header = "CF-Connecting-IP"`, or every client shares cloudflared's
+quota. While the limiter is on and `trusted_proxies` is empty, the relay warns
+about this at startup for a `ws` or `wss` listener on a loopback, private or
+link-local address, and once when it refuses a peer on such an address (see
+[Rate Limiting](#rate-limiting)).
 
 #### CDN Config
 
+For Cloudflare Tunnel, with cloudflared on the same host:
+
 ```toml
 [server]
-address = "127.0.0.1:8080"   # localhost only — CDN connects via tunnel
 password = ""
-expose_health = false
-expose_ip = false
+trusted_proxies = ["127.0.0.1/32", "::1/128"]  # cloudflared on this host
+client_ip_header = "CF-Connecting-IP"
+
+[session]
+token_ttl = "10m"
+max_concurrent_sessions = 10_000
 
 [ws]
 enabled = true
-
-[tcp]
-enabled = false
-
-[tls]
-enabled = false
+address = "127.0.0.1:8080"   # localhost only, reached through the tunnel
 ```
+
+For a CDN that reaches the origin over the internet, enable `[wss]` in place of
+`[ws]`, with a `cert_file` and `key_file` that hold a certificate the CDN
+verifies. Over plain `[ws]`, an attacker on the path between the CDN and the
+relay can pose as the relay and receive the PSK and the session tokens. The
+`[wss]` listener accepts TLS 1.3 only, so the CDN must connect to the origin
+with TLS 1.3. Bind `[wss]` to an address the CDN can reach, let only the CDN's
+ranges through the firewall, and list those ranges in `trusted_proxies` in
+place of the loopback addresses.
 
 #### Comparison: Direct TLS vs CDN vs Cloudflare Tunnel
 
@@ -1353,11 +1388,14 @@ enabled = false
 | DPI evasion         | Good (raw TLS)      | Excellent (blends with CF traffic) | Excellent                 |
 | Cost                | Free                | Free                               | Free                      |
 | Open ports required | Yes (port 443)      | Yes (port 443 on origin)           | No (outbound only)        |
-| Setup complexity    | None (auto-cert)    | DNS + proxy toggle                 | Install cloudflared       |
+| Setup complexity    | Clients pin cert    | DNS + proxy toggle                 | Install cloudflared       |
 
 #### Cloudflare Workers
 
 [Cloudflare Workers](https://workers.cloudflare.com/) can act as a WebSocket
 proxy between clients and the relay, optionally adding auth, logging, or IP
 filtering at the edge. The Worker forwards the WebSocket upgrade transparently;
-the relay sees the Worker's IP, not the client's.
+the relay sees the Worker's IP, not the client's. All clients then share one
+rate-limit quota, unless the Worker passes the client address in the header
+named by `client_ip_header` and the addresses it connects from are listed in
+`trusted_proxies`.

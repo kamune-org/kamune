@@ -88,11 +88,14 @@ then only from the header named by `server.client_ip_header`. The default,
 `X-Forwarded-For`, is read from the right, skipping trusted hops; any other
 header must hold the one address the proxy sets. Leave the list empty when the
 relay is directly exposed. Behind a reverse proxy, CDN or tunnel, list the
-addresses the proxy connects from and name the header it writes (for example
-`CF-Connecting-IP` behind Cloudflare), or every client shares the proxy's rate
-limit. Earlier releases also read `X-Real-IP`, `True-Client-IP`,
-`CF-Connecting-IP`, `Fly-Client-IP` and `Fastly-Client-IP`; a proxy that sets
-only one of those now needs `client_ip_header` set to its name.
+addresses the proxy connects from (`127.0.0.1/32` for cloudflared on the same
+host, the CDN's published ranges for a CDN) and name the header it writes (for
+example `CF-Connecting-IP` behind Cloudflare), or every client shares the
+proxy's rate limit (see
+[CDN-Backed Deployments](../../docs/RELAY.md#cdn-backed-deployments)). Earlier
+releases also read `X-Real-IP`, `True-Client-IP`, `CF-Connecting-IP`,
+`Fly-Client-IP` and `Fastly-Client-IP`; a proxy that sets only one of those now
+needs `client_ip_header` set to its name.
 
 If `[rate_limit]` is omitted, it defaults to 20 requests per minute and 100,000
 tracked client IPs. Set `disabled = true` to turn it off.
