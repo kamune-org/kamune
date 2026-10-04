@@ -1343,11 +1343,19 @@
         <div class="dialog-body">
           <p>When incognito mode is enabled:</p>
           <ul>
-            <li>A pseudonym is used instead of your name for new peers</li>
+            <li>
+              A pseudonym derived from your identity key is used instead of your name, the same one
+              every time
+            </li>
             <li>New messages are not saved to disk</li>
             <li>Session history is not recorded</li>
             <li>Accepted peers are not stored</li>
           </ul>
+          <p>
+            Your identity key and fingerprint do not change. Peers that know your key still
+            recognize you, and anyone who sees your key in more than one session can link those
+            sessions.
+          </p>
           <p>Existing session history and peers remain accessible.</p>
         </div>
         <div class="dialog-actions">
