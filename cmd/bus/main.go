@@ -150,6 +150,16 @@ func buildMenu(app *App) *application.Menu {
 	})
 
 	idMenu.AddSeparator()
+	idMenu.Add("Change Passphrase…").
+		OnClick(func(_ *application.Context) {
+			if app.store() == nil {
+				app.SendNotification(
+					"Identity", "Unlock the database first.",
+				)
+				return
+			}
+			app.emitEvent("show-change-passphrase")
+		})
 	idMenu.Add("Forget Saved Passphrase…").
 		OnClick(func(_ *application.Context) {
 			forgot, err := app.ForgetSavedPassphrase(app.GetDBPath())

@@ -85,6 +85,7 @@
    * @property {(id: string) => void} [onRenameHistory]
    * @property {(id: string) => void} [onDeleteHistory]
    * @property {() => void} [onChangeDBPath]
+   * @property {() => void} [onChangePassphrase]
    * @property {() => void} [onRenamed]
    */
 
@@ -108,6 +109,7 @@
     onRenameHistory,
     onDeleteHistory,
     onChangeDBPath,
+    onChangePassphrase,
     onRenamed,
   } = $props();
 
@@ -898,6 +900,18 @@
           ? 'In use: stop the server and close sessions to change'
           : 'Click to change'}</span
       >
+      {#if !dbInUse}
+        <button
+          class="db-pass-btn"
+          onclick={(e) => {
+            e.stopPropagation();
+            onChangePassphrase?.();
+          }}
+          onkeydown={(e) => e.stopPropagation()}
+        >
+          {$dbNoPassphrase ? 'Set a passphrase…' : 'Change passphrase…'}
+        </button>
+      {/if}
     </div>
   </div>
 </div>
@@ -1362,6 +1376,18 @@
     font-size: 9px;
     color: var(--text-timestamp);
     margin-top: 2px;
+  }
+  .db-pass-btn {
+    display: block;
+    margin-top: 4px;
+    padding: 0;
+    background: transparent;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent-primary);
+  }
+  .db-pass-btn:hover {
+    text-decoration: underline;
   }
 
   .relay-tokens-section {

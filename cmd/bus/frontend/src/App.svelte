@@ -81,6 +81,7 @@
   import RenameDialog from './lib/RenameDialog.svelte';
   import PassphraseDialog from './lib/PassphraseDialog.svelte';
   import ShareDialog from './lib/ShareDialog.svelte';
+  import ChangePassphraseDialog from './lib/ChangePassphraseDialog.svelte';
   import ImportDialog from './lib/ImportDialog.svelte';
   import AddPeerDialog from './lib/AddPeerDialog.svelte';
   import PeerInfoDialog from './lib/PeerInfoDialog.svelte';
@@ -212,6 +213,7 @@
   let connectAttempt = '';
   let showPassphraseDialog = $state(true);
   let passphraseDismissable = $state(false);
+  let showChangePassphrase = $state(false);
   let p2pFallbackOpen = $state(false);
   let p2pFallbackContext = $state(null);
 
@@ -240,6 +242,9 @@
     EventsOff('log-entry');
     EventsOff('notification');
     EventsOff('storage-ready');
+    EventsOff('storage-locked');
+    EventsOff('db-passphrase-changed');
+    EventsOff('show-change-passphrase');
     EventsOff('server-running');
     EventsOff('version-warning');
     EventsOff('history-save-failed');
@@ -335,6 +340,19 @@
       showPassphraseDialog = false;
       dbPath.set(await GetDBPath());
       dbNoPassphrase.set(await GetNoPassphrase());
+    });
+    // storage-locked comes when the database closed and did not open
+    // again, as after a passphrase change whose reopen failed.
+    EventsOn('storage-locked', () => {
+      showChangePassphrase = false;
+      passphraseDismissable = false;
+      showPassphraseDialog = true;
+    });
+    EventsOn('db-passphrase-changed', (noPassphrase) => {
+      dbNoPassphrase.set(!!noPassphrase);
+    });
+    EventsOn('show-change-passphrase', () => {
+      showChangePassphrase = true;
     });
     EventsOn('verification-mode-changed', (mode) => {
       verificationMode.set(mode);
@@ -541,6 +559,9 @@
     EventsOff('log-entry');
     EventsOff('notification');
     EventsOff('storage-ready');
+    EventsOff('storage-locked');
+    EventsOff('db-passphrase-changed');
+    EventsOff('show-change-passphrase');
     EventsOff('server-running');
     EventsOff('version-warning');
     EventsOff('history-save-failed');
@@ -1607,6 +1628,10 @@
     />
   {/if}
 
+  {#if showChangePassphrase}
+    <ChangePassphraseDialog onClose={() => (showChangePassphrase = false)} />
+  {/if}
+
   {#if $dialogs.showAddPeer}
     <AddPeerDialog />
   {/if}
@@ -1672,6 +1697,7 @@
         showPassphraseDialog = true;
         passphraseDismissable = true;
       }}
+      onChangePassphrase={() => (showChangePassphrase = true)}
     />
 
     <Resizer
