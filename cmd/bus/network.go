@@ -677,6 +677,7 @@ func (a *App) ConnectToServer(
 		keepAliveDone:    make(chan struct{}),
 	}
 
+	a.rememberPeer(store, peer)
 	if store := a.store(); store != nil && !a.incognito {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
@@ -911,6 +912,7 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 		keepAliveDone:    make(chan struct{}),
 	}
 
+	a.rememberPeer(a.store(), peer)
 	if store := a.store(); store != nil && !a.incognito {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())

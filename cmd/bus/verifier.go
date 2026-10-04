@@ -25,6 +25,10 @@ func (a *App) getVerifier() kamune.RemoteVerifier {
 	}
 }
 
+// The verifiers below only decide whether to admit a peer. None of them
+// saves the peer: rememberPeer does that once the session is established.
+
+// createStrictVerifier asks the user about every peer, known or not.
 func (a *App) createStrictVerifier() kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
 		key := peer.PublicKey
@@ -73,19 +77,12 @@ func (a *App) createStrictVerifier() kamune.RemoteVerifier {
 		}
 
 		a.setStatus(prevStatus, prevMsg)
-
-		if !known && !a.incognito {
-			peer.FirstSeen = time.Now()
-			if err := store.StorePeer(peer); err != nil {
-				a.addLogEntry("WARN", "Failed to save peer: "+err.Error())
-			}
-			a.refreshPeersCache()
-		}
-
 		return nil
 	}
 }
 
+// createQuickVerifier admits a peer whose key is stored without asking
+// and asks the user about any other peer.
 func (a *App) createQuickVerifier() kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
 		key := peer.PublicKey
@@ -135,32 +132,13 @@ func (a *App) createQuickVerifier() kamune.RemoteVerifier {
 		}
 
 		a.setStatus(prevStatus, prevMsg)
-
-		if !a.incognito {
-			peer.FirstSeen = time.Now()
-			if err := store.StorePeer(peer); err != nil {
-				a.addLogEntry("WARN", "Failed to save peer: "+err.Error())
-			}
-			a.refreshPeersCache()
-		}
-
 		return nil
 	}
 }
 
+// createAutoAcceptVerifier admits every peer without asking.
 func (a *App) createAutoAcceptVerifier() kamune.RemoteVerifier {
-	return func(store *storage.Storage, peer *storage.Peer) error {
-		key := peer.PublicKey
-
-		_, err := store.FindPeer(key)
-		if err != nil && !a.incognito {
-			peer.FirstSeen = time.Now()
-			if err := store.StorePeer(peer); err != nil {
-				a.addLogEntry("WARN", "Failed to save peer: "+err.Error())
-			}
-			a.refreshPeersCache()
-		}
-
+	return func(_ *storage.Storage, peer *storage.Peer) error {
 		a.addLogEntry("INFO", "Auto-accepted peer: "+peer.Name)
 		return nil
 	}

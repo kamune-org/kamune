@@ -155,9 +155,35 @@ func (a *App) RenamePeer(publicKeyB64, name string) error {
 	return nil
 }
 
+// rememberPeer saves the remote peer of a session that has just been
+// established when its key is not stored yet and incognito mode is off.
+// The verifiers only decide whether to admit a peer; saving it here,
+// after the handshake, keeps a peer whose handshake fails after the user
+// accepted it from becoming a known peer.
+func (a *App) rememberPeer(store *storage.Storage, peer *storage.Peer) {
+	if store == nil || peer == nil || a.GetIncognito() {
+		return
+	}
+	if _, err := store.FindPeer(peer.PublicKey); err == nil {
+		return
+	}
+	now := time.Now()
+	if err := store.StorePeer(&storage.Peer{
+		Name:       peer.Name,
+		PublicKey:  peer.PublicKey,
+		FirstSeen:  now,
+		LastSeen:   now,
+		AppVersion: peer.AppVersion,
+	}); err != nil {
+		a.addLogEntry("WARN", "Failed to save peer: "+err.Error())
+		return
+	}
+	a.refreshPeersCache()
+}
+
 // refreshPeersCache rebuilds the in-memory peer list from the storage
 // layer. Called after any mutation path (AddPeer, DeletePeer,
-// verifier-accept). Safe to call from any goroutine.
+// rememberPeer). Safe to call from any goroutine.
 func (a *App) refreshPeersCache() {
 	store := a.store()
 	if store == nil {
