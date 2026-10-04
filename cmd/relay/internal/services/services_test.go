@@ -57,13 +57,26 @@ func TestServices_New_ValidConfig(t *testing.T) {
 	a.NotNil(s.Hub(), "Hub is nil")
 }
 
-func TestServices_New_DisablesHandshakeTimeout(t *testing.T) {
-	a := require.New(t)
-	cfg := validConfig()
-	cfg.Session.HandshakeTimeout = 0 // 0 = no limit
-	s, err := New(context.Background(), cfg)
-	a.NoError(err, "New")
-	a.Equal(time.Duration(0), s.Hub().HandshakeTimeout())
+// TestServices_New_HandshakeTimeout checks that handshake_timeout = 0
+// means the default, not "no limit": the timeout is the only bound on a
+// connection that never registers.
+func TestServices_New_HandshakeTimeout(t *testing.T) {
+	tests := []struct {
+		timeout, want time.Duration
+	}{
+		{timeout: 0, want: config.DefaultHandshakeTimeout},
+		{timeout: 5 * time.Second, want: 5 * time.Second},
+	}
+	for _, tc := range tests {
+		a := require.New(t)
+		cfg := validConfig()
+		cfg.Session.HandshakeTimeout = tc.timeout
+		ctx, cancel := context.WithCancel(context.Background())
+		s, err := New(ctx, cfg)
+		a.NoError(err, "New")
+		a.Equal(tc.want, s.Hub().HandshakeTimeout())
+		cancel()
+	}
 }
 
 func TestServices_New_RejectsNegativeHandshakeTimeout(t *testing.T) {

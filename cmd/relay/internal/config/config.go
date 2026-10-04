@@ -139,6 +139,11 @@ func (rl RateLimit) IsEnabled() bool {
 	return !rl.Disabled
 }
 
+// DefaultHandshakeTimeout is session.handshake_timeout when it is unset or
+// 0. The handshake has no "no limit" setting: the timeout is what stops a
+// client that connects and never registers from holding its connection.
+const DefaultHandshakeTimeout = 30 * time.Second
+
 // Bounds of session.max_message_size, the largest relay frame, in bytes,
 // that the relay reads from a client. A TCP or TLS frame cannot exceed
 // 65535 bytes, whatever the setting; it limits WebSocket messages.
@@ -244,8 +249,9 @@ func (c Config) Validate() error {
 	}
 	if c.Session.HandshakeTimeout < 0 {
 		return fmt.Errorf(
-			"session.handshake_timeout must be >= 0 (0 = no limit), got %s",
-			c.Session.HandshakeTimeout,
+			"session.handshake_timeout must be >= 0 (0 = default %s), "+
+				"got %s",
+			DefaultHandshakeTimeout, c.Session.HandshakeTimeout,
 		)
 	}
 	if c.Diagnose.Enabled && c.Diagnose.Address == "" {
@@ -326,7 +332,7 @@ func New(path string) (Config, error) {
 			ClientIPHeader: DefaultClientIPHeader,
 		},
 		Session: Session{
-			HandshakeTimeout: 30 * time.Second,
+			HandshakeTimeout: DefaultHandshakeTimeout,
 		},
 		RateLimit: RateLimit{
 			TimeWindow: defaultRateLimitWindow,

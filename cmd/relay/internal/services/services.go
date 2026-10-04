@@ -33,8 +33,8 @@ func New(ctx context.Context, cfg config.Config) (*Service, error) {
 
 	sessionTTL := cfg.Session.SessionTTL
 	handshakeTimeout := cfg.Session.HandshakeTimeout
-	if handshakeTimeout < 0 {
-		handshakeTimeout = 0
+	if handshakeTimeout == 0 {
+		handshakeTimeout = config.DefaultHandshakeTimeout
 	}
 
 	sessions := NewSessionManager(
@@ -76,12 +76,10 @@ func New(ctx context.Context, cfg config.Config) (*Service, error) {
 	if sessionTTL > 0 {
 		slog.Info("session ttl enabled", slog.Duration("ttl", sessionTTL))
 	}
-	if handshakeTimeout > 0 {
-		slog.Info(
-			"handshake timeout enabled",
-			slog.Duration("timeout", handshakeTimeout),
-		)
-	}
+	slog.Info(
+		"handshake timeout enabled",
+		slog.Duration("timeout", handshakeTimeout),
+	)
 
 	return &Service{
 		hub:       hub,
