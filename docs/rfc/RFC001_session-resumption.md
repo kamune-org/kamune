@@ -136,8 +136,10 @@ On receiving `ResumeRequest`, the responder application:
 5. On success: marks the token used, sends `ResumeAccept{Accepted: true}`,
    and proceeds directly into the Handshake phase (§6.3) — **skipping the
    Introduction phase and the remote-verifier callback entirely.**
-6. On any rejection: sends `ResumeAccept{Accepted: false, Reason: ...}` and
-   returns an error. The caller may retry with a cold Introduction (§6.2) per
+6. On any rejection: sends `ResumeAccept{Accepted: false, Reason: ...}`,
+   closes the connection and returns an error. The reason text is the same
+   for every rejection, so the initiator cannot tell which check failed. The
+   caller may retry with a cold Introduction (§6.2) on a new connection, per
    its own retry policy.
 
 ## 7. Protocol Flow

@@ -913,30 +913,33 @@ ResumeAccept {
 }
 ```
 
-| Field       | Type   | Role                                                                    |
-| ----------- | ------ | ----------------------------------------------------------------------- |
-| `SessionID` | string | The original session ID being resumed.                                  |
-| `Token`     | bytes  | One unused resumption token for that session.                           |
-| `Accepted`  | bool   | Whether the resume request was accepted.                                |
-| `Reason`    | string | Populated only when `Accepted` is false; describes the rejection cause. |
+| Field       | Type   | Role                                                                                                                                                  |
+| ----------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SessionID` | string | The original session ID being resumed.                                                                                                                |
+| `Token`     | bytes  | One unused resumption token for that session.                                                                                                         |
+| `Accepted`  | bool   | Whether the resume request was accepted.                                                                                                              |
+| `Reason`    | string | Populated only when `Accepted` is false. The reference implementation sends the same text for every rejection, so it does not say which check failed. |
 
 #### 6.8.3 Responder Validation
 
 On receiving a resume request, the responder:
 
-1. Looks up the session ID in persistent storage. If not found, the request is
-   rejected.
-2. Verifies the signature against the stored public key of the initiator. If
-   invalid, the request is rejected and the connection is terminated.
-3. Checks that the resumption window, counted from the session's cold
+1. Checks that the request parses and that the presented token is 32 bytes
+   long. If not, the request is rejected.
+2. Looks up the session ID in persistent storage, and the peer stored for that
+   session. If either is not found, the request is rejected.
+3. Verifies the signature against the stored public key of the initiator. If
+   invalid, the request is rejected.
+4. Checks that the resumption window, counted from the session's cold
    handshake, has not elapsed. If expired, the request is rejected.
-4. Checks the presented token is present in the session's unused token set. If
-   not found (already used, or never valid), the request is rejected.
-5. On success: marks the token used, sends a resume-accept with
+5. Checks that the presented token is present in the session's unused token
+   set. If not (already used, or never valid), the request is rejected.
+6. On success: marks the token used, sends a resume-accept with
    `Accepted: true`, and proceeds directly into the Handshake phase (§6.3) —
    skipping the Introduction phase and the remote-verifier callback entirely.
-6. On any rejection: sends a resume-accept with `Accepted: false` and a reason
-   string. The initiator may retry with a cold Introduction (§6.2).
+7. On any rejection: sends a resume-accept with `Accepted: false` and a reason
+   string, and closes the connection. The initiator may retry with a cold
+   Introduction (§6.2) on a new connection.
 
 #### 6.8.4 Resumption Asymmetry
 
@@ -1669,10 +1672,10 @@ action is normative.
 | A received message uses `ROUTE_INVALID` (0) or any unrecognized route value.                                              | Surfaced as an invalid-route error; the message is rejected.                                                                           |
 | The remote peer's application version is incompatible with the local version (major mismatch, or pre-1.0 minor mismatch). | Surfaced as a version-mismatch error; the connection is terminated.                                                                    |
 | A peer's identity has exceeded the configured expiry duration.                                                            | Surfaced as a peer-expired error; the peer record is removed on lookup.                                                                |
-| A resume request references a session ID not found in storage.                                                            | The request is rejected; the initiator may retry with a cold Introduction.                                                             |
-| A resume request signature fails verification against the stored public key.                                              | The request is rejected; the connection is terminated.                                                                                 |
-| A resume request references a session whose resumption window has elapsed.                                                | The request is rejected; the initiator may retry with a cold Introduction.                                                             |
-| A resume request presents a token not present in the session's unused token set.                                          | The request is rejected; the initiator may retry with a cold Introduction.                                                             |
+| A resume request references a session ID not found in storage.                                                            | The request is rejected and the connection closed; the initiator may retry with a cold Introduction on a new connection.               |
+| A resume request signature fails verification against the stored public key.                                              | The request is rejected and the connection closed; the initiator may retry with a cold Introduction on a new connection.               |
+| A resume request references a session whose resumption window has elapsed.                                                | The request is rejected and the connection closed; the initiator may retry with a cold Introduction on a new connection.               |
+| A resume request presents a token not present in the session's unused token set.                                          | The request is rejected and the connection closed; the initiator may retry with a cold Introduction on a new connection.               |
 
 Neither a failure part-way through a frame nor a drop between frames ends the
 session, so its resumption tokens are kept. Only after a partial frame does the
