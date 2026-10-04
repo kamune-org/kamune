@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
@@ -61,10 +62,30 @@ func callerPackage(r slog.Record) string {
 type appLogHandler struct {
 	app    *App
 	stderr slog.Handler
+	// attrs are the attributes bound by WithAttrs, their keys qualified
+	// by the groups opened before them. group is the prefix of the
+	// groups opened by WithGroup, such as "a.b.".
+	attrs []slog.Attr
+	group string
 }
 
 func (h *appLogHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.stderr.Enabled(ctx, level)
+}
+
+// levelLabel returns the log viewer's name for level: one of DEBUG,
+// INFO, WARN and ERROR.
+func levelLabel(level slog.Level) string {
+	switch {
+	case level >= slog.LevelError:
+		return "ERROR"
+	case level >= slog.LevelWarn:
+		return "WARN"
+	case level >= slog.LevelInfo:
+		return "INFO"
+	default:
+		return "DEBUG"
+	}
 }
 
 func (h *appLogHandler) Handle(ctx context.Context, r slog.Record) error {
@@ -72,36 +93,27 @@ func (h *appLogHandler) Handle(ctx context.Context, r slog.Record) error {
 		return err
 	}
 
-	var level string
-	switch {
-	case r.Level >= slog.LevelError:
-		level = "ERROR"
-	case r.Level >= slog.LevelWarn:
-		level = "WARN"
-	case r.Level >= slog.LevelDebug:
-		level = "DEBUG"
-	default:
-		level = "INFO"
-	}
-
 	pkg := callerPackage(r)
 	msg := r.Message
 	if pkg != "" {
 		msg = "[" + pkg + "] " + msg
 	}
-	first := true
+	parts := make([]string, 0, len(h.attrs)+r.NumAttrs())
+	for _, a := range h.attrs {
+		parts = append(parts, a.Key+"="+a.Value.Resolve().String())
+	}
 	r.Attrs(func(a slog.Attr) bool {
-		if first {
-			msg += " |"
-			first = false
-		}
-		msg += " " + a.Key + "=" + a.Value.String()
+		parts = append(parts,
+			h.group+a.Key+"="+a.Value.Resolve().String())
 		return true
 	})
+	if len(parts) > 0 {
+		msg += " | " + strings.Join(parts, " ")
+	}
 
 	entry := LogEntryInfo{
 		Timestamp: time.Now(),
-		Level:     level,
+		Level:     levelLabel(r.Level),
 		Message:   escapeLogText(msg),
 	}
 
@@ -117,16 +129,27 @@ func (h *appLogHandler) Handle(ctx context.Context, r slog.Record) error {
 	return nil
 }
 
+// WithAttrs returns a handler that adds attrs to every record, in the
+// log buffer as well as on stderr.
 func (h *appLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &appLogHandler{
-		app:    h.app,
-		stderr: h.stderr.WithAttrs(attrs),
+	n := *h
+	n.stderr = h.stderr.WithAttrs(attrs)
+	n.attrs = slices.Clone(h.attrs)
+	for _, a := range attrs {
+		a.Key = h.group + a.Key
+		n.attrs = append(n.attrs, a)
 	}
+	return &n
 }
 
+// WithGroup returns a handler that puts the attributes added after it
+// in the group name, in the log buffer as well as on stderr.
 func (h *appLogHandler) WithGroup(name string) slog.Handler {
-	return &appLogHandler{
-		app:    h.app,
-		stderr: h.stderr.WithGroup(name),
+	if name == "" {
+		return h
 	}
+	n := *h
+	n.stderr = h.stderr.WithGroup(name)
+	n.group = h.group + name + "."
+	return &n
 }
