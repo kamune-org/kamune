@@ -1901,7 +1901,9 @@ includes when no passphrase is saved.
 The daemon can display fingerprints in different formats: `"hex"` (the
 default), `"emoji"`, `"b64"`, `"sum"` or `"numeric"`. The format chooses what
 `get_fingerprint` puts in `display`. It is saved in the open storage and
-applied when that storage is opened.
+applied when that storage is opened. It does not change what to compare to
+verify a key, which is `numeric` in every format; the eight emoji are too few
+to rely on (see [`verify_peer`](#verify_peer)).
 
 #### `get_fingerprint_format`
 
