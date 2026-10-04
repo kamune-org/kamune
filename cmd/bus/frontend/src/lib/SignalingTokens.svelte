@@ -1,5 +1,6 @@
 <script>
   import { GenerateP2PToken, RemoveP2PToken, CopyToClipboard } from './go.js';
+  import { get } from 'svelte/store';
   import { p2pTokens, peers, toast } from './stores';
   import PeerSelect from './PeerSelect.svelte';
 
@@ -13,7 +14,15 @@
   let { brokerAddr = $bindable(''), locked = false } = $props();
   let expanded = $state(true);
   let generating = $state(false);
-  let mode = $state('random'); // 'random' or 'static'
+  let mode = $state(initialMode()); // 'random' or 'static'
+
+  // On a running server whose tokens are all static, a random token
+  // would let any peer in (see the warning below), so the locked panel
+  // starts on static there.
+  function initialMode() {
+    const anyRandom = get(p2pTokens).some((t) => t.mode !== 'static');
+    return locked && !anyRandom ? 'static' : 'random';
+  }
   let selectedPeer = $state('');
 
   async function handleGenerate() {
@@ -24,6 +33,8 @@
       setTimeout(() => toast.set(null), 3000);
       return;
     }
+    // A static token is the selected peer's; a random one is for
+    // whoever it is given to.
     if (mode === 'static' && !selectedPeer) {
       toast.set({ message: 'Select a peer for static token', type: 'error' });
       setTimeout(() => toast.set(null), 3000);
@@ -118,27 +129,35 @@
             }}
           />
         </div>
-
-        <div class="st-mode-row">
-          <button
-            class="st-mode-btn"
-            class:active={mode === 'random'}
-            onclick={() => {
-              mode = 'random';
-              selectedPeer = '';
-            }}>random</button
-          >
-          <button
-            class="st-mode-btn"
-            class:active={mode === 'static'}
-            onclick={() => {
-              mode = 'static';
-            }}>static</button
-          >
-        </div>
       {/if}
 
-      {#if mode === 'static' || locked}
+      <div class="st-mode-row">
+        <button
+          class="st-mode-btn"
+          class:active={mode === 'random'}
+          onclick={() => {
+            mode = 'random';
+            selectedPeer = '';
+          }}>random</button
+        >
+        <button
+          class="st-mode-btn"
+          class:active={mode === 'static'}
+          onclick={() => {
+            mode = 'static';
+          }}>static</button
+        >
+      </div>
+
+      {#if locked && mode === 'random'}
+        <!-- The listener cannot tell which token a peer matched on. -->
+        <p class="st-hint st-warn">
+          Anyone who holds a random token can reach this server. While one is listed, the server
+          takes sessions from any peer, not only from the peers of its static tokens.
+        </p>
+      {/if}
+
+      {#if mode === 'static'}
         <PeerSelect
           bind:value={selectedPeer}
           peers={$peers}
@@ -146,24 +165,20 @@
         />
       {/if}
 
-      {#if !locked || selectedPeer}
-        <button
-          class="st-gen-btn"
-          onclick={handleGenerate}
-          disabled={generating ||
-            (!locked && mode === 'static' && !selectedPeer) ||
-            (locked && !selectedPeer)}
-        >
-          <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-            <path
-              fill-rule="evenodd"
-              d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-              clip-rule="evenodd"
-            />
-          </svg>
-          Generate {locked ? 'peer' : mode === 'static' ? 'static' : 'random'} token
-        </button>
-      {/if}
+      <button
+        class="st-gen-btn"
+        onclick={handleGenerate}
+        disabled={generating || (mode === 'static' && !selectedPeer)}
+      >
+        <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+          <path
+            fill-rule="evenodd"
+            d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+            clip-rule="evenodd"
+          />
+        </svg>
+        Generate {mode} token
+      </button>
 
       {#if $p2pTokens.length === 0}
         <p class="st-hint">Generate a token above to share with a peer.</p>
@@ -341,6 +356,9 @@
     color: var(--text-muted);
     line-height: 1.4;
     margin: 4px 0 0;
+  }
+  .st-warn {
+    color: var(--warning);
   }
   .st-list {
     display: flex;
