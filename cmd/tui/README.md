@@ -42,9 +42,64 @@ use up one of three tries; after the third, the TUI exits.
 | Direct Connect (TCP) | Dial a remote peer via raw TCP            |
 | Start Server (TCP)   | Listen for incoming TCP connections       |
 | Connect via Relay    | Dial through a blind relay session switch |
-| Start Relay Server   | Host a relay session for incoming peers   |
+| Start Relay Server   | Host a relay session for one peer         |
 | View Chat History    | Browse past sessions and their messages   |
 | Quit                 | Exit the application                      |
+
+## Relay connections
+
+Connect via Relay and Start Relay Server reach a [relay](../relay/README.md).
+Start Relay Server registers with the relay and shows a token; your peer
+enters it in the Token field of Connect via Relay. A registration takes a
+single peer: once that peer is turned away or its chat ends, the relay
+session is over, and another peer needs a new one. When the relay limits
+how long a session lasts, Start Relay Server says so while it waits, and
+the chat shows a countdown.
+
+### Relay address
+
+The address is `scheme://host:port`. A `ws` or `wss` address may leave
+out the port, which is then 80 for `ws` and 443 for `wss`. An address
+without a scheme uses `wss`. The default, `wss://localhost:8891`, is the
+wss listener of a relay that runs with its default config on the same
+host.
+
+| Scheme | Transport          | Relay authenticated |
+| ------ | ------------------ | ------------------- |
+| `wss`  | WebSocket over TLS | Yes                 |
+| `tls`  | TCP with TLS       | Yes                 |
+| `ws`   | WebSocket          | No                  |
+| `tcp`  | Plain TCP          | No                  |
+
+`wss` and `tls` check the relay's certificate against the system's roots
+and the relay's host name, or against a pinned fingerprint (see below).
+Over `ws` and `tcp`, anyone on the path can pose as the relay and read the
+session token; the input screen warns about this. Use them only on a
+network you trust.
+
+### Relay password
+
+A relay that has a `password` in the `[server]` table of its config takes
+only clients that send it. Enter it in the Relay password field, which
+hides what you type, and leave the field empty for a relay without one. The
+relay hangs up on a wrong password, a missing one, or one it does not
+expect. Over `tcp` and `tls`, the TUI's error then says to check the
+password, and for Connect via Relay the token as well. Over `ws` and
+`wss`, the error has no such hint and shows `received close frame`
+instead.
+
+### Self-signed certificates
+
+A `wss` or `tls` listener without `cert_file` and `key_file`, as in the
+relay's default config, uses a self-signed certificate, which the system's
+roots do not vouch for. The relay logs the certificate's SHA-256
+fingerprint at startup, in a `tls certificate` line as
+`sha256=<64 hex digits>`. Enter that value in the Relay certificate SHA-256
+fingerprint field, in either case and with or without colons. The TUI then
+accepts only the certificate with that fingerprint, in place of the root
+and host name checks. The field is refused for `ws` and `tcp`. See
+[TLS / Certificates](../relay/README.md#tls--certificates) in the relay
+README.
 
 ## Controls
 
