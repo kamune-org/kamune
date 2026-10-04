@@ -64,30 +64,11 @@ func newDirectP2PListener(listenAddr, peerAddr string) (*directP2PListener, erro
 	}
 	l.kcp = kcpL
 
-	// Send NAT-kick burst in background. Retries every 2s for up to 10s
-	// to give both peers time to start simultaneously.
-	go l.natKickLoop()
+	// Send NAT-kick bursts in background, every 2s for 10s, to give
+	// both peers time to start simultaneously.
+	go kickFor(l.ctx, l.conn, l.peerAddr, kickDuration)
 
 	return l, nil
-}
-
-// natKickLoop sends bursts of empty UDP packets to the peer to open the
-// local NAT mapping. It fires a burst immediately, then retries every 2s
-// for up to 10s total.
-func (l *directP2PListener) natKickLoop() {
-	timeout := time.After(10 * time.Second)
-	for {
-		// Fire a burst of 5 packets.
-		sendNATKick(l.ctx, l.conn, l.peerAddr)
-
-		select {
-		case <-l.ctx.Done():
-			return
-		case <-timeout:
-			return
-		case <-time.After(2 * time.Second):
-		}
-	}
 }
 
 // Accept blocks until a peer punches the punch socket and completes a KCP

@@ -1,13 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/xtaci/kcp-go/v5"
+
+	relaybroker "github.com/kamune-org/kamune/pkg/relayconn/broker"
 )
 
 // TestP2PListener_AcceptBlocksUntilClose verifies that Accept blocks
@@ -52,61 +57,169 @@ func TestP2PListener_AcceptBlocksUntilClose(t *testing.T) {
 	}
 }
 
-// TestP2PListener_AcceptDropsNonKCPFrames drives a peer that sends a
-// raw UDP packet to the listener; the listener's kcp-go monitor
-// reads it and (if it's a valid KCP frame) Accept returns a
-// kamune.Conn. The packet we send is NOT a valid KCP frame, so
-// the monitor drops it — we only assert that Accept blocks (no
-// spurious errors). A full end-to-end KCP test is covered by
-// the kamune library's own tests.
-//
-// This test exists primarily to lock in the listener's basic
-// packet handling and lifecycle. The full KCP-handshake flow
-// is exercised in production (and via the kamune library's
-// integration tests).
-func TestP2PListener_AcceptDropsNonKCPFrames(t *testing.T) {
+// TestP2PListener_AcceptsOnlyMatchedPeer checks that the p2p listener
+// keeps the broker's NOTIFY and a stray datagram from kcp-go, which would
+// make sessions of them, and that on the broker's PEER_MATCHED it kicks
+// the matched peer's address and takes that peer's KCP session.
+func TestP2PListener_AcceptsOnlyMatchedPeer(t *testing.T) {
 	a := require.New(t)
+	app := newTestAppForP2P(t)
+	token := bytes.Repeat([]byte{5}, 16)
+	l, _, _, fb := startTestP2PServerOn(t, app, token, nil)
 
-	bc, err := NewBrokerClient()
+	// A stray datagram as long as a KCP header, from an address that
+	// no broker matched.
+	stray, err := net.DialUDP("udp4", nil, l.Addr())
+	a.NoError(err)
+	defer stray.Close()
+	_, err = stray.Write(bytes.Repeat([]byte{1}, 32))
 	a.NoError(err)
 
-	listener, err := newP2PListenerNoBroker(t, bc, "127.0.0.1:0")
-	a.NoError(err)
-	defer listener.Close()
-
-	listenerUDPAddr := listener.Addr()
-	a.NotNil(listenerUDPAddr)
-
-	// Send a raw UDP packet to the listener. The kcp-go monitor
-	// reads it, sees it's not a valid KCP frame, and drops it.
-	// The listener's Accept should remain blocked.
-	sender, err := net.DialUDP(
-		"udp4", nil, listenerUDPAddr,
+	dialer, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
 	)
 	a.NoError(err)
-	defer sender.Close()
-	_, err = sender.Write([]byte("not a kcp frame"))
+	defer dialer.Close()
+	dialerAddr := dialer.LocalAddr().(*net.UDPAddr)
+
+	// The broker matches the listener with the dialer.
+	sendNotify(t, fb, relaybroker.PeerMatchedPlaintext(
+		token, bytes.Repeat([]byte{2}, 32),
+		dialerAddr.IP, uint16(dialerAddr.Port),
+	), l.Addr(), app.brokerClient.PublicKey())
+
+	// The listener kicks the dialer's address from the punch socket.
+	a.NoError(dialer.SetReadDeadline(time.Now().Add(testWait)))
+	buf := make([]byte, 1500)
+	_, src, err := dialer.ReadFromUDP(buf)
+	a.NoError(err, "the listener sent no NAT kick to the matched peer")
+	a.Equal(l.Addr().Port, src.Port)
+	a.NoError(dialer.SetReadDeadline(time.Time{}))
+
+	sess, err := kcp.NewConn4(7, l.Addr(), nil, 0, 0, false, dialer)
+	a.NoError(err)
+	defer sess.Close()
+	_, err = sess.Write([]byte("hello"))
 	a.NoError(err)
 
-	// Give the monitor time to process the packet.
-	time.Sleep(100 * time.Millisecond)
-
-	// Accept should still be blocked (no conn to return).
-	acceptDone := make(chan error, 1)
+	accepted := make(chan any, 1)
 	go func() {
-		_, err := listener.Accept()
-		acceptDone <- err
+		c, err := l.Accept()
+		if err != nil {
+			accepted <- err
+			return
+		}
+		accepted <- c
 	}()
-
-	// Cancel the pending Accept by closing the listener; the
-	// goroutine should return with an error.
-	a.NoError(listener.Close())
 	select {
-	case err := <-acceptDone:
-		a.Error(err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Accept did not return after Close")
+	case got := <-accepted:
+		c, ok := got.(interface{ RemoteAddr() net.Addr })
+		a.True(ok, "Accept failed: %v", got)
+		a.Equal(dialerAddr.String(), c.RemoteAddr().String())
+		_ = got.(io.Closer).Close()
+	case <-time.After(testWait):
+		t.Fatal("the listener accepted no session from the matched peer")
 	}
+}
+
+// TestP2PListener_HandleBrokerToken checks that the p2p listener expects
+// a matched peer only on a PEER_MATCHED for a token it registers.
+func TestP2PListener_HandleBrokerToken(t *testing.T) {
+	token := bytes.Repeat([]byte{5}, 32)
+	tests := []struct {
+		name   string
+		token  []byte
+		expect bool
+	}{
+		{name: "registered token", token: token, expect: true},
+		{
+			name:  "other token",
+			token: bytes.Repeat([]byte{6}, 32),
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			bc, err := NewBrokerClient()
+			a.NoError(err)
+			l, err := newP2PListenerNoBroker(t, bc, "127.0.0.1:0")
+			a.NoError(err)
+			defer l.Close()
+			l.tokens = []listenerToken{{token: token}}
+
+			peer := netip.AddrPortFrom(
+				netip.AddrFrom4([4]byte{192, 0, 2, byte(i + 1)}), 4000,
+			)
+			pkt, err := sealedNotify(relaybroker.PeerMatchedPlaintext(
+				relaybroker.WireToken(tt.token),
+				bytes.Repeat([]byte{2}, 32),
+				net.IP(peer.Addr().AsSlice()), peer.Port(),
+			), bc.PublicKey())
+			a.NoError(err)
+			l.handleBroker(pkt)
+			// The filter takes any port from the matched IP.
+			other := netip.AddrPortFrom(peer.Addr(), 4001)
+			a.Equal(tt.expect, l.filter.admits(other))
+		})
+	}
+}
+
+// TestP2PListener_PeerMatchedWhileStarting checks that the p2p listener
+// handles a PEER_MATCHED that kcp-go reads before kcp.ServeConn returns,
+// as when the broker matches a dialer that already waits on the token as
+// soon as the listener registers it.
+func TestP2PListener_PeerMatchedWhileStarting(t *testing.T) {
+	a := require.New(t)
+	bc, err := NewBrokerClient()
+	a.NoError(err)
+	fb := newFakeBroker(t)
+	loopback := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}
+	conn, err := net.ListenUDP("udp4", loopback)
+	a.NoError(err)
+	dialer, err := net.ListenUDP("udp4", loopback)
+	a.NoError(err)
+	defer dialer.Close()
+	dialerAddr := dialer.LocalAddr().(*net.UDPAddr)
+
+	token := bytes.Repeat([]byte{5}, 16)
+	ctx, cancel := context.WithCancel(context.Background())
+	l := &p2pListener{
+		broker:    bc,
+		brokerUDP: fb.conn.LocalAddr().(*net.UDPAddr),
+		token:     token,
+		tokens:    []listenerToken{{token: token}},
+		conn:      conn,
+		kicking:   make(map[netip.AddrPort]struct{}),
+		ctx:       ctx,
+		cancel:    cancel,
+	}
+	defer l.Close()
+
+	// The PEER_MATCHED waits on the punch socket before kcp-go reads it.
+	sendNotify(t, fb, relaybroker.PeerMatchedPlaintext(
+		token, bytes.Repeat([]byte{2}, 32),
+		dialerAddr.IP, uint16(dialerAddr.Port),
+	), l.Addr(), bc.PublicKey())
+
+	// kcp.ServeConn returns only once the listener has kicked the
+	// matched peer, which it does on reading the PEER_MATCHED.
+	var kickErr error
+	err = l.serveWith(func(
+		block kcp.BlockCrypt, ds, ps int, pc net.PacketConn,
+	) (*kcp.Listener, error) {
+		kl, err := kcp.ServeConn(block, ds, ps, pc)
+		if err != nil {
+			return nil, err
+		}
+		kickErr = dialer.SetReadDeadline(time.Now().Add(testWait))
+		if kickErr == nil {
+			_, _, kickErr = dialer.ReadFromUDP(make([]byte, 1500))
+		}
+		return kl, nil
+	})
+	a.NoError(err)
+	a.NoError(kickErr, "the listener sent no NAT kick to the matched peer")
+	a.True(l.filter.admits(dialerAddr.AddrPort()))
 }
 
 // newP2PListenerNoBroker builds a p2pListener without going through the
@@ -135,14 +248,13 @@ func newP2PListenerNoBroker(
 		brokerAddr: "",
 		token:      nil,
 		conn:       conn,
+		kicking:    make(map[netip.AddrPort]struct{}),
 		ctx:        ctx,
 		cancel:     cancel,
 	}
-	kcpL, err := kcp.ServeConn(nil, 0, 0, conn)
-	if err != nil {
+	if err := l.serve(); err != nil {
 		_ = l.Close()
 		return nil, err
 	}
-	l.kcp = kcpL
 	return l, nil
 }

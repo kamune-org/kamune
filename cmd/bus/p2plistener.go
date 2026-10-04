@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"sync"
 	"time"
@@ -22,12 +23,12 @@ import (
 // ServeWithUDP would create.
 //
 // The listener owns a single UDP socket (the punch socket) bound to bindAddr
-// (default ":0"). It uses the kcp-go Listener (via kcp.ServeConn) on the
-// same socket, so any peer that successfully punches and sends KCP packets
-// is auto-accepted regardless of source address. Broker NOTIFYs that arrive
-// on the same socket are silently dropped by kcp-go (they're not valid KCP
-// packets) — the listener doesn't need to read them; the punch socket is
-// for KCP traffic only.
+// (default ":0"), which carries both the broker's packets and the peers'
+// KCP packets. kcp-go reads it through a punchFilter: the broker's
+// NOTIFY(PEER_MATCHED) for one of the listener's tokens tells the listener
+// where the matched peer is, and the listener then kicks that address, to
+// open its own NAT to the peer, and takes KCP packets from the peer's IP
+// address. Every other packet is dropped before kcp-go sees it.
 type p2pListener struct {
 	bindAddr   string
 	broker     *BrokerClient
@@ -47,8 +48,14 @@ type p2pListener struct {
 	claimIP   net.IP
 	claimPort uint16
 
-	conn *net.UDPConn
-	kcp  *kcp.Listener
+	conn   *net.UDPConn
+	filter *punchFilter
+	kcp    *kcp.Listener
+
+	// kicking holds the peer addresses the listener sends NAT kicks
+	// to; kickMu guards it.
+	kicking map[netip.AddrPort]struct{}
+	kickMu  sync.Mutex
 
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -96,6 +103,7 @@ func newP2PListener(
 		brokerAddr: brokerAddr,
 		token:      token,
 		conn:       conn,
+		kicking:    make(map[netip.AddrPort]struct{}),
 		ctx:        ctx,
 		cancel:     cancel,
 	}
@@ -132,8 +140,8 @@ func newP2PListener(
 
 	// Random-token mode (token == nil): the broker assigns a token and
 	// replies with NOTIFY(TOKEN_ASSIGNED). Pre-read the punch socket
-	// before starting kcp.ServeConn so we can capture the assigned
-	// token without kcp-go swallowing it.
+	// before kcp-go starts reading it, since the filter in front of
+	// kcp-go acts only on PEER_MATCHED.
 	if len(token) == 0 {
 		to, cancel := context.WithTimeout(ctx, 2*time.Second)
 		assigned, err := readTokenAssigned(to, conn, broker, brokerUDPAddr)
@@ -159,12 +167,10 @@ func newP2PListener(
 	// Start kcp-go's Listener on the punch socket. kcp.ServeConn does NOT
 	// take ownership of the conn — the listener's Close() does not close
 	// the underlying conn; we close it ourselves in p2pListener.Close().
-	kcpL, err := kcp.ServeConn(nil, 0, 0, conn)
-	if err != nil {
+	if err := l.serve(); err != nil {
 		l.Close()
 		return nil, fmt.Errorf("kcp listener: %w", err)
 	}
-	l.kcp = kcpL
 
 	// Refresh the broker registration every 30s (half the broker's 60s
 	// TTL) so the dialer can find us. Runs until the listener is closed.
@@ -173,14 +179,112 @@ func newP2PListener(
 	return l, nil
 }
 
+// serve starts kcp-go on the punch socket behind a punchFilter, which
+// hands the broker's packets to handleBroker.
+func (l *p2pListener) serve() error {
+	return l.serveWith(kcp.ServeConn)
+}
+
+// kcpServeFunc starts kcp-go on a packet conn, as kcp.ServeConn does.
+type kcpServeFunc func(
+	block kcp.BlockCrypt, dataShards, parityShards int, conn net.PacketConn,
+) (*kcp.Listener, error)
+
+// serveWith is serve with serveConn in place of kcp.ServeConn. kcp-go
+// reads the punch socket, and so may call handleBroker, before
+// serveConn returns, so l.filter is set before it starts.
+func (l *p2pListener) serveWith(serveConn kcpServeFunc) error {
+	f := newPunchFilter(l.conn)
+	if ap, ok := addrPortOf(l.brokerUDP); ok {
+		f.broker = ap
+	}
+	f.onBroker = l.handleBroker
+	l.filter = f
+	kcpL, err := serveConn(nil, 0, 0, f)
+	if err != nil {
+		return err
+	}
+	l.kcp = kcpL
+	return nil
+}
+
 // Accept blocks until a peer punches the punch socket and completes a KCP
-// handshake, then returns the resulting kamune.Conn.
+// handshake, then returns the resulting kamune.Conn. The filter takes the
+// session's packets until the conn is closed.
 func (l *p2pListener) Accept() (kamune.Conn, error) {
 	sess, err := l.kcp.AcceptKCP()
 	if err != nil {
 		return nil, err
 	}
-	return &gatedConn{Conn: kamune.NewConn(sess), gate: l}, nil
+	held := &heldSession{
+		UDPSession: sess, release: l.filter.hold(sess.RemoteAddr()),
+	}
+	return &gatedConn{Conn: kamune.NewConn(held), gate: l}, nil
+}
+
+// heldSession is a KCP session that a punchFilter takes packets for
+// until the session is closed.
+type heldSession struct {
+	*kcp.UDPSession
+	release func()
+}
+
+func (s *heldSession) Close() error {
+	s.release()
+	return s.UDPSession.Close()
+}
+
+// handleBroker reads a packet from the broker. A NOTIFY(PEER_MATCHED)
+// for one of the listener's tokens has the filter expect the matched
+// peer, and starts NAT kicks to the peer's address, so that the peer's
+// packets get through a NAT that only lets replies in.
+func (l *p2pListener) handleBroker(pkt []byte) {
+	p, err := l.broker.parseNotify(pkt)
+	if err != nil || p.Type != relaybroker.NotifyPeerMatched {
+		return
+	}
+	if !l.registers(p.Token) {
+		return
+	}
+	ip, ok := netip.AddrFromSlice(p.IP)
+	if !ok || p.Port == 0 {
+		return
+	}
+	ip = ip.Unmap()
+	l.filter.expect(ip)
+	l.kick(netip.AddrPortFrom(ip, p.Port))
+}
+
+// registers reports whether notified, the token of a NOTIFY, is one of
+// the tokens the listener registers.
+func (l *p2pListener) registers(notified []byte) bool {
+	l.tokenMu.RLock()
+	defer l.tokenMu.RUnlock()
+	return slices.ContainsFunc(l.tokens, func(t listenerToken) bool {
+		return relaybroker.TokenMatches(notified, t.token)
+	})
+}
+
+// kick sends NAT kicks to dst for kickDuration, unless it already does,
+// or kicks maxMatchedPeers addresses, or the listener is closed.
+func (l *p2pListener) kick(dst netip.AddrPort) {
+	l.kickMu.Lock()
+	_, busy := l.kicking[dst]
+	if busy || len(l.kicking) >= maxMatchedPeers || l.ctx.Err() != nil {
+		l.kickMu.Unlock()
+		return
+	}
+	l.kicking[dst] = struct{}{}
+	l.kickMu.Unlock()
+	go func() {
+		defer func() {
+			l.kickMu.Lock()
+			delete(l.kicking, dst)
+			l.kickMu.Unlock()
+		}()
+		peer := net.UDPAddrFromAddrPort(dst)
+		kickFor(l.ctx, l.conn, peer, kickDuration)
+	}()
 }
 
 // admitsPeer reports whether a token the listener registers admits the
