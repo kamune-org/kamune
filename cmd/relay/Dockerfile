@@ -8,6 +8,16 @@
 # The relay logs to stderr. Docker's default json-file driver keeps that log
 # without limit, so cap it when running the container, for example:
 #   docker run --log-opt max-size=10m --log-opt max-file=3 kamune-relay
+#
+# The relay runs as the unprivileged user relay (uid 10001) and needs no
+# capabilities, as every default port is above 1024. It writes only to its
+# home, the volume /var/lib/kamune-relay: the self-signed certificate for
+# [tls] and [wss] goes in .config/kamune-relay there (see server.data_dir).
+# Mount a named volume at /var/lib/kamune-relay so the certificate, and the
+# fingerprint clients pin, survive re-creating the container. The rest of
+# the file system can be read-only:
+#   docker run --read-only --cap-drop=ALL \
+#     -v kamune-relay:/var/lib/kamune-relay kamune-relay
 
 FROM golang:1.26-alpine AS builder
 
@@ -38,9 +48,20 @@ RUN cd cmd/relay && \
 
 FROM alpine:3.23
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates && \
+    addgroup -g 10001 relay && \
+    adduser -D -H -u 10001 -G relay -h /var/lib/kamune-relay \
+        -s /sbin/nologin relay && \
+    mkdir -m 0700 /var/lib/kamune-relay && \
+    chown relay:relay /var/lib/kamune-relay
 
+# Root owns the binary and the config, so the relay cannot change either.
 COPY --from=builder /relay /usr/local/bin/relay
 COPY cmd/relay/assets/config.toml /etc/relay.toml
+
+ENV HOME=/var/lib/kamune-relay
+USER 10001:10001
+WORKDIR /var/lib/kamune-relay
+VOLUME ["/var/lib/kamune-relay"]
 
 ENTRYPOINT ["relay", "-c", "/etc/relay.toml"]
