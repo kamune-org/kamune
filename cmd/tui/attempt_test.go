@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune"
@@ -129,4 +130,72 @@ func TestDial_CancelEndsHandshake(t *testing.T) {
 
 	cancel()
 	a.ErrorIs(waitFor(t, done), context.Canceled)
+}
+
+func TestServe_BindErrorEndsAttempt(t *testing.T) {
+	a := require.New(t)
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	t.Cleanup(func() { _ = taken.Close() })
+
+	m := newTestModel()
+	m.store = openTestStore(t)
+	m.state = stateWelcome
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	a.Equal(modeDirectServe, m.mode)
+	m.inputs[0].SetValue(taken.Addr().String())
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a.Equal(stateConnecting, m.state)
+	a.NotNil(cmd, "the bind error is not reported")
+	m.Update(cmd())
+	a.Equal(stateWelcome, m.state)
+	a.Nil(m.att)
+	a.Nil(m.srv)
+	a.ErrorContains(m.connectErr, "listening tcp")
+	a.Contains(m.viewWelcome(), "listening tcp")
+}
+
+func TestServe_StopEndsAttempt(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    inputMode
+		wantErr error
+	}{
+		{"direct server", modeDirectServe, errServerStopped},
+		{"relay server", modeRelayServe, errRelaySessionEnded},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			m := newTestModel()
+			m.store = openTestStore(t)
+			m.mode = tt.mode
+			m.inputs = []textinput.Model{mkInput("addr", "")}
+			msgs := make(chan tea.Msg, 1)
+			m.send = func(msg tea.Msg) { msgs <- msg }
+			m.att = newAttempt()
+			m.state = stateConnecting
+			l := &pipeListener{
+				conns:  make(chan kamune.Conn),
+				closed: make(chan struct{}),
+			}
+			srv, err := serve("", m.store, m.mkVerifier(m.att),
+				func(*kamune.Transport, chan struct{}) {},
+				serverStopped(m.att, m.mode, m.send),
+				kamune.ServeWithListener(l),
+			)
+			a.NoError(err)
+			m.srv = srv
+
+			// The listener ends while the server waits for a peer, as a
+			// relay listener does once its connection is over.
+			_ = l.Close()
+			m.Update(waitFor(t, msgs))
+			a.Equal(stateWelcome, m.state)
+			a.Nil(m.att)
+			a.Nil(m.srv)
+			a.ErrorIs(m.connectErr, tt.wantErr)
+		})
+	}
 }

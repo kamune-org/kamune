@@ -14,11 +14,14 @@ import (
 // registration, which hands its session to deliver as serve does. It
 // returns the server and the token for the peer. Cancelling ctx ends the
 // registration while it is in progress; the server then lasts until it is
-// closed.
+// closed. The registration takes a single connection: once that ends, or
+// the relay drops the registration, the server stops and stopped gets
+// what ListenAndServe returned.
 func relayServe(
 	ctx context.Context, relayAddr, password string, store *storage.Storage,
 	verifyFn kamune.RemoteVerifier,
 	deliver func(t *kamune.Transport, release chan struct{}),
+	stopped func(error),
 ) (*kamune.Server, []byte, time.Duration, error) {
 	var relayOpts []relayconn.Option
 	if password != "" {
@@ -30,7 +33,7 @@ func relayServe(
 		return nil, nil, 0, fmt.Errorf("relay listen: %w", err)
 	}
 
-	srv, err := serve("", store, verifyFn, deliver,
+	srv, err := serve("", store, verifyFn, deliver, stopped,
 		kamune.ServeWithListener(result.Listener),
 	)
 	if err != nil {

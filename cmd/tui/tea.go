@@ -122,6 +122,16 @@ var (
 	errAttemptCancelled = fmt.Errorf(
 		"%w: connection attempt cancelled", kamune.ErrVerificationFailed,
 	)
+
+	// errServerStopped ends a server's connection attempt when the
+	// server stops taking peers on its own.
+	errServerStopped = errors.New("the server stopped taking peers")
+	// errRelaySessionEnded ends a relay server's connection attempt when
+	// the relay session ends with no chat, as when the relay drops the
+	// registration or a peer's handshake fails.
+	errRelaySessionEnded = errors.New(
+		"the relay session ended; start a new one for another peer",
+	)
 )
 
 // relayReadyMsg says that the relay server of att is registered with the
@@ -718,6 +728,7 @@ func (m *model) startConnect() tea.Cmd {
 	deliver := func(t *kamune.Transport, release chan struct{}) {
 		send(connectedMsg{att: att, transport: t, release: release})
 	}
+	stopped := serverStopped(att, m.mode, send)
 
 	switch m.mode {
 	case modeDirectDial:
@@ -731,7 +742,9 @@ func (m *model) startConnect() tea.Cmd {
 		}()
 
 	case modeDirectServe:
-		srv, err := serve(addr, store, vfn, deliver)
+		srv, err := serve(addr, store, vfn, deliver, stopped,
+			kamune.ServeWithTCP(),
+		)
 		if err != nil {
 			return func() tea.Msg { return connectFailedMsg{att, err} }
 		}
@@ -755,7 +768,7 @@ func (m *model) startConnect() tea.Cmd {
 	case modeRelayServe:
 		go func() {
 			srv, token, sessionTTL, err := relayServe(
-				att.ctx, addr, "", store, vfn, deliver,
+				att.ctx, addr, "", store, vfn, deliver, stopped,
 			)
 			if err != nil {
 				send(connectFailedMsg{att, err})
@@ -767,6 +780,26 @@ func (m *model) startConnect() tea.Cmd {
 		}()
 	}
 	return nil
+}
+
+// serverStopped returns the function that the server of the attempt att,
+// started in mode, calls when it stops taking peers. It ends the attempt
+// with what ListenAndServe returned, or with why a server stops on its
+// own. Update drops the message once the attempt is over, as it is when
+// the user cancels it or a chat starts.
+func serverStopped(
+	att *attempt, mode inputMode, send func(tea.Msg),
+) func(error) {
+	stopErr := errServerStopped
+	if mode == modeRelayServe {
+		stopErr = errRelaySessionEnded
+	}
+	return func(err error) {
+		if err == nil {
+			err = stopErr
+		}
+		send(connectFailedMsg{att, err})
+	}
 }
 
 func tickCountdown() tea.Cmd {

@@ -162,6 +162,7 @@ func TestServe_HandlerKeepsSessionUntilReleased(t *testing.T) {
 		func(t *kamune.Transport, release chan struct{}) {
 			delivered <- connectedMsg{transport: t, release: release}
 		},
+		func(error) {},
 		kamune.ServeWithListener(newPipeListener(serverNet)),
 	)
 	a.NoError(err)
@@ -377,6 +378,7 @@ func TestChat_EscInServeModeClosesGracefully(t *testing.T) {
 				close(handlerDone)
 			}()
 		},
+		func(error) {},
 		kamune.ServeWithListener(newPipeListener(serverNet)),
 	)
 	a.NoError(err)
