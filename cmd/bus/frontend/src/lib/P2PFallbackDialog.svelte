@@ -1,7 +1,8 @@
 <script>
   // @ts-check
   // (svelte-check then reports names this script uses but never declares)
-  import { ConnectToServer } from './go.js';
+  import { CancelConnect, ConnectToServer, DisconnectSession } from './go.js';
+  import { newConnectAttemptId } from './attempts';
 
   /**
    * @typedef {Object} Props
@@ -22,24 +23,71 @@
   const relaySchemes = ['tcp', 'tls', 'ws', 'wss'];
   let useRelayInsecure = $state(false);
   let loading = $state(false);
+  // attempt is the attempt ID of the connect in progress, which Cancel
+  // cancels.
+  let attempt = '';
+
+  /**
+   * connect runs dial, a ConnectToServer call with the attempt ID that it
+   * is given, as the connect in progress. It returns null once Cancel has
+   * cancelled it.
+   * @param {(id: string) => Promise<any>} dial
+   */
+  async function connect(dial) {
+    const id = newConnectAttemptId();
+    attempt = id;
+    loading = true;
+    try {
+      const result = await dial(id);
+      if (id === attempt) return result;
+      // Cancelled, but the session was established first.
+      if (result.sessionId) await DisconnectSession(result.sessionId);
+      return null;
+    } catch (e) {
+      if (id === attempt) throw e;
+      return null;
+    } finally {
+      if (id === attempt) {
+        attempt = '';
+        loading = false;
+      }
+    }
+  }
+
+  async function cancel() {
+    const id = attempt;
+    attempt = '';
+    loading = false;
+    close();
+    if (!id) return;
+    try {
+      await CancelConnect(id);
+    } catch (e) {
+      console.error('Cancel connect error:', e);
+    }
+  }
 
   async function retryP2P() {
     if (!context) return;
-    loading = true;
+    const ctx = context;
     try {
-      const result = await ConnectToServer(
-        context.addr,
-        context.transport,
-        context.relayAddr,
-        '',
-        context.name || '',
-        '',
-        context.brokerAddr,
-        context.peerPubB64,
-        context.p2pToken,
-        context.useP2P,
-        context.useBroker
+      const result = await connect((id) =>
+        ConnectToServer(
+          ctx.addr,
+          ctx.transport,
+          ctx.relayAddr,
+          '',
+          ctx.name || '',
+          '',
+          ctx.brokerAddr,
+          ctx.peerPubB64,
+          ctx.p2pToken,
+          ctx.useP2P,
+          ctx.useBroker,
+          id
+        )
       );
+      if (!result) return;
       if (result.errorCode) {
         if (result.errorCode === 'hole_punch_failed') {
           // Stay open for another attempt.
@@ -52,8 +100,6 @@
       }
     } catch (e) {
       alert('Retry failed: ' + e);
-    } finally {
-      loading = false;
     }
   }
 
@@ -86,21 +132,27 @@
     const tlsScheme = useRelayScheme === 'wss' || useRelayScheme === 'tls';
     const insecure = tlsScheme && useRelayInsecure && !host.includes('?insecure=');
     const relayAddr = `${useRelayScheme}://${host}` + (insecure ? '?insecure=true' : '');
-    loading = true;
+    const token = useRelayToken.trim();
+    const name = context.name || '';
+    const password = useRelayPassword;
     try {
-      const result = await ConnectToServer(
-        '',
-        'relay',
-        relayAddr,
-        useRelayToken.trim(),
-        context.name || '',
-        useRelayPassword,
-        '',
-        peer,
-        '',
-        false,
-        false
+      const result = await connect((id) =>
+        ConnectToServer(
+          '',
+          'relay',
+          relayAddr,
+          token,
+          name,
+          password,
+          '',
+          peer,
+          '',
+          false,
+          false,
+          id
+        )
       );
+      if (!result) return;
       if (result.errorCode) {
         alert('Relay fallback failed: ' + result.errorCode);
       } else {
@@ -108,8 +160,6 @@
       }
     } catch (e) {
       alert('Relay fallback failed: ' + e);
-    } finally {
-      loading = false;
     }
   }
 
@@ -124,7 +174,9 @@
 </script>
 
 {#if open}
-  <div class="dialog-overlay" onclick={close}>
+  <!-- While a connect runs, a click outside does not close the dialog:
+       Cancel cancels the connect and closes it. -->
+  <div class="dialog-overlay" onclick={() => !loading && close()}>
     <div class="dialog" onclick={(e) => e.stopPropagation()}>
       <h2>P2P hole-punch failed</h2>
       <p class="message">
@@ -174,7 +226,7 @@
           </div>
           <button onclick={useRelay} disabled={loading || !useRelayAddr.trim()}> Use relay </button>
         </div>
-        <button onclick={close} disabled={loading}>Cancel</button>
+        <button onclick={cancel}>Cancel</button>
       </div>
     </div>
   </div>

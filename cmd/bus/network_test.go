@@ -140,7 +140,7 @@ func TestConnectToServerRejectsOtherKnownPeer(t *testing.T) {
 
 	res, err := app.ConnectToServer(
 		addr, "tcp", "", "", "alice", "", "",
-		fingerprint.Base64(bobKey), "", false, false,
+		fingerprint.Base64(bobKey), "", false, false, "",
 	)
 	a.Error(err)
 	a.True(errors.Is(err, ErrPeerKeyMismatch), "got %v", err)
@@ -190,7 +190,7 @@ func TestConnectToServerRejectsBadPeerKey(t *testing.T) {
 
 	res, err := app.ConnectToServer(
 		"127.0.0.1:1", "tcp", "", "", "alice", "", "",
-		"not-a-key", "", false, false,
+		"not-a-key", "", false, false, "",
 	)
 	a.Error(err)
 	a.Equal("invalid_peer_key", res.ErrorCode)

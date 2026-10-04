@@ -49,7 +49,7 @@ func TestIncognitoDialLeavesNoSessionRecord(t *testing.T) {
 	})
 
 	res, err := app.ConnectToServer(
-		addr, "tcp", "", "", "", "", "", "", "", false, false,
+		addr, "tcp", "", "", "", "", "", "", "", false, false, "",
 	)
 	a.NoError(err)
 	sessions, err := app.store().ListSessions()
@@ -186,7 +186,7 @@ func TestIncognitoFollowsSession(t *testing.T) {
 					return readUntilEnd(tr)
 				})
 			res, err := app.ConnectToServer(
-				addr, "tcp", "", "", "", "", "", "", "", false, false,
+				addr, "tcp", "", "", "", "", "", "", "", false, false, "",
 			)
 			a.NoError(err)
 			a.True(app.SetIncognito(!tc.incognito))

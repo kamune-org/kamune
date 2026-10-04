@@ -76,7 +76,7 @@ func TestIncognitoNotificationHidesText(t *testing.T) {
 		}
 	})
 	_, err := app.ConnectToServer(
-		addr, "tcp", "", "", "", "", "", "", "", false, false,
+		addr, "tcp", "", "", "", "", "", "", "", false, false, "",
 	)
 	a.NoError(err)
 

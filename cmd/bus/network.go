@@ -647,10 +647,19 @@ func (a *App) GetRelayTokens() []relayToken {
 	return a.getRelayTokens()
 }
 
+// errCodeCancelled is the ConnectResult.ErrorCode of a ConnectToServer
+// call that CancelConnect cancelled.
+const errCodeCancelled = "cancelled"
+
+// ConnectToServer dials a server and adds the session. attemptID names
+// the call for CancelConnect, which cancels it until the session is
+// established; it then returns the error code "cancelled" and no error.
+// The window gives each call an ID of its own. With an empty attemptID,
+// only shutdown cancels the call.
 func (a *App) ConnectToServer(
 	addr, transport, relayAddr, token, name, password,
 	brokerAddr, peerPubB64, p2pToken string,
-	useP2P bool, useBroker bool,
+	useP2P bool, useBroker bool, attemptID string,
 ) (ConnectResult, error) {
 	// The dialer and the session keep the store, so the database must not
 	// change until the session is in a.sessions or the dial has failed.
@@ -662,13 +671,29 @@ func (a *App) ConnectToServer(
 		a.dialOps--
 		a.mu.Unlock()
 	}()
+	attempt := a.beginDial(attemptID)
+	defer a.endDial(attempt)
 
 	connected := false
+	cancelled := false
 	defer func() {
-		if !connected {
+		switch {
+		case cancelled:
+			a.setStatus(StatusDisconnected, "Connection cancelled")
+		case !connected:
 			a.setStatus(StatusError, "Connection failed")
 		}
 	}()
+	// failed returns the result of a call that failed with code and err,
+	// or that of a cancelled call when the attempt was cancelled.
+	failed := func(code string, err error) (ConnectResult, error) {
+		if attempt.ctx.Err() != nil {
+			cancelled = true
+			a.addLogEntry("INFO", "Connection to "+addr+" cancelled")
+			return ConnectResult{ErrorCode: errCodeCancelled}, nil
+		}
+		return ConnectResult{ErrorCode: code}, err
+	}
 
 	a.setStatus(StatusConnecting, "Connecting to "+addr+"...")
 
@@ -709,12 +734,15 @@ func (a *App) ConnectToServer(
 		wantKey = k
 	}
 
-	var opts []kamune.DialOption
-	opts = append(opts, kamune.DialWithClientName(name))
+	// baseOpts serve the first dial and the reconnects; each adds the
+	// dial function of its own.
+	var baseOpts []kamune.DialOption
+	baseOpts = append(baseOpts, kamune.DialWithClientName(name))
 	if incognito {
 		// An incognito session leaves no session record in storage.
-		opts = append(opts, kamune.DialWithoutPersistence())
+		baseOpts = append(baseOpts, kamune.DialWithoutPersistence())
 	}
+	opts := slices.Clone(baseOpts)
 	relayTokenHex := token
 
 	// P2P: hole-punch the peer via the broker, then run the kamune
@@ -734,30 +762,29 @@ func (a *App) ConnectToServer(
 			return ConnectResult{ErrorCode: "invalid_token"}, err
 		}
 
-		baseCtx := a.lifeCtx()
 		matchCtx, matchCancel := context.WithTimeout(
-			baseCtx, 30*time.Second,
+			attempt.ctx, 30*time.Second,
 		)
 		punchConn, payload, err := a.brokerClient.WaitMatch(
 			matchCtx, brokerAddr, token,
 		)
 		matchCancel()
 		if err != nil {
-			return ConnectResult{ErrorCode: "match_timeout"},
-				fmt.Errorf("wait for match: %w", err)
+			return failed("match_timeout",
+				fmt.Errorf("wait for match: %w", err))
 		}
 		a.addLogEntry("INFO",
 			"P2P match: peer at "+payload.IP.String()+
 				fmt.Sprintf(":%d", payload.Port))
 
 		kcpSess, err := a.brokerClient.HolePunch(
-			baseCtx, punchConn,
+			attempt.ctx, punchConn,
 			payload.IP, payload.Port, 0,
 		)
 		if err != nil {
 			punchConn.Close()
-			return ConnectResult{ErrorCode: "hole_punch_failed"},
-				fmt.Errorf("hole-punch: %w", err)
+			return failed("hole_punch_failed",
+				fmt.Errorf("hole-punch: %w", err))
 		}
 		a.addLogEntry("INFO", "Hole-punch succeeded")
 
@@ -765,6 +792,7 @@ func (a *App) ConnectToServer(
 		// NewDialer via DialWithFunc. The kamune handshake runs on
 		// the punched UDP socket.
 		punchedConn := kamune.NewConn(kcpSess)
+		attempt.closeOnCancel(punchedConn)
 		opts = append(opts, kamune.DialWithFunc(
 			func(string) (kamune.Conn, error) {
 				return punchedConn, nil
@@ -778,12 +806,13 @@ func (a *App) ConnectToServer(
 		// session on the punched socket.
 		a.addLogEntry("INFO",
 			"Direct P2P: punching "+addr)
-		punchedConn, err := directP2PDial(addr)
+		punchedConn, err := directP2PDial(attempt.ctx, addr)
 		if err != nil {
-			return ConnectResult{ErrorCode: "hole_punch_failed"},
-				fmt.Errorf("direct p2p dial: %w", err)
+			return failed("hole_punch_failed",
+				fmt.Errorf("direct p2p dial: %w", err))
 		}
 		a.addLogEntry("INFO", "Direct P2P: hole-punch succeeded")
+		attempt.closeOnCancel(punchedConn)
 		opts = append(opts, kamune.DialWithFunc(
 			func(string) (kamune.Conn, error) {
 				return punchedConn, nil
@@ -802,8 +831,11 @@ func (a *App) ConnectToServer(
 					fmt.Errorf("derive static token: %w", err)
 			}
 			relayTokenHex = tok
+			// The relay handshake ends with the attempt, and the
+			// guard closes the connection that it yields when the
+			// attempt is cancelled during the kamune handshake.
 			fn, err := dialRelayFuncWithSessionTTL(
-				a.lifeCtx(), relayAddr, relayTokenHex, password, false,
+				attempt.ctx, relayAddr, relayTokenHex, password, false,
 				&sessionTTL,
 			)
 			if err != nil {
@@ -813,18 +845,22 @@ func (a *App) ConnectToServer(
 				return ConnectResult{ErrorCode: "relay_dial_failed"},
 					fmt.Errorf("relay dial func: %w", err)
 			}
-			opts = append(opts, kamune.DialWithFunc(fn))
+			opts = append(opts, kamune.DialWithFunc(attempt.guard(fn)))
 			addr = relayAddr
 		case "udp":
-			opts = append(opts, kamune.DialWithUDP())
+			opts = append(opts, kamune.DialWithFunc(attempt.guard(dialUDP)))
 		default:
-			opts = append(opts, kamune.DialWithTCP())
+			opts = append(opts, kamune.DialWithFunc(
+				attempt.guard(dialTCPWithin(attempt.ctx)),
+			))
 		}
 	}
 
 	verifMode := a.currentVerifMode()
 	dialer, err := kamune.NewDialer(
-		addr, store, a.pinPeer(wantKey, a.verifierFor(verifMode)), opts...,
+		addr, store,
+		a.pinPeer(wantKey, a.verifierWithin(attempt.ctx, verifMode)),
+		opts...,
 	)
 	if err != nil {
 		a.setStatus(StatusError, "Failed to create dialer")
@@ -835,8 +871,6 @@ func (a *App) ConnectToServer(
 
 	t, err := dialer.Dial()
 	if err != nil {
-		a.setStatus(StatusError, "Connection failed")
-		a.addLogEntry("ERROR", "Dial failed: "+err.Error())
 		errCode := "dial_failed"
 		switch {
 		case errors.Is(err, ErrPeerKeyMismatch):
@@ -844,8 +878,16 @@ func (a *App) ConnectToServer(
 		case useP2P:
 			errCode = "hole_punch_failed"
 		}
-		return ConnectResult{ErrorCode: errCode},
-			fmt.Errorf("dial: %w", err)
+		if attempt.ctx.Err() == nil {
+			a.addLogEntry("ERROR", "Dial failed: "+err.Error())
+		}
+		return failed(errCode, fmt.Errorf("dial: %w", err))
+	}
+	// Once kept, the attempt can no longer be cancelled, and the session
+	// goes on.
+	if !a.keepDial(attempt) {
+		_ = t.Close()
+		return failed("dial_failed", errors.New("the dial was cancelled"))
 	}
 
 	sessionID := t.SessionID()
@@ -892,12 +934,16 @@ func (a *App) ConnectToServer(
 		directAddr := strings.TrimPrefix(addr, "p2p://")
 
 		session.reconnectFn = func(sessionID string) (*kamune.Transport, error) {
+			// A reconnect dials anew, under the session's reconnect
+			// context rather than the first dial's attempt.
 			resumeOpts := append(
-				[]kamune.DialOption{kamune.DialWithResume(sessionID)}, opts...,
+				[]kamune.DialOption{kamune.DialWithResume(sessionID)},
+				baseOpts...,
 			)
 
-			if isDirectP2P {
-				pConn, err := directP2PDial(directAddr)
+			switch {
+			case isDirectP2P:
+				pConn, err := directP2PDial(reconnectCtx, directAddr)
 				if err != nil {
 					return nil, fmt.Errorf("direct p2p redial: %w", err)
 				}
@@ -906,11 +952,13 @@ func (a *App) ConnectToServer(
 						return pConn, nil
 					},
 				))
-			} else if relayAddr != "" {
-				// Always replace the original dial func. It closed over
-				// lifeCtx, which disconnect does not cancel. More than
-				// one stored token tries the pool; otherwise the single
-				// token is dialed with the session context.
+			case transport == "udp":
+				resumeOpts = append(resumeOpts, kamune.DialWithUDP())
+			case transport != "relay":
+				resumeOpts = append(resumeOpts, kamune.DialWithTCP())
+			default:
+				// More than one stored token tries the pool; otherwise
+				// the single token is dialed with the session context.
 				var fn func(string) (kamune.Conn, error)
 				var fnErr error
 				if store != nil {
@@ -931,11 +979,10 @@ func (a *App) ConnectToServer(
 						password, false,
 					)
 				}
-				if fnErr == nil && fn != nil {
-					resumeOpts = append(
-						resumeOpts, kamune.DialWithFunc(fn),
-					)
+				if fnErr != nil {
+					return nil, fmt.Errorf("relay redial: %w", fnErr)
 				}
+				resumeOpts = append(resumeOpts, kamune.DialWithFunc(fn))
 			}
 
 			// A reconnect must reach the same peer.

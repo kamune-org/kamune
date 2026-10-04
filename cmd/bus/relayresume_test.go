@@ -72,7 +72,7 @@ func relayPair(
 	a.NoError(err)
 	res, err := client.ConnectToServer(
 		"", "relay", relay.addr(), token, "cli", "", "", "", "",
-		false, false,
+		false, false, "",
 	)
 	a.NoError(err)
 	waitRelayPool(t, server, res.SessionID)
@@ -113,7 +113,7 @@ func TestRelayResumeListenerAdmitsOnlyItsSession(t *testing.T) {
 	resume := relay.waitCreated(t, registered+1)[registered]
 	res, err := intruder.ConnectToServer(
 		"", "relay", relay.addr(), resume, "intruder", "", "", "", "",
-		false, false,
+		false, false, "",
 	)
 
 	// The server closes the intruder's session and registers again.

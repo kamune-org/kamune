@@ -203,7 +203,7 @@ func TestClosedDialedSessionDoesNotReconnect(t *testing.T) {
 			addr, ln := startCountingServer(t)
 
 			res, err := app.ConnectToServer(
-				addr, "tcp", "", "", "", "", "", "", "", false, false,
+				addr, "tcp", "", "", "", "", "", "", "", false, false, "",
 			)
 			a.NoError(err)
 			session := liveSessionByID(app, res.SessionID)

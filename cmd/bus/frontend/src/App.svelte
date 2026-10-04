@@ -26,6 +26,7 @@
     GetLogEntries,
     GetLogLevel,
     CancelStartServer,
+    CancelConnect,
     ListKnownPeers,
     GetIncognito,
     SetIncognito,
@@ -64,6 +65,7 @@
     peers,
   } from './lib/stores';
   import { K, isMac } from './lib/keyboard';
+  import { newConnectAttemptId } from './lib/attempts';
 
   import Sidebar from './lib/Sidebar.svelte';
   import ChatPanel from './lib/ChatPanel.svelte';
@@ -195,9 +197,11 @@
 
   let serverLoading = $state(false);
   let connectLoading = $state(false);
-  // serverStartSeq numbers server starts; Cancel moves it on, so that a
-  // cancelled start's late result is ignored.
+  // serverStartSeq numbers server starts, and connectAttempt is the
+  // attempt ID of the connect in progress. Cancel moves them on, so that
+  // a cancelled call's late result is ignored.
   let serverStartSeq = 0;
+  let connectAttempt = '';
   let showPassphraseDialog = $state(true);
   let passphraseDismissable = $state(false);
   let p2pFallbackOpen = $state(false);
@@ -618,7 +622,14 @@
         console.error('Cancel server error:', e);
       }
     } else if (connectLoading) {
+      const id = connectAttempt;
+      connectAttempt = '';
       connectLoading = false;
+      try {
+        await CancelConnect(id);
+      } catch (e) {
+        console.error('Cancel connect error:', e);
+      }
     }
   }
 
@@ -653,6 +664,8 @@
       }
     }
     closeAllDialogs();
+    const id = newConnectAttemptId();
+    connectAttempt = id;
     connectLoading = true;
     try {
       const addr =
@@ -686,8 +699,15 @@
           ? connectP2PToken.trim()
           : '',
         connectUseP2P,
-        connectUseBroker
+        connectUseBroker,
+        id
       );
+      if (id !== connectAttempt) {
+        // Cancelled, but the session was established first.
+        if (result.sessionId) await DisconnectSession(result.sessionId);
+        return;
+      }
+      if (result.errorCode === 'cancelled') return;
       if (result.errorCode) {
         if (result.errorCode === 'hole_punch_failed') {
           p2pFallbackOpen = true;
@@ -710,9 +730,13 @@
       await loadSessions();
       activeSessionId.set(result.sessionId);
     } catch (e) {
+      if (id !== connectAttempt) return;
       alert('Failed to connect: ' + e);
     } finally {
-      connectLoading = false;
+      if (id === connectAttempt) {
+        connectAttempt = '';
+        connectLoading = false;
+      }
     }
   }
 

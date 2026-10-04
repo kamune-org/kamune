@@ -129,7 +129,9 @@ func (l *directP2PListener) Addr() *net.UDPAddr {
 // directP2PDial creates a UDP socket, sends a NAT-kick burst to peerAddr,
 // and returns a KCP client session wrapped as a kamune.Conn. The caller
 // should use this with kamune.DialWithFunc to bypass the standard dial.
-func directP2PDial(peerAddr string) (kamune.Conn, error) {
+func directP2PDial(
+	ctx context.Context, peerAddr string,
+) (kamune.Conn, error) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
 		return nil, fmt.Errorf("bind punch socket: %w", err)
@@ -143,9 +145,13 @@ func directP2PDial(peerAddr string) (kamune.Conn, error) {
 
 	// Send NAT-kick burst. Use a short timeout — the peer should be
 	// starting its listener simultaneously.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	kickCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	sendNATKick(ctx, conn, peerUDPAddr)
+	sendNATKick(kickCtx, conn, peerUDPAddr)
+	if err := ctx.Err(); err != nil {
+		conn.Close()
+		return nil, err
+	}
 
 	// Create a KCP client session on the punch socket. The first Write
 	// triggers the KCP SYN; the peer's kcp.ServeConn accepts it.

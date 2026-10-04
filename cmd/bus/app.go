@@ -325,6 +325,12 @@ type App struct {
 	starting int
 	// dialOps counts ConnectToServer calls in progress.
 	dialOps int
+	// dialAttempts holds the ConnectToServer calls that CancelConnect
+	// may still cancel.
+	dialAttempts map[*dialAttempt]struct{}
+	// earlyCancels holds the attempt IDs that CancelConnect was given
+	// before their ConnectToServer call began, oldest first.
+	earlyCancels []string
 	// closing counts StopServer and DisconnectSession calls that have
 	// taken the server or a session out of the app and are still closing
 	// it, which uses the database.

@@ -572,7 +572,7 @@ func TestSetIncognitoRefusedWhileSessionStarts(t *testing.T) {
 				go func() {
 					_, err := app.ConnectToServer(
 						addr, "tcp", "", "", "", "", "", "", "",
-						false, false,
+						false, false, "",
 					)
 					done <- err
 				}()
