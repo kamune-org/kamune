@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/kamune-org/kamune"
@@ -18,20 +19,32 @@ type pendingVerification struct {
 	hex    string
 }
 
-// getVerifier returns a kamune.RemoteVerifier based on the current mode.
+// getVerifier returns a kamune.RemoteVerifier based on the current mode. An
+// unknown mode gets the Strict verifier.
 func (d *Daemon) getVerifier() kamune.RemoteVerifier {
 	d.mu.RLock()
 	mode := d.verifMode
 	d.mu.RUnlock()
 
 	switch mode {
-	case VerificationModeStrict:
-		return d.createStrictVerifier()
 	case VerificationModeQuick:
 		return d.createQuickVerifier()
-	default:
+	case VerificationModeAutoAccept:
 		return d.createAutoAcceptVerifier()
+	default:
+		return d.createStrictVerifier()
 	}
+}
+
+// parseVerificationMode returns the mode a stored setting names, and false
+// when it names none.
+func parseVerificationMode(s string) (VerificationMode, bool) {
+	mode, err := strconv.Atoi(s)
+	if err != nil || mode < int(VerificationModeStrict) ||
+		mode > int(VerificationModeAutoAccept) {
+		return 0, false
+	}
+	return VerificationMode(mode), true
 }
 
 func (d *Daemon) createStrictVerifier() kamune.RemoteVerifier {

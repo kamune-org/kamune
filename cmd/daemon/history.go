@@ -53,13 +53,16 @@ func (d *Daemon) loadIdentityAndHistory() {
 	}
 
 	if modeStr, err := store.GetSettings("daemon", "verification_mode"); err == nil && modeStr != "" {
-		if mode, err := strconv.Atoi(modeStr); err == nil &&
-			mode >= int(VerificationModeStrict) &&
-			mode <= int(VerificationModeAutoAccept) {
-			d.mu.Lock()
-			d.verifMode = VerificationMode(mode)
-			d.mu.Unlock()
+		mode, ok := parseVerificationMode(modeStr)
+		if !ok {
+			// Fail closed: a value no mode has must not loosen checks.
+			d.addLogEntry("WARN", "Unknown stored verification mode "+
+				strconv.Quote(modeStr)+"; using Strict")
+			mode = VerificationModeStrict
 		}
+		d.mu.Lock()
+		d.verifMode = mode
+		d.mu.Unlock()
 	}
 
 	if incognitoStr, err := store.GetSettings("daemon", "incognito"); err == nil && incognitoStr == "true" {
