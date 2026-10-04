@@ -27,8 +27,17 @@ so a root command such as `go build ./cmd/daemon` fails.
 - **Fuzz** (root only): `make fuzz` runs each fuzz target for `FUZZ_TIME`
   (default `10s`)
 - **Vet**: `go vet ./...` in any module
-- **Format** (root only): `gofmt -s -w .` and `goimports -w .`
-- **Align structs** (fieldalignment only): `make align-structs` in root or `golangci-lint run --fix`
+- **Format**: in root, `gofmt -s -w .` and
+  `goimports -w $(git ls-files '*.go' | grep -v '\.pb\.go$')`. Both also
+  format the `cmd/` modules. goimports would regroup the imports of the
+  generated `*.pb.go` files, so the second command leaves them out, along
+  with files git does not track yet
+- **Lint and align structs**: `make align-structs` in root runs
+  `golangci-lint run --enable=govet --fix` (golangci-lint v2) on the root
+  module. `.golangci.yaml` turns on every govet analyzer except shadow, next
+  to the default errcheck, ineffassign, staticcheck and unused. `--fix`
+  applies every automatic fix, such as staticcheck quick fixes, not only
+  fieldalignment, and the target fails while any issue is left
 - **Regenerate protobuf** (root only): `make gen-proto` regenerates
   `internal/box/pb` and `pkg/relayconn/pb`; requires `protoc` and
   `protoc-gen-go`
