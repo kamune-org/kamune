@@ -448,49 +448,7 @@ func (d *Daemon) Run() {
 		"protocol_version": "1",
 	})
 
-	// Read commands from stdin using bufio.Reader so lines exceeding
-	// maxScanTokenSize don't cause an unrecoverable scanner error that kills
-	// the daemon.
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-		default:
-		}
-
-		line, err := reader.ReadBytes('\n')
-		if err != nil && len(line) == 0 {
-			if !errors.Is(err, io.EOF) {
-				slog.Error("stdin reader error", slog.Any("error", err))
-			}
-			break
-		}
-
-		if len(line) > maxScanTokenSize {
-			d.emitError("", "line_too_long", "line exceeds maximum allowed length")
-			continue
-		}
-
-		lineStr := strings.TrimRight(string(line), "\r\n")
-		if lineStr == "" {
-			continue
-		}
-
-		var cmd Command
-		if err := json.Unmarshal([]byte(lineStr), &cmd); err != nil {
-			d.emitError("", "invalid_json", fmt.Sprintf("invalid JSON: %v", err))
-			continue
-		}
-
-		if cmd.Type != "cmd" {
-			d.emitError(cmd.ID, "unknown_message_type", fmt.Sprintf("unknown message type: %s", cmd.Type))
-			continue
-		}
-
-		d.handleCommand(cmd)
-	}
+	d.readCommands(os.Stdin)
 
 	if d.ctx.Err() != nil {
 		d.wg.Wait()
@@ -499,6 +457,75 @@ func (d *Daemon) Run() {
 
 	// stdin closed without a shutdown command — clean up all resources.
 	d.Shutdown()
+}
+
+// readCommands handles the commands read from r, one JSON object per
+// line, until r ends or the daemon shuts down. A line longer than
+// maxScanTokenSize, newline included, is reported with line_too_long
+// and dropped as it is read, so it never takes more memory than that.
+func (d *Daemon) readCommands(r io.Reader) {
+	reader := bufio.NewReaderSize(r, maxScanTokenSize)
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		default:
+		}
+
+		line, tooLong, err := readLine(reader)
+		if tooLong {
+			d.emitError("", "line_too_long",
+				"line exceeds maximum allowed length")
+		} else if len(line) > 0 {
+			d.handleLine(line)
+		}
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				slog.Error("stdin reader error", slog.Any("error", err))
+			}
+			return
+		}
+	}
+}
+
+// readLine returns the next line of r, newline included. The line is
+// valid until the next read from r. A line that does not fit in r's
+// buffer is read to its end and dropped, and tooLong is set. At the end
+// of r it returns the last line, which may lack a newline, with err set.
+func readLine(r *bufio.Reader) (line []byte, tooLong bool, err error) {
+	for {
+		line, err = r.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) {
+			tooLong = true
+			continue
+		}
+		if tooLong {
+			return nil, true, err
+		}
+		return line, false, err
+	}
+}
+
+// handleLine handles one line read from the client.
+func (d *Daemon) handleLine(line []byte) {
+	lineStr := strings.TrimRight(string(line), "\r\n")
+	if lineStr == "" {
+		return
+	}
+
+	var cmd Command
+	if err := json.Unmarshal([]byte(lineStr), &cmd); err != nil {
+		d.emitError("", "invalid_json", fmt.Sprintf("invalid JSON: %v", err))
+		return
+	}
+
+	if cmd.Type != "cmd" {
+		d.emitError(cmd.ID, "unknown_message_type",
+			fmt.Sprintf("unknown message type: %s", cmd.Type))
+		return
+	}
+
+	d.handleCommand(cmd)
 }
 
 // handleCommand processes a single command
