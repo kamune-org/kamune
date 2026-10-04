@@ -317,6 +317,14 @@ func DialWithClientName(name string) DialOption {
 }
 
 // DialWithResume configures the dialer to attempt session resumption.
+//
+// A resumption skips the introductions and does not run the
+// [RemoteVerifier] on either side: the dialer checks the server's answer
+// against the peer key stored for the session, and the server accepts the
+// dialer by the key it stored (see [ServeWithResumeEnabled]). When the
+// server rejects the request, Dial returns an error wrapping
+// [ErrResumptionRejected]; the application may then dial without this
+// option for a cold handshake, which runs the verifier.
 func DialWithResume(sessionID string) DialOption {
 	return func(d *Dialer) error {
 		d.handshakeOpts.sessionID = sessionID

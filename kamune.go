@@ -102,6 +102,14 @@ type (
 	// per-source cap of [ServeWithMaxPendingPerSource]. A verifier that
 	// prompts a user should limit its open prompts itself, for example by
 	// rejecting an unknown peer while a prompt is open.
+	//
+	// The verifier runs only in a cold handshake, the one with
+	// introductions. Neither side runs it when a session is resumed: the
+	// server then accepts a dialer that proves it holds the key stored for
+	// the session, as long as that peer is still in storage. An application
+	// that must verify every connection, for example by asking its user
+	// each time, should turn resumption off with [ServeWithResumeEnabled];
+	// see there for the details.
 	RemoteVerifier func(store *storage.Storage, peer *storage.Peer) error
 
 	// HandlerFunc receives each session a [Server] establishes.

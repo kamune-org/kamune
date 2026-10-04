@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2132,4 +2133,93 @@ func TestNewServerFailureLeavesPortFree(t *testing.T) {
 			a.Error(err, "NewServer did not bind the port")
 		})
 	}
+}
+
+// resumeDial resumes sessionID from clientStore against a server on
+// serverStore that runs verifier. It returns the dialer's error and, once
+// the server is done, the server's.
+func resumeDial(
+	t *testing.T,
+	clientStore, serverStore *storage.Storage,
+	sessionID string,
+	verifier RemoteVerifier,
+) (error, error) {
+	t.Helper()
+	a := require.New(t)
+	clientNet, serverNet := net.Pipe()
+	clientConn := newConn(clientNet)
+	serverConn := newConn(serverNet)
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+	})
+
+	server, err := NewServer(
+		"",
+		func(tr *Transport) error {
+			_, err := tr.Send(Bytes([]byte("resumed")), RouteExchangeMessages)
+			return err
+		},
+		serverStore,
+		verifier,
+	)
+	a.NoError(err)
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- server.serve(serverConn)
+	}()
+
+	dialer, err := NewDialer(
+		"",
+		clientStore,
+		verifier,
+		DialWithResume(sessionID),
+		DialWithFunc(func(string) (Conn, error) {
+			return clientConn, nil
+		}),
+	)
+	a.NoError(err)
+	tr, dialErr := dialer.Dial()
+	if dialErr == nil {
+		msg := Bytes(nil)
+		_, err = tr.Receive(msg)
+		a.NoError(err)
+		a.Equal([]byte("resumed"), msg.Value)
+	}
+	return dialErr, <-serveErr
+}
+
+// TestResumeSkipsVerifierUntilPeerDeleted pins what the docs of
+// ServeWithResumeEnabled and RemoteVerifier say: a resumed session runs no
+// verifier, and deleting the peer from the server's storage stops it from
+// resuming.
+func TestResumeSkipsVerifierUntilPeerDeleted(t *testing.T) {
+	a := require.New(t)
+	clientStore, cleanupClient := newTestStore(t)
+	defer cleanupClient()
+	serverStore, cleanupServer := newTestStore(t)
+	defer cleanupServer()
+
+	sessionID := coldDial(t, clientStore, serverStore)
+
+	var calls atomic.Int32
+	verifier := func(*storage.Storage, *storage.Peer) error {
+		calls.Add(1)
+		return errors.New("verifier must not run")
+	}
+	dialErr, serveErr := resumeDial(
+		t, clientStore, serverStore, sessionID, verifier,
+	)
+	a.NoError(dialErr)
+	a.NoError(serveErr)
+	a.Zero(calls.Load())
+
+	clientKey, err := clientStore.PublicKey()
+	a.NoError(err)
+	a.NoError(serverStore.DeletePeer(clientKey))
+	dialErr, serveErr = resumeDial(
+		t, clientStore, serverStore, sessionID, verifier,
+	)
+	a.ErrorIs(dialErr, ErrResumptionRejected)
+	a.Error(serveErr)
 }
