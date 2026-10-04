@@ -203,6 +203,26 @@ broker key (forward secrecy). The wire format is small (60-byte REGISTER;
 99/133-byte NOTIFYs) and the broker does not see plaintext, identities, or
 public keys beyond what peers explicitly share.
 
+## Logging
+
+The relay logs to stderr. `server.log_level` sets the least severe level it
+logs: `debug`, `info` (the default), `warn` or `error`.
+
+- At `info` it logs its settings at startup, including whether PSK auth is on
+  and each TLS certificate's fingerprint, and errors. It logs no client address
+  for a connection that succeeds, and no registrations.
+- At `debug` it also logs client addresses and whether each peer that
+  registers is a listener or a dialer. A listener's line and its dialer's,
+  close together, pair two addresses: the record of who talked to whom that the
+  relay otherwise does not keep.
+- Failed WebSocket upgrades, refused `Origin` requests, failed HPKE handshakes
+  and failed TLS handshakes on `wss` are client errors, logged at `debug`.
+  Other errors of the `ws` and `wss` HTTP servers are warnings.
+- A failed or missing PSK and each rate-limit rejection are warnings that name
+  the client address. Rejections are sampled to one line per second across the
+  relay, with a `suppressed` count of the lines held back since the last one;
+  the count of the last burst is never logged.
+
 ## Build
 
 ```bash

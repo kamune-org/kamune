@@ -1368,6 +1368,9 @@ The relay operator is responsible for:
   expected load.
 - Keeping the `[diagnose]` listener, if enabled, on loopback or a private
   network: `/health` reveals uptime and the current session count.
+- Leaving `server.log_level` at `info` or above outside debugging. At `debug`
+  the relay logs client addresses and registrations, which pair the two peers
+  of a session.
 - When `[tls]` or `[wss]` uses the self-signed certificate, giving clients its
   fingerprint to pin, and keeping `server.data_dir` across restarts and
   redeployments so that the pin stays valid.
