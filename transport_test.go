@@ -797,3 +797,44 @@ func TestTransportCloseIsNotHeldUpByStalledSend(t *testing.T) {
 	}
 	a.Error(<-sendErr)
 }
+
+// writeFailConn is a queuedConn whose writes fail, like a broken link.
+type writeFailConn struct {
+	*queuedConn
+}
+
+func (writeFailConn) WriteBytes([]byte) error { return syscall.EPIPE }
+
+func TestTransportCloseClearsTokensWhenCloseFrameFails(t *testing.T) {
+	cases := []struct {
+		conn func() Conn
+		name string
+	}{
+		{
+			name: "write fails",
+			conn: func() Conn { return writeFailConn{&queuedConn{}} },
+		},
+		{
+			name: "write stalls",
+			conn: func() Conn { return newStalledConn() },
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			store := newTransportTestStorage(t)
+			tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
+			tr.conn = tc.conn()
+			tr.closeTimeout = 50 * time.Millisecond
+			tr.storage = store
+			tok := bytes.Repeat([]byte{0x44}, 32)
+			a.NoError(store.PutSessionResumption(
+				tr.sessionID, nil, [][]byte{tok}, true,
+			))
+
+			a.NoError(tr.Close())
+			_, err := store.PopList(tr.sessionID, storage.ResumptionTokensKey)
+			a.ErrorIs(err, storage.ErrNotFound)
+		})
+	}
+}

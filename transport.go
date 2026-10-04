@@ -238,9 +238,9 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 }
 
 // Close closes the transport connection. It sends a RouteCloseTransport frame
-// before closing (best-effort — if the send fails, it closes directly) and,
-// once the frame is sent, invalidates the session's resumption tokens. It
-// returns nil when Receive has already closed the transport.
+// before closing (best-effort — if the send fails, it closes directly) and
+// invalidates the session's resumption tokens, whether or not the frame could
+// be sent. It returns nil when Receive has already closed the transport.
 //
 // Close waits at most 5 seconds for the close frame to be sent, including
 // the wait for a Send already in progress, and then closes the connection
@@ -267,15 +267,15 @@ func (t *Transport) Close() error {
 	timer := time.NewTimer(t.closeTimeout)
 	defer timer.Stop()
 	select {
-	case err := <-sent:
-		if err == nil {
-			t.invalidateResumptionTokens()
-		}
+	case <-sent:
 	case <-timer.C:
 		// Closing the connection below ends a stuck write on a network
 		// connection, and the goroutine then returns. See the doc
 		// comment for Conns whose Close does not.
 	}
+	// The session is over even if the peer never got the close frame, so
+	// it must not be resumed.
+	t.invalidateResumptionTokens()
 	return t.conn.Close()
 }
 
