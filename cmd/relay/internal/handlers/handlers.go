@@ -119,9 +119,3 @@ func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 		"sessionCount": h.service.SessionCount(),
 	})
 }
-
-func (h *Handler) EchoIPHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	ip := h.clientIP(r)
-	json.NewEncoder(w).Encode(map[string]string{"ip": ip})
-}
