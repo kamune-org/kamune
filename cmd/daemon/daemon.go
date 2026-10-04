@@ -124,6 +124,11 @@ type Daemon struct {
 	verifMu        sync.Mutex
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
+	// verifPrevStatus and verifPrevMsg hold, under verifMu, the status
+	// that the pending verifications replaced: the last one other than
+	// verifying that was current when one of them began.
+	verifPrevStatus ConnectionStatus
+	verifPrevMsg    string
 
 	serverAddr           string
 	serverTransport      string

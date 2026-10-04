@@ -242,7 +242,9 @@ func (d *Daemon) startServer(
 		opts = append(opts, kamune.ServeWithTCP())
 	}
 
-	srv, err := kamune.NewServer(params.Addr, d.serverHandler, store, d.getVerifier(), opts...)
+	srv, err := kamune.NewServer(
+		params.Addr, d.serverHandler, store, d.inboundVerifier(), opts...,
+	)
 	if err != nil {
 		d.stopP2PResources()
 		d.stopRelayResources()
@@ -680,7 +682,9 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		opts = append(opts, kamune.DialWithTCP())
 	}
 
-	dialer, err := kamune.NewDialer(params.Addr, store, d.getVerifier(), opts...)
+	dialer, err := kamune.NewDialer(
+		params.Addr, store, d.outboundVerifier(), opts...,
+	)
 	if err != nil {
 		d.setStatus(StatusError, "Failed to create dialer")
 		d.addLogEntry("ERROR", "Failed to create dialer: "+err.Error())
@@ -1170,7 +1174,9 @@ func (d *Daemon) makeReconnectFn(
 				}
 			}
 		}
-		dl, err := kamune.NewDialer(addr, store, d.getVerifier(), resumeOpts...)
+		dl, err := kamune.NewDialer(
+			addr, store, d.outboundVerifier(), resumeOpts...,
+		)
 		if err != nil {
 			return nil, err
 		}
