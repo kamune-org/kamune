@@ -872,7 +872,16 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		})
 	}
 
+	// shutdown cancels ctx before it takes the live sessions to close
+	// them, both under d.mu. A session added after that would never be
+	// closed, and shutdown would wait for its receive loop for good.
 	d.mu.Lock()
+	if ctx.Err() != nil {
+		d.mu.Unlock()
+		session.stop()
+		_ = t.Close()
+		return
+	}
 	d.sessions[sessionID] = session
 	d.mu.Unlock()
 

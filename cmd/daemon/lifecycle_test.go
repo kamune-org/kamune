@@ -577,3 +577,66 @@ func TestStoppingServerReportsClosedSessions(t *testing.T) {
 		})
 	}
 }
+
+// A dial that completes after the daemon began to shut down closes its
+// session instead of adding it to the live sessions, which shutdown has
+// already taken to close: it would stay open, and shutdown would wait
+// for it for good.
+func TestDialDoneDuringShutdownClosesSession(t *testing.T) {
+	a := require.New(t)
+	server, serverRec := newTestDaemon(t, VerificationModeStrict, false)
+	client, _ := newTestDaemon(t, VerificationModeQuick, false)
+	trustPeer(t, server, client)
+	trustPeer(t, client, server)
+	addr := startTestServer(t, server, serverRec)
+
+	client.handleDial(Command{
+		ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
+	})
+	// The dial waits for the server's verification now. Hold the client's
+	// storage lock, so that the dial stops once the session is up, when
+	// it loads the session's history, before it adds the session.
+	evt := serverRec.waitFor(t, isEvent(EvtVerifyPeer))
+	reqID, ok := evt.Data["request_id"].(float64)
+	a.True(ok)
+	client.storeMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			client.storeMu.Unlock()
+		}
+	}()
+	server.handleVerifyResponse(Command{
+		ID: "accept",
+		Params: mustJSON(VerifyResponseParams{
+			RequestID: int64(reqID), Accepted: true,
+		}),
+	})
+	evt = serverRec.waitFor(t, isEvent(EvtSessionStarted))
+	id, _ := evt.Data["session_id"].(string)
+	a.NotEmpty(id)
+	// The client sends its relay token key after it checks the context
+	// right after the dial returns, so the cancel below comes later.
+	waitRelayPool(t, server, id)
+
+	client.cancel()
+	client.storeMu.Unlock()
+	locked = false
+
+	dialDone := make(chan struct{})
+	go func() {
+		client.wg.Wait()
+		close(dialDone)
+	}()
+	select {
+	case <-dialDone:
+	case <-time.After(testEventTimeout):
+		t.Fatal("the dial kept its session after the shutdown began")
+	}
+	client.mu.RLock()
+	a.Empty(client.sessions)
+	client.mu.RUnlock()
+	serverRec.waitFor(t, func(e recordedEvent) bool {
+		return e.Evt == EvtSessionClosed && e.Data["session_id"] == id
+	})
+}
