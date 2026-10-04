@@ -1358,7 +1358,7 @@
             onclick={async () => {
               closeAllDialogs();
               await SetIncognito(true);
-              UpdateIncognitoMenu(true);
+              UpdateIncognitoMenu(await GetIncognito());
             }}>Enable</button
           >
         </div>

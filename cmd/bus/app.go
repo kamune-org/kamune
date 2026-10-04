@@ -296,13 +296,17 @@ type App struct {
 	startCtx    context.Context
 	startCancel context.CancelFunc
 
-	dbPath       string
-	db           *storage.Storage
-	storeMu      sync.Mutex
-	passphrase   atomic.Value // stores []byte
-	storageReady bool
-	pubKey       []byte
-	myName       string
+	dbPath string
+	// db is the open database, or nil until the user unlocks one. Only
+	// unlockDB opens it; see store.
+	db      *storage.Storage
+	storeMu sync.Mutex
+	// pendingSettings holds settings changed while no database was open.
+	// They are written once one is unlocked. storeMu guards it.
+	pendingSettings map[string]string
+	storageReady    bool
+	pubKey          []byte
+	myName          string
 
 	status          ConnectionStatus
 	statusMsg       string
@@ -376,27 +380,76 @@ func NewApp() *App {
 	}
 }
 
+// ErrStorageLocked is returned by bindings that need the database while
+// none is unlocked.
+var ErrStorageLocked = errors.New("the database is not unlocked yet")
+
+// store returns the open database, or nil while none is unlocked. It never
+// opens one: the database is opened only with a passphrase the user chose,
+// or one saved in the keychain for it, so nothing can create it, or open
+// it with the wrong passphrase, before the user has made that choice.
 func (a *App) store() *storage.Storage {
 	a.storeMu.Lock()
 	defer a.storeMu.Unlock()
-	if a.db != nil {
-		return a.db
-	}
-	store, err := storage.OpenStorage(
-		storage.WithDBPath(a.dbPath),
-		storage.WithPassphraseHandler(a.passphraseHandler()),
-	)
-	if err != nil {
-		return nil
-	}
-	a.db = store
 	return a.db
 }
 
-func (a *App) passphraseHandler() storage.PassphraseHandler {
-	return func() ([]byte, error) {
-		p, _ := a.passphrase.Load().([]byte)
-		return p, nil
+// openDB opens the database at path with passphrase. create says whether
+// a database that does not exist yet is created.
+func openDB(
+	path string, passphrase []byte, create bool,
+) (*storage.Storage, error) {
+	return storage.OpenStorage(
+		storage.WithDBPath(path),
+		storage.WithPassphraseHandler(func() ([]byte, error) {
+			return passphrase, nil
+		}),
+		storage.WithCreateDB(create),
+	)
+}
+
+// installStore makes store the open database and writes to it the
+// settings changed while none was open.
+func (a *App) installStore(store *storage.Storage) {
+	a.storeMu.Lock()
+	old := a.db
+	a.db = store
+	pending := a.pendingSettings
+	a.pendingSettings = nil
+	a.storeMu.Unlock()
+
+	if old != nil && old != store {
+		if err := old.Close(); err != nil {
+			a.addLogEntry("WARN", "Failed to close database: "+err.Error())
+		}
+	}
+	for key, value := range pending {
+		if err := store.SetSettings("bus", key, value); err != nil {
+			a.addLogEntry("WARN", "Failed to save setting "+key+": "+
+				err.Error())
+		}
+	}
+}
+
+// saveSetting stores a bus setting in the open database. While none is
+// open, the setting is kept and written once one is unlocked.
+func (a *App) saveSetting(key, value string) {
+	a.storeMu.Lock()
+	store := a.db
+	if store == nil {
+		if a.pendingSettings == nil {
+			a.pendingSettings = make(map[string]string)
+		}
+		a.pendingSettings[key] = value
+	}
+	a.storeMu.Unlock()
+
+	if store == nil {
+		return
+	}
+	if err := store.SetSettings("bus", key, value); err != nil {
+		a.addLogEntry("WARN", "Failed to save setting "+key+": "+
+			err.Error())
 	}
 }
 
@@ -421,50 +474,32 @@ func (a *App) ServiceStartup(
 
 	passphrase, err := keyring.Get(keychainService, keychainAccount(a.dbPath))
 	switch {
-	case err == nil && passphrase == "":
-		a.passphrase.Store([]byte(passphrase))
-
-		store, storeErr := storage.OpenStorage(
-			storage.WithDBPath(a.dbPath),
-			storage.WithPassphraseHandler(a.passphraseHandler()),
-		)
-		if storeErr == nil {
-			a.storeMu.Lock()
-			a.db = store
-			a.storeMu.Unlock()
-			a.addLogEntry("INFO", "Loaded empty passphrase from keychain — no password")
-			a.initFromStorage()
-			return nil
-		}
-
-		a.passphrase.Store([]byte(nil))
-		_ = keyring.Delete(keychainService, keychainAccount(a.dbPath))
-		a.addLogEntry("WARN", "Saved empty passphrase is invalid, clearing and prompting")
-
-	case err == nil && passphrase != "":
-		a.passphrase.Store([]byte(passphrase))
-
-		store, storeErr := storage.OpenStorage(
-			storage.WithDBPath(a.dbPath),
-			storage.WithPassphraseHandler(a.passphraseHandler()),
-		)
-		if storeErr == nil {
-			a.storeMu.Lock()
-			a.db = store
-			a.storeMu.Unlock()
-			a.addLogEntry("INFO", "Loaded passphrase from keychain")
-			a.initFromStorage()
-			return nil
-		}
-
-		a.passphrase.Store([]byte(nil))
-		keyring.Delete(keychainService, keychainAccount(a.dbPath))
-		a.addLogEntry("WARN", "Keychain passphrase is invalid, clearing and prompting")
-
+	case errors.Is(err, keyring.ErrNotFound):
+	case err != nil:
+		a.addLogEntry("WARN", "Keychain lookup failed: "+err.Error())
 	default:
-		if err != nil {
-			a.addLogEntry("WARN", "Keychain lookup failed: "+err.Error())
+		// The saved passphrase opens an existing database only. A
+		// missing one is created once the user chooses a passphrase.
+		store, storeErr := openDB(a.dbPath, []byte(passphrase), false)
+		if storeErr == nil {
+			a.installStore(store)
+			if passphrase == "" {
+				a.addLogEntry("INFO",
+					"Loaded empty passphrase from keychain — no password")
+			} else {
+				a.addLogEntry("INFO", "Loaded passphrase from keychain")
+			}
+			a.initFromStorage()
+			return nil
 		}
+		if errors.Is(storeErr, os.ErrNotExist) {
+			a.addLogEntry("WARN", "No database at "+a.dbPath)
+			break
+		}
+
+		_ = keyring.Delete(keychainService, keychainAccount(a.dbPath))
+		a.addLogEntry("WARN",
+			"Keychain passphrase is invalid, clearing and prompting")
 	}
 
 	a.addLogEntry("INFO", "Application started — awaiting passphrase")
@@ -654,18 +689,9 @@ func (a *App) replaceStatus(
 	a.emitEvent("status-changed", StatusInfo{Status: status, Message: msg})
 }
 
+// initFromStorage loads the identity, settings, history and peers from
+// the open database and reports that storage is ready.
 func (a *App) initFromStorage() {
-	if _, err := os.Stat(a.dbPath); os.IsNotExist(err) {
-		a.addLogEntry("DEBUG", "No existing storage to load from")
-		a.mu.Lock()
-		a.pubKey = nil
-		a.storageReady = true
-		a.mu.Unlock()
-		a.emitEvent("storage-ready")
-		a.emitEvent("fingerprint-changed", "", "", "", "")
-		return
-	}
-
 	store := a.store()
 	if store == nil {
 		a.addLogEntry("ERROR", "Storage is not available")
@@ -752,7 +778,7 @@ func (a *App) initFromStorage() {
 		a.addLogEntry("DEBUG", "No identity key found: "+err.Error())
 	}
 
-	a.loadHistorySessions(a.db)
+	a.loadHistorySessions(store)
 	a.refreshPeersCache()
 }
 
@@ -810,10 +836,11 @@ func (a *App) SetMyName(name string) error {
 	}
 
 	store := a.store()
-	if store != nil {
-		if err := store.SetSettings("bus", "local_name", name); err != nil {
-			return fmt.Errorf("persist name: %w", err)
-		}
+	if store == nil {
+		return ErrStorageLocked
+	}
+	if err := store.SetSettings("bus", "local_name", name); err != nil {
+		return fmt.Errorf("persist name: %w", err)
 	}
 
 	a.mu.Lock()
@@ -855,7 +882,6 @@ func (a *App) GetDBPath() string {
 func (a *App) SetDBPath(path string) {
 	a.mu.Lock()
 	a.dbPath = path
-	a.passphrase.Store([]byte(nil))
 	a.pubKey = nil
 	a.storageReady = false
 	a.mu.Unlock()
@@ -909,6 +935,11 @@ func (a *App) SetVerificationMode(mode int) bool {
 	if !VerificationMode(mode).valid() {
 		a.addLogEntry("WARN",
 			fmt.Sprintf("Rejected unknown verification mode %d", mode))
+		return false
+	}
+	if a.store() == nil {
+		a.addLogEntry("WARN",
+			"Unlock the database before changing the verification mode")
 		return false
 	}
 
@@ -989,7 +1020,15 @@ func (a *App) GetIncognito() bool {
 	return a.incognito
 }
 
+// SetIncognito turns incognito mode on or off and reports whether it
+// changed. It does nothing until a database is unlocked.
 func (a *App) SetIncognito(on bool) bool {
+	if a.store() == nil {
+		a.addLogEntry("WARN",
+			"Unlock the database before changing incognito mode")
+		return false
+	}
+
 	a.mu.RLock()
 	if a.incognito == on {
 		a.mu.RUnlock()
@@ -1034,9 +1073,7 @@ func (a *App) SetTheme(theme string) {
 	a.theme = theme
 	a.mu.Unlock()
 
-	if store := a.store(); store != nil {
-		_ = store.SetSettings("bus", "theme", theme)
-	}
+	a.saveSetting("theme", theme)
 	a.addLogEntry("INFO", "Theme: "+theme)
 	a.emitEvent("theme-changed", theme)
 }
@@ -1108,8 +1145,12 @@ func (a *App) SetFingerprintFormat(fmt string) {
 	a.addLogEntry("DEBUG", "Fingerprint format set to: "+fmt)
 }
 
+// SubmitPassphrase opens the database at the current path with
+// passphrase, creating it if it does not exist.
 func (a *App) SubmitPassphrase(passphrase string, saveToKeychain bool) error {
-	a.passphrase.Store([]byte(passphrase))
+	a.mu.RLock()
+	path := a.dbPath
+	a.mu.RUnlock()
 
 	a.storeMu.Lock()
 	if a.db != nil {
@@ -1118,14 +1159,14 @@ func (a *App) SubmitPassphrase(passphrase string, saveToKeychain bool) error {
 	}
 	a.storeMu.Unlock()
 
-	store := a.store()
-	if store == nil {
-		a.passphrase.Store([]byte(nil))
+	store, err := openDB(path, []byte(passphrase), true)
+	if err != nil {
 		return fmt.Errorf("wrong passphrase or corrupted database")
 	}
+	a.installStore(store)
 
 	if saveToKeychain {
-		if err := keyring.Set(keychainService, keychainAccount(a.dbPath), passphrase); err != nil {
+		if err := keyring.Set(keychainService, keychainAccount(path), passphrase); err != nil {
 			a.addLogEntry("WARN", "Failed to save passphrase to keychain: "+err.Error())
 		} else {
 			a.addLogEntry("INFO", "Passphrase saved to keychain")
@@ -1393,9 +1434,7 @@ func (a *App) SetLogLevel(level string) {
 	a.mu.Lock()
 	a.logLevel = level
 	a.mu.Unlock()
-	if store := a.store(); store != nil {
-		_ = store.SetSettings("bus", "log_level", level)
-	}
+	a.saveSetting("log_level", level)
 }
 
 func (a *App) CopyToClipboard(text string) error {
