@@ -361,7 +361,9 @@
         shareDialog.set(info);
       } catch (e) {
         toast.set({
-          message: 'Start a server first to share a connection card',
+          message: serverActive
+            ? String(e?.message || e)
+            : 'Start a server first to share a connection card',
           type: 'warning',
         });
         setTimeout(() => toast.set(null), 4000);

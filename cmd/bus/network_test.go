@@ -387,3 +387,27 @@ func TestRelayRejectsBadPeerKey(t *testing.T) {
 		})
 	}
 }
+
+// TestGetShareInfoP2P checks that a P2P server reports that it has no
+// share card rather than an unknown transport.
+func TestGetShareInfoP2P(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	defer ln.Close()
+	srv, err := kamune.NewServer(
+		"", func(*kamune.Transport) error { return nil }, app.store(),
+		func(*storage.Storage, *storage.Peer) error { return nil },
+		kamune.ServeWithListener(tcpTestListener{ln}),
+	)
+	a.NoError(err)
+	app.mu.Lock()
+	app.server = srv
+	app.serverTransportType = "p2p"
+	app.mu.Unlock()
+
+	_, err = app.GetShareInfo()
+	a.ErrorIs(err, ErrNoShareCard)
+}

@@ -1212,6 +1212,14 @@ func (a *App) removeSession(sessionID string) (int, bool) {
 	return len(a.sessions), false
 }
 
+// ErrNoShareCard is returned by GetShareInfo for a P2P server, which has
+// no connection card: a peer needs the broker's address and a token from
+// the signaling tokens panel, or the server's address for direct P2P.
+var ErrNoShareCard = errors.New(
+	"P2P servers have no share card; share the broker address and a " +
+		"signaling token, or your address for direct P2P",
+)
+
 func (a *App) GetShareInfo() (*ShareInfo, error) {
 	a.mu.RLock()
 	if a.server == nil {
@@ -1287,6 +1295,8 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 			urlStr += "&password=1"
 		}
 
+	case "p2p":
+		return nil, ErrNoShareCard
 	default:
 		return nil, fmt.Errorf("unknown transport: %s", transport)
 	}
