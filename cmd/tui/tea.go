@@ -84,11 +84,11 @@ type historySessionsMsg struct {
 
 type historyMessagesMsg struct {
 	sessionID string
-	messages  []string
+	messages  []chatLine
 }
 
 type historyLoadedMsg struct {
-	messages []string
+	messages []chatLine
 }
 
 type styles struct {
@@ -160,14 +160,14 @@ type model struct {
 	keepAliveDone chan struct{}
 	vp            viewport.Model
 	ta            textarea.Model
-	messages      []string
+	messages      []chatLine
 	versionWarn   string
 
 	// History
 	sessions    []storage.SessionSummary
 	histCursor  int
 	histVP      viewport.Model
-	histMsgs    []string
+	histMsgs    []chatLine
 	histViewing bool
 
 	// Window
@@ -219,17 +219,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state != stateChat {
 			return m, nil
 		}
-		m.messages = append(m.messages, m.s.highlight.Render("Peer disconnected. Press Esc to return."))
-		m.vp.SetContent(renderChatContent(m))
-		m.vp.GotoBottom()
+		m.messages = append(m.messages, noticeLine(
+			m.s.highlight, "Peer disconnected. Press Esc to return.",
+		))
+		m.refreshChat()
 		return m, nil
 	case receiveErrorMsg:
 		if m.state != stateChat {
 			return m, nil
 		}
-		m.messages = append(m.messages, m.s.err.Render("Error: "+msg.err.Error()))
-		m.vp.SetContent(renderChatContent(m))
-		m.vp.GotoBottom()
+		m.messages = append(m.messages,
+			noticeLine(m.s.err, "Error: "+msg.err.Error()),
+		)
+		m.refreshChat()
 		return m, nil
 	case historySessionsMsg:
 		if msg.err != nil {
@@ -245,20 +247,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.histMsgs = msg.messages
 		m.histViewing = true
 		m.histVP = viewport.New(m.width-2, m.height-4)
-		content := strings.Join(msg.messages, "\n")
-		if content == "" {
-			content = "(no messages)"
-		}
-		m.histVP.SetContent(content)
 		m.histVP.MouseWheelEnabled = true
+		m.refreshHistory()
 		return m, nil
 	case historyLoadedMsg:
 		if m.state != stateChat {
 			return m, nil
 		}
 		m.messages = append(msg.messages, m.messages...)
-		m.vp.SetContent(renderChatContent(m))
-		m.vp.GotoBottom()
+		m.refreshChat()
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -305,8 +302,21 @@ func (m *model) View() string {
 	return ""
 }
 
-func renderChatContent(m *model) string {
-	return lipgloss.NewStyle().Width(m.vp.Width).Render(strings.Join(m.messages, "\n"))
+// refreshChat lays the transcript out for the chat viewport and scrolls to
+// its end.
+func (m *model) refreshChat() {
+	m.vp.SetContent(m.s.renderLines(m.messages, contentWidth(m.vp)))
+	m.vp.GotoBottom()
+}
+
+// refreshHistory lays the messages of the history browser out for its
+// viewport.
+func (m *model) refreshHistory() {
+	if len(m.histMsgs) == 0 {
+		m.histVP.SetContent("(no messages)")
+		return
+	}
+	m.histVP.SetContent(m.s.renderLines(m.histMsgs, contentWidth(m.histVP)))
 }
 
 func (m *model) mkVerifier() kamune.RemoteVerifier {
@@ -472,7 +482,9 @@ func (m *model) enterChat() (tea.Model, tea.Cmd) {
 	}
 
 	if m.versionWarn != "" {
-		m.messages = []string{m.s.highlight.Render("⚠ " + m.versionWarn)}
+		m.messages = []chatLine{
+			noticeLine(m.s.highlight, "⚠ "+m.versionWarn),
+		}
 	}
 	m.vp = vp
 	m.vp.SetContent("Session ID is " + m.transport.SessionID() + ". Loading history…")
@@ -503,20 +515,11 @@ func loadChatHistory(m *model) tea.Cmd {
 			header = fmt.Sprintf("Session ID is %s. Restored %d message(s). Happy Chatting!",
 				sid, len(entries))
 		}
-		msgs := []string{m.s.muted.Render(header)}
-
+		msgs := []chatLine{noticeLine(m.s.muted, header)}
 		for _, ent := range entries {
-			sender := "You"
-			ps := m.s.userPrefix
-			ts := m.s.userText
-			if ent.Sender != storage.SenderLocal {
-				sender = "Peer"
-				ps = m.s.peerPrefix
-				ts = m.s.peerText
-			}
-			prefix := ps.Render("[" + ent.Timestamp.Format(time.DateTime) + "] " + sender + ": ")
-			msg := prefix + ts.Render(string(ent.Data))
-			msgs = append(msgs, msg)
+			msgs = append(msgs,
+				messageLine(ent.Sender, ent.Timestamp, string(ent.Data)),
+			)
 		}
 		return historyLoadedMsg{messages: msgs}
 	}
@@ -619,10 +622,10 @@ func tuiSendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duratio
 }
 
 func (m *model) handleChatMessage(msg chatMessageMsg) *model {
-	prefix := m.s.peerPrefix.Render("[" + msg.time.Format(time.DateTime) + "] Peer: ")
-	m.messages = append(m.messages, prefix+m.s.peerText.Render(msg.text))
-	m.vp.SetContent(renderChatContent(m))
-	m.vp.GotoBottom()
+	m.messages = append(m.messages,
+		messageLine(storage.SenderPeer, msg.time, msg.text),
+	)
+	m.refreshChat()
 	if m.store != nil {
 		if err := m.store.AddChatEntry(
 			m.transport.SessionID(),

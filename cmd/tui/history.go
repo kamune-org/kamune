@@ -51,6 +51,7 @@ func (m *model) updateHistory(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.histViewing && m.histVP.Width > 0 {
 			m.histVP.Width = msg.Width - 2
 			m.histVP.Height = msg.Height - 4
+			m.refreshHistory()
 		}
 	}
 
@@ -90,9 +91,9 @@ func (m *model) viewHistoryList() string {
 		if len(sid) > 16 {
 			sid = sid[:16] + "..."
 		}
-		name := s.Name
+		name := sanitizeLine(s.Name)
 		if name == "" {
-			name = sid
+			name = sanitizeLine(sid)
 		}
 		count := fmt.Sprintf("%d msgs", s.MessageCount)
 		lastSeen := s.LastMessage.Format(time.DateTime)
@@ -118,25 +119,18 @@ func loadSessionMessages(store *storage.Storage, sessionID string) tea.Cmd {
 		if err != nil {
 			return historyMessagesMsg{
 				sessionID: sessionID,
-				messages:  []string{fmt.Sprintf("Error loading messages: %v", err)},
+				messages: []chatLine{noticeLine(
+					lipgloss.NewStyle(),
+					fmt.Sprintf("Error loading messages: %v", err),
+				)},
 			}
 		}
 
-		var msgs []string
+		msgs := make([]chatLine, 0, len(entries))
 		for _, ent := range entries {
-			sender := "You"
-			if ent.Sender != storage.SenderLocal {
-				sender = "Peer"
-			}
-			msgs = append(msgs, fmt.Sprintf(
-				"[%s] %s: %s",
-				ent.Timestamp.Format(time.DateTime),
-				sender,
-				string(ent.Data),
-			))
-		}
-		if len(msgs) == 0 {
-			msgs = []string{"(no messages)"}
+			msgs = append(msgs,
+				messageLine(ent.Sender, ent.Timestamp, string(ent.Data)),
+			)
 		}
 		return historyMessagesMsg{
 			sessionID: sessionID,

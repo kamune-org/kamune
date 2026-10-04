@@ -203,7 +203,7 @@ func TestUpdate_EscapeFromChatReturnsToWelcome(t *testing.T) {
 	a := require.New(t)
 	m := newTestModel()
 	m.state = stateChat
-	m.messages = []string{"hello"}
+	m.messages = []chatLine{noticeLine(m.s.muted, "hello")}
 
 	got, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	s := got.(*model)
@@ -215,7 +215,7 @@ func TestUpdate_ChatMessageAppended(t *testing.T) {
 	a := require.New(t)
 	m := newTestModel()
 	m.state = stateChat
-	m.messages = []string{}
+	m.messages = []chatLine{}
 
 	msg := chatMessageMsg{
 		text: "hello from peer",
@@ -224,7 +224,7 @@ func TestUpdate_ChatMessageAppended(t *testing.T) {
 	got, _ := m.Update(msg)
 	s := got.(*model)
 	a.Len(s.messages, 1)
-	a.Contains(s.messages[0], "hello from peer")
+	a.Contains(s.messages[0].text, "hello from peer")
 }
 
 func TestUpdate_PeerDisconnectedShowsMessage(t *testing.T) {
@@ -235,7 +235,7 @@ func TestUpdate_PeerDisconnectedShowsMessage(t *testing.T) {
 	got, _ := m.Update(peerDisconnectedMsg{})
 	s := got.(*model)
 	a.Len(s.messages, 1)
-	a.Contains(s.messages[0], "Peer disconnected")
+	a.Contains(s.messages[0].text, "Peer disconnected")
 }
 
 // --- Cleanup ---

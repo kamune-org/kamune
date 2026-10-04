@@ -96,7 +96,9 @@ func (m *model) viewWelcome() string {
 	}
 
 	if m.connectErr != nil {
-		b.WriteString("\n" + m.s.err.Render("Error: "+m.connectErr.Error()))
+		b.WriteString("\n" + m.s.err.Render(
+			"Error: "+sanitizeText(m.connectErr.Error()),
+		))
 	}
 
 	b.WriteString("\n\n  Select with ↑↓ or number key")

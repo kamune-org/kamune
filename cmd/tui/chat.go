@@ -26,10 +26,7 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ta.SetWidth(msg.Width)
 		m.vp.Height = msg.Height - m.ta.Height() - lipgloss.Height("\n\n")
 		if len(m.messages) > 0 {
-			m.vp.SetContent(lipgloss.NewStyle().
-				Width(m.vp.Width).
-				Render(strings.Join(m.messages, "\n")),
-			)
+			m.refreshChat()
 		}
 		m.vp.GotoBottom()
 
@@ -50,12 +47,10 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 				kamune.Bytes([]byte(text)), kamune.RouteExchangeMessages,
 			)
 			if err != nil {
-				m.messages = append(m.messages, m.s.err.Render("Send error: "+err.Error()))
-				m.vp.SetContent(lipgloss.NewStyle().
-					Width(m.vp.Width).
-					Render(strings.Join(m.messages, "\n")),
+				m.messages = append(m.messages,
+					noticeLine(m.s.err, "Send error: "+err.Error()),
 				)
-				m.vp.GotoBottom()
+				m.refreshChat()
 				return m, tiCmd
 			}
 			if err := m.store.AddChatEntry(
@@ -69,16 +64,11 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 					slog.Any("error", err),
 				)
 			}
-			prefix := fmt.Sprintf("[%s] You: ", metadata.Timestamp().Format(time.DateTime))
-			m.messages = append(m.messages,
-				m.s.userPrefix.Render(prefix)+m.s.userText.Render(text),
-			)
-			m.vp.SetContent(lipgloss.NewStyle().
-				Width(m.vp.Width).
-				Render(strings.Join(m.messages, "\n")),
-			)
+			m.messages = append(m.messages, messageLine(
+				storage.SenderLocal, metadata.Timestamp(), text,
+			))
+			m.refreshChat()
 			m.ta.Reset()
-			m.vp.GotoBottom()
 		}
 	}
 
