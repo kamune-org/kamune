@@ -16,16 +16,23 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 
 ## Commands
 
+Each module builds and tests from its own directory. There is no `go.work`,
+so a root command such as `go build ./cmd/daemon` fails.
+
 - **Test any module**: `go test ./... -v` (works in root, cmd/relay/, cmd/tui/, cmd/bus/)
 - **Test single package**: `go test -v ./pkg/storage` (any sub-package)
 - **Benchmarks**: `go test ./... -bench .`
 - **Vet** (root only): `go vet ./...`
 - **Format** (root only): `gofmt -s -w .` and `goimports -w .`
 - **Align structs** (fieldalignment only): `make align-structs` in root or `golangci-lint run --fix`
-- **Regenerate protobuf** (root or relay): `make gen-proto` requires `protoc` with Go plugin
+- **Regenerate protobuf** (root only): `make gen-proto` regenerates
+  `internal/box/pb` and `pkg/relayconn/pb`; requires `protoc` and
+  `protoc-gen-go`
 - **Build relay**: `make relay` from root or `bash scripts/build.sh` in `cmd/relay/`
-- **Run relay**: `go run ./cmd/relay -c <path>`
-- **Build daemon**: `go build -o daemon ./cmd/daemon` (from root)
+- **Run relay**: `go run . -c <path>` in `cmd/relay/` (`make run` there uses
+  `assets/config.toml`)
+- **Build daemon**: `go build -o daemon .` in `cmd/daemon/`, or `make daemon`
+  from root for cross-platform release builds
 - **Build chat TUI**: `go build -o tui .` in `cmd/tui/`
 - **Build bus GUI**: `wails3 build` in `cmd/bus/` (requires Wails v3 CLI)
 
