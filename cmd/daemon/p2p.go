@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/relayconn"
 	relaybroker "github.com/kamune-org/kamune/pkg/relayconn/broker"
@@ -255,12 +256,26 @@ func (d *Daemon) RemoveP2PToken(token string) error {
 	pt := d.p2pTokens[idx]
 	d.p2pTokens = append(d.p2pTokens[:idx], d.p2pTokens[idx+1:]...)
 	snapshot := d.p2pTokensSnapshot()
+	listener := d.p2pListener
 	d.mu.Unlock()
 
 	pt.cancel()
+	unregisterP2PToken(listener, pt.Token)
 	d.emit(EvtP2PTokens, "", MapA{"tokens": snapshot})
 	d.addLogEntry("INFO", "Removed p2p token: "+token)
 	return nil
+}
+
+// unregisterP2PToken stops listener, when it is a p2p listener, from
+// registering the hex token with the broker.
+func unregisterP2PToken(listener kamune.Listener, hexToken string) {
+	l, ok := listener.(*p2pListener)
+	if !ok {
+		return
+	}
+	if token, err := hex.DecodeString(hexToken); err == nil {
+		l.UnregisterToken(token)
+	}
 }
 
 func (d *Daemon) GetP2PTokens() []p2pToken {
@@ -380,8 +395,10 @@ func (d *Daemon) removeP2PTokenByValue(token string) {
 	pt := d.p2pTokens[idx]
 	d.p2pTokens = append(d.p2pTokens[:idx], d.p2pTokens[idx+1:]...)
 	snapshot := d.p2pTokensSnapshot()
+	listener := d.p2pListener
 	d.mu.Unlock()
 	pt.cancel()
+	unregisterP2PToken(listener, pt.Token)
 	d.emit(EvtP2PTokens, "", MapA{"tokens": snapshot})
 }
 

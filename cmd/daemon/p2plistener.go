@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
@@ -17,10 +19,13 @@ import (
 type p2pListener struct {
 	bindAddr   string
 	broker     *BrokerClient
-	brokerAddr  string
-	token       []byte
+	brokerAddr string
+	token      []byte
+	// extraTokens are the tokens registered after the listener started.
 	extraTokens [][]byte
-	tokenMu     sync.RWMutex
+	// tokenRemoved is set once token is unregistered.
+	tokenRemoved bool
+	tokenMu      sync.RWMutex
 
 	conn *net.UDPConn
 	kcp  *kcp.Listener
@@ -189,6 +194,32 @@ func (l *p2pListener) RegisterToken(token []byte) error {
 	return nil
 }
 
+// UnregisterToken stops registering token, the listener's own token or
+// one added by RegisterToken, with the broker. The broker has no way to
+// drop a registration at once, so it forgets the token when its last
+// registration expires.
+func (l *p2pListener) UnregisterToken(token []byte) {
+	l.tokenMu.Lock()
+	defer l.tokenMu.Unlock()
+	if bytes.Equal(l.token, token) {
+		l.tokenRemoved = true
+	}
+	l.extraTokens = slices.DeleteFunc(l.extraTokens, func(t []byte) bool {
+		return bytes.Equal(t, token)
+	})
+}
+
+// liveTokens returns the tokens that the listener registers.
+func (l *p2pListener) liveTokens() [][]byte {
+	l.tokenMu.RLock()
+	defer l.tokenMu.RUnlock()
+	tokens := slices.Clone(l.extraTokens)
+	if !l.tokenRemoved {
+		tokens = append([][]byte{l.token}, tokens...)
+	}
+	return tokens
+}
+
 func (l *p2pListener) refreshRegistration() error {
 	brokerUDPAddr, err := net.ResolveUDPAddr("udp4", l.brokerAddr)
 	if err != nil {
@@ -203,11 +234,7 @@ func (l *p2pListener) refreshRegistration() error {
 		return fmt.Errorf("broker client: %w", err)
 	}
 
-	l.tokenMu.RLock()
-	allTokens := append([][]byte{l.token}, l.extraTokens...)
-	l.tokenMu.RUnlock()
-
-	for _, tok := range allTokens {
+	for _, tok := range l.liveTokens() {
 		if len(tok) == 0 {
 			continue
 		}
