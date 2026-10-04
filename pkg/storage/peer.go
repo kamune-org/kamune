@@ -197,6 +197,34 @@ func (s *Storage) UpdatePeerLastSeen(claim []byte, t time.Time) error {
 	return nil
 }
 
+// setPeerLastSeen sets the LastSeen of the peer stored under key to t, in
+// the transaction of b. It does nothing when no peer is stored under key.
+func setPeerLastSeen(b engine.Namespace, key []byte, t time.Time) error {
+	peers := b.Sub([]byte(engine.PeersNamespace))
+	data, err := peers.GetEncrypted(key)
+	if err != nil {
+		if isMissing(err) {
+			return nil
+		}
+		return fmt.Errorf("reading peer: %w", err)
+	}
+
+	var p pb.Peer
+	if err = proto.Unmarshal(data, &p); err != nil {
+		return fmt.Errorf("unmarshaling peer: %w", err)
+	}
+	if !matchesKey(&p, key) {
+		return ErrPeerMismatch
+	}
+	p.LastSeen = timestamppb.New(t)
+
+	updated, err := proto.Marshal(&p)
+	if err != nil {
+		return fmt.Errorf("marshaling peer: %w", err)
+	}
+	return peers.PutEncrypted(key, updated)
+}
+
 // ListPeers returns all non-expired peers stored in the database.
 // Expired peers are silently removed during iteration.
 func (s *Storage) ListPeers() ([]*Peer, error) {

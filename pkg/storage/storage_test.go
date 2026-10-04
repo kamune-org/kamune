@@ -179,6 +179,51 @@ func TestUpdatePeerLastSeenMissingPeer(t *testing.T) {
 	a.NoError(err)
 }
 
+// TestSessionUpdatesPeerLastSeen checks that a peer's LastSeen follows
+// the sessions established and resumed with it, which persist their state
+// through PutSessionResumption.
+func TestSessionUpdatesPeerLastSeen(t *testing.T) {
+	a := require.New(t)
+	start := time.Unix(1_700_000_000, 0)
+	clk := clock.NewFake(start)
+	s, err := OpenStorage(
+		WithDBPath(filepath.Join(t.TempDir(), "db")),
+		WithNoPassphrase(),
+		WithClock(clk),
+	)
+	a.NoError(err)
+	defer s.Close()
+
+	att, err := attest.New()
+	a.NoError(err)
+	pub := att.MarshalPublicKey()
+	a.NoError(s.StorePeer(&Peer{Name: "erin", PublicKey: pub}))
+
+	for _, tc := range []struct {
+		name           string
+		setEstablished bool
+	}{
+		{"established", true},
+		{"resumed", false},
+	} {
+		clk.Advance(time.Hour)
+		a.NoError(s.PutSessionResumption("sess", pub, nil, tc.setEstablished))
+		found, err := s.FindPeer(pub)
+		a.NoError(err, tc.name)
+		a.True(found.FirstSeen.Equal(start), tc.name)
+		a.True(found.LastSeen.Equal(clk.Now()), tc.name)
+	}
+
+	// A session with a peer that is not stored does not store it.
+	other, err := attest.New()
+	a.NoError(err)
+	a.NoError(s.PutSessionResumption(
+		"other", other.MarshalPublicKey(), nil, true,
+	))
+	_, err = s.FindPeer(other.MarshalPublicKey())
+	a.Error(err)
+}
+
 func TestListPeers(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -150,6 +151,9 @@ func (s *Storage) SetMeta(sessionID string, m Meta) error {
 // only if it is not already present so a resume cannot reset the window,
 // and, with a peer key, idle sessions with that peer beyond the limit of
 // [WithIdleSessionLimit] are deleted.
+//
+// It is called once a session is established or resumed, so with a peer
+// key it also sets the LastSeen of that peer, if it is stored, to now.
 func (s *Storage) PutSessionResumption(
 	sessionID string,
 	peerPublicKey []byte,
@@ -162,6 +166,18 @@ func (s *Storage) PutSessionResumption(
 			err := meta.PutEncrypted([]byte(PeerKey), peerPublicKey)
 			if err != nil {
 				return fmt.Errorf("store peer key: %w", err)
+			}
+			err = setPeerLastSeen(
+				b, peerKey(peerPublicKey), s.clock.Now(),
+			)
+			if err != nil {
+				// The session state matters more than the peer's
+				// last-seen time.
+				slog.Warn(
+					"could not update peer last seen",
+					slog.String("session_id", sessionID),
+					slog.Any("error", err),
+				)
 			}
 		}
 		if setEstablished {
