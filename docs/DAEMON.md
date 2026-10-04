@@ -1859,7 +1859,8 @@ itself. Entries use the service `kamune` and the account
 #### `has_keychain_passphrase`
 
 Returns whether a passphrase is stored in the system keychain for the storage
-that was opened last.
+that is open, or that was open last. It does not look at the path of an
+`open_storage` that failed, such as one that waits for `submit_passphrase`.
 
 **Input:** (no params)
 
@@ -1880,9 +1881,11 @@ that was opened last.
 
 #### `clear_keychain_passphrase`
 
-Removes the stored passphrase of the storage that was opened last from the
-system keychain. Fails with `keychain_clear_failed` when it cannot, which
-includes when no passphrase is saved.
+Removes the stored passphrase of the storage that is open, or that was open
+last, from the system keychain; like `has_keychain_passphrase`, it does not
+look at the path of an `open_storage` that failed. Fails with
+`keychain_clear_failed` when it cannot, which includes when no passphrase is
+saved.
 
 **Input:** (no params)
 
