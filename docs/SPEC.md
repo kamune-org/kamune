@@ -1353,6 +1353,14 @@ itself yet. Nothing limits, across sources, the connections past their
 introduction or the verifier calls running at once, so an application whose
 verifier prompts a user should limit its open prompts itself.
 
+Closing the server closes the connections still in the handshake. A handshake
+that completes after that is closed instead of being handed to the handler,
+and a cold one leaves no session in storage. Sessions already handed to the
+handler are not affected. `Server.Shutdown` closes the server the same way and
+then waits for those handshakes to end and for the handlers to return; if its
+context ends first, it returns, and the handshakes and handlers still running
+carry on until they finish.
+
 ### 10.2 Initiator Role
 
 A dialer opens outgoing connections and runs the same handshake sequence in
