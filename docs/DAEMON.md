@@ -177,7 +177,7 @@ The identity, the local name (the fingerprint pseudonym until one is set) and
 the history list of the storage come first:
 
 ```json
-{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱", "b64": "base64key...", "hex": "ab12cd34...", "sum": "ab12cd34", "numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
+{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱 • 🌵 • 🔑 • 🚀 • 🍀 • 🎲 • 🐙", "b64": "MCowBQYDK2VwAyEA...", "hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...", "sum": "q3Vx0Zl8...", "numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
 { "type": "evt", "evt": "local_name_changed", "data": { "name": "CrimsonOtter" } }
 { "type": "evt", "evt": "history_updated", "data": {} }
 {
@@ -356,11 +356,11 @@ connecting to the relay and the relay handshake are limited to 15 seconds.
 
 ```json
 { "type": "evt", "evt": "status_changed", "data": { "status": "connecting", "message": "Starting server..." } }
-{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱", "b64": "base64key...", "hex": "ab12cd34...", "sum": "ab12cd34", "numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
+{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱 • 🌵 • 🔑 • 🚀 • 🍀 • 🎲 • 🐙", "b64": "MCowBQYDK2VwAyEA...", "hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...", "sum": "q3Vx0Zl8...", "numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
 { "type": "evt", "evt": "server_running", "data": { "running": true, "transport": "tcp" } }
 { "type": "evt", "evt": "status_changed", "data": { "status": "connected", "message": "Server running on 127.0.0.1:9000" } }
 { "type": "evt", "evt": "history_updated", "data": {} }
-{ "type": "evt", "evt": "server_started", "id": "1", "data": { "addr": "127.0.0.1:9000", "transport": "tcp", "name": "MyServer", "public_key": "base64key...", "emoji": ["🦊", "🐱"], "fingerprint_hex": "ab12cd34...", "fingerprint_sum": "ab12cd34", "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
+{ "type": "evt", "evt": "server_started", "id": "1", "data": { "addr": "127.0.0.1:9000", "transport": "tcp", "name": "MyServer", "public_key": "MCowBQYDK2VwAyEA...", "emoji": ["🦊", "🐱", "🌵", "🔑", "🚀", "🍀", "🎲", "🐙"], "fingerprint_hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...", "fingerprint_sum": "q3Vx0Zl8...", "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
 ```
 
 `server_started.addr` is the address the server is bound to, with the port the
@@ -442,11 +442,11 @@ There is no `response` event: the events of `stop_server` up to
 { "type": "evt", "evt": "status_changed", "data": { "status": "disconnected", "message": "Server stopped" } }
 { "type": "evt", "evt": "server_stopped", "data": { "running": false } }
 { "type": "evt", "evt": "status_changed", "data": { "status": "connecting", "message": "Starting server..." } }
-{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱", "b64": "base64key...", "hex": "ab12cd34...", "sum": "ab12cd34", "numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
+{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱 • 🌵 • 🔑 • 🚀 • 🍀 • 🎲 • 🐙", "b64": "MCowBQYDK2VwAyEA...", "hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...", "sum": "q3Vx0Zl8...", "numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
 { "type": "evt", "evt": "server_running", "data": { "running": true, "transport": "tcp" } }
 { "type": "evt", "evt": "status_changed", "data": { "status": "connected", "message": "Server running on 127.0.0.1:9000" } }
 { "type": "evt", "evt": "history_updated", "data": {} }
-{ "type": "evt", "evt": "server_started", "id": "1", "data": { "addr": "127.0.0.1:9000", "transport": "tcp", "name": "MyServer", "public_key": "base64key...", "emoji": ["🦊", "🐱"], "fingerprint_hex": "ab12cd34...", "fingerprint_sum": "ab12cd34", "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
+{ "type": "evt", "evt": "server_started", "id": "1", "data": { "addr": "127.0.0.1:9000", "transport": "tcp", "name": "MyServer", "public_key": "MCowBQYDK2VwAyEA...", "emoji": ["🦊", "🐱", "🌵", "🔑", "🚀", "🍀", "🎲", "🐙"], "fingerprint_hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...", "fingerprint_sum": "q3Vx0Zl8...", "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
 ```
 
 #### `cancel_start_server`
@@ -997,8 +997,8 @@ being the one for the peer to compare.
     "transport": "tcp",
     "address": "192.168.1.5",
     "port": "9000",
-    "fingerprint_emoji": "🦊 • 🐱",
-    "fingerprint_hex": "ab12cd34...",
+    "fingerprint_emoji": "🦊 • 🐱 • 🌵 • 🔑 • 🚀 • 🍀 • 🎲 • 🐙",
+    "fingerprint_hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...",
     "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900",
     "relay_info": null
   }
@@ -1009,7 +1009,7 @@ being the one for the peer to compare.
 
 ```json
 { "type": "evt", "evt": "relay_tokens", "data": { "tokens": [{ "token": "freshbeef...", "consumed": false, "ttl_ns": 600000000000, "session_ttl_ns": 300000000000, "expires_at": "2026-06-21T11:00:00Z", "mode": "random" }] } }
-{ "type": "evt", "evt": "response", "id": "1", "data": { "url": "relay://relay.example.com:8443?token=freshbeef...&scheme=wss", "transport": "relay", "address": "", "port": "", "fingerprint_emoji": "🦊 • 🐱", "fingerprint_hex": "ab12cd34...", "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900", "relay_info": { "address": "relay.example.com:8443", "scheme": "wss", "token": "freshbeef...", "password": false } } }
+{ "type": "evt", "evt": "response", "id": "1", "data": { "url": "relay://relay.example.com:8443?token=freshbeef...&scheme=wss", "transport": "relay", "address": "", "port": "", "fingerprint_emoji": "🦊 • 🐱 • 🌵 • 🔑 • 🚀 • 🍀 • 🎲 • 🐙", "fingerprint_hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...", "fingerprint_numeric": "12345 67890 13579 24680 11223 34455 66778 89900", "relay_info": { "address": "relay.example.com:8443", "scheme": "wss", "token": "freshbeef...", "password": false } } }
 ```
 
 ### P2P Tokens
@@ -1701,7 +1701,10 @@ with `storage_unavailable`, `invalid_peer_key` or `peer_delete_failed`.
 ### Log Management
 
 Log entries are buffered in memory (200-entry ring buffer). Each entry emits a
-`log_entry` push event (see [Push Events](#log_entry)).
+`log_entry` push event (see [Push Events](#log_entry)). An entry below the log
+level that `set_log_level` chose goes nowhere: not to stderr, the buffer,
+`log_entry` or `export_logs`. Relay and P2P tokens appear in log messages only
+as their first 8 characters followed by `...`.
 
 #### `get_logs`
 
@@ -1750,8 +1753,14 @@ Clears all buffered log entries.
 
 #### `export_logs`
 
-Writes buffered logs to a file. `file_path` is optional — defaults to
-`kamune-logs-<timestamp>.txt` in the current directory.
+Writes buffered logs to a file. `file_path` is optional, and defaults to
+`kamune-logs-<YYYY-MM-DD_HHMMSS>.txt` in the daemon's working directory. Each
+entry is one line, `<RFC 3339 time> [<LEVEL>] <message>`, with characters that
+are not printable, such as a line break in a peer's name, escaped Go-style
+(`\n`, `\x1b`, `\u2028`). The file is written as a new file that only the
+user can read (mode 0600) and then renamed to `file_path`, so it replaces a
+file or a symbolic link there without writing through it. Fails with
+`export_file_failed` or `export_write_failed`.
 
 **Input:**
 
@@ -1760,7 +1769,7 @@ Writes buffered logs to a file. `file_path` is optional — defaults to
   "type": "cmd",
   "cmd": "export_logs",
   "id": "1",
-  "params": { "file_path": "/tmp/kamune-logs.txt" }
+  "params": { "file_path": "/home/alice/kamune-logs.txt" }
 }
 ```
 
@@ -1771,7 +1780,7 @@ Writes buffered logs to a file. `file_path` is optional — defaults to
   "type": "evt",
   "evt": "response",
   "id": "1",
-  "data": { "status": "exported", "file_path": "/tmp/kamune-logs.txt" }
+  "data": { "status": "exported", "file_path": "/home/alice/kamune-logs.txt" }
 }
 ```
 
@@ -1793,8 +1802,11 @@ Returns the current log level.
 
 #### `set_log_level`
 
-Sets the log level. Persisted to storage. Accepted values: `"DEBUG"`, `"INFO"`,
-`"WARN"`, `"ERROR"`.
+Sets the log level, and saves it while a storage is open. Accepted values are
+`"DEBUG"`, `"INFO"` (the default), `"WARN"` (or `"WARNING"`) and `"ERROR"`, in
+any case; any other value fails with `invalid_log_level`. The level applies to
+stderr, the log buffer, `log_entry` events and `export_logs` alike. At `INFO`,
+`DEBUG` lines such as the one for each message sent or received are dropped.
 
 **Input:**
 
@@ -1814,7 +1826,7 @@ Sets the log level. Persisted to storage. Accepted values: `"DEBUG"`, `"INFO"`,
   "type": "evt",
   "evt": "response",
   "id": "1",
-  "data": { "status": "ok", "level": "DEBUG" }
+  "data": { "status": "set", "level": "DEBUG" }
 }
 ```
 
@@ -1871,8 +1883,10 @@ includes when no passphrase is saved.
 
 ### Fingerprint Format
 
-The daemon can display fingerprints in different formats. Default is `"hex"`.
-Format is stored in memory only (not persisted).
+The daemon can display fingerprints in different formats: `"hex"` (the
+default), `"emoji"`, `"b64"`, `"sum"` or `"numeric"`. The format chooses what
+`get_fingerprint` puts in `display`. It is saved in the open storage and
+applied when that storage is opened.
 
 #### `get_fingerprint_format`
 
@@ -1892,7 +1906,8 @@ Returns the current fingerprint format.
 
 #### `set_fingerprint_format`
 
-Sets the fingerprint display format.
+Sets the fingerprint display format, and saves it while a storage is open.
+Any format other than those above fails with `invalid_fingerprint_format`.
 
 **Input:**
 
@@ -1912,7 +1927,7 @@ Sets the fingerprint display format.
   "type": "evt",
   "evt": "response",
   "id": "1",
-  "data": { "status": "ok", "format": "emoji" }
+  "data": { "status": "set", "format": "emoji" }
 }
 ```
 
@@ -1920,7 +1935,17 @@ Sets the fingerprint display format.
 
 #### `get_fingerprint`
 
-Returns the current identity fingerprint. Empty strings if no key exists.
+Returns the fingerprint of the identity key in every format, plus `format`,
+the display format, and `display`, the fingerprint in that format. All are
+empty strings while no identity is loaded.
+
+| Field     | Description                                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------------------------ |
+| `emoji`   | Eight emoji, joined with `" • "`. About 52.7 bits: too few to verify a key with.                                   |
+| `b64`     | The public key: its 44-byte PKIX encoding in unpadded base64url.                                                   |
+| `hex`     | The PKIX encoding as uppercase hex bytes separated by colons. The first 12 bytes are the same for every key.       |
+| `sum`     | The SHA-256 of the PKIX encoding in unpadded base64url.                                                            |
+| `numeric` | 40 digits in eight groups of five, about 132.9 bits: the fingerprint for people to compare when they verify a key. |
 
 **Input:** (no params)
 
@@ -1936,10 +1961,13 @@ Returns the current identity fingerprint. Empty strings if no key exists.
   "evt": "response",
   "id": "1",
   "data": {
-    "emoji": "🦊 • 🐱",
-    "b64": "base64key...",
-    "hex": "ab12cd34...",
-    "sum": "ab12cd34"
+    "emoji": "🦊 • 🐱 • 🌵 • 🔑 • 🚀 • 🍀 • 🎲 • 🐙",
+    "b64": "MCowBQYDK2VwAyEA...",
+    "hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...",
+    "sum": "q3Vx0Zl8...",
+    "numeric": "12345 67890 13579 24680 11223 34455 66778 89900",
+    "format": "hex",
+    "display": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:..."
   }
 }
 ```
@@ -1967,7 +1995,10 @@ Returns the local display name.
 
 #### `set_my_name`
 
-Sets the local display name (max 32 characters). Persisted to storage.
+Sets the local display name, and saves it while a storage is open
+(`name_persist_failed` when that fails). A name longer than 32 bytes fails with
+`name_too_long`, and one that `start_server` would refuse with
+`invalid_name`.
 
 **Input:**
 
@@ -1991,7 +2022,7 @@ Sets the local display name (max 32 characters). Persisted to storage.
 
 #### `get_version`
 
-Returns the daemon version.
+Returns the daemon version: the one the build script sets, or `"dev"`.
 
 **Input:** (no params)
 
