@@ -2723,10 +2723,16 @@ its resumption tokens when it closed the session.
 | `direct-p2p`    | `newDirectP2PListener` + `ServeWithListener`                                    | `directP2PDial` via `DialWithFunc`                        |
 
 For relay mode, the relay address supports `tcp://`, `ws://`, `wss://`, and
-`tls://` schemes, and is `wss://` when it names none. The certificate of a
-`wss` or `tls` relay is verified, so a relay that uses its own self-signed
-certificate is refused unless `relay_pin` pins that certificate. An optional
-`?insecure=true` query parameter turns off TLS certificate verification
-instead. Over `ws://`, `tcp://` or `?insecure=true` an on-path attacker can
-pose as the relay and read the relay password and tokens, and the daemon logs
-a warning. A PSK `password` can be supplied for relays that require one.
+`tls://` schemes, and is `wss://` when it names none, so a relay without TLS
+must be named with `ws://` or `tcp://`. The certificate of a `wss` or `tls`
+relay is verified against the system's roots and the relay's host name, so a
+relay that uses its own self-signed certificate is refused unless `relay_pin`
+pins that certificate. The pin is the `sha256` value of the
+`tls certificate` line that the relay logs for each TLS listener at startup.
+It takes the place of those checks, so it must be updated whenever the relay's
+certificate changes, for example when a certificate from an authority is
+renewed. An optional `?insecure=true` query parameter turns off TLS
+certificate verification instead. Over `ws://`, `tcp://` or `?insecure=true`
+an on-path attacker can pose as the relay and read the relay password and
+tokens, and the daemon logs a warning. A PSK `password` can be supplied for
+relays that require one.
