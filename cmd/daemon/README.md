@@ -5,9 +5,10 @@ Enables external applications (Tauri, Electron, editor plugins, scripts)
 to use kamune's end-to-end encrypted communication through a simple
 line-delimited JSON protocol.
 
-The daemon exposes the same surface area as the `bus` GUI client:
-TCP/UDP/relay transports, peer verification, chat history persistence,
-relay token management, identity, and share info.
+The daemon exposes the same surface area as the `bus` GUI client: TCP, UDP,
+relay, P2P (through a broker) and direct P2P transports, peer verification,
+chat history persistence, relay and P2P token management, identity, share
+info, log management and keychain integration.
 
 **For the complete protocol specification (commands, events, params,
 storage model, verification flow, transports), see
@@ -15,39 +16,49 @@ storage model, verification flow, transports), see
 
 ## Quick Example
 
+The daemon reads one command per line and shuts down when stdin ends, so each
+example keeps stdin open with a trailing `cat`: type or paste further commands
+into the terminal, one per line, and press Ctrl-D to shut the daemon down. The
+examples keep unencrypted test databases in the current directory.
+
 **Terminal 1 — Server:**
 
 ```bash
-./daemon <<EOF
+{ cat <<'EOF'
 {"type":"cmd","cmd":"open_storage","id":"1","params":{"storage_path":"./server.db","db_no_passphrase":true}}
 {"type":"cmd","cmd":"start_server","id":"2","params":{"addr":"127.0.0.1:9000"}}
 EOF
+cat; } | ./daemon
 ```
 
 **Terminal 2 — Client:**
 
 ```bash
-./daemon <<EOF
+{ cat <<'EOF'
 {"type":"cmd","cmd":"open_storage","id":"1","params":{"storage_path":"./client.db","db_no_passphrase":true}}
 {"type":"cmd","cmd":"dial","id":"2","params":{"addr":"127.0.0.1:9000"}}
 EOF
+cat; } | ./daemon
 ```
 
-The client receives a `session_started` event (correlated by `"id": "2"`)
-after the dial handshake. The `session_id` is in `evt.data.session_id`.
-
-Then send a message:
+In the default verification mode, Quick, each side asks about a peer it does
+not know yet: the server emits `verify_peer` first, and the client once the
+server has accepted. Compare the `numeric` fingerprint in each `verify_peer`
+event with the `numeric` that the other side shows in its
+`fingerprint_changed` event, then answer in each terminal with the
+`request_id` of its event:
 
 ```json
-{
-  "type": "cmd",
-  "cmd": "send_message",
-  "id": "3",
-  "params": {
-    "session_id": "<from-session_started>",
-    "data_base64": "SGVsbG8="
-  }
-}
+{"type":"cmd","cmd":"verify_response","id":"3","params":{"request_id":1,"accepted":true}}
+```
+
+The client then receives a `session_started` event (correlated by `"id": "2"`).
+The `session_id` is in `evt.data.session_id`.
+
+Then send a message from the client, on one line:
+
+```json
+{"type":"cmd","cmd":"send_message","id":"4","params":{"session_id":"<from-session_started>","data_base64":"SGVsbG8="}}
 ```
 
 ## Environment Variables
