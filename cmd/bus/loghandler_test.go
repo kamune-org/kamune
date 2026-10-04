@@ -37,6 +37,7 @@ func TestAppLogHandler_Level(t *testing.T) {
 		t.Run(tt.level.String(), func(t *testing.T) {
 			a := require.New(t)
 			app := &App{logBufferSize: 10}
+			app.SetLogLevel("DEBUG")
 			newTestLogger(app).Log(t.Context(), tt.level, "message")
 			a.Len(app.logEntries, 1)
 			a.Equal(tt.want, app.logEntries[0].Level)
@@ -61,4 +62,68 @@ func TestAppLogHandler_Attrs(t *testing.T) {
 	logger.Info("again")
 	a.True(strings.HasSuffix(app.logEntries[1].Message,
 		"again | base=1 g.k=v"), app.logEntries[1].Message)
+}
+
+// TestLogLevel_Filters checks that the log level setting decides which
+// lines the app keeps, from slog and from addLogEntry alike, which it
+// prints on stderr, and which it exports.
+func TestLogLevel_Filters(t *testing.T) {
+	levels := []string{"DEBUG", "INFO", "WARN", "ERROR"}
+	for i, setting := range levels {
+		t.Run(setting, func(t *testing.T) {
+			a := require.New(t)
+			app := &App{logBufferSize: 50}
+			var stderr strings.Builder
+			logger := slog.New(&appLogHandler{
+				app: app,
+				stderr: slog.NewTextHandler(&stderr, &slog.HandlerOptions{
+					Level: slog.LevelDebug,
+				}),
+			})
+			app.SetLogLevel(setting)
+			a.Equal(setting, app.GetLogLevel())
+
+			for _, lvl := range levels {
+				l, ok := parseLogLevel(lvl)
+				a.True(ok)
+				logger.Log(t.Context(), l, "slog "+lvl)
+				app.addLogEntry(lvl, "entry "+lvl)
+			}
+			var got []string
+			for _, e := range app.logEntries {
+				got = append(got, e.Level)
+			}
+			var want []string
+			for _, lvl := range levels[i:] {
+				want = append(want, lvl, lvl)
+			}
+			a.Equal(want, got)
+			a.Equal(len(levels)-i, strings.Count(stderr.String(), "msg="))
+			a.Len(app.exportedLogEntries(), len(want))
+		})
+	}
+}
+
+// TestLogLevel_Unknown checks that SetLogLevel ignores a level the log
+// viewer does not have.
+func TestLogLevel_Unknown(t *testing.T) {
+	a := require.New(t)
+	app := &App{logBufferSize: 50, logLevel: "INFO"}
+	app.SetLogLevel("TRACE")
+	a.Equal("INFO", app.GetLogLevel())
+	a.Equal(slog.LevelInfo, app.logLevelVar.Level())
+}
+
+// TestExportedLogEntries checks that an export leaves out the lines kept
+// before the log level was raised.
+func TestExportedLogEntries(t *testing.T) {
+	a := require.New(t)
+	app := &App{logBufferSize: 50}
+	app.SetLogLevel("DEBUG")
+	app.addLogEntry("DEBUG", "debug")
+	app.addLogEntry("WARN", "warn")
+	app.SetLogLevel("WARN")
+	got := app.exportedLogEntries()
+	a.Len(got, 1)
+	a.Equal("WARN", got[0].Level)
 }

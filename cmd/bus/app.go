@@ -390,6 +390,10 @@ type App struct {
 	logLevel      string
 	theme         string
 
+	// logLevelVar is the least level of the log lines the app keeps
+	// and prints, as set by the log level setting.
+	logLevelVar slog.LevelVar
+
 	verifMu        sync.Mutex
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
@@ -831,6 +835,9 @@ func (a *App) saveFile(
 }
 
 func (a *App) addLogEntry(level, msg string) {
+	if l, ok := parseLogLevel(level); ok && l < a.logLevelVar.Level() {
+		return
+	}
 	entry := LogEntryInfo{
 		Timestamp: time.Now(),
 		Level:     level,
@@ -942,10 +949,7 @@ func (a *App) initFromStorage() {
 		}
 
 		logLevel, logLevelErr := store.GetSettings("bus", "log_level")
-		if logLevelErr == nil && logLevel != "" {
-			a.mu.Lock()
-			a.logLevel = logLevel
-			a.mu.Unlock()
+		if logLevelErr == nil && a.applyLogLevel(logLevel) {
 			a.emitEvent("log-level-changed", logLevel)
 		}
 
@@ -1780,10 +1784,7 @@ func (a *App) ClearLogs() {
 }
 
 func (a *App) ExportLogsToFile() error {
-	a.logMu.RLock()
-	entries := make([]LogEntryInfo, len(a.logEntries))
-	copy(entries, a.logEntries)
-	a.logMu.RUnlock()
+	entries := a.exportedLogEntries()
 
 	filePath, err := a.saveFile(
 		"Export Logs",
@@ -1810,6 +1811,22 @@ func (a *App) ExportLogsToFile() error {
 	}()
 
 	return nil
+}
+
+// exportedLogEntries returns the log lines that ExportLogsToFile writes:
+// those the app keeps at its log level, which leaves out lines kept
+// before the level was raised.
+func (a *App) exportedLogEntries() []LogEntryInfo {
+	least := a.logLevelVar.Level()
+	a.logMu.RLock()
+	defer a.logMu.RUnlock()
+	entries := make([]LogEntryInfo, 0, len(a.logEntries))
+	for _, e := range a.logEntries {
+		if l, ok := parseLogLevel(e.Level); !ok || l >= least {
+			entries = append(entries, e)
+		}
+	}
+	return entries
 }
 
 // writeLogFile writes entries to the file at path, one line each. The
@@ -1844,11 +1861,43 @@ func (a *App) GetLogLevel() string {
 	return a.logLevel
 }
 
+// SetLogLevel sets the least level of the log lines the app keeps,
+// prints and exports: DEBUG, INFO, WARN or ERROR. It ignores any other
+// level.
 func (a *App) SetLogLevel(level string) {
+	if a.applyLogLevel(level) {
+		a.saveSetting("log_level", level)
+	}
+}
+
+// applyLogLevel makes level the log level, and reports whether it is
+// one of DEBUG, INFO, WARN and ERROR, which it otherwise ignores.
+func (a *App) applyLogLevel(level string) bool {
+	l, ok := parseLogLevel(level)
+	if !ok {
+		return false
+	}
 	a.mu.Lock()
 	a.logLevel = level
+	a.logLevelVar.Set(l)
 	a.mu.Unlock()
-	a.saveSetting("log_level", level)
+	return true
+}
+
+// parseLogLevel returns the slog level of a log viewer level: DEBUG,
+// INFO, WARN or ERROR.
+func parseLogLevel(level string) (slog.Level, bool) {
+	switch level {
+	case "DEBUG":
+		return slog.LevelDebug, true
+	case "INFO":
+		return slog.LevelInfo, true
+	case "WARN":
+		return slog.LevelWarn, true
+	case "ERROR":
+		return slog.LevelError, true
+	}
+	return 0, false
 }
 
 func (a *App) CopyToClipboard(text string) error {

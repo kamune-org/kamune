@@ -69,8 +69,11 @@ type appLogHandler struct {
 	group string
 }
 
+// Enabled reports whether level is at least the app's log level, which
+// SetLogLevel sets.
 func (h *appLogHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	return h.stderr.Enabled(ctx, level)
+	return level >= h.app.logLevelVar.Level() &&
+		h.stderr.Enabled(ctx, level)
 }
 
 // levelLabel returns the log viewer's name for level: one of DEBUG,
