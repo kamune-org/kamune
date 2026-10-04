@@ -396,8 +396,8 @@ What counts against the quota:
 
 TCP and TLS connections and WebSocket requests share one limiter. The UDP
 broker has limiters of its own (see
-[Broker](#broker-stun-echo-and-signal-introduction)). `disabled = true` in
-`[rate_limit]` turns every limiter off.
+[Rate Limits and Registry Size](#rate-limits-and-registry-size)).
+`disabled = true` in `[rate_limit]` turns every limiter off.
 
 **Client address behind a proxy.** The relay reads a forwarded client address
 only for a WebSocket request whose TCP peer is in `server.trusted_proxies`, and
@@ -1017,7 +1017,9 @@ For every received UDP datagram, the broker:
 3. Dispatches by opcode.
 
 **`STUN_ECHO`** (opcode 0x01): responds with `ip:port\0` from the packet's
-source address. No state, no encryption, no registry interaction.
+source address. No encryption and no registry interaction; only the echo rate
+limiter keeps state (see
+[Rate Limits and Registry Size](#rate-limits-and-registry-size)).
 
 **`REGISTER`** (opcode 0x02): validates the packet and branches on the token.
 "Peer" in the table is the REGISTER's `PEER_EPH_PUB` together with its source
@@ -1039,6 +1041,36 @@ sent, the broker's ephemeral private key is discarded.
 
 **Unknown opcode**: ignored. Random UDP that happens to start with `"KBRK"` and
 some random opcode is silently dropped.
+
+### Rate Limits and Registry Size
+
+The broker has two rate limiters of its own, built from the `[rate_limit]`
+settings: one for `STUN_ECHO` and one for `REGISTER`, each keyed by the source
+IPv4 address and tracking up to `max_entries` addresses. A REGISTER is charged
+only once it has parsed and passed the field checks. A packet over its limit is
+dropped without a reply. `rate_limit.disabled = true` turns both off.
+
+The two are separate from the TCP, TLS and WebSocket limiter, and from each
+other, because UDP source addresses are not verified: a spoofed packet spends
+the budget of the address it names, and a spray of forged sources evicts real
+addresses from a limiter. Spoofed packets can still spend or evict an address's
+broker budget, but not its budget on the relay's other listeners, and spoofed
+echoes cannot evict REGISTER histories. Each forged source also gets a fresh
+budget, so the limiters do not stop a spoofing sender from making the broker
+work: every NOTIFY costs an X25519 key generation and exchange.
+
+The registry holds at most 100,000 entries; a REGISTER that would add one to a
+full registry is dropped. Expired entries are removed every 500 ms, so a
+registry full of expired entries frees up within that time, and a REGISTER
+never scans the registry. Spoofed REGISTERs, in random mode or with made-up
+tokens, can still fill it. Stopping that needs a return-routability check, a
+wire format change.
+
+The broker reads into a 64 KiB buffer, which holds the largest IPv4 UDP
+payload. A failed read is logged at debug level and skipped; after 16 failed
+reads in a row the broker logs a warning and waits 100 ms before each further
+read until one succeeds or times out. A broker error after startup is logged at
+error level and does not stop the relay's other listeners.
 
 ### Anti-Fingerprint
 
@@ -1292,9 +1324,9 @@ address = "0.0.0.0:4788"  # public, so peers behind NATs can reach it
 The broker and the relay's transports run in the same process but on
 different ports. The broker has rate limiters of its own, apart from those of
 the TCP, TLS and WebSocket listeners (see
-[Broker](#broker-stun-echo-and-signal-introduction)). Peers talk to the broker
-first to discover each other's IP:port; if direct UDP fails, they fall back to
-the relay over WS/WSS/TCP/TLS as usual.
+[Rate Limits and Registry Size](#rate-limits-and-registry-size)). Peers talk to
+the broker first to discover each other's IP:port; if direct UDP fails, they
+fall back to the relay over WS/WSS/TCP/TLS as usual.
 
 ## Known Limits
 
@@ -1314,10 +1346,13 @@ known limits, not bugs:
 - **No offline messages, no replay protection** — by design, see
   [Backpressure and Message Drops](#backpressure-and-message-drops) and
   [Replay Protection](#replay-protection).
-- **Broker registry growth** (when broker is enabled) — entries are held
-  in an in-memory map and evicted on `registration_ttl` (default 60s). The
-  per-IP rate limiter caps registrations per IP. Map size is bounded by
-  the number of active registrations; TTL evicts stale entries.
+- **Broker registry growth** (when broker is enabled): entries are held in an
+  in-memory map of at most 100,000 entries and expire `registration_ttl`
+  (default 60s) after their last REGISTER. The broker's limiter caps REGISTERs
+  per source address, but UDP sources are not verified, so REGISTERs from many
+  forged addresses can fill the map and make the broker seal NOTIFYs, each
+  costing X25519 work (see
+  [Rate Limits and Registry Size](#rate-limits-and-registry-size)).
 
 ## Operator Responsibilities
 
