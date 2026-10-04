@@ -1288,13 +1288,27 @@ it was accepted is not stored.
 
 When incognito mode is enabled:
 
-- A pseudonym is used instead of the display name for new connections
-- New messages are not saved to disk
-- Session history is not recorded
-- Accepted peers are not stored
+- New servers and dials use the fingerprint pseudonym of the identity key as
+  their name, and do not save it as the local name.
+- Messages that are sent or received are not saved.
+- Sessions leave no record in the storage. The daemon creates no session
+  record, and the kamune library stores no resumption state for them
+  (`ServeWithoutPersistence`, `DialWithoutPersistence`).
+- Accepted peers are not stored.
+- Sessions cannot be resumed. A dialed session whose connection drops ends with
+  `session_closed`, with no `session_reconnecting`; a server started in
+  incognito mode refuses resumption; and a dropped relay session gets no
+  reconnect listener.
 
+The identity key stays the same, so a peer that knows the key, or its
+fingerprint, still recognizes the user, and the pseudonym is derived from it.
 Existing session history and peers remain accessible. The incognito flag is
-persisted in storage and restored on startup.
+saved in the open storage and applied when that storage is opened.
+
+`set_incognito` takes effect at once, except that a running server keeps the
+name it started with and its choice of whether the kamune library stores its
+sessions' resumption state, until `restart_server`. Changing the flag while a
+server runs logs a warning.
 
 #### `get_incognito`
 
@@ -1314,7 +1328,8 @@ Returns the current incognito mode state.
 
 #### `set_incognito`
 
-Enables or disables incognito mode. Persisted to storage.
+Enables or disables incognito mode, and saves the flag while a storage is
+open.
 
 **Input:**
 
