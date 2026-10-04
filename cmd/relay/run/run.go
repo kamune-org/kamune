@@ -31,6 +31,11 @@ func Run(cfgPath string) error {
 	if err != nil {
 		return fmt.Errorf("new config: %w", err)
 	}
+	level, err := cfg.Server.Level()
+	if err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+	slog.SetLogLoggerLevel(level)
 
 	srvc, err := services.New(ctx, cfg)
 	if err != nil {

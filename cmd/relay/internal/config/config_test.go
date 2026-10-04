@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -466,4 +467,37 @@ data_dir = "/var/lib/kamune-relay"
 	cfg, err := New("")
 	a.NoError(err)
 	a.Equal("/var/lib/kamune-relay", cfg.Server.DataDir)
+}
+
+func TestServer_Level(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    slog.Level
+		wantErr bool
+	}{
+		{in: "", want: slog.LevelInfo},
+		{in: "debug", want: slog.LevelDebug},
+		{in: "INFO", want: slog.LevelInfo},
+		{in: "warn", want: slog.LevelWarn},
+		{in: "error", want: slog.LevelError},
+		{in: "verbose", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			a := require.New(t)
+			got, err := Server{LogLevel: tc.in}.Level()
+			cfg := validConfig()
+			cfg.Server.LogLevel = tc.in
+			vErr := cfg.Validate()
+			if tc.wantErr {
+				a.Error(err)
+				a.Contains(err.Error(), "server.log_level")
+				a.Error(vErr)
+				return
+			}
+			a.NoError(err)
+			a.NoError(vErr)
+			a.Equal(tc.want, got)
+		})
+	}
 }

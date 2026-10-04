@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -35,8 +36,27 @@ type Server struct {
 	// self-signed certificate it creates for a [tls] or [wss] listener
 	// with no cert_file and key_file. Keeping it lets clients pin the
 	// certificate. Empty means DefaultDataDir.
-	DataDir        string   `toml:"data_dir"`
+	DataDir string `toml:"data_dir"`
+	// LogLevel is the least severe level logged: debug, info, warn or
+	// error. Empty means info. Only debug logs client addresses on
+	// success, and which peers registered.
+	LogLevel       string   `toml:"log_level"`
 	TrustedProxies []string `toml:"trusted_proxies"`
+}
+
+// Level returns the slog level LogLevel names, or info when it is empty.
+func (s Server) Level() (slog.Level, error) {
+	var level slog.Level
+	if s.LogLevel == "" {
+		return slog.LevelInfo, nil
+	}
+	if err := level.UnmarshalText([]byte(s.LogLevel)); err != nil {
+		return 0, fmt.Errorf(
+			"server.log_level must be debug, info, warn or error, "+
+				"got %q", s.LogLevel,
+		)
+	}
+	return level, nil
 }
 
 // DefaultDataDir returns the directory used when server.data_dir is
@@ -128,6 +148,9 @@ func (c Config) Validate() error {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
 			return fmt.Errorf("server.trusted_proxies contains invalid CIDR %q", cidr)
 		}
+	}
+	if _, err := c.Server.Level(); err != nil {
+		return err
 	}
 	if h := c.Server.ClientIPHeader; h != "" && !validHeaderName(h) {
 		return fmt.Errorf(

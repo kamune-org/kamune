@@ -18,6 +18,9 @@ trusted_proxies = []            # CIDRs allowed to supply client IP headers
 # new certificate, and every client must then pin the new fingerprint.
 # Empty means kamune-relay in the user's config dir (~/.config/kamune-relay).
 # data_dir = "/var/lib/kamune-relay"
+# Least severe level logged: debug, info, warn or error. Only debug records
+# client addresses for connections that succeed and which peers registered.
+# log_level = "info"
 
 [session]
 token_ttl = "10m"
