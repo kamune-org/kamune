@@ -274,6 +274,7 @@ func (m *model) updateVerify(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateConnecting
 		return m, nil
 	}
+	m.cancelConnect()
 	m.state = stateWelcome
 	m.connectErr = err
 	return m, nil

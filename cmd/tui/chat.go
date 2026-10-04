@@ -35,7 +35,6 @@ func (m *model) updateChat(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			m.cleanup()
 			m.messages = nil
-			m.versionWarn = ""
 			m.state = stateWelcome
 			return m, nil
 		case tea.KeyEnter:

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -186,6 +185,7 @@ func promptModel(t *testing.T) (*model, chan tea.Msg, *storage.Peer) {
 	a := require.New(t)
 	m := newTestModel()
 	m.store = openTestStore(t)
+	m.att = newAttempt()
 	msgs := make(chan tea.Msg, 8)
 	m.send = func(msg tea.Msg) { msgs <- msg }
 	key, err := openTestStore(t).PublicKey()
@@ -222,7 +222,7 @@ func TestVerifier_AnsweredWhenPromptCannotShow(t *testing.T) {
 			m, msgs, peer := promptModel(t)
 			m.state = state
 			done := runVerifier(
-				m.mkVerifier(context.Background()), m.store, peer,
+				m.mkVerifier(m.att), m.store, peer,
 			)
 
 			m.Update(waitFor(t, msgs))
@@ -241,7 +241,7 @@ func TestVerifier_PromptTimesOut(t *testing.T) {
 	m.mode = modeDirectServe
 	m.inputs = []textinput.Model{mkInput("addr", ":9000")}
 	m.promptTimeout = time.Millisecond
-	done := runVerifier(m.mkVerifier(context.Background()), m.store, peer)
+	done := runVerifier(m.mkVerifier(m.att), m.store, peer)
 
 	m.Update(waitFor(t, msgs))
 	a.ErrorIs(waitFor(t, done), errPromptTimeout)
@@ -261,12 +261,11 @@ func TestVerifier_StopsWhenAttemptIsCancelled(t *testing.T) {
 	a := require.New(t)
 	m, msgs, peer := promptModel(t)
 	m.state = stateConnecting
-	ctx, cancel := context.WithCancel(context.Background())
-	done := runVerifier(m.mkVerifier(ctx), m.store, peer)
+	done := runVerifier(m.mkVerifier(m.att), m.store, peer)
 
 	m.Update(waitFor(t, msgs))
 	a.Equal(stateVerify, m.state)
-	cancel()
+	m.att.cancel()
 	a.ErrorIs(waitFor(t, done), errAttemptCancelled)
 }
 
@@ -275,7 +274,7 @@ func TestVerifier_OnePromptAtATime(t *testing.T) {
 	m, msgs, peer := promptModel(t)
 	m.state = stateConnecting
 	m.mode = modeDirectServe
-	vfn := m.mkVerifier(context.Background())
+	vfn := m.mkVerifier(m.att)
 	first := runVerifier(vfn, m.store, peer)
 	m.Update(waitFor(t, msgs))
 	a.Equal(stateVerify, m.state)
@@ -299,17 +298,17 @@ func TestEnterChat_StopsDirectServer(t *testing.T) {
 	m.store = openTestStore(t)
 	m.state = stateConnecting
 	m.mode = modeDirectServe
+	m.att = newAttempt()
 	l := &pipeListener{
 		conns:  make(chan kamune.Conn),
 		closed: make(chan struct{}),
 	}
 	srv, err := kamune.NewServer(
 		"", func(*kamune.Transport) error { return nil }, m.store,
-		m.mkVerifier(context.Background()), kamune.ServeWithListener(l),
+		m.mkVerifier(m.att), kamune.ServeWithListener(l),
 	)
 	a.NoError(err)
 	m.srv = srv
-	m.att = newAttempt()
 
 	tr := dialPipe(t, func(t *kamune.Transport) error {
 		_, _, err := t.ReceivePayload()

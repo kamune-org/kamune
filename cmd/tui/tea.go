@@ -43,8 +43,10 @@ const (
 )
 
 // attempt is one connection attempt: a dial, or a server waiting for a
-// peer. The sessions it delivers name it, so that Update can tell them
-// from those of an attempt that is over.
+// peer. Its goroutines stop when its context is cancelled, and every
+// message they send names it, so that Update can tell those messages from
+// the ones of an attempt that is over. They report to Update only through
+// messages and never touch the model.
 type attempt struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -66,10 +68,12 @@ type connectedMsg struct {
 }
 
 type connectFailedMsg struct {
+	att *attempt
 	err error
 }
 
 type verifyRequest struct {
+	att  *attempt
 	peer *storage.Peer
 	// knownName is the name stored for the peer's key, if it is known.
 	knownName string
@@ -119,7 +123,12 @@ var (
 	)
 )
 
+// relayReadyMsg says that the relay server of att is registered with the
+// relay under token, and hands srv to Update. Update closes srv when att
+// is over, or, if srv's session starts a chat, when that chat ends.
 type relayReadyMsg struct {
+	att        *attempt
+	srv        *kamune.Server
 	token      []byte
 	sessionTTL time.Duration
 }
@@ -216,11 +225,10 @@ type model struct {
 	promptTimeout time.Duration
 
 	// Chat
-	sess        *chatSession
-	vp          viewport.Model
-	ta          textarea.Model
-	messages    []chatLine
-	versionWarn string
+	sess     *chatSession
+	vp       viewport.Model
+	ta       textarea.Model
+	messages []chatLine
 
 	// History
 	sessions    []storage.SessionSummary
@@ -302,14 +310,23 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.enterChat(msg)
 	case connectFailedMsg:
-		if m.state != stateConnecting {
+		if msg.att != m.att ||
+			(m.state != stateConnecting && m.state != stateVerify) {
 			return m, nil
+		}
+		if m.verifyReq != nil {
+			answer(m.verifyReq.responseCh, errAttemptCancelled)
+			m.verifyReq = nil
 		}
 		m.connectErr = msg.err
 		m.cancelConnect()
 		m.state = stateWelcome
 		return m, nil
 	case verifyRequest:
+		if msg.att != m.att {
+			answer(msg.responseCh, errAttemptCancelled)
+			return m, nil
+		}
 		if m.state != stateConnecting {
 			// Nobody would see the prompt. Reject the peer now rather
 			// than leave its handshake waiting for an answer.
@@ -334,6 +351,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case relayReadyMsg:
+		if msg.att != m.att {
+			// The user gave up on this relay server while it was being
+			// set up. Closing it unregisters it from the relay.
+			go msg.srv.Close()
+			return m, nil
+		}
+		m.srv = msg.srv
 		m.relayToken = msg.token
 		m.relaySessionTTL = msg.sessionTTL
 		return m, nil
@@ -443,12 +467,12 @@ func (m *model) refreshHistory() {
 	m.histVP.SetContent(m.s.renderLines(m.histMsgs, contentWidth(m.histVP)))
 }
 
-// mkVerifier returns the verifier for a connection attempt whose context
-// is ctx. It shows one prompt at a time and rejects a peer that arrives
-// while a prompt is open. It waits for the user's answer for at most the
-// prompt timeout, and no longer than ctx lasts, so a peer whose prompt is
-// never answered cannot hold its handshake open.
-func (m *model) mkVerifier(ctx context.Context) kamune.RemoteVerifier {
+// mkVerifier returns the verifier for the connection attempt att. It shows
+// one prompt at a time and rejects a peer that arrives while a prompt is
+// open. It waits for the user's answer for at most the prompt timeout, and
+// no longer than att lasts, so a peer whose prompt is never answered
+// cannot hold its handshake open.
+func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 	send := m.send
 	timeout := m.promptTimeout
 	if timeout <= 0 {
@@ -475,6 +499,7 @@ func (m *model) mkVerifier(ctx context.Context) kamune.RemoteVerifier {
 		}
 		respCh := make(chan error, 1)
 		send(verifyRequest{
+			att:            att,
 			peer:           peer,
 			isNew:          isNew,
 			knownName:      knownName,
@@ -493,7 +518,7 @@ func (m *model) mkVerifier(ctx context.Context) kamune.RemoteVerifier {
 		case <-timer.C:
 			err = errPromptTimeout
 			send(verifyEndedMsg{responseCh: respCh, err: err})
-		case <-ctx.Done():
+		case <-att.ctx.Done():
 			err = errAttemptCancelled
 		}
 		if err == nil && isNew {
@@ -518,8 +543,10 @@ func answer(ch chan<- error, err error) {
 func (m *model) startConnect() tea.Cmd {
 	att := newAttempt()
 	m.att = att
-	vfn := m.mkVerifier(att.ctx)
+	vfn := m.mkVerifier(att)
 	send := m.send
+	store := m.store
+	addr := m.inputs[0].Value()
 	// deliver hands a session of the attempt's server to Update.
 	deliver := func(t *kamune.Transport, release chan struct{}) {
 		send(connectedMsg{att: att, transport: t, release: release})
@@ -528,56 +555,49 @@ func (m *model) startConnect() tea.Cmd {
 	switch m.mode {
 	case modeDirectDial:
 		go func() {
-			t, err := dial(m.inputs[0].Value(), m.store, vfn)
+			t, err := dial(att.ctx, addr, store, vfn)
 			if err != nil {
-				m.send(connectFailedMsg{err})
+				send(connectFailedMsg{att, err})
 				return
 			}
-			warn, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
-			m.versionWarn = warn
-			m.send(connectedMsg{att: att, transport: t})
+			send(connectedMsg{att: att, transport: t})
 		}()
-		return nil
 
 	case modeDirectServe:
-		srv, err := serve(m.inputs[0].Value(), m.store, vfn, deliver)
+		srv, err := serve(addr, store, vfn, deliver)
 		if err != nil {
-			return func() tea.Msg { return connectFailedMsg{err} }
+			return func() tea.Msg { return connectFailedMsg{att, err} }
 		}
 		m.srv = srv
-		return nil
 
 	case modeRelayDial:
-		addr := m.inputs[0].Value()
 		token := m.inputs[1].Value()
 		go func() {
-			t, sessionTTL, err := relayDial(addr, token, "", m.store, vfn)
+			t, sessionTTL, err := relayDial(
+				att.ctx, addr, token, "", store, vfn,
+			)
 			if err != nil {
-				m.send(connectFailedMsg{err})
+				send(connectFailedMsg{att, err})
 				return
 			}
-			warn, _ := checkMinorMismatch(kamune.AppVersion, t.RemotePeer().AppVersion)
-			m.versionWarn = warn
-			m.send(connectedMsg{
+			send(connectedMsg{
 				att: att, transport: t, sessionTTL: sessionTTL,
 			})
 		}()
-		return nil
 
 	case modeRelayServe:
-		addr := m.inputs[0].Value()
 		go func() {
 			srv, token, sessionTTL, err := relayServe(
-				addr, "", m.store, vfn, deliver,
+				att.ctx, addr, "", store, vfn, deliver,
 			)
 			if err != nil {
-				m.send(connectFailedMsg{err})
+				send(connectFailedMsg{att, err})
 				return
 			}
-			m.srv = srv
-			m.send(relayReadyMsg{token: token, sessionTTL: sessionTTL})
+			send(relayReadyMsg{
+				att: att, srv: srv, token: token, sessionTTL: sessionTTL,
+			})
 		}()
-		return nil
 	}
 	return nil
 }
@@ -654,9 +674,10 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 		vp.Height = m.height - m.ta.Height() - lipgloss.Height("\n\n")
 	}
 
-	if m.versionWarn != "" {
-		m.messages = []chatLine{
-			noticeLine(m.s.highlight, "⚠ "+m.versionWarn),
+	if peer := t.RemotePeer(); peer != nil {
+		warn, _ := checkMinorMismatch(kamune.AppVersion, peer.AppVersion)
+		if warn != "" {
+			m.messages = []chatLine{noticeLine(m.s.highlight, "⚠ "+warn)}
 		}
 	}
 	m.vp = vp
@@ -840,7 +861,8 @@ func (m *model) cancelConnect() {
 		m.att = nil
 	}
 	if m.srv != nil {
-		m.srv.Close()
+		// Closing a relay server may wait for the relay to answer.
+		go m.srv.Close()
 		m.srv = nil
 	}
 	m.relayToken = nil
