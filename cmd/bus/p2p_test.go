@@ -780,20 +780,87 @@ func TestHolePunch_KicksAfterReturn(t *testing.T) {
 	}
 }
 
-// TestParseEchoResponse verifies the bus's echo response parser handles
-// the broker's `ip:port\0` format.
-func TestParseEchoResponse(t *testing.T) {
-	a := require.New(t)
-	ip, port, err := parseEchoResponse(
-		append([]byte("192.0.2.1:54321"), 0),
-	)
-	a.NoError(err)
-	a.Equal("192.0.2.1", ip.String())
-	a.Equal(uint16(54321), port)
+// TestEcho_IgnoresStrayDatagram checks that a datagram from another
+// source that reaches the punch socket before the broker's echo reply
+// does not stop the p2p listener or the dialer from starting.
+func TestEcho_IgnoresStrayDatagram(t *testing.T) {
+	token := bytes.Repeat([]byte{3}, 16)
+	tests := []struct {
+		name  string
+		start func(bc *BrokerClient, addr string) error
+	}{
+		{
+			name: "p2p listener",
+			start: func(bc *BrokerClient, addr string) error {
+				l, err := newP2PListener(
+					bc, addr, token, nil, "127.0.0.1:0",
+				)
+				if err == nil {
+					_ = l.Close()
+				}
+				return err
+			},
+		},
+		{
+			name: "dialer",
+			start: func(bc *BrokerClient, addr string) error {
+				ctx, cancel := context.WithTimeout(
+					context.Background(), testWait,
+				)
+				defer cancel()
+				conn, _, err := bc.WaitMatch(ctx, addr, token)
+				if err == nil {
+					_ = conn.Close()
+				}
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			fb := newFakeBroker(t)
+			stray, err := net.ListenUDP(
+				"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+			)
+			a.NoError(err)
+			defer stray.Close()
 
-	// No trailing null — parser should still work (parses until end).
-	ip, port, err = parseEchoResponse([]byte("10.0.0.1:8080"))
-	a.NoError(err)
-	a.Equal("10.0.0.1", ip.String())
-	a.Equal(uint16(8080), port)
+			go func() {
+				buf := make([]byte, 1500)
+				_ = fb.conn.SetReadDeadline(time.Now().Add(testWait))
+				_, src, err := fb.conn.ReadFromUDP(buf)
+				if err != nil {
+					return
+				}
+				// The stray datagram comes first.
+				_, _ = stray.WriteToUDP([]byte("not an echo reply"), src)
+				resp := relaybroker.BuildEchoResponse(src)
+				_, _ = fb.conn.WriteToUDP(resp, src)
+
+				n, src, err := fb.conn.ReadFromUDP(buf)
+				if err != nil {
+					return
+				}
+				wire, ephPub, _, _, err := relaybroker.ParseRegister(
+					buf[:n],
+				)
+				if err != nil {
+					return
+				}
+				pkt, err := sealedNotify(relaybroker.PeerMatchedPlaintext(
+					wire, bytes.Repeat([]byte{2}, 32),
+					net.IPv4(192, 0, 2, 1), 1111,
+				), ephPub)
+				if err != nil {
+					return
+				}
+				_, _ = fb.conn.WriteToUDP(pkt, src)
+			}()
+
+			bc, err := NewBrokerClient()
+			a.NoError(err)
+			a.NoError(tt.start(bc, fb.conn.LocalAddr().String()))
+		})
+	}
 }

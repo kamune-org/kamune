@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"sync"
 	"time"
 
@@ -17,11 +16,6 @@ import (
 
 	relaybroker "github.com/kamune-org/kamune/pkg/relayconn/broker"
 )
-
-// echoRequest is the 6-byte STUN_ECHO packet sent to the broker. The wire
-// format is "KBRK" magic + 0x01 ver + 0x01 opcode (see pkg/relayconn/broker
-// codec.go for the constants — duplicated here to avoid a new exported helper).
-var echoRequest = []byte{'K', 'B', 'R', 'K', 0x01, 0x01}
 
 // BrokerClient wraps the kamune broker client with a stable X25519 identity
 // that survives across broker-address changes. The X25519 key is created
@@ -98,33 +92,24 @@ func (b *BrokerClient) WaitMatch(
 		punchConn.Close()
 		return nil, relaybroker.Payload{}, fmt.Errorf("resolve broker: %w", err)
 	}
-
-	// ECHO from the punch socket so the broker's view of our address is
-	// the punch socket's external address:port (the address the broker
-	// will send NOTIFYs to).
-	claimIP, claimPort, err := b.echoFrom(ctx, punchConn, brokerUDPAddr)
-	if err != nil {
-		punchConn.Close()
-		return nil, relaybroker.Payload{}, fmt.Errorf("broker echo: %w", err)
-	}
-	// Clear the echo deadline before sending the REGISTER. echoFrom set
-	// a read+write deadline on punchConn; if we don't clear it, the
-	// write below would be subject to the same deadline and could fail
-	// or block unexpectedly on slow brokers.
-	if err := punchConn.SetDeadline(time.Time{}); err != nil {
-		punchConn.Close()
-		return nil, relaybroker.Payload{},
-			fmt.Errorf("clear punch deadline: %w", err)
-	}
-
-	// REGISTER from the punch socket. The broker stores the (token, our
-	// X25519 pub, claimIP:claimPort) tuple and will match us with a peer
-	// that registers with the same token.
 	client, err := b.Client(brokerAddr)
 	if err != nil {
 		punchConn.Close()
 		return nil, relaybroker.Payload{}, fmt.Errorf("broker client: %w", err)
 	}
+
+	// ECHO from the punch socket so the broker's view of our address is
+	// the punch socket's external address:port (the address the broker
+	// will send NOTIFYs to). EchoOn takes only the broker's reply.
+	claimIP, claimPort, err := client.EchoOn(ctx, punchConn)
+	if err != nil {
+		punchConn.Close()
+		return nil, relaybroker.Payload{}, fmt.Errorf("broker echo: %w", err)
+	}
+
+	// REGISTER from the punch socket. The broker stores the (token, our
+	// X25519 pub, claimIP:claimPort) tuple and will match us with a peer
+	// that registers with the same token.
 	pkt := relaybroker.BuildRegister(
 		token, client.PublicKey(), claimIP, claimPort,
 	)
@@ -196,37 +181,6 @@ func (b *BrokerClient) WaitMatch(
 	}
 }
 
-// echoFrom sends a STUN_ECHO from conn to brokerAddr and returns the
-// broker's view of conn's source address:port. The bus uses this on the
-// punch socket (rather than Client.Echo, which opens a fresh ephemeral
-// socket) so the claimIP:claimPort reported to the broker matches the
-// punch socket.
-//
-// WARNING: sets a read deadline on conn. If conn is shared with another
-// reader (e.g. the kcp-go monitor on a p2pListener's punch socket),
-// the deadline will affect the other reader too, so call it only before
-// another reader starts.
-func (b *BrokerClient) echoFrom(
-	ctx context.Context, conn *net.UDPConn, brokerAddr *net.UDPAddr,
-) (net.IP, uint16, error) {
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		deadline = time.Now().Add(2 * time.Second)
-	}
-	if err := conn.SetDeadline(deadline); err != nil {
-		return nil, 0, fmt.Errorf("set deadline: %w", err)
-	}
-	if _, err := conn.WriteToUDP(echoRequest, brokerAddr); err != nil {
-		return nil, 0, fmt.Errorf("write echo: %w", err)
-	}
-	buf := make([]byte, 64)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return nil, 0, fmt.Errorf("read echo: %w", err)
-	}
-	return parseEchoResponse(buf[:n])
-}
-
 // parseNotify decrypts and decodes a NOTIFY packet using the bus's stable
 // X25519 key. Mirrors broker.Client.decodeNotify so the bus can read NOTIFYs
 // from a caller-owned socket (rather than going through Client.Listen, which
@@ -263,29 +217,6 @@ func (b *BrokerClient) parseNotify(pkt []byte) (*relaybroker.Payload, error) {
 		Port:            np.Port,
 		TTLSeconds:      np.TTLSeconds,
 	}, nil
-}
-
-// parseEchoResponse parses the `ip:port\0` response from the broker.
-func parseEchoResponse(resp []byte) (net.IP, uint16, error) {
-	for i, c := range resp {
-		if c == 0 {
-			resp = resp[:i]
-			break
-		}
-	}
-	host, portStr, err := net.SplitHostPort(string(resp))
-	if err != nil {
-		return nil, 0, fmt.Errorf("malformed echo response %q: %w", resp, err)
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return nil, 0, fmt.Errorf("parse ip %q: invalid", host)
-	}
-	port64, err := strconv.ParseUint(portStr, 10, 16)
-	if err != nil {
-		return nil, 0, fmt.Errorf("parse port %q: %w", portStr, err)
-	}
-	return ip, uint16(port64), nil
 }
 
 // sendNATKick fires a burst of empty UDP packets to the peer to open a

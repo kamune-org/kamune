@@ -108,14 +108,21 @@ func newP2PListener(
 		cancel:     cancel,
 	}
 
-	// ECHO from the punch socket so the broker learns the punch socket's
-	// external address:port. This is the address the peer will punch to.
 	brokerUDPAddr, err := net.ResolveUDPAddr("udp4", brokerAddr)
 	if err != nil {
 		l.Close()
 		return nil, fmt.Errorf("resolve broker: %w", err)
 	}
-	claimIP, claimPort, err := broker.echoFrom(ctx, conn, brokerUDPAddr)
+	client, err := broker.Client(brokerAddr)
+	if err != nil {
+		l.Close()
+		return nil, fmt.Errorf("broker client: %w", err)
+	}
+
+	// ECHO from the punch socket so the broker learns the punch socket's
+	// external address:port. This is the address the peer will punch to.
+	// EchoOn takes only the broker's reply, within 2s.
+	claimIP, claimPort, err := client.EchoOn(ctx, conn)
 	if err != nil {
 		l.Close()
 		return nil, fmt.Errorf("broker echo: %w", err)
@@ -125,11 +132,6 @@ func newP2PListener(
 	// REGISTER on the broker with the punch socket's broker-view as the
 	// claim address. The peer learns this address via the broker's
 	// NOTIFY(PEER_MATCHED) and punches to it.
-	client, err := broker.Client(brokerAddr)
-	if err != nil {
-		l.Close()
-		return nil, fmt.Errorf("broker client: %w", err)
-	}
 	pkt := relaybroker.BuildRegister(
 		token, client.PublicKey(), claimIP, claimPort,
 	)
@@ -155,7 +157,7 @@ func newP2PListener(
 	l.tokens = []listenerToken{{token: l.token, peer: peerKey}}
 
 	// Reset the punch socket's deadline before handing it to kcp-go.
-	// echoFrom / readTokenAssigned set a 2s read deadline; if we don't
+	// readTokenAssigned sets a read deadline; if we don't
 	// clear it, the kcp-go monitor's first ReadFrom would time out,
 	// call notifyReadError, and break the listener (causing the kamune
 	// server's Accept loop to spin).
