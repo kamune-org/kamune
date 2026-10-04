@@ -316,7 +316,8 @@ func (d *Daemon) installStore(store *storage.Storage, path string) {
 }
 
 // openStorage opens storage at the given path and only replaces the current
-// store after the new store has opened successfully.
+// store after the new store has opened successfully. A passphrase from
+// KAMUNE_DB_PASSPHRASE is never saved to the keychain.
 func (d *Daemon) openStorage(params OpenStorageParams) error {
 	if d.storageBusy() {
 		return errStorageBusy
@@ -351,20 +352,6 @@ func (d *Daemon) openStorage(params OpenStorageParams) error {
 	}
 
 	d.installStore(store, params.StoragePath)
-	if !params.DBNoPassphrase {
-		if p, ok := d.passphrase.Load().([]byte); ok && len(p) > 0 {
-			if err := keyring.Set(
-				keychainService,
-				keychainAccount(params.StoragePath),
-				string(p),
-			); err != nil {
-				slog.Warn(
-					"failed to store passphrase in keychain",
-					slog.Any("error", err),
-				)
-			}
-		}
-	}
 	return nil
 }
 
@@ -582,7 +569,8 @@ func (d *Daemon) handleOpenStorage(cmd Command) {
 }
 
 // handleSubmitPassphrase re-opens storage with a new passphrase. Requires a
-// prior open_storage call (so d.dbPath is set).
+// prior open_storage call (so d.dbPath is set). The passphrase is saved to
+// the system keychain only when the command asks for it.
 func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	var params SubmitPassphraseParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
@@ -621,10 +609,12 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	}
 
 	d.installStore(store, dbPath)
-	if err := keyring.Set(
-		keychainService, keychainAccount(dbPath), params.Passphrase,
-	); err != nil {
-		d.addLogEntry("WARN", "Failed to store passphrase in keychain: "+err.Error())
+	if params.SaveToKeychain {
+		if err := keyring.Set(
+			keychainService, keychainAccount(dbPath), params.Passphrase,
+		); err != nil {
+			d.addLogEntry("WARN", "Failed to store passphrase in keychain: "+err.Error())
+		}
 	}
 
 	d.loadIdentityAndHistory()

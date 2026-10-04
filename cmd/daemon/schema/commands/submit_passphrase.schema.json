@@ -5,7 +5,12 @@
   "description": "Re-opens the previously-opened storage path with a new passphrase.",
   "type": "object",
   "properties": {
-    "passphrase": { "type": "string" }
+    "passphrase": { "type": "string" },
+    "save_to_keychain": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, saves the passphrase to the system keychain after the storage opens. The daemon never saves a passphrase otherwise."
+    }
   },
   "required": ["passphrase"]
 }

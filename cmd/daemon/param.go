@@ -9,9 +9,11 @@ type OpenStorageParams struct {
 }
 
 // SubmitPassphraseParams contains parameters for re-opening storage with a
-// new passphrase. Requires a prior open_storage call.
+// new passphrase. Requires a prior open_storage call. SaveToKeychain saves
+// the passphrase to the system keychain once the storage has opened.
 type SubmitPassphraseParams struct {
-	Passphrase string `json:"passphrase"`
+	Passphrase     string `json:"passphrase"`
+	SaveToKeychain bool   `json:"save_to_keychain,omitempty"`
 }
 
 // StartServerParams contains parameters for starting a server.

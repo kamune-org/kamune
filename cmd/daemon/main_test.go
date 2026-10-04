@@ -3,11 +3,20 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 )
+
+func TestMain(m *testing.M) {
+	// Keep tests away from the user's keychain: go-keyring then stores
+	// secrets in memory.
+	keyring.MockInit()
+	os.Exit(m.Run())
+}
 
 func TestCommandSerialization(t *testing.T) {
 	a := require.New(t)
