@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -105,6 +106,7 @@ type Server struct {
 	// networks counts the waiting connections from each network, from
 	// which the cap on waiting connections picks one to drop.
 	networks      map[string]int
+	pending       map[*pendingConn]struct{}
 	serverName    string
 	addr          string
 	waiting       []*pendingConn
@@ -113,6 +115,7 @@ type Server struct {
 	introTimeout  time.Duration
 	maxPending    int
 	maxPerSource  int
+	wg            sync.WaitGroup
 	mu            sync.Mutex
 	resumeEnabled bool
 	closed        bool
@@ -220,9 +223,12 @@ func (s *Server) ListenAndServe() error {
 			continue
 		}
 		go func() {
+			defer s.wg.Done()
 			err := s.serveConn(cn, p)
 			switch {
 			case err == nil:
+			case s.isClosed():
+				slog.Debug("serve conn after close", slog.Any("error", err))
 			case !s.wasIntroduced(p):
 				// Anyone can open a connection and let it time out or
 				// drop it, so these failures would flood the log.
@@ -237,9 +243,10 @@ func (s *Server) ListenAndServe() error {
 	}
 }
 
-// admit records cn as being in the handshake and as waiting for the
-// dialer's introduction. It reports false and records nothing when the
-// server is closed or when cn's source is at the per-source cap.
+// admit records cn as being in the handshake, so that Close can close it
+// and Shutdown waits for it, and as waiting for the dialer's introduction.
+// It reports false and records nothing when the server is closed or when
+// cn's source is at the per-source cap.
 //
 // When the waiting connections are at the cap already, admit drops one of
 // them to make room and returns its conn for the caller to close (see
@@ -289,6 +296,11 @@ func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 		}
 		s.networks[p.network]++
 	}
+	if s.pending == nil {
+		s.pending = make(map[*pendingConn]struct{})
+	}
+	s.pending[p] = struct{}{}
+	s.wg.Add(1)
 	return p, dropped, true
 }
 
@@ -411,21 +423,21 @@ func (s *Server) wasIntroduced(p *pendingConn) bool {
 
 // endHandshake marks the handshake of p as over and frees its place among
 // the waiting connections, if it still holds one, and in the per-source
-// count. p may be nil, for a connection that ListenAndServe did not accept,
-// and a second call for the same p does nothing.
-func (s *Server) endHandshake(p *pendingConn) {
-	if p == nil {
-		return
-	}
+// count. It reports whether the server is still open. p may be nil, for a
+// connection that ListenAndServe did not accept, and a second call for the
+// same p only reports.
+func (s *Server) endHandshake(p *pendingConn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if p.ended {
-		return
+	open := !s.closed
+	if p == nil || p.ended {
+		return open
 	}
 	p.ended = true
 	s.stopWaitingLocked(p)
+	delete(s.pending, p)
 	if !p.counted {
-		return
+		return open
 	}
 	p.counted = false
 	if s.sources[p.source] <= 1 {
@@ -433,6 +445,7 @@ func (s *Server) endHandshake(p *pendingConn) {
 	} else {
 		s.sources[p.source]--
 	}
+	return open
 }
 
 // isListenerClosed reports whether an Accept error means the listener was
@@ -539,14 +552,17 @@ func prefixKey(ip netip.Addr, bits int) string {
 	return prefix.String()
 }
 
-// Close gracefully shuts down the server by closing the underlying listener,
-// causing [Server.ListenAndServe] to return. It is safe to call multiple times
-// and concurrently.
+// Close shuts the server down. It closes the listener, so that
+// [Server.ListenAndServe] returns, and closes the connections that are still
+// in the handshake. A handshake that completes after Close is not handed to
+// the handler and its session is not stored; its transport is closed
+// instead. Sessions already handed to the handler are not affected: close
+// their transports to end them. Close does not wait for anything; see
+// [Server.Shutdown]. It is safe to call multiple times and concurrently.
 func (s *Server) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.closed {
+		s.mu.Unlock()
 		return nil
 	}
 
@@ -556,10 +572,42 @@ func (s *Server) Close() error {
 	if s.done != nil {
 		close(s.done)
 	}
-	if s.listener != nil {
-		_ = s.listener.Close()
+	l := s.listener
+	pending := make([]Conn, 0, len(s.pending))
+	for p := range s.pending {
+		pending = append(pending, p.conn)
+	}
+	s.mu.Unlock()
+
+	if l != nil {
+		_ = l.Close()
+	}
+	for _, cn := range pending {
+		_ = cn.Close()
 	}
 	return nil
+}
+
+// Shutdown closes the server as [Server.Close] does, then waits until every
+// connection accepted by [Server.ListenAndServe] is done with: its handshake
+// has ended and, if it was handed to the handler, the handler has returned.
+// Handlers return when their sessions end, so close the sessions' transports
+// before or while Shutdown waits. Shutdown returns ctx.Err() if ctx is done
+// first. It does not stop the handshakes and handlers still running then:
+// they carry on until they return.
+func (s *Server) Shutdown(ctx context.Context) error {
+	_ = s.Close()
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *Server) serve(cn Conn) error {
@@ -567,7 +615,8 @@ func (s *Server) serve(cn Conn) error {
 }
 
 // serveConn runs the handshake on cn and then hands the session to the
-// handler. p is the record that ListenAndServe made for cn, or nil.
+// handler, unless the server was closed in the meantime. p is the record
+// that ListenAndServe made for cn, or nil.
 func (s *Server) serveConn(cn Conn, p *pendingConn) (err error) {
 	defer func() {
 		s.endHandshake(p)
@@ -584,11 +633,26 @@ func (s *Server) serveConn(cn Conn, p *pendingConn) (err error) {
 		}
 	}()
 
-	t, err := s.handshake(cn, p)
-	s.endHandshake(p)
+	t, cold, err := s.handshake(cn, p)
+	open := s.endHandshake(p)
 	if err != nil {
 		return err
 	}
+	if !open {
+		// The server was closed during the handshake. End the session
+		// rather than start a handler the caller no longer expects. Its
+		// state is not written, so a cold session leaves no record; a
+		// resumed one, stored already, loses its remaining tokens as on
+		// any close.
+		if !cold {
+			t.storage = s.storage
+		}
+		_ = t.Close()
+		return ErrClosedServer
+	}
+	// Store the session only now that it goes to the handler, so that a
+	// session dropped above leaves nothing behind.
+	s.handshakeOpts.recordSession(s.storage, t, cold)
 
 	if err := s.handlerFunc(t); err != nil {
 		return fmt.Errorf("handler: %w", err)
@@ -597,55 +661,58 @@ func (s *Server) serveConn(cn Conn, p *pendingConn) (err error) {
 }
 
 // handshake runs the handshake on cn, a cold one or a resumption, and returns
-// the established transport. p is the record that ListenAndServe made for
-// cn, or nil.
-func (s *Server) handshake(cn Conn, p *pendingConn) (*Transport, error) {
+// the established transport, and whether the handshake was a cold one. The
+// session state is not stored yet. p is the record that ListenAndServe made
+// for cn, or nil.
+func (s *Server) handshake(cn Conn, p *pendingConn) (*Transport, bool, error) {
 	// The dialer sends its part of the exchange and then its introduction
 	// or resume request without waiting for anyone, so it gets only the
 	// short intro timeout for them. An idle connection is dropped quickly.
 	if err := cn.SetDeadline(time.Now().Add(s.introLimit())); err != nil {
-		return nil, fmt.Errorf("setting intro deadline: %w", err)
+		return nil, false, fmt.Errorf("setting intro deadline: %w", err)
 	}
 
 	// Step 0: Exchange HPKE keys to derive an encrypted connection for the
 	// handshake
 	ec, err := exchange.Accept(cn)
 	if err != nil {
-		return nil, fmt.Errorf("accepting exchange: %w", err)
+		return nil, false, fmt.Errorf("accepting exchange: %w", err)
 	}
 
 	// Step 1: Receive introduction
 	st, err := readSignedTransport(ec)
 	if err != nil {
-		return nil, fmt.Errorf("reading transport: %w", err)
+		return nil, false, fmt.Errorf("reading transport: %w", err)
 	}
 	if err := s.introduced(p); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := cn.SetDeadline(
 		time.Now().Add(s.handshakeOpts.timeout),
 	); err != nil {
-		return nil, fmt.Errorf("setting handshake deadline: %w", err)
+		return nil, false, fmt.Errorf("setting handshake deadline: %w", err)
 	}
 
 	// Handle different routes at this stage
 	route, err := routeFromST(st)
 	if err != nil {
-		return nil, fmt.Errorf("extracting route: %w", err)
+		return nil, false, fmt.Errorf("extracting route: %w", err)
 	}
 	switch route {
 	case RouteIdentity:
-		return s.handleNewConnection(cn, ec, st)
+		t, err := s.handleNewConnection(cn, ec, st)
+		return t, true, err
 	case RouteResumeRequest:
 		if !s.resumeEnabled {
-			return nil, fmt.Errorf(
+			return nil, false, fmt.Errorf(
 				"%w: expected %s, got %s",
 				ErrUnexpectedRoute, RouteIdentity, route,
 			)
 		}
-		return s.handleResume(cn, ec, st)
+		t, err := s.handleResume(cn, ec, st)
+		return t, false, err
 	default:
-		return nil, fmt.Errorf(
+		return nil, false, fmt.Errorf(
 			"%w: expected %s, got %s",
 			ErrUnexpectedRoute,
 			RouteIdentity,
@@ -702,7 +769,6 @@ func (s *Server) handleNewConnection(
 	t.conn = cn
 	t.takeAcceptedMeta(cn)
 	t.remotePeer = peer
-	s.handshakeOpts.recordSession(s.storage, t, true)
 
 	slog.Info(
 		"session established",
@@ -778,7 +844,6 @@ func (s *Server) handleResume(
 	t.conn = cn
 	t.takeAcceptedMeta(cn)
 	t.remotePeer = peer
-	s.handshakeOpts.recordSession(s.storage, t, false)
 
 	slog.Info(
 		"session resumed",

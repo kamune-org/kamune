@@ -1893,3 +1893,173 @@ func TestVerifyTimeoutOptionsRejectNonPositive(t *testing.T) {
 		a.Error(err)
 	}
 }
+
+// stubbornConn ignores Close until the test ends, so a handshake can complete
+// after the server has tried to close the connection.
+type stubbornConn struct {
+	Conn
+}
+
+func (stubbornConn) Close() error { return nil }
+
+func TestCloseStopsHandshakesInProgress(t *testing.T) {
+	cases := []struct {
+		wrap func(Conn) Conn
+		name string
+		// completes is whether the handshake still completes after Close.
+		completes bool
+	}{
+		{name: "pending connection is closed", wrap: func(c Conn) Conn { return c }},
+		{
+			name:      "handshake completing after close",
+			wrap:      func(c Conn) Conn { return stubbornConn{Conn: c} },
+			completes: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			clientStore, cleanupClient := newTestStore(t)
+			defer cleanupClient()
+			serverStore, cleanupServer := newTestStore(t)
+			defer cleanupServer()
+
+			verifying := make(chan struct{})
+			release := make(chan struct{})
+			handlerRan := make(chan struct{}, 1)
+			l := newTestListener(net.ErrClosed)
+			server, err := NewServer(
+				"",
+				func(*Transport) error {
+					handlerRan <- struct{}{}
+					return nil
+				},
+				serverStore,
+				func(*storage.Storage, *storage.Peer) error {
+					close(verifying)
+					<-release
+					return nil
+				},
+				ServeWithListener(l),
+			)
+			a.NoError(err)
+			result := make(chan error, 1)
+			go func() { result <- server.ListenAndServe() }()
+
+			clientNet, serverNet := net.Pipe()
+			clientConn := newConn(clientNet)
+			serverConn := newConn(serverNet)
+			t.Cleanup(func() {
+				_ = clientConn.Close()
+				_ = serverConn.Close()
+			})
+			l.conns <- tc.wrap(serverConn)
+
+			dialer, err := NewDialer(
+				"",
+				clientStore,
+				func(*storage.Storage, *storage.Peer) error { return nil },
+				DialWithFunc(func(string) (Conn, error) {
+					return clientConn, nil
+				}),
+			)
+			a.NoError(err)
+			// The dialer reads as soon as it has a session, so a close
+			// frame from the server can be delivered over the pipe.
+			type dialResult struct {
+				dialErr error
+				recvErr error
+			}
+			dialed := make(chan dialResult, 1)
+			go func() {
+				tr, err := dialer.Dial()
+				if err != nil {
+					dialed <- dialResult{dialErr: err}
+					return
+				}
+				_, err = tr.Receive(Bytes(nil))
+				dialed <- dialResult{recvErr: err}
+			}()
+
+			<-verifying
+			a.NoError(server.Close())
+			close(release)
+
+			ctx, cancel := context.WithTimeout(
+				context.Background(), 10*time.Second,
+			)
+			defer cancel()
+			a.NoError(server.Shutdown(ctx))
+			a.NoError(<-result)
+			a.Empty(handlerRan, "handler started after Close")
+			sessions, err := serverStore.ListSessions()
+			a.NoError(err)
+			a.Empty(sessions, "session stored for a handshake dropped at Close")
+
+			got := <-dialed
+			if !tc.completes {
+				a.Error(got.dialErr)
+				return
+			}
+			a.NoError(got.dialErr)
+			a.ErrorIs(got.recvErr, ErrPeerDisconnected)
+		})
+	}
+}
+
+func TestShutdownWaitsForHandlers(t *testing.T) {
+	a := require.New(t)
+	clientStore, cleanupClient := newTestStore(t)
+	defer cleanupClient()
+	serverStore, cleanupServer := newTestStore(t)
+	defer cleanupServer()
+
+	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	started := make(chan struct{})
+	release := make(chan struct{})
+	l := newTestListener(net.ErrClosed)
+	server, err := NewServer(
+		"",
+		func(*Transport) error {
+			close(started)
+			<-release
+			return nil
+		},
+		serverStore,
+		verifier,
+		ServeWithListener(l),
+	)
+	a.NoError(err)
+	result := make(chan error, 1)
+	go func() { result <- server.ListenAndServe() }()
+
+	clientNet, serverNet := net.Pipe()
+	clientConn := newConn(clientNet)
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverNet.Close()
+	})
+	l.conns <- newConn(serverNet)
+	dialer, err := NewDialer(
+		"",
+		clientStore,
+		verifier,
+		DialWithFunc(func(string) (Conn, error) { return clientConn, nil }),
+	)
+	a.NoError(err)
+	_, err = dialer.Dial()
+	a.NoError(err)
+	<-started
+
+	short, cancelShort := context.WithTimeout(
+		context.Background(), 50*time.Millisecond,
+	)
+	defer cancelShort()
+	a.ErrorIs(server.Shutdown(short), context.DeadlineExceeded)
+	a.NoError(<-result)
+
+	close(release)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	a.NoError(server.Shutdown(ctx))
+}
