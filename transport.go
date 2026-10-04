@@ -14,7 +14,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/kamune-org/kamune/internal/engine"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -69,6 +68,10 @@ func isTimeout(err error) bool {
 // Send fails with ErrConnClosed. Only RouteCloseTransport tells the peer; in
 // the other cases the peer sees the connection drop, and an attempt to resume
 // it fails.
+//
+// A Transport invalidates only the tokens it is responsible for (see
+// [Transport.Close]). Once a resumption of its session on another
+// Transport has stored new tokens, ending this one leaves them alone.
 type Transport struct {
 	conn           Conn
 	acceptedMeta   any
@@ -81,12 +84,15 @@ type Transport struct {
 	storage        *storage.Storage
 	sessionID      string
 	resumptionRoot []byte
-	recvSequence   uint64
-	sendSequence   uint64
-	closeTimeout   time.Duration
-	sendMu         sync.Mutex
-	recvMu         sync.Mutex
-	established    bool
+	// tokens are the stored resumption tokens of the session that t
+	// invalidates when it ends (see [Transport.invalidateResumptionTokens]).
+	tokens       [][]byte
+	recvSequence uint64
+	sendSequence uint64
+	closeTimeout time.Duration
+	sendMu       sync.Mutex
+	recvMu       sync.Mutex
+	established  bool
 }
 
 func newTransport(
@@ -237,10 +243,19 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 	return metadata, nil
 }
 
-// Close closes the transport connection. It sends a RouteCloseTransport frame
-// before closing (best-effort — if the send fails, it closes directly) and
-// invalidates the session's resumption tokens, whether or not the frame could
-// be sent. It returns nil when Receive has already closed the transport.
+// Close ends the session and closes the transport connection. It sends a
+// RouteCloseTransport frame before closing (best-effort — if the send fails,
+// it closes directly) and invalidates the session's resumption tokens,
+// whether or not the frame could be sent, so neither side can resume the
+// session afterwards. To keep a session resumable after its connection
+// drops, as when Receive returns ErrConnClosed, use [Transport.CloseAbort]
+// instead. It returns nil when Receive has already closed the transport.
+//
+// The tokens invalidated are those this transport stored, or, for a
+// resumed transport that stored none, those left of the session it
+// resumed. Once a resumption of the session on another transport has
+// stored new tokens, closing this one leaves them alone, so closing a
+// transport that a resumption replaced does not end the resumed session.
 //
 // Close waits at most 5 seconds for the close frame to be sent, including
 // the wait for a Send already in progress, and then closes the connection
@@ -280,8 +295,8 @@ func (t *Transport) Close() error {
 }
 
 // CloseAbort closes the underlying connection abruptly without transmitting a
-// RouteCloseTransport frame or invalidating resumption tokens. Used when a
-// connection drops or fails keepalive.
+// RouteCloseTransport frame or invalidating resumption tokens, so the session
+// can still be resumed. Used when a connection drops or fails keepalive.
 func (t *Transport) CloseAbort() error {
 	return t.conn.Close()
 }
@@ -322,19 +337,36 @@ func (t *Transport) checkRoute(route Route) error {
 	return nil
 }
 
-// invalidateResumptionTokens deletes the session's stored resumption tokens.
-// It never creates the session: when the session is not in storage, for
-// example because the user deleted it, there is nothing to invalidate.
+// invalidateResumptionTokens deletes the session's stored resumption tokens
+// if they are still those of t.tokens. A resumption of the session that
+// stored new tokens since replaced them, and they are left alone. It never
+// creates the session: when the session is not in storage, for example
+// because the user deleted it, there is nothing to invalidate.
 func (t *Transport) invalidateResumptionTokens() {
-	if t.storage == nil || t.sessionID == "" {
+	if t.storage == nil || t.sessionID == "" || len(t.tokens) == 0 {
 		return
 	}
-	err := t.storage.DeleteMeta(t.sessionID, storage.ResumptionTokensKey)
-	if err != nil && !errors.Is(err, engine.ErrMissingNamespace) {
+	_, err := t.storage.DeleteListIfContains(
+		t.sessionID, storage.ResumptionTokensKey, t.tokens,
+	)
+	if err != nil {
 		slog.Error(
 			"invalidate resumption tokens", slog.Any("error", err),
 		)
 	}
+}
+
+// remainingResumptionTokens returns the tokens left of the session
+// sessionID after one was used to resume it. The resumed transport
+// invalidates them when it ends, unless it stores new ones.
+func remainingResumptionTokens(
+	store *storage.Storage, sessionID string,
+) [][]byte {
+	tokens, err := store.GetList(sessionID, storage.ResumptionTokensKey)
+	if err != nil {
+		slog.Error("read resumption tokens", slog.Any("error", err))
+	}
+	return tokens
 }
 
 func persistEstablishedSession(
@@ -348,15 +380,18 @@ func persistEstablishedSession(
 	if t.remotePeer != nil {
 		peerKey = t.remotePeer.PublicKey
 	}
+	tokens := t.deriveResumptionTokens()
 	err := store.PutSessionResumption(
 		t.sessionID,
 		peerKey,
-		t.deriveResumptionTokens(),
+		tokens,
 		setEstablished,
 	)
 	if err != nil {
 		slog.Error("persist resumption state", slog.Any("error", err))
+		return
 	}
+	t.tokens = tokens
 }
 
 // SetDeadline sets the read and write deadlines on the underlying connection.

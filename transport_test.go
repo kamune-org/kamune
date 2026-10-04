@@ -273,10 +273,7 @@ func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 			tr := newTransport(conn, serde, "test-session", cipher, cipher)
 			tr.established = true
 			store := newTransportTestStorage(t)
-			tr.storage = store
-			a.NoError(store.PutSessionResumption(
-				tr.sessionID, nil, [][]byte{bytes.Repeat([]byte{7}, 32)}, false,
-			))
+			storeResumptionTokens(t, tr, store, 7)
 			for range tc.before {
 				_, err := tr.Receive(Bytes(nil))
 				a.NoError(err)
@@ -743,18 +740,48 @@ func TestTransportSessionRoutesRejectedBeforeEstablished(t *testing.T) {
 	a.True(tr.conn.(*queuedConn).closed)
 }
 
+// storeResumptionTokens stores resumption tokens of tr, derived from
+// secret, in store, as an established session does.
+func storeResumptionTokens(
+	t *testing.T, tr *Transport, store *storage.Storage, secret byte,
+) {
+	t.Helper()
+	tr.setResumptionRoot(bytes.Repeat([]byte{secret}, 32))
+	persistEstablishedSession(store, tr, true)
+	require.New(t).Len(tr.tokens, resumptionTokenCount)
+}
+
 func TestTransportCloseClearsResumptionTokens(t *testing.T) {
 	a := require.New(t)
 	store := newTransportTestStorage(t)
 	tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
-	tr.storage = store
-	tok := bytes.Repeat([]byte{0x11}, 32)
-	a.NoError(store.PutSessionResumption(
-		tr.sessionID, nil, [][]byte{tok}, false,
-	))
+	storeResumptionTokens(t, tr, store, 0x11)
 
 	a.NoError(tr.Close())
 	_, err := store.PopList(tr.sessionID, storage.ResumptionTokensKey)
+	a.ErrorIs(err, storage.ErrNotFound)
+}
+
+// TestTransportCloseKeepsTokensOfResumedSession closes a transport after
+// a resumption of its session on another transport stored new tokens,
+// and checks that those stay, and that closing the newer one ends the
+// session.
+func TestTransportCloseKeepsTokensOfResumedSession(t *testing.T) {
+	a := require.New(t)
+	store := newTransportTestStorage(t)
+	old := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
+	storeResumptionTokens(t, old, store, 0x11)
+	resumed := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
+	a.Equal(old.sessionID, resumed.sessionID)
+	storeResumptionTokens(t, resumed, store, 0x12)
+
+	a.NoError(old.Close())
+	tokens, err := store.GetList(old.sessionID, storage.ResumptionTokensKey)
+	a.NoError(err)
+	a.Equal(resumed.tokens, tokens, "resumed session lost its tokens")
+
+	a.NoError(resumed.Close())
+	_, err = store.PopList(old.sessionID, storage.ResumptionTokensKey)
 	a.ErrorIs(err, storage.ErrNotFound)
 }
 
@@ -762,11 +789,7 @@ func TestTransportReceiveCloseClearsResumptionTokens(t *testing.T) {
 	a := require.New(t)
 	store := newTransportTestStorage(t)
 	tr := incomingTransport(t, RouteCloseTransport, 1, Bytes(nil))
-	tr.storage = store
-	tok := bytes.Repeat([]byte{0x22}, 32)
-	a.NoError(store.PutSessionResumption(
-		tr.sessionID, nil, [][]byte{tok}, false,
-	))
+	storeResumptionTokens(t, tr, store, 0x22)
 
 	_, err := tr.Receive(Bytes(nil))
 	a.ErrorIs(err, ErrPeerDisconnected)
@@ -923,11 +946,7 @@ func TestTransportCloseClearsTokensWhenCloseFrameFails(t *testing.T) {
 			tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
 			tr.conn = tc.conn()
 			tr.closeTimeout = 50 * time.Millisecond
-			tr.storage = store
-			tok := bytes.Repeat([]byte{0x44}, 32)
-			a.NoError(store.PutSessionResumption(
-				tr.sessionID, nil, [][]byte{tok}, true,
-			))
+			storeResumptionTokens(t, tr, store, 0x44)
 
 			a.NoError(tr.Close())
 			_, err := store.PopList(tr.sessionID, storage.ResumptionTokensKey)

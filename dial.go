@@ -171,6 +171,7 @@ func (d *Dialer) attemptResume(
 	if err != nil {
 		return nil, fmt.Errorf("getting resumption token: %w", err)
 	}
+	remaining := remainingResumptionTokens(d.storage, sessionID)
 	peer, err := d.storage.GetPeer(sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("getting session peer: %w", err)
@@ -200,6 +201,7 @@ func (d *Dialer) attemptResume(
 
 	t.conn = cn
 	t.remotePeer = peer
+	t.tokens = remaining
 	d.handshakeOpts.recordSession(d.storage, t, false)
 
 	slog.Info("session resumed", slog.String("session_id", t.sessionID))

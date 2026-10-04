@@ -212,6 +212,103 @@ func TestDialPersistsAndResumesSession(t *testing.T) {
 	a.NoError(<-serveErr)
 }
 
+// dialServed connects a dialer on clientStore to a server on serverStore
+// over a pipe, resuming sessionID unless it is empty, and returns both ends
+// of the session once the server's handler has returned, which closes the
+// server's end of the pipe.
+func dialServed(
+	t *testing.T, clientStore, serverStore *storage.Storage, sessionID string,
+) (client, server *Transport) {
+	t.Helper()
+	a := require.New(t)
+	verifier := func(store *storage.Storage, peer *storage.Peer) error {
+		return store.StorePeer(peer)
+	}
+	clientNet, serverNet := net.Pipe()
+	clientConn := newConn(clientNet)
+	serverConn := newConn(serverNet)
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+	})
+
+	served := make(chan *Transport, 1)
+	srv, err := NewServer(
+		"",
+		func(tr *Transport) error {
+			served <- tr
+			_, err := tr.Send(Bytes([]byte("ok")), RouteExchangeMessages)
+			return err
+		},
+		serverStore,
+		verifier,
+	)
+	a.NoError(err)
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- srv.serve(serverConn)
+	}()
+
+	opts := []DialOption{DialWithFunc(func(string) (Conn, error) {
+		return clientConn, nil
+	})}
+	if sessionID != "" {
+		opts = append(opts, DialWithResume(sessionID))
+	}
+	dialer, err := NewDialer("", clientStore, verifier, opts...)
+	a.NoError(err)
+	client, err = dialer.Dial()
+	a.NoError(err, "dial")
+	msg := Bytes(nil)
+	_, err = client.Receive(msg)
+	a.NoError(err)
+	a.Equal([]byte("ok"), msg.Value)
+	a.NoError(<-serveErr)
+	return client, <-served
+}
+
+// TestClosingReplacedTransportKeepsResumedSession drops a session, resumes
+// it, closes the transport of the dropped connection on one side, and
+// checks that the resumed session can still be resumed after it drops.
+func TestClosingReplacedTransportKeepsResumedSession(t *testing.T) {
+	cases := []struct {
+		closeOld func(client, server *Transport) error
+		name     string
+	}{
+		{
+			name:     "dialer closes its old transport",
+			closeOld: func(c, _ *Transport) error { return c.Close() },
+		},
+		{
+			name:     "server closes its old transport",
+			closeOld: func(_, s *Transport) error { return s.Close() },
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			clientStore, cleanupClient := newTestStore(t)
+			defer cleanupClient()
+			serverStore, cleanupServer := newTestStore(t)
+			defer cleanupServer()
+
+			oldClient, oldServer := dialServed(
+				t, clientStore, serverStore, "",
+			)
+			sessionID := oldClient.SessionID()
+			a.NoError(oldClient.CloseAbort())
+
+			resumed, _ := dialServed(t, clientStore, serverStore, sessionID)
+			a.Equal(sessionID, resumed.SessionID())
+			_ = tc.closeOld(oldClient, oldServer)
+			a.NoError(resumed.CloseAbort())
+
+			again, _ := dialServed(t, clientStore, serverStore, sessionID)
+			a.Equal(sessionID, again.SessionID())
+		})
+	}
+}
+
 type metaConn struct {
 	Conn
 	v any

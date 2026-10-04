@@ -1401,6 +1401,61 @@ func TestStoreAndRetrieveResumptionTokens(t *testing.T) {
 	a.NotEqual(tokens[0], tok2)
 }
 
+func TestDeleteListIfContains(t *testing.T) {
+	stored := [][]byte{makeToken(1, 32), makeToken(2, 32)}
+	cases := []struct {
+		name    string
+		session string
+		entries [][]byte
+		deleted bool
+	}{
+		{
+			name:    "holds one of them",
+			session: "sess-list",
+			entries: [][]byte{makeToken(9, 32), makeToken(2, 32)},
+			deleted: true,
+		},
+		{
+			name:    "holds none of them",
+			session: "sess-list",
+			entries: [][]byte{makeToken(9, 32), makeToken(2, 16)},
+		},
+		{
+			name:    "no entries",
+			session: "sess-list",
+		},
+		{
+			name:    "missing session",
+			session: "other",
+			entries: stored,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			s, cleanup := newTestStorage(t)
+			defer cleanup()
+			a.NoError(s.PutSessionResumption("sess-list", nil, stored, true))
+
+			deleted, err := s.DeleteListIfContains(
+				tc.session, ResumptionTokensKey, tc.entries,
+			)
+			a.NoError(err)
+			a.Equal(tc.deleted, deleted)
+			list, err := s.GetList("sess-list", ResumptionTokensKey)
+			a.NoError(err)
+			if tc.deleted {
+				a.Nil(list)
+				return
+			}
+			a.Equal(stored, list)
+			list, err = s.GetList("other", ResumptionTokensKey)
+			a.NoError(err)
+			a.Nil(list)
+		})
+	}
+}
+
 func TestPopSessionToken_Sequential(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)

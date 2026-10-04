@@ -825,6 +825,7 @@ func (s *Server) handleResume(
 	if err != nil {
 		return s.rejectResume(ec, "token invalid")
 	}
+	remaining := remainingResumptionTokens(s.storage, sessionID)
 
 	// Resume accepted — send accept and proceed to handshake.
 	if err := sendResumeAccept(ec, s.attest, true); err != nil {
@@ -846,6 +847,7 @@ func (s *Server) handleResume(
 	t.conn = cn
 	t.takeAcceptedMeta(cn)
 	t.remotePeer = peer
+	t.tokens = remaining
 
 	slog.Info(
 		"session resumed",

@@ -392,6 +392,75 @@ func (s *Storage) RemoveListItem(sessionID, key string, entry []byte) error {
 	return nil
 }
 
+// GetList returns the entries of the packed list stored under the given
+// key, or nil when the list or its session is missing.
+func (s *Storage) GetList(sessionID, key string) ([][]byte, error) {
+	var list [][]byte
+	err := s.engine.Query(func(b engine.Namespace) error {
+		data, err := s.sessionMeta(b, sessionID).GetEncrypted([]byte(key))
+		if err != nil {
+			return err
+		}
+		list, err = deserializeList(data)
+		return err
+	})
+	switch {
+	case isMissing(err):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("get list %s/%s: %w", sessionID, key, err)
+	}
+	return list, nil
+}
+
+// DeleteListIfContains deletes the packed list stored under the given key
+// when it holds any of entries, and reports whether it did. A list that
+// holds none of them, such as one that replaced the list entries came
+// from, is left as it is. A missing list or session deletes nothing.
+func (s *Storage) DeleteListIfContains(
+	sessionID, key string, entries [][]byte,
+) (bool, error) {
+	var deleted bool
+	err := s.engine.Command(func(b engine.Namespace) error {
+		meta := s.sessionMeta(b, sessionID)
+		data, err := meta.GetEncrypted([]byte(key))
+		if err != nil {
+			return err
+		}
+		list, err := deserializeList(data)
+		if err != nil {
+			return err
+		}
+		if !containsAny(list, entries) {
+			return nil
+		}
+		deleted = true
+		return meta.Delete([]byte(key))
+	})
+	switch {
+	case isMissing(err):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf(
+			"delete list %s/%s: %w", sessionID, key, err,
+		)
+	}
+	return deleted, nil
+}
+
+// containsAny reports whether list holds any of entries.
+func containsAny(list, entries [][]byte) bool {
+	for _, item := range list {
+		for _, entry := range entries {
+			if len(item) == len(entry) &&
+				subtle.ConstantTimeCompare(item, entry) == 1 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // serializeList encodes a list as: uint32(count) || elem_0 || ... || elem_N-1.
 func serializeList(list [][]byte) []byte {
 	count := uint32(len(list))
