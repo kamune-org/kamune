@@ -692,12 +692,8 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 		case <-att.ctx.Done():
 			err = errAttemptCancelled
 		}
-		if err == nil && isNew {
-			peer.FirstSeen = time.Now()
-			if serr := store.StorePeer(peer); serr != nil {
-				slog.Error("failed to store peer", "error", serr)
-			}
-		}
+		// The handshake can still fail after an accept, so the peer is
+		// stored only once its session is established; see enterChat.
 		return err
 	}
 }
@@ -800,6 +796,7 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if peer := t.RemotePeer(); peer != nil {
+		rememberPeer(m.store, peer)
 		err := m.store.CreateSession(t.SessionID(), peer.PublicKey)
 		if err != nil {
 			slog.Warn("failed to create session record",
@@ -867,6 +864,20 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(load, tickCountdown())
 	}
 	return m, load
+}
+
+// rememberPeer stores peer, whose session has been established, unless it
+// is stored already. The verifier does not store a peer the user accepts,
+// since its handshake can still fail after that.
+func rememberPeer(store *storage.Storage, peer *storage.Peer) {
+	if _, err := store.FindPeer(peer.PublicKey); err == nil {
+		return
+	}
+	p := *peer
+	p.FirstSeen = time.Now()
+	if err := store.StorePeer(&p); err != nil {
+		slog.Error("failed to store peer", slog.Any("error", err))
+	}
 }
 
 // loadChatHistory returns a command that reads the history of the session

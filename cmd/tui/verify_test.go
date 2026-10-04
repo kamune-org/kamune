@@ -322,3 +322,29 @@ func TestEnterChat_StopsDirectServer(t *testing.T) {
 		a.Fail("the server still takes peers during the chat")
 	}
 }
+
+func TestVerifier_PeerIsStoredOnlyWithItsSession(t *testing.T) {
+	a := require.New(t)
+	m, msgs, _ := promptModel(t)
+	m.state = stateConnecting
+	tr, _ := peerSession(t)
+	peer := tr.RemotePeer()
+	done := runVerifier(m.mkVerifier(m.att), m.store, peer)
+	m.Update(waitFor(t, msgs))
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	a.NoError(waitFor(t, done))
+
+	// Accepted, but the handshake has not finished yet.
+	_, err := m.store.FindPeer(peer.PublicKey)
+	a.Error(err)
+
+	m.Update(connectedMsg{att: m.att, transport: tr})
+	a.Equal(stateChat, m.state)
+	stored, err := m.store.FindPeer(peer.PublicKey)
+	a.NoError(err)
+	a.Equal(peer.Name, stored.Name)
+	sessions, err := m.store.ListSessionsByRecent()
+	a.NoError(err)
+	a.Len(sessions, 1)
+	a.Equal(tr.SessionID(), sessions[0].ID)
+}
