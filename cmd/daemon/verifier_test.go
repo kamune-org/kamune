@@ -632,3 +632,43 @@ func TestDialedUnknownServerIsStoredOnceConnected(t *testing.T) {
 	_, err = server.store().FindPeer(clientPub)
 	a.Error(err, "the auto-accepted client was stored")
 }
+
+// stop_server ends the prompts of the peers whose handshakes the stopped
+// server drops: they are rejected, so that no prompt outlives the server,
+// and their dials fail.
+func TestStopServerEndsPendingVerifications(t *testing.T) {
+	a := require.New(t)
+	server, serverRec := newTestDaemon(t, VerificationModeQuick, false)
+	client, clientRec := newTestDaemon(t, VerificationModeQuick, false)
+	trustPeer(t, client, server)
+
+	addr := startTestServer(t, server, serverRec)
+	client.handleDial(Command{
+		ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
+	})
+	evt := serverRec.waitFor(t, isEvent(EvtVerifyPeer))
+	id, ok := evt.Data["request_id"].(float64)
+	a.True(ok)
+
+	server.handleStopServer(Command{ID: "stop"})
+	server.verifMu.Lock()
+	pending := len(server.verifRequests)
+	server.verifMu.Unlock()
+	a.Zero(pending, "a prompt outlived the server")
+
+	server.handleVerifyResponse(Command{
+		ID: "late",
+		Params: mustJSON(VerifyResponseParams{
+			RequestID: int64(id), Accepted: true,
+		}),
+	})
+	evt = serverRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "late"
+	})
+	a.Equal("verification_not_found", evt.Data["code"])
+	evt = clientRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "dial" &&
+			(e.Evt == EvtSessionStarted || e.Evt == EvtError)
+	})
+	a.Equal(EvtError, evt.Evt, "the dial got a session")
+}

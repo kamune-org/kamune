@@ -499,6 +499,9 @@ func (d *Daemon) stopServer() {
 	if server != nil {
 		_ = server.Close()
 	}
+	// The server drops the handshakes still running, so their prompts
+	// can only be refused.
+	d.rejectInboundVerifications()
 	for _, s := range sessions {
 		if transport := s.stop(); transport != nil {
 			_ = transport.Close()
@@ -510,6 +513,16 @@ func (d *Daemon) stopServer() {
 	d.reportClosed(sessions)
 	if len(sessions) > 0 {
 		d.loadHistorySessions()
+	}
+	if server != nil {
+		// Wait for the handshakes and handlers still running, so that
+		// none of them is left behind the stopped server.
+		ctx, cancel := context.WithTimeout(context.Background(),
+			channelTimeout)
+		if err := server.Shutdown(ctx); err != nil {
+			slog.Warn("Timeout waiting for the server's handshakes")
+		}
+		cancel()
 	}
 
 	if serverDone != nil {

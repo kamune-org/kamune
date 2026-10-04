@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-stop-server",
   "title": "stop_server params",
-  "description": "Stops the running server.",
+  "description": "Stops the running server and closes every session, each with session_closed. A pending verify_peer prompt of a peer that connected to the server is rejected, since the stopped server drops its handshake, and the command waits up to 5 seconds for such handshakes to end.",
   "type": "object",
   "properties": {},
   "additionalProperties": false

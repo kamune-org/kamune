@@ -35,6 +35,11 @@ var (
 		"%w: too many verifications are pending",
 		kamune.ErrVerificationFailed,
 	)
+	// errServerStopped rejects a peer that connected to the server while
+	// its verification was pending and the server stopped.
+	errServerStopped = fmt.Errorf(
+		"%w: the server stopped", kamune.ErrVerificationFailed,
+	)
 )
 
 type pendingVerification struct {
@@ -319,6 +324,23 @@ func (d *Daemon) endVerification(reqID int64) {
 	d.emit(EvtStatusChanged, "", MapS{
 		"status": string(d.verifPrevStatus), "message": d.verifPrevMsg,
 	})
+}
+
+// rejectInboundVerifications rejects every pending verification of a peer
+// that connected to the server, as the server stops. Its prompt ends, and
+// so does its handshake, which the stopped server would drop anyway.
+func (d *Daemon) rejectInboundVerifications() {
+	d.verifMu.Lock()
+	defer d.verifMu.Unlock()
+	for _, p := range d.verifRequests {
+		if !p.inbound {
+			continue
+		}
+		select {
+		case p.result <- errServerStopped:
+		default:
+		}
+	}
 }
 
 // awaitVerification waits for the verdict on reqID, for at most
