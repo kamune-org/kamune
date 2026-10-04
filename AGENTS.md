@@ -58,7 +58,8 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 ## Storage
 
 - Root uses BoltDB with optional passphrase encryption
-- Relay is stateless (in-memory session tokens only)
+- Relay keeps sessions and tokens in memory only; it writes to disk only its
+  self-signed TLS certificate and key, kept in `server.data_dir`
 
 ## Conventions
 

@@ -16,9 +16,11 @@ the relay is a low-trust message forwarder.
 - **Blind**: a relay that forwards frames unchanged never sees public keys,
   identities, or message content. An active relay can read the peers' public
   keys and names, but not their messages (see [Threat Model](#threat-model)).
-- **Stateless**: no persistent storage, no queues, no offline messages. Tokens,
-  sessions, and rate-limit counters are ephemeral, scoped to the relay process
-  lifetime.
+- **Stateless**: no queues, no offline messages. Tokens, sessions, and
+  rate-limit counters are ephemeral, scoped to the relay process lifetime. The
+  relay writes to disk only the self-signed TLS certificate and key it keeps in
+  `server.data_dir` for a `[tls]` or `[wss]` listener without a certificate of
+  its own (see [TLS](#tls-tls)).
 - **Zero metadata**: no social graph, no presence tracking, no persistent
   identifiers across connections.
 - **Out-of-band rendezvous**: the only thing peers exchange is a short random
@@ -471,10 +473,39 @@ VPN backends, and development.
 A TLS-encrypted TCP listener using the same length-prefixed framing, but wrapped
 in a TLS 1.3 connection. To passive DPI this is indistinguishable from any other
 TLS service on port 443 — no HTTP upgrade, no opcodes, no protocol fingerprint.
+The `[tls]` and `[wss]` listeners accept TLS 1.3 only.
 
-**Auto-generated certificate.** When `cert_file` and `key_file` are specified
-but the files don't exist, the relay generates a self-signed TLS certificate.
-This certificate is valid for 10 years and contains no identifying metadata.
+**Certificates.** `[tls]` and `[wss]` each take a `cert_file` and a `key_file`
+in PEM, set together or not at all. A configured file that is missing or does
+not load stops the relay at startup. When both are empty, the listener uses the
+relay's self-signed certificate, which `[tls]` and `[wss]` share:
+
+- The relay creates it on first use in `server.data_dir` (default
+  `kamune-relay` in the user's configuration directory, such as
+  `~/.config/kamune-relay`) as `relay-cert.pem` and `relay-key.pem`, and loads
+  the same files on later starts. It never replaces them; if only one of the
+  two is there, or one does not load, startup fails.
+- It is an RSA-2048 certificate for `CN=localhost`, with the names `localhost`,
+  `127.0.0.1` and `::1`, valid for 10 years. Nothing in it names the relay or
+  kamune.
+- Removing both files makes the relay create a new certificate at the next
+  start.
+
+**Pinning.** At startup the relay logs each listener's certificate fingerprint,
+a SHA-256 over the certificate in 64 lowercase hex digits:
+
+```
+INFO tls certificate listener=tls sha256=<fingerprint>
+```
+
+A self-signed certificate cannot pass normal certificate checks, so clients
+authenticate the relay by pinning that fingerprint. The Go client builds such a
+TLS configuration with `relayconn.PinnedTLSConfig`, from a fingerprint that
+`relayconn.ParseCertFingerprint` reads in this form or in the colon-separated
+form `openssl x509 -noout -fingerprint -sha256` prints. A pin covers the whole
+certificate, so when the certificate changes every client must pin the new
+fingerprint. A client that turns certificate checks off instead hands an active
+attacker the PSK and the session token (see [Threat Model](#threat-model)).
 
 ### Comparison
 
@@ -1195,6 +1226,9 @@ The relay operator is responsible for:
   expected load.
 - Disabling `expose_health` and `expose_ip` on public deployments to avoid
   leaking connection metadata.
+- When `[tls]` or `[wss]` uses the self-signed certificate, giving clients its
+  fingerprint to pin, and keeping `server.data_dir` across restarts and
+  redeployments so that the pin stays valid.
 - When the broker is enabled, opening UDP `4788` (or the configured port)
   in the host firewall. The broker has no TLS layer; if the deployment
   hides the relay's IP behind a CDN, the broker cannot be CDN-fronted

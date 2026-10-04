@@ -71,20 +71,33 @@ tracked client IPs. Set `disabled = true` to turn it off.
 ## TLS / Certificates
 
 The `[tls]` and `[wss]` blocks are independent listeners with their own cert
-settings. Each can be in one of three modes:
+settings. Both accept TLS 1.3 only. Each can be in one of three modes:
 
-### 1. In-memory self-signed (default — zero config)
+### 1. Self-signed, kept in `data_dir` (default, zero config)
 
-Leave `cert_file` and `key_file` empty in the block. The relay generates a fresh
-self-signed certificate at startup and keeps it in memory only. Nothing is
-written to disk. Suitable for dev and local testing. Clients will see a
-certificate verification error; pin the cert or accept the warning on the client
-side.
+Leave `cert_file` and `key_file` empty in the block. The relay then uses a
+self-signed certificate that it creates on first use in `server.data_dir` as
+`relay-cert.pem` and `relay-key.pem`, and loads again on every later start.
+`data_dir` defaults to `kamune-relay` in the user's config directory
+(`~/.config/kamune-relay` on Linux, `/var/lib/kamune-relay/.config/kamune-relay`
+in the Docker image). `[tls]` and `[wss]` share this certificate. It is issued
+to `CN=localhost` and is valid for 10 years.
 
-When both `[tls]` and `[wss]` are enabled with empty paths, the relay generates
-two independent in-memory certs (one per listener). The two listeners present
-different identities to clients. Operators who want the same identity on both
-should point both blocks at the same on-disk cert.
+At startup the relay logs the SHA-256 fingerprint of each listener's
+certificate:
+
+```
+INFO tls certificate listener=tls sha256=<64 hex digits>
+```
+
+Clients authenticate the relay by pinning that value; Go clients build the TLS
+configuration with `relayconn.PinnedTLSConfig`. A client that turns certificate
+checks off instead leaves the PSK and session tokens open to an active attacker.
+
+The relay never replaces these files, so the pin stays valid across restarts.
+To rotate the certificate, remove both files; the relay creates a new one at
+the next start, and every client must then pin the new fingerprint. Startup
+fails if only one of the two files is there.
 
 ### 2. On-disk self-signed
 
@@ -95,7 +108,7 @@ openssl req -x509 -newkey rsa:2048 \
   -keyout assets/cert/server.key \
   -out    assets/cert/server.crt \
   -days 3650 -nodes \
-  -subj "/CN=kamune-relay"
+  -subj "/CN=localhost"
 ```
 
 Then in `assets/config.toml`:
@@ -120,8 +133,8 @@ invalid — it never auto-generates or overwrites files at runtime.
 ### 3. Production cert
 
 Replace the self-signed cert with one from a real CA (Let's Encrypt, internal
-CA, etc.). Format must be PEM-encoded. The key file must be `0600` and readable
-by the relay process. Same hard-error behavior as mode 2.
+CA, etc.). Format must be PEM-encoded. Keep the key file readable by the relay
+process only (for example mode `0600`). Same hard-error behavior as mode 2.
 
 ## Cross-Transport Sessions
 
