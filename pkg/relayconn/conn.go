@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kamune-org/kamune/pkg/exchange"
@@ -60,6 +61,32 @@ type RelayConn struct {
 
 func (c *RelayConn) TTL() time.Duration        { return c.ttl }
 func (c *RelayConn) SessionTTL() time.Duration { return c.sessionTTL }
+
+// MaxFrameSize reports the largest payload WriteBytes accepts: the relay
+// channel's limit less the Frame and Message encoding around the payload,
+// and never less than 1. It reports 0 (no limit) when the relay transport
+// has no limit. It implements exchange.FrameLimiter, so a larger write is
+// rejected with exchange.ErrFrameTooLarge and the relay session stays
+// usable.
+func (c *RelayConn) MaxFrameSize() int {
+	limit := c.channel.MaxFrameSize()
+	if limit <= 0 {
+		return 0
+	}
+	n := limit
+	for n > 1 && msgFrameSize(n) > limit {
+		n--
+	}
+	return n
+}
+
+// msgFrameSize returns the encoded size of a message Frame carrying n bytes
+// of payload. For n == 0 it overstates the size, since an empty payload is
+// not encoded at all.
+func msgFrameSize(n int) int {
+	msg := protowire.SizeTag(1) + protowire.SizeBytes(n)
+	return protowire.SizeTag(3) + protowire.SizeBytes(msg)
+}
 
 func newRelayConn(
 	ctx context.Context, ch *exchange.Channel, channelMu *sync.Mutex,

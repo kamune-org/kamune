@@ -48,6 +48,11 @@ func (f *Framing) ReadBytes() ([]byte, error) {
 	return data, nil
 }
 
+// MaxFrameSize reports the largest frame WriteBytes accepts, the bound of
+// the 2-byte length prefix. It implements exchange.FrameLimiter, so an
+// exchange.Channel rejects a larger frame before sealing it.
+func (f *Framing) MaxFrameSize() int { return math.MaxUint16 }
+
 // WriteBytes writes one length-prefixed frame.
 func (f *Framing) WriteBytes(data []byte) error {
 	if len(data) > math.MaxUint16 {

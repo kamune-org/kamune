@@ -3,6 +3,7 @@ package relayconn
 import (
 	"context"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -961,4 +962,74 @@ func TestListenerMultipleBufferedMessages(t *testing.T) {
 		a.NoError(err)
 		a.Equal(want, string(got))
 	}
+}
+
+func TestMsgFrameSize_MatchesProto(t *testing.T) {
+	a := require.New(t)
+	for _, n := range []int{1, 127, 128, 16383, 16384, math.MaxUint16} {
+		frame := &pb.Frame{Kind: &pb.Frame_Msg{
+			Msg: &pb.Message{Data: make([]byte, n)},
+		}}
+		a.Equal(proto.Size(frame), msgFrameSize(n), "payload %d", n)
+	}
+}
+
+// TestRelayConn_OversizeWriteKeepsSessionUsable checks that RelayConn
+// reports the exact payload limit of a TCP relay leg, rejects a larger
+// write before sealing it, and keeps the relay channel usable afterwards.
+func TestRelayConn_OversizeWriteKeepsSessionUsable(t *testing.T) {
+	a := require.New(t)
+	c, s := net.Pipe()
+	defer c.Close()
+	defer s.Close()
+
+	type accepted struct {
+		ch  *exchange.Channel
+		err error
+	}
+	acceptCh := make(chan accepted, 1)
+	go func() {
+		ch, err := exchange.Accept(newTCPAdapter(s))
+		acceptCh <- accepted{ch, err}
+	}()
+	clientCh, err := exchange.Initiate(newTCPAdapter(c))
+	a.NoError(err)
+	defer clientCh.Close()
+	res := <-acceptCh
+	a.NoError(res.err)
+	serverCh := res.ch
+	defer serverCh.Close()
+
+	var mu sync.Mutex
+	rc := newRelayConn(t.Context(), clientCh, &mu)
+	rc.closeFn = func() { clientCh.Close() }
+	defer rc.Close()
+
+	limit := rc.MaxFrameSize()
+	a.Equal(math.MaxUint16-exchange.Overhead-8, limit)
+
+	err = rc.WriteBytes(make([]byte, limit+1))
+	a.ErrorIs(err, exchange.ErrFrameTooLarge)
+
+	received := make(chan []byte, 2)
+	go func() {
+		for range 2 {
+			data, err := serverCh.ReadBytes()
+			if err != nil {
+				data = []byte("read error: " + err.Error())
+			}
+			var frame pb.Frame
+			if err := proto.Unmarshal(data, &frame); err != nil {
+				data = []byte("bad frame: " + err.Error())
+			} else {
+				data = frame.GetMsg().GetData()
+			}
+			received <- data
+		}
+	}()
+
+	a.NoError(rc.WriteBytes(make([]byte, limit)))
+	a.Len(<-received, limit)
+	a.NoError(rc.WriteBytes([]byte("after oversize")))
+	a.Equal([]byte("after oversize"), <-received)
 }

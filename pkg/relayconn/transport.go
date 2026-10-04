@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"math"
 	"net"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/kamune-org/kamune/pkg/exchange"
 )
 
 // DefaultMaxFrameSize is the default upper bound on a single frame
@@ -40,6 +43,15 @@ func dialWS(
 	return ws, nil
 }
 
+// The relay transports report their frame limit, so an exchange.Channel
+// rejects a frame they cannot carry before sealing it.
+var (
+	_ exchange.FrameLimiter = (*tcpAdapter)(nil)
+	_ exchange.FrameLimiter = (*tlsAdapter)(nil)
+	_ exchange.FrameLimiter = (*wsAdapter)(nil)
+	_ exchange.FrameLimiter = (*RelayConn)(nil)
+)
+
 // tcpAdapter wraps a net.Conn with the relay's length-prefixed framing.
 type tcpAdapter struct {
 	f *Framing
@@ -52,6 +64,7 @@ func newTCPAdapter(conn net.Conn) *tcpAdapter {
 func (a *tcpAdapter) ReadBytes() ([]byte, error) { return a.f.ReadBytes() }
 func (a *tcpAdapter) WriteBytes(d []byte) error  { return a.f.WriteBytes(d) }
 func (a *tcpAdapter) Close() error               { return a.f.Close() }
+func (a *tcpAdapter) MaxFrameSize() int          { return a.f.MaxFrameSize() }
 func (a *tcpAdapter) SetDeadline(t time.Time) error {
 	return a.f.SetDeadline(t)
 }
@@ -71,6 +84,7 @@ func newTLSAdapter(conn *tls.Conn) *tlsAdapter {
 func (a *tlsAdapter) ReadBytes() ([]byte, error) { return a.f.ReadBytes() }
 func (a *tlsAdapter) WriteBytes(d []byte) error  { return a.f.WriteBytes(d) }
 func (a *tlsAdapter) Close() error               { return a.f.Close() }
+func (a *tlsAdapter) MaxFrameSize() int          { return a.f.MaxFrameSize() }
 func (a *tlsAdapter) SetDeadline(t time.Time) error {
 	return a.f.SetDeadline(t)
 }
@@ -131,6 +145,12 @@ func (w *wsAdapter) WriteBytes(data []byte) error {
 	}
 	return err
 }
+
+// MaxFrameSize reports the largest frame WriteBytes accepts. A WebSocket
+// message has no 16-bit bound of its own, but the relay may forward the
+// frame to a peer on a TCP or TLS leg, which carries at most
+// math.MaxUint16 bytes, so every relay transport reports the same limit.
+func (w *wsAdapter) MaxFrameSize() int { return math.MaxUint16 }
 
 func (w *wsAdapter) Close() error {
 	err := w.conn.Close(websocket.StatusNormalClosure, "closed")
