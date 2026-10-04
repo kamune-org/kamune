@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kamune-org/kamune"
@@ -116,15 +117,11 @@ func parseVerificationMode(s string) (VerificationMode, bool) {
 func (d *Daemon) createStrictVerifier(inbound bool) kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
 		d.forgetAdmitted(peer.PublicKey)
-		known := false
-		if _, err := store.FindPeer(peer.PublicKey); err == nil {
-			known = true
-		}
-
-		if err := d.askUser(peer, known, inbound, "strict"); err != nil {
+		id := identifyPeer(store, peer)
+		if err := d.askUser(peer, id, inbound, "strict"); err != nil {
 			return err
 		}
-		if !known {
+		if !id.Known {
 			d.noteAdmitted(peer.PublicKey)
 		}
 		return nil
@@ -132,16 +129,20 @@ func (d *Daemon) createStrictVerifier(inbound bool) kamune.RemoteVerifier {
 }
 
 // createQuickVerifier admits a stored peer without asking and asks the
-// user about any other peer.
+// user about any other peer. The name a peer claims plays no part: a
+// stored key is admitted, and its session named by its stored name,
+// whatever name it claims, and an unknown key is asked about whatever
+// name it claims.
 func (d *Daemon) createQuickVerifier(inbound bool) kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
 		d.forgetAdmitted(peer.PublicKey)
-		if _, err := store.FindPeer(peer.PublicKey); err == nil {
-			d.addLogEntry("INFO", "Auto-accepted known peer: "+peer.Name)
+		id := identifyPeer(store, peer)
+		if id.Known {
+			d.addLogEntry("INFO", "Auto-accepted known peer: "+id.logName())
 			return nil
 		}
 
-		if err := d.askUser(peer, false, inbound, "quick"); err != nil {
+		if err := d.askUser(peer, id, inbound, "quick"); err != nil {
 			return err
 		}
 		d.noteAdmitted(peer.PublicKey)
@@ -154,9 +155,10 @@ func (d *Daemon) createQuickVerifier(inbound bool) kamune.RemoteVerifier {
 // peer without asking. A session with a peer that is not stored cannot be
 // resumed.
 func (d *Daemon) createAutoAcceptVerifier() kamune.RemoteVerifier {
-	return func(_ *storage.Storage, peer *storage.Peer) error {
+	return func(store *storage.Storage, peer *storage.Peer) error {
 		d.forgetAdmitted(peer.PublicKey)
-		d.addLogEntry("INFO", "Auto-accepted peer: "+peer.Name)
+		d.addLogEntry("INFO",
+			"Auto-accepted peer: "+identifyPeer(store, peer).logName())
 		return nil
 	}
 }
@@ -182,6 +184,11 @@ func (d *Daemon) forgetAdmitted(key []byte) {
 // been established, when the user accepted it as an unknown peer; see
 // noteAdmitted. It stores nothing in incognito mode, nor a peer that is
 // stored already.
+//
+// The stored name names the peer in every later session and prompt, so
+// the name the peer claimed is stored only when no other stored peer has
+// it (see sameName); a peer that claims another peer's name, or none, is
+// stored under the pseudonym of its key.
 func (d *Daemon) rememberPeer(store *storage.Storage, peer *storage.Peer) {
 	if store == nil || peer == nil {
 		return
@@ -197,9 +204,14 @@ func (d *Daemon) rememberPeer(store *storage.Storage, peer *storage.Peer) {
 	if _, err := store.FindPeer(peer.PublicKey); err == nil {
 		return
 	}
+	name := strings.TrimSpace(peer.Name)
+	if nameKey(name) == "" ||
+		hasName(otherPeersNames(store, peer.PublicKey), name) {
+		name = fingerprint.Pseudonym(peer.PublicKey)
+	}
 	now := time.Now()
 	if err := store.StorePeer(&storage.Peer{
-		Name:       peer.Name,
+		Name:       name,
 		PublicKey:  peer.PublicKey,
 		AppVersion: peer.AppVersion,
 		FirstSeen:  now,
@@ -209,33 +221,41 @@ func (d *Daemon) rememberPeer(store *storage.Storage, peer *storage.Peer) {
 	}
 }
 
-// askUser emits verify_peer for peer and waits for the user's verdict, for
-// at most d.verifTimeout. For a peer that connected to the server it fails
-// closed when beginVerification says so: the peer is rejected at once
-// without asking.
+// askUser emits verify_peer for peer, which id describes, and waits for
+// the user's verdict, for at most d.verifTimeout. For a peer that
+// connected to the server it fails closed when beginVerification says
+// so: the peer is rejected at once without asking.
+//
+// The prompt names the peer by id.Label, its stored name or a label made
+// from its key, and gives the name the peer claimed apart, with flags for
+// a claim that is not the stored name or that is another peer's name.
 func (d *Daemon) askUser(
-	peer *storage.Peer, known, inbound bool, mode string,
+	peer *storage.Peer, id peerIdentity, inbound bool, mode string,
 ) error {
 	key := peer.PublicKey
 	hexFP := fingerprint.Hex(key)
 
-	reqID, result, err := d.beginVerification(peer, hexFP, known, inbound)
+	reqID, result, err := d.beginVerification(peer, id, hexFP, inbound)
 	if err != nil {
 		d.addLogEntry("WARN",
-			"Rejected peer "+peer.Name+" without asking: "+err.Error())
+			"Rejected peer "+id.logName()+" without asking: "+err.Error())
 		return err
 	}
 	defer d.endVerification(reqID)
 
-	d.addLogEntry("INFO", "Verifying peer: "+peer.Name)
+	d.addLogEntry("INFO", "Verifying peer: "+id.logName())
 	d.emit(EvtVerifyPeer, "", MapA{
-		"request_id": reqID,
-		"peer_name":  peer.Name,
-		"numeric":    fingerprint.Numeric(key),
-		"emoji":      fingerprint.Emoji(key),
-		"hex":        hexFP,
-		"known":      known,
-		"mode":       mode,
+		"request_id":    reqID,
+		"peer_name":     id.Label,
+		"claimed_name":  id.ClaimedName,
+		"peer_key":      id.KeyB64,
+		"numeric":       id.Numeric,
+		"emoji":         fingerprint.Emoji(key),
+		"hex":           hexFP,
+		"known":         id.Known,
+		"name_mismatch": id.NameMismatch,
+		"name_conflict": id.NameConflict,
+		"mode":          mode,
 	})
 
 	return d.awaitVerification(reqID, result)
@@ -255,9 +275,10 @@ func (d *Daemon) askUser(
 // cannot lock it out, and the per-key check allows each stored key one
 // prompt. A peer the user dials is never rejected here.
 func (d *Daemon) beginVerification(
-	peer *storage.Peer, hexFP string, known, inbound bool,
+	peer *storage.Peer, id peerIdentity, hexFP string, inbound bool,
 ) (int64, chan error, error) {
 	key := string(peer.PublicKey)
+	known := id.Known
 
 	d.verifMu.Lock()
 	defer d.verifMu.Unlock()
@@ -289,13 +310,13 @@ func (d *Daemon) beginVerification(
 	result := make(chan error, 1)
 	d.verifRequests[reqID] = &pendingVerification{
 		result:  result,
-		peerID:  peer.Name,
+		peerID:  id.Label,
 		hex:     hexFP,
 		key:     key,
 		inbound: inbound,
 		known:   known,
 	}
-	d.setStatus(StatusVerifying, "Verifying fingerprint of "+peer.Name+"...")
+	d.setStatus(StatusVerifying, "Verifying fingerprint of "+id.Label+"...")
 	return reqID, result, nil
 }
 

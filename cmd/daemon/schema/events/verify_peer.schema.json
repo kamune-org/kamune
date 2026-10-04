@@ -6,12 +6,16 @@
   "type": "object",
   "properties": {
     "request_id": { "type": "integer" },
-    "peer_name":  { "type": "string" },
+    "peer_name":  { "type": "string", "description": "The name stored for the peer's key, or \"Unknown peer\" and the first ten digits of its numeric fingerprint for a key that is not stored. Never the name the peer introduced itself with, which is claimed_name." },
+    "claimed_name": { "type": "string", "description": "The name the peer introduced itself with. Any peer can claim any name, so show it only as the peer's claim." },
+    "peer_key":   { "type": "string", "description": "The peer's public key, base64 as list_peers gives it." },
     "numeric":    { "type": "string", "description": "Numeric fingerprint of the peer's key: 40 digits in eight groups of five. This is the code to compare with the peer over a trusted channel before accepting; the emoji fingerprint is too short to rely on alone." },
     "emoji":      { "type": "array", "items": { "type": "string" }, "description": "Array of emoji strings for fingerprint display." },
     "hex":        { "type": "string" },
     "known":      { "type": "boolean", "description": "Whether this peer is already in the known-peers list." },
+    "name_mismatch": { "type": "boolean", "description": "The peer is stored, and the name it claimed is not the name stored for its key." },
+    "name_conflict": { "type": "boolean", "description": "The peer claimed, or is stored under, the name of another stored peer. Names that differ only in case, white space or characters that do not show count as the same. An unknown peer accepted with such a claim is stored under the pseudonym of its key." },
     "mode":       { "type": "string", "enum": ["strict", "quick"] }
   },
-  "required": ["request_id", "peer_name", "numeric", "emoji", "hex", "known", "mode"]
+  "required": ["request_id", "peer_name", "claimed_name", "peer_key", "numeric", "emoji", "hex", "known", "name_mismatch", "name_conflict", "mode"]
 }

@@ -163,10 +163,20 @@ const (
 )
 
 // SessionInfo is the public session shape returned by get_sessions and
-// emitted in session_started / session_closed events.
+// emitted in session_started / session_closed events. PeerName is the
+// session's label: the name stored for the peer's key, a name that
+// rename_session gave it, or a label made from the key for a peer that is
+// not stored. ClaimedName is the name the peer introduced itself with,
+// which proves nothing; see peerIdentity.
 type SessionInfo struct {
 	SessionID        string        `json:"session_id"`
 	PeerName         string        `json:"peer_name"`
+	ClaimedName      string        `json:"claimed_name"`
+	PeerKey          string        `json:"peer_key"`
+	PeerFingerprint  string        `json:"peer_fingerprint"`
+	KnownPeer        bool          `json:"known_peer"`
+	NameMismatch     bool          `json:"name_mismatch"`
+	NameConflict     bool          `json:"name_conflict"`
 	IsServer         bool          `json:"is_server"`
 	MsgCount         int           `json:"msg_count"`
 	LastActivity     time.Time     `json:"last_activity,omitempty"`
@@ -255,11 +265,13 @@ type relayToken struct {
 // liveSession wraps a kamune.Transport with metadata. Mirrors bus.liveSession
 // (cmd/bus/app.go:147-167), except that it does not keep messages in
 // memory: msgCount counts those stored before the session started and
-// those sent or received since.
+// those sent or received since. Identity describes the peer as the
+// session started; see identifyPeer.
 type liveSession struct {
 	mu               sync.Mutex
 	ID               string
 	PeerName         string
+	Identity         peerIdentity
 	RemoteVersion    string
 	RemoteAddr       string
 	Cause            string

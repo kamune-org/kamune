@@ -873,10 +873,12 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	sessionID := t.SessionID()
 	peer := t.RemotePeer()
 	d.rememberPeer(store, peer)
+	identity := identifyPeer(store, peer)
 
 	session := &liveSession{
 		ID:               sessionID,
-		PeerName:         peer.Name,
+		PeerName:         identity.Label,
+		Identity:         identity,
 		RemoteVersion:    peer.AppVersion,
 		RemoteAddr:       params.Addr,
 		Cause:            "dial",
@@ -968,10 +970,13 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	stampRelaySession(t.AcceptedMeta(), sessionID)
 	d.mu.Unlock()
 	peer := t.RemotePeer()
+	d.rememberPeer(d.store(), peer)
+	identity := identifyPeer(d.store(), peer)
 
 	session := &liveSession{
 		ID:               sessionID,
-		PeerName:         peer.Name,
+		PeerName:         identity.Label,
+		Identity:         identity,
 		RemoteVersion:    peer.AppVersion,
 		Cause:            "incoming",
 		Transport:        t,
@@ -985,7 +990,6 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 		keepAliveDone:    make(chan struct{}),
 	}
 
-	d.rememberPeer(d.store(), peer)
 	var store *storage.Storage
 	if s := d.store(); s != nil && !d.isIncognito() {
 		store = s
@@ -1884,6 +1888,12 @@ func (d *Daemon) sessionInfoLocked(s *liveSession) SessionInfo {
 	return SessionInfo{
 		SessionID:        s.ID,
 		PeerName:         s.PeerName,
+		ClaimedName:      s.Identity.ClaimedName,
+		PeerKey:          s.Identity.KeyB64,
+		PeerFingerprint:  s.Identity.Numeric,
+		KnownPeer:        s.Identity.Known,
+		NameMismatch:     s.Identity.NameMismatch,
+		NameConflict:     s.Identity.NameConflict,
 		IsServer:         s.IsServer,
 		MsgCount:         s.msgCount,
 		LastActivity:     s.LastActivity,

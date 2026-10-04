@@ -153,7 +153,7 @@ func TestPendingVerificationsAreCappedAndDeduped(t *testing.T) {
 	var ids []int64
 	for _, p := range peers[:maxPendingVerifications] {
 		evt := rec.waitFor(t, func(e recordedEvent) bool {
-			return e.Evt == EvtVerifyPeer && e.Data["peer_name"] == p.Name
+			return e.Evt == EvtVerifyPeer && e.Data["claimed_name"] == p.Name
 		})
 		id, ok := evt.Data["request_id"].(float64)
 		a.True(ok)
@@ -225,10 +225,12 @@ func TestFullVerificationSlotsLeaveKnownAndDialedPeers(t *testing.T) {
 	prompt := func(v kamune.RemoteVerifier, p *storage.Peer) int64 {
 		t.Helper()
 		go func() { verdicts <- v(d.store(), p) }()
-		rejected := "Rejected peer " + p.Name + " without asking"
+		rejected := identifyPeer(d.store(), p).logName() +
+			" without asking"
 		evt := rec.waitFor(t, func(e recordedEvent) bool {
 			msg, _ := e.Data["message"].(string)
-			return e.Evt == EvtVerifyPeer && e.Data["peer_name"] == p.Name ||
+			return e.Evt == EvtVerifyPeer &&
+				e.Data["claimed_name"] == p.Name ||
 				e.Evt == EvtLogEntry && strings.Contains(msg, rejected)
 		})
 		a.Equal(EvtVerifyPeer, evt.Evt, "%s got no prompt", p.Name)
@@ -278,9 +280,10 @@ func TestVerificationRestoresTheLatestStatus(t *testing.T) {
 	d, _ := newTestDaemon(t, VerificationModeQuick, false)
 	begin := func(name string) int64 {
 		t.Helper()
-		id, _, err := d.beginVerification(&storage.Peer{
-			Name: name, PublicKey: newTestPeerKey(t),
-		}, "", false, true)
+		peer := &storage.Peer{Name: name, PublicKey: newTestPeerKey(t)}
+		id, _, err := d.beginVerification(
+			peer, identifyPeer(nil, peer), "", true,
+		)
 		a.NoError(err)
 		return id
 	}

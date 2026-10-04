@@ -6,7 +6,13 @@
   "type": "object",
   "properties": {
     "session_id":         { "type": "string" },
-    "peer_name":          { "type": "string" },
+    "peer_name":          { "type": "string", "description": "The session's label: the name stored for the peer's key, a name that rename_session gave the session, or \"Unknown peer\" and the first ten digits of the key's numeric fingerprint for a peer that is not stored. Never the name the peer introduced itself with, which is claimed_name." },
+    "claimed_name":       { "type": "string", "description": "The name the peer introduced itself with. Any peer can claim any name, so show it only as the peer's claim, never as who the peer is." },
+    "peer_key":           { "type": "string", "description": "The peer's public key, base64 as list_peers gives it. It is the key the handshake authenticated." },
+    "peer_fingerprint":   { "type": "string", "description": "Numeric fingerprint of peer_key: 40 digits in eight groups of five." },
+    "known_peer":         { "type": "boolean", "description": "Whether the peer's key is stored as the session starts. An unknown peer that the user accepted in verify_peer is stored by then, unless incognito mode is on." },
+    "name_mismatch":      { "type": "boolean", "description": "The peer is stored, and the name it claimed is not the name stored for its key." },
+    "name_conflict":      { "type": "boolean", "description": "The peer claimed, or is stored under, the name of another stored peer. Names that differ only in case, white space or characters that do not show count as the same." },
     "is_server":          { "type": "boolean" },
     "msg_count":          { "type": "integer", "description": "Messages stored for the session before it started plus those sent or received since." },
     "last_activity":      { "type": "string", "format": "date-time", "description": "RFC3339 timestamp. Omitted while it is unset." },
@@ -17,5 +23,5 @@
     "session_started_at": { "type": "string", "format": "date-time", "description": "RFC3339 timestamp." },
     "remote_addr":        { "type": "string", "description": "Where a dialed session was dialed: the server's address, the relay's for relay, \"p2p\" for p2p and the peer's for direct-p2p. Omitted for incoming sessions." }
   },
-  "required": ["session_id", "peer_name", "is_server", "msg_count", "session_ttl_ns", "session_started_at"]
+  "required": ["session_id", "peer_name", "claimed_name", "peer_key", "peer_fingerprint", "known_peer", "name_mismatch", "name_conflict", "is_server", "msg_count", "session_ttl_ns", "session_started_at"]
 }
