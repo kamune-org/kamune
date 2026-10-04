@@ -37,7 +37,20 @@ command -v zip >/dev/null 2>&1 || HAS_ZIP=false
 DOCKER_IMAGE="kamune-bus-builder"
 DOCKER_PLATFORM="linux/amd64"
 
+sha256_of() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$1" | cut -d' ' -f1
+	else
+		shasum -a 256 "$1" | cut -d' ' -f1
+	fi
+}
+
 build_docker_image() {
+	# Tag the image with its Dockerfile's hash, so a changed Dockerfile
+	# builds a new image instead of reusing one built from an older file.
+	local tag
+	tag="$(sha256_of "$SCRIPT_DIR/Dockerfile.linux" | cut -c1-16)"
+	DOCKER_IMAGE="kamune-bus-builder:$tag"
 	if ! docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1; then
 		echo "  Building Docker image $DOCKER_IMAGE ($DOCKER_PLATFORM)..."
 		docker build --platform "$DOCKER_PLATFORM" \
