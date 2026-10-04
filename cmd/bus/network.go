@@ -1115,16 +1115,9 @@ func (a *App) DisconnectSession(sessionID string) error {
 	}
 	defer a.doneClosing()
 
-	// Invalidate resumption tokens so this explicitly closed
-	// session cannot be resumed later.
-	if store := a.store(); store != nil {
-		if err := store.SetMeta(sessionID,
-			storage.NewByteSlicesMeta(storage.ResumptionTokensKey, nil),
-		); err != nil {
-			a.addLogEntry("WARN", "Failed to clear resumption tokens: "+err.Error())
-		}
-	}
-	// Nor through the relay.
+	// A session closed on purpose must not be resumed. Transport.Close
+	// below deletes its resumption tokens, and its relay reconnect
+	// tokens go here.
 	if !session.incognito {
 		a.dropRelayPool(sessionID)
 	}

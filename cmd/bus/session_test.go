@@ -390,3 +390,56 @@ func TestStopServerClosesVerificationPrompts(t *testing.T) {
 	}
 	a.Empty(app.GetSessions())
 }
+
+// TestDisconnectSessionEndsResumption closes a dialed session on purpose
+// and checks that its resumption tokens are gone, so that it cannot be
+// resumed, and that an incognito session, which has none in storage,
+// closes without a warning about them.
+func TestDisconnectSessionEndsResumption(t *testing.T) {
+	cases := []struct {
+		name      string
+		incognito bool
+	}{
+		{"saved session", false},
+		{"incognito session", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, _ := newUnlockedApp(t, "secret")
+			app.mu.Lock()
+			app.verifMode = VerificationModeAutoAccept
+			app.incognito = tc.incognito
+			app.mu.Unlock()
+			addr, _ := startTestServer(t, "srv", readUntilEnd)
+			res, err := app.ConnectToServer(
+				addr, "tcp", "", "", "", "", "", "", "", false, false, "",
+			)
+			a.NoError(err)
+			store := app.store()
+			if !tc.incognito {
+				m, err := store.GetMeta(
+					res.SessionID, storage.ResumptionTokensKey,
+				)
+				a.NoError(err)
+				a.NotEmpty(m.Value(), "a saved session has tokens")
+			}
+
+			a.NoError(app.DisconnectSession(res.SessionID))
+
+			m, err := store.GetMeta(res.SessionID, storage.ResumptionTokensKey)
+			if err == nil {
+				a.Empty(m.Value(), "a closed session keeps no tokens")
+			}
+			for _, e := range app.GetLogEntries() {
+				a.NotContains(e.Message, "resumption tokens", e.Level)
+			}
+			sessions, err := store.ListSessions()
+			a.NoError(err)
+			if tc.incognito {
+				a.Empty(sessions,
+					"closing an incognito session must not store it")
+			}
+		})
+	}
+}
