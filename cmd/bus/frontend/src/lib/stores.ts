@@ -67,6 +67,8 @@ export const fingerprint = writable<FingerprintInfo>({
   sum: '',
 });
 export const dbPath = writable('');
+// dbNoPassphrase is set while the open database has no passphrase.
+export const dbNoPassphrase = writable(false);
 export const logEntries = writable<LogEntryInfo[]>([]);
 
 const levelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR'];

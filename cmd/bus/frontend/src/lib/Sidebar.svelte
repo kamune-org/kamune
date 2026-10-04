@@ -7,6 +7,7 @@
     status,
     sidebarTab,
     dbPath,
+    dbNoPassphrase,
     myName,
     relayTokens,
     p2pTokens,
@@ -885,6 +886,9 @@
         </svg>
       </div>
       <span class="db-path">{$dbPath}</span>
+      {#if $dbNoPassphrase}
+        <span class="db-warning">No passphrase: anyone who can read this file can read it</span>
+      {/if}
       <span class="db-hint"
         >{dbInUse
           ? 'In use: stop the server and close sessions to change'
@@ -1333,6 +1337,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1.4;
+  }
+  .db-warning {
+    display: block;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--danger);
+    margin-top: 2px;
   }
   .db-hint {
     display: block;

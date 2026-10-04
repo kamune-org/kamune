@@ -327,3 +327,60 @@ func TestFailedServerStartLeavesStorageFree(t *testing.T) {
 	a.False(busy)
 	a.NoError(app.SubmitPassphrase(other, "other", false))
 }
+
+func TestSubmitEmptyPassphraseRefused(t *testing.T) {
+	a := require.New(t)
+	app, path := newLockedApp(t)
+
+	a.ErrorIs(app.SubmitPassphrase(path, "", true), ErrPassphraseRequired)
+	a.Nil(app.store())
+	_, err := os.Stat(path)
+	a.ErrorIs(err, os.ErrNotExist)
+	_, err = keyring.Get(keychainService, keychainAccount(path))
+	a.ErrorIs(err, keyring.ErrNotFound)
+}
+
+func TestOpenWithoutPassphraseNeedsConfirmation(t *testing.T) {
+	a := require.New(t)
+	app, path := newLockedApp(t)
+	var asked []string
+	answer := false
+	app.confirmFn = func(title, message string) bool {
+		asked = append(asked, message)
+		return answer
+	}
+
+	opened, err := app.OpenWithoutPassphrase(path, true)
+	a.NoError(err)
+	a.False(opened)
+	a.Len(asked, 1)
+	a.Contains(asked[0], "not protected")
+	a.Nil(app.store())
+	_, err = os.Stat(path)
+	a.ErrorIs(err, os.ErrNotExist, "a declined prompt must not create it")
+	_, err = keyring.Get(keychainService, keychainAccount(path))
+	a.ErrorIs(err, keyring.ErrNotFound)
+
+	answer = true
+	opened, err = app.OpenWithoutPassphrase(path, true)
+	a.NoError(err)
+	a.True(opened)
+	a.NotNil(app.store())
+	a.True(app.GetNoPassphrase())
+	saved, err := keyring.Get(keychainService, keychainAccount(path))
+	a.NoError(err)
+	a.Empty(saved)
+}
+
+func TestNoPassphraseFlagFollowsOpenDatabase(t *testing.T) {
+	a := require.New(t)
+	app, _ := newUnlockedApp(t, "secret")
+	a.False(app.GetNoPassphrase())
+
+	other := filepath.Join(t.TempDir(), "db")
+	app.confirmFn = func(string, string) bool { return true }
+	opened, err := app.OpenWithoutPassphrase(other, false)
+	a.NoError(err)
+	a.True(opened)
+	a.True(app.GetNoPassphrase())
+}

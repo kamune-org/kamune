@@ -1,6 +1,12 @@
 <script>
   import { onMount } from 'svelte';
-  import { SubmitPassphrase, HasKeychainPassphrase, GetDBPath, OpenFileDialog } from './go.js';
+  import {
+    SubmitPassphrase,
+    OpenWithoutPassphrase,
+    HasKeychainPassphrase,
+    GetDBPath,
+    OpenFileDialog,
+  } from './go.js';
 
   /**
    * @typedef {Object} Props
@@ -36,10 +42,17 @@
     }
   }
 
+  // skipPassphrase opens the database without a passphrase. The backend
+  // first asks the user to confirm that such a database is not protected.
   async function skipPassphrase() {
-    passphrase = '';
-    saveToKeychain = true;
-    await submit();
+    loading = true;
+    error = '';
+    try {
+      await OpenWithoutPassphrase(dbPath, saveToKeychain);
+    } catch (e) {
+      error = e.message || e || 'Could not open the database';
+    }
+    loading = false;
   }
 
   async function browsePath() {
@@ -87,8 +100,9 @@
 
     <div class="dialog-body">
       <p class="dialog-desc">
-        Enter your database passphrase to unlock your identity and chat history. The database is
-        encrypted at rest.
+        Enter the passphrase of this database. Your identity key, saved peers and chat history are
+        encrypted with a key derived from it. For a new database, the passphrase you enter here
+        becomes its passphrase.
       </p>
 
       <div class="path-field">
@@ -170,8 +184,13 @@
     </div>
 
     <div class="dialog-actions">
-      <button class="dialog-btn dialog-btn-ghost" onclick={skipPassphrase} disabled={loading}>
-        Use without password
+      <button
+        class="dialog-btn dialog-btn-ghost"
+        onclick={skipPassphrase}
+        disabled={loading}
+        title="Not protected: anyone who can read the database file can read it"
+      >
+        Use without passphrase…
       </button>
       <button class="dialog-btn dialog-btn-primary" onclick={submit} disabled={loading}>
         {loading ? 'Unlocking…' : 'Unlock'}

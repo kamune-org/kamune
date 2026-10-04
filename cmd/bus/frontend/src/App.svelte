@@ -5,6 +5,7 @@
     GetHistorySessions,
     GetFingerprint,
     GetDBPath,
+    GetNoPassphrase,
     GetVersion,
     GetLibraryVersion,
     GetMyName,
@@ -40,6 +41,7 @@
     status,
     fingerprint,
     dbPath,
+    dbNoPassphrase,
     logEntries,
     logLevel,
     verificationMode,
@@ -295,6 +297,7 @@
     EventsOn('storage-ready', async () => {
       showPassphraseDialog = false;
       dbPath.set(await GetDBPath());
+      dbNoPassphrase.set(await GetNoPassphrase());
     });
     EventsOn('verification-mode-changed', (mode) => {
       verificationMode.set(mode);
@@ -426,6 +429,7 @@
 
       const p = await GetDBPath();
       dbPath.set(p);
+      dbNoPassphrase.set(await GetNoPassphrase());
 
       const vm = await GetVerificationMode();
       verificationMode.set(vm);

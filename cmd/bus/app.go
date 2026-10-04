@@ -315,7 +315,9 @@ type App struct {
 	// They are written once one is unlocked. storeMu guards it.
 	pendingSettings map[string]string
 	// unlockMu serializes unlockDB calls.
-	unlockMu     sync.Mutex
+	unlockMu sync.Mutex
+	// noPassphrase is set while the open database has no passphrase.
+	noPassphrase bool
 	storageReady bool
 	pubKey       []byte
 	myName       string
@@ -430,6 +432,22 @@ var ErrStorageBusy = errors.New(
 // open one.
 var ErrStorageOpen = errors.New("this database is already unlocked")
 
+// ErrPassphraseRequired is returned by SubmitPassphrase for an empty
+// passphrase. OpenWithoutPassphrase opens a database without one.
+var ErrPassphraseRequired = errors.New(
+	"enter a passphrase, or choose to use the database without one",
+)
+
+// noPassphraseWarning is the confirmation text shown before a database is
+// used without a passphrase.
+const noPassphraseWarning = "Without a passphrase, the database is not " +
+	"protected: the key that encrypts it can be derived from the file " +
+	"alone. Anyone who gets a copy of the file, for example from a " +
+	"backup or a lost or seized device, can read your identity key, " +
+	"your saved peers and your chat history, and can use your " +
+	"identity.\n\n" +
+	"Use a passphrase unless this database is only for testing."
+
 // storageBusyLocked reports whether anything holds on to the open
 // database: a server that is starting, running or stopping, with its
 // listeners, a dial in progress or a session that is live or closing. The
@@ -448,6 +466,22 @@ func (a *App) doneClosing() {
 	a.mu.Unlock()
 }
 
+// canUnlock returns ErrStorageBusy while anything uses the open database
+// and ErrStorageOpen when path is the open database.
+func (a *App) canUnlock(path string) error {
+	a.mu.RLock()
+	busy := a.storageBusyLocked()
+	samePath := filepath.Clean(path) == filepath.Clean(a.dbPath)
+	a.mu.RUnlock()
+	if busy {
+		return ErrStorageBusy
+	}
+	if samePath && a.store() != nil {
+		return ErrStorageOpen
+	}
+	return nil
+}
+
 // unlockDB opens the database at path with passphrase, creating it when
 // create is set, and makes it the open database. A database open before
 // is closed only once the new one has opened, so a failed unlock leaves
@@ -462,15 +496,8 @@ func (a *App) unlockDB(path string, passphrase []byte, create bool) error {
 	a.unlockMu.Lock()
 	defer a.unlockMu.Unlock()
 
-	a.mu.RLock()
-	busy := a.storageBusyLocked()
-	samePath := path == filepath.Clean(a.dbPath)
-	a.mu.RUnlock()
-	if busy {
-		return ErrStorageBusy
-	}
-	if samePath && a.store() != nil {
-		return ErrStorageOpen
+	if err := a.canUnlock(path); err != nil {
+		return err
 	}
 
 	store, err := openDB(path, passphrase, create)
@@ -489,6 +516,7 @@ func (a *App) unlockDB(path string, passphrase []byte, create bool) error {
 	a.dbPath = path
 	a.pubKey = nil
 	a.storageReady = false
+	a.noPassphrase = len(passphrase) == 0
 	a.storeMu.Lock()
 	old := a.db
 	a.db = store
@@ -563,8 +591,9 @@ func (a *App) ServiceStartup(
 		storeErr := a.unlockDB(a.dbPath, []byte(passphrase), false)
 		if storeErr == nil {
 			if passphrase == "" {
-				a.addLogEntry("INFO",
-					"Loaded empty passphrase from keychain — no password")
+				a.addLogEntry("WARN", "Opened database without a "+
+					"passphrase, as saved in the keychain: anyone "+
+					"who can read its file can read it")
 			} else {
 				a.addLogEntry("INFO", "Loaded passphrase from keychain")
 			}
@@ -1212,6 +1241,9 @@ func (a *App) SetFingerprintFormat(fmt string) {
 func (a *App) SubmitPassphrase(
 	path, passphrase string, saveToKeychain bool,
 ) error {
+	if passphrase == "" {
+		return ErrPassphraseRequired
+	}
 	if err := a.unlockDB(path, []byte(passphrase), true); err != nil {
 		if errors.Is(err, ErrStorageBusy) || errors.Is(err, ErrStorageOpen) {
 			return err
@@ -1232,6 +1264,55 @@ func (a *App) SubmitPassphrase(
 
 	a.initFromStorage()
 	return nil
+}
+
+// OpenWithoutPassphrase opens the database at path without a passphrase,
+// creating it if it does not exist, once the user confirms that such a
+// database is not protected. It reports false when the user declines.
+// With saveToKeychain, the empty passphrase is saved for path, and the
+// database opens without asking at the next start.
+func (a *App) OpenWithoutPassphrase(
+	path string, saveToKeychain bool,
+) (bool, error) {
+	if err := a.canUnlock(path); err != nil {
+		return false, err
+	}
+	if !a.confirm(
+		"Use the Database Without a Passphrase?", noPassphraseWarning,
+		"Use Without Passphrase", "Cancel",
+	) {
+		return false, nil
+	}
+	if err := a.unlockDB(path, []byte{}, true); err != nil {
+		if errors.Is(err, ErrStorageBusy) || errors.Is(err, ErrStorageOpen) {
+			return false, err
+		}
+		return false, fmt.Errorf("wrong passphrase or corrupted database")
+	}
+	a.addLogEntry("WARN", "Opened database without a passphrase: "+path)
+
+	if saveToKeychain {
+		if err := keyring.Set(
+			keychainService, keychainAccount(path), "",
+		); err != nil {
+			a.addLogEntry("WARN",
+				"Failed to save to keychain: "+err.Error())
+		}
+	}
+
+	a.initFromStorage()
+	return true, nil
+}
+
+// GetNoPassphrase reports whether the open database has no passphrase,
+// so anyone who can read its file can read its contents.
+func (a *App) GetNoPassphrase() bool {
+	if a.store() == nil {
+		return false
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.noPassphrase
 }
 
 func (a *App) GetStorageReady() bool {
