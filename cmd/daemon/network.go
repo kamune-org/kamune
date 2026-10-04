@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -112,7 +113,8 @@ func (d *Daemon) startServer(
 		_ = store.SetSettings("daemon", "local_name", name)
 	}
 
-	var firstToken string
+	// firstToken is the relay token registered at start, if any.
+	var firstToken relayToken
 	var opts []kamune.ServerOptions
 	opts = append(opts, kamune.ServeWithServerName(name))
 	if incognito {
@@ -147,7 +149,11 @@ func (d *Daemon) startServer(
 			d.emitError(cmd.ID, "listener_failed", fmt.Sprintf("add listener: %v", err))
 			return
 		}
-		firstToken = token
+		firstToken = relayToken{
+			Token: token, TTL: ttl, SessionTTL: sessionTTL,
+			ExpiresAt: time.Now().Add(ttl), Mode: "random",
+			listener: listener,
+		}
 		opts = append(opts, kamune.ServeWithListener(ml))
 		params.Addr = ""
 		d.mu.Lock()
@@ -155,15 +161,8 @@ func (d *Daemon) startServer(
 		d.relayPassword = params.Password
 		d.relaySessionTTL = sessionTTL
 		d.relayListeners = ml
-		d.relayTokens = []relayToken{{
-			Token: token, TTL: ttl, SessionTTL: sessionTTL,
-			ExpiresAt: time.Now().Add(ttl), Mode: "random",
-			listener: listener,
-		}}
+		d.relayTokens = []relayToken{firstToken}
 		d.mu.Unlock()
-		d.wg.Go(func() {
-			d.relayReconnectLoop(d.ctx, ml)
-		})
 	case "p2p":
 		broker, err := d.getOrCreateBrokerClient()
 		if err != nil {
@@ -332,18 +331,8 @@ func (d *Daemon) startServer(
 	d.addLogEntry("INFO", "Server started: "+statusMsg)
 	d.loadHistorySessions()
 
-	if firstToken != "" {
-		d.mu.RLock()
-		tokens := make([]relayToken, len(d.relayTokens))
-		copy(tokens, d.relayTokens)
-		d.mu.RUnlock()
-		d.emit(EvtRelayToken, "", MapA{
-			"token": firstToken, "ttl_ns": tokens[0].TTL,
-			"session_ttl_ns": tokens[0].SessionTTL,
-			"expires_at":     tokens[0].ExpiresAt,
-		})
-		d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})
-		d.addLogEntry("INFO", "Relay token: "+firstToken)
+	if firstToken.Token != "" {
+		d.announceRelayToken(firstToken)
 	}
 
 	d.emit(EvtServerStarted, cmd.ID, MapA{
@@ -355,6 +344,28 @@ func (d *Daemon) startServer(
 		"fingerprint_hex": hexFP,
 		"fingerprint_sum": sum,
 	})
+}
+
+// announceRelayToken emits relay_token for first, the token that a relay
+// server registered at start, and relay_tokens. The token may have
+// expired, lost its relay link or been used since, so relay_token is
+// emitted only while the token list holds it unused.
+func (d *Daemon) announceRelayToken(first relayToken) {
+	d.mu.RLock()
+	tokens := slices.Clone(d.relayTokens)
+	d.mu.RUnlock()
+	live := slices.ContainsFunc(tokens, func(rt relayToken) bool {
+		return rt.listener == first.listener && !rt.Consumed
+	})
+	if live {
+		d.emit(EvtRelayToken, "", MapA{
+			"token": first.Token, "ttl_ns": first.TTL,
+			"session_ttl_ns": first.SessionTTL,
+			"expires_at":     first.ExpiresAt,
+		})
+		d.addLogEntry("INFO", "Relay token: "+first.Token)
+	}
+	d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})
 }
 
 // handleStopServer closes the running server and all sessions, without
@@ -797,7 +808,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 
 	sessionID := t.SessionID()
 	d.mu.Lock()
-	stampRelaySession(d.relayTokens, t.AcceptedMeta(), sessionID)
+	stampRelaySession(t.AcceptedMeta(), sessionID)
 	d.mu.Unlock()
 	peer := t.RemotePeer()
 
@@ -854,8 +865,11 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	go d.keepAliveLoop(session, keepAliveDone)
 
 	defer close(session.ReceiveDone)
-	d.receiveMessagesBlocking(session)
-	d.finishSession(session)
+	err := d.receiveMessagesBlocking(session)
+	// A session the daemon closed itself is no longer listed.
+	if d.finishSession(session) && errors.Is(err, kamune.ErrConnClosed) {
+		d.resumeRelaySession(t.AcceptedMeta(), sessionID)
+	}
 	return nil
 }
 
@@ -1191,113 +1205,89 @@ func (d *Daemon) makeReconnectFn(
 	}
 }
 
-// relayReconnectLoop monitors the relay listener for death and automatically
-// re-registers with the next available token from the stored pool (mirrors
-// cmd/bus/relay.go:299-442).
-func (d *Daemon) relayReconnectLoop(ctx context.Context, ml *multiListener) {
+// resumeRelaySession starts keeping a relay listener registered for
+// sessionID, a session that the relay server accepted on the relay
+// listener meta and whose connection dropped, so that its peer can
+// resume it; see awaitRelayResume. It does nothing for a session that
+// did not come through the relay or that cannot be resumed.
+func (d *Daemon) resumeRelaySession(meta any, sessionID string) {
+	if _, ok := meta.(*tokenTracker); !ok || d.isIncognito() {
+		return
+	}
+	target, ok := d.currentRelayTarget()
+	if !ok || d.ctx.Err() != nil {
+		return
+	}
+	d.wg.Go(func() { d.awaitRelayResume(target, sessionID) })
+}
+
+// awaitRelayResume keeps a relay listener registered with one of the
+// reconnect tokens of sessionID, a relay session of target's server
+// whose connection dropped, so that its peer can resume the session
+// through the relay. When the listener ends before a session has run on
+// it, it registers another one after a short wait. It returns once a
+// session has run on such a listener, when the server stops, or when no
+// reconnect token is stored for the session or the relay takes none.
+func (d *Daemon) awaitRelayResume(target relayTarget, sessionID string) {
 	const (
 		minBackoff = 1 * time.Second
 		maxBackoff = 5 * time.Second
 	)
+	for {
+		tokens := loadRelayPool(d.store(), sessionID)
+		if len(tokens) == 0 {
+			d.addLogEntry("INFO",
+				"No relay reconnect tokens for session "+sessionID+
+					"; it cannot resume through the relay")
+			return
+		}
 
-	d.mu.RLock()
-	var currentDead <-chan struct{}
-	var sessionID string
-	var currentTracker *tokenTracker
-	for i := len(d.relayTokens) - 1; i >= 0; i-- {
-		if tt, ok := d.relayTokens[i].listener.(*tokenTracker); ok {
-			currentDead = tt.Dead()
-			sessionID = tt.sessionID
-			currentTracker = tt
+		var tt *tokenTracker
+		for _, token := range tokens {
+			rt, code, err := d.addRelayToken(
+				target, token, "ecdh", "", sessionID,
+			)
+			if err != nil {
+				if code != "relay_listen_failed" {
+					return
+				}
+				d.addLogEntry("WARN",
+					"Relay reconnect registration failed: "+err.Error())
+				continue
+			}
+			tt, _ = rt.listener.(*tokenTracker)
+			d.addLogEntry("INFO",
+				"Relay reconnect listener registered for session "+
+					sessionID)
 			break
 		}
-	}
-	d.mu.RUnlock()
-
-	if currentDead == nil {
-		slog.Warn("relay reconnect: no tracker found")
-		return
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
+		if tt == nil {
+			d.addLogEntry("WARN",
+				"The relay took no reconnect token for session "+
+					sessionID+"; it cannot resume through the relay")
 			return
-		case <-currentDead:
+		}
+
+		select {
+		case <-tt.Dead():
+		case <-target.listeners.Done():
+			return
+		case <-d.ctx.Done():
+			return
+		}
+		d.mu.RLock()
+		resumed := tt.sessionID != ""
+		d.mu.RUnlock()
+		if resumed {
+			return
 		}
 
 		jitter := time.Duration(rand.Int63n(int64(maxBackoff - minBackoff)))
 		select {
-		case <-ctx.Done():
-			return
 		case <-time.After(minBackoff + jitter):
-		}
-
-		d.mu.RLock()
-		server := d.server
-		sessionID = relaySessionID(currentTracker, d.relayTokens)
-		d.mu.RUnlock()
-		if server == nil {
+		case <-target.listeners.Done():
 			return
-		}
-		if sessionID == "" {
-			slog.Warn(
-				"relay reconnect: no stored tokens, cold start required",
-				"session", sessionID,
-			)
-			return
-		}
-
-		st := d.store()
-		tokens, ok := loadRelayPool(st, sessionID)
-		if !ok {
-			slog.Warn(
-				"relay reconnect: no stored tokens, cold start required",
-				"session", sessionID,
-			)
-			return
-		}
-		if len(tokens) == 0 {
-			slog.Warn("relay reconnect: empty token pool, cold start required", "session", sessionID)
-			return
-		}
-
-		d.mu.RLock()
-		relayAddr := d.relayAddr
-		password := d.relayPassword
-		d.mu.RUnlock()
-
-		var registered bool
-		for _, token := range tokens {
-			listener, tokenHex, ttl, sessTTL, listenErr :=
-				listenRelayTracked(ctx, d, relayAddr, password, false, token)
-			if listenErr != nil {
-				slog.Warn("relay reconnect: attempt failed", "err", listenErr)
-				continue
-			}
-			if addErr := ml.Add(listener); addErr != nil {
-				listener.Close()
-				slog.Warn("relay reconnect: add to multi-listener failed", "err", addErr)
-				continue
-			}
-			d.mu.Lock()
-			d.relayTokens = append(d.relayTokens, relayToken{
-				Token: tokenHex, TTL: ttl, SessionTTL: sessTTL,
-				ExpiresAt: time.Now().Add(ttl), Mode: "ecdh",
-				sessionID: sessionID, listener: listener,
-			})
-			d.mu.Unlock()
-			slog.Info("relay reconnect: listener re-registered", "token_prefix", tokenHex[:8])
-			if tt, ok := listener.(*tokenTracker); ok {
-				currentDead = tt.Dead()
-				tt.sessionID = sessionID
-			}
-			registered = true
-			break
-		}
-
-		if !registered {
-			slog.Warn("relay reconnect: all tokens exhausted, cold start required", "session", sessionID, "pool_size", len(tokens))
+		case <-d.ctx.Done():
 			return
 		}
 	}
@@ -1334,7 +1324,7 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 
 	d.wg.Go(func() {
 		rt, code, err := d.addRelayToken(
-			target, staticToken, relayMode, params.PeerPubB64,
+			target, staticToken, relayMode, params.PeerPubB64, "",
 		)
 		if err != nil {
 			d.emitError(cmd.ID, code, err.Error())
@@ -1371,16 +1361,24 @@ func (d *Daemon) currentRelayTarget() (relayTarget, bool) {
 // addRelayToken registers a new token with target's relay and adds its
 // listener to target's server, unless that server has stopped since. The
 // registration may take up to d.relayTimeout, so addRelayToken must not
-// run on the command loop. On failure it returns the error code to
-// report: relay_listen_failed, server_stopped or listener_failed.
+// run on the command loop. resumeOf names the session that the token is
+// registered for, so that its peer can resume it, or is empty. On
+// failure it returns the error code to report: relay_listen_failed,
+// server_stopped or listener_failed.
 func (d *Daemon) addRelayToken(
-	target relayTarget, staticToken []byte, mode, peerPubB64 string,
+	target relayTarget,
+	staticToken []byte,
+	mode, peerPubB64, resumeOf string,
 ) (relayToken, string, error) {
 	listener, token, ttl, sessionTTL, err := listenRelayTracked(
 		d.ctx, d, target.addr, target.password, false, staticToken,
 	)
 	if err != nil {
 		return relayToken{}, "relay_listen_failed", err
+	}
+	if tt, ok := listener.(*tokenTracker); ok {
+		// Set before the listener is in use.
+		tt.resumeOf = resumeOf
 	}
 
 	rt := relayToken{
@@ -1541,7 +1539,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 func (d *Daemon) shareRelayInfo(
 	cmd Command, target relayTarget, emoji, hexFP string,
 ) {
-	rt, code, err := d.addRelayToken(target, nil, "random", "")
+	rt, code, err := d.addRelayToken(target, nil, "random", "", "")
 	if err != nil {
 		if code == "relay_listen_failed" {
 			code = "relay_token_failed"
@@ -1612,10 +1610,13 @@ func (d *Daemon) removeSession(session *liveSession) (int, bool) {
 	return len(d.sessions), true
 }
 
-func (d *Daemon) finishSession(session *liveSession) {
+// finishSession removes session from the live sessions and reports
+// that it closed. It returns false, and does nothing, when session is not
+// listed: the daemon closed it itself.
+func (d *Daemon) finishSession(session *liveSession) bool {
 	remaining, removed := d.removeSession(session)
 	if !removed {
-		return
+		return false
 	}
 	d.emit(EvtSessionClosed, "", d.sessionInfo(session))
 	if remaining == 0 {
@@ -1623,6 +1624,7 @@ func (d *Daemon) finishSession(session *liveSession) {
 		d.addLogEntry("INFO", "All sessions disconnected")
 	}
 	d.loadHistorySessions()
+	return true
 }
 
 // sessionInfo returns a SessionInfo for a live session (caller does not hold lock).
@@ -1657,6 +1659,37 @@ func (d *Daemon) setStatusIfEmpty(status ConnectionStatus, msg string) {
 	if count == 0 {
 		d.setStatus(status, msg)
 	}
+}
+
+// relayLinkLost removes the relay token of t, whose listener lost its
+// link to the relay before a peer used it, and reports it: the relay no
+// longer knows the token, so no peer can connect with it. A listener
+// registered for a session to resume on is registered again by
+// awaitRelayResume.
+func (d *Daemon) relayLinkLost(t *tokenTracker) {
+	d.mu.Lock()
+	idx := slices.IndexFunc(d.relayTokens, func(rt relayToken) bool {
+		return rt.listener == t
+	})
+	if idx == -1 {
+		d.mu.Unlock()
+		return
+	}
+	d.relayTokens = slices.Delete(d.relayTokens, idx, idx+1)
+	tokens := slices.Clone(d.relayTokens)
+	d.mu.Unlock()
+
+	d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})
+	if t.resumeOf != "" {
+		d.addLogEntry("WARN",
+			"Relay reconnect listener for session "+t.resumeOf+
+				" lost its relay connection")
+		return
+	}
+	msg := "relay token " + t.token + " lost its relay connection; " +
+		"generate a new relay token"
+	d.addLogEntry("WARN", msg)
+	d.emitError("", "relay_link_lost", msg)
 }
 
 // markRelayTokenConsumed flips the consumed flag and schedules removal after

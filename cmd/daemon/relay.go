@@ -35,6 +35,11 @@ func wrapRelayError(scheme, host string, password bool, err error) error {
 	return fmt.Errorf("%s://%s%s: %w", scheme, host, hint, err)
 }
 
+// relayExpirySlack is how long before its expiry a relay token's link may
+// end and still count as expired: the relay drops an expired token on
+// its own clock, which runs a little ahead of the daemon's.
+const relayExpirySlack = 5 * time.Second
+
 type tokenTracker struct {
 	kamune.Listener
 	token      string
@@ -46,8 +51,16 @@ type tokenTracker struct {
 	expiryFn   func()
 	dead       chan struct{}
 	deadOnce   sync.Once
-	sessionID  string
-	consumed   atomic.Bool
+	// sessionID is the session that ran on the token's connection. It is
+	// written and read under app.mu.
+	sessionID string
+	// resumeOf is the session that the token was registered for, so
+	// that its peer can resume it, or empty. It is set before the
+	// listener is in use and not changed after.
+	resumeOf string
+	consumed atomic.Bool
+	// stopping is set once the daemon stops or closes the listener.
+	stopping atomic.Bool
 }
 
 type trackingConn struct {
@@ -85,10 +98,29 @@ func (t *tokenTracker) Accept() (kamune.Conn, error) {
 		}, nil
 	}
 	t.closeDead()
+	if t.linkLost() {
+		t.app.relayLinkLost(t)
+	}
 	return nil, err
 }
 
+// linkLost reports whether the listener ended because its link to the
+// relay failed: no peer used the token, the daemon did not stop it, and
+// it had not expired.
+func (t *tokenTracker) linkLost() bool {
+	return !t.consumed.Load() && !t.stopping.Load() &&
+		time.Until(t.expiresAt) > relayExpirySlack
+}
+
+// Close closes the listener, and its connection if a peer used it.
+func (t *tokenTracker) Close() error {
+	t.stopping.Store(true)
+	t.cancelExpiry()
+	return t.Listener.Close()
+}
+
 func (t *tokenTracker) Stop() {
+	t.stopping.Store(true)
 	t.cancelExpiry()
 	if !t.consumed.Load() {
 		t.closeDead()
@@ -106,50 +138,24 @@ func (t *tokenTracker) Dead() <-chan struct{} {
 	return t.dead
 }
 
-// stampRelaySession records sessionID on the accepting tracker and on
-// the slice entry that still points at it. Other tokens are left alone.
-func stampRelaySession(
-	tokens []relayToken, meta any, sessionID string,
-) {
-	tt, ok := meta.(*tokenTracker)
-	if !ok || tt == nil {
-		return
-	}
-	tt.sessionID = sessionID
-	for i := range tokens {
-		if tokens[i].listener == tt {
-			tokens[i].sessionID = sessionID
-		}
+// stampRelaySession records sessionID on the tracker that accepted the
+// session's connection, if any. The caller holds the daemon lock.
+func stampRelaySession(meta any, sessionID string) {
+	if tt, ok := meta.(*tokenTracker); ok && tt != nil {
+		tt.sessionID = sessionID
 	}
 }
 
-func relaySessionID(tracker *tokenTracker, tokens []relayToken) string {
-	if tracker != nil && tracker.sessionID != "" {
-		return tracker.sessionID
-	}
-	for i := len(tokens) - 1; i >= 0; i-- {
-		if tokens[i].sessionID != "" {
-			return tokens[i].sessionID
-		}
-		tt, ok := tokens[i].listener.(*tokenTracker)
-		if ok && tt.sessionID != "" {
-			return tt.sessionID
-		}
-	}
-	return ""
-}
-
-func loadRelayPool(
-	store *storage.Storage, sessionID string,
-) ([][]byte, bool) {
+// loadRelayPool returns the relay reconnect tokens stored for sessionID.
+func loadRelayPool(store *storage.Storage, sessionID string) [][]byte {
 	if sessionID == "" || store == nil {
-		return nil, false
+		return nil
 	}
 	m, err := store.GetMeta(sessionID, storage.RelayTokensKey)
 	if err != nil || m.Value() == nil {
-		return nil, false
+		return nil
 	}
-	return decodeTokenList(m.Value()), true
+	return decodeTokenList(m.Value())
 }
 
 func (t *tokenTracker) cancelExpiry() {

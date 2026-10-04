@@ -267,8 +267,9 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 
 // receiveMessagesBlocking is the blocking receive loop used by the server
 // handler. It persists received messages and handles ping/pong (mirrors
-// cmd/bus/messaging.go:82-133).
-func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
+// cmd/bus/messaging.go:82-133). It returns the error that ended the
+// session.
+func (d *Daemon) receiveMessagesBlocking(session *liveSession) error {
 	t := session.snapshotTransport()
 
 	for {
@@ -277,15 +278,15 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) {
 			switch {
 			case errors.Is(err, kamune.ErrPeerDisconnected):
 				d.addLogEntry("INFO", "Peer disconnected: "+session.ID)
-				return
+				return err
 			case errors.Is(err, kamune.ErrConnClosed):
 				d.addLogEntry("INFO", "Connection closed: "+session.ID)
-				return
+				return err
 			case errors.Is(err, kamune.ErrReceiveTimeout):
 				continue
 			default:
 				d.addLogEntry("ERROR", "Receive error: "+err.Error())
-				return
+				return err
 			}
 		}
 

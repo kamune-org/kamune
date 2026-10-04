@@ -242,7 +242,6 @@ type relayToken struct {
 	Mode       string        `json:"mode"`
 	PeerPubB64 string        `json:"peer_pub_b64,omitempty"`
 	listener   kamune.Listener
-	sessionID  string
 }
 
 // liveSession wraps a kamune.Transport with metadata. Mirrors bus.liveSession
