@@ -433,21 +433,32 @@ this is fine.
 
 ## Transports
 
-The relay supports three independent transports, each configured via its own
-section in the TOML config. Any combination can be active at once.
+The relay supports three transports, served by four independent listeners,
+each configured via its own section in the TOML config: `[ws]` and `[wss]`
+(WebSocket), `[tcp]` and `[tls]`. Any combination can be active at once.
 
-The client API takes the relay address and an optional password (for PSK mode).
-No peer key or identity key is needed — the dialer discovers the session via the
-token, and the HPKE exchange generates ephemeral keys per connection.
+The client API takes the relay address, an optional password (for PSK mode)
+and, for `wss` and `tls`, a TLS client configuration. No peer key or identity
+key is needed: the dialer discovers the session via the token, and the HPKE
+exchange generates ephemeral keys per connection.
 
-### WebSocket (`[ws]`)
+### WebSocket (`[ws]` and `[wss]`)
 
-A WebSocket listener. Shares the HTTP server address from `[server].address`.
-Suitable for permissive networks, local development, and deployments behind a
-CDN.
+A WebSocket listener on its own address, serving the relay protocol at `/ws`.
+`[ws]` speaks plain HTTP; `[wss]` is the same listener over TLS, with the
+certificate handling described under [TLS](#tls-tls). Suitable for permissive
+networks, local development, and deployments behind a CDN.
 
-For WebSocket over TLS (`wss://`), the client uses a configured TLS context
-against the relay's certificate.
+Both listeners take one request per connection: HTTP/1.1 only (no HTTP/2 on
+`wss`), keep-alives off, and the connection closed after any response other
+than an upgrade. Reading the request and writing such a response may take 30
+seconds each, and request headers are capped at 32 KiB. An upgraded connection
+is free of these limits; the handshake timeout then bounds its registration.
+
+`/ws` answers any request that carries an `Origin` header with HTTP 403. Native
+clients send none and browsers always send one, so a browser-based client
+cannot use the relay, and a web page cannot have its visitors' browsers open
+sessions on it.
 
 ### Raw TCP (`[tcp]`)
 
@@ -481,9 +492,9 @@ TLS). The relay forwards bytes between the two `exchange.Channel`s without
 inspecting the underlying connection.
 
 A practical use: a peer behind a restrictive NAT that only allows raw TCP can
-hand its token to a peer in a browser using WSS, and the relay will bridge them
-transparently. Each side only needs to know the relay address for its own
-transport and the shared token.
+hand its token to a peer that reaches the relay only over WSS, for example
+through a CDN, and the relay will bridge them transparently. Each side only
+needs to know the relay address for its own transport and the shared token.
 
 **Design decision: WebSocket, TCP, and TLS only.** The chosen set covers the
 three main deployment scenarios:
