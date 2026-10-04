@@ -89,3 +89,27 @@ For a comprehensive technical specification, see [SPEC.md](docs/SPEC.md).
   <img alt="Handshake Flow" src="assets/diagrams/handshake-flow.svg">
 </picture>
 </details>
+
+## Verifying a peer
+
+Kamune checks that a peer holds the identity key it introduces, but not whose
+key it is. The application's verifier decides that, for example by asking the
+user to compare a fingerprint of the key with the peer over another channel.
+`pkg/fingerprint` computes these from the key's PKIX encoding, which both
+peers see:
+
+- `Numeric`: 40 digits in eight groups of five, from the SHA-512 of the key.
+  It carries about 132.9 bits; this is the one to compare.
+- `Emoji`: 8 emojis out of 96, from the SHA-256 of the key. About 52.7 bits is
+  not enough on its own, since an attacker can search for a key that shows the
+  same emojis.
+- `Hex` and `Sum` (unpadded base64url of the SHA-256) are long to read out, and
+  the hex form starts with the same 12 bytes for every Ed25519 key.
+- `Pseudonym`: two adjectives, a noun and a number, about 29.6 bits. It is a
+  nickname for display, not a fingerprint, and must not be used to verify a
+  key.
+
+The bus, tui and daemon clients in this repository do not use `Numeric` yet;
+they use `Emoji` and `Hex` when they verify a peer.
+
+See [SPEC §6.2.1](docs/SPEC.md#621-key-fingerprints).

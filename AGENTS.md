@@ -53,6 +53,12 @@ All sub-modules use `replace github.com/kamune-org/kamune => ../../` in their `g
 - Cipher suite: `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X`
 - `pkg/` public packages: `attest`, `exchange`, `fingerprint`, `relayconn`, `storage`
 - `internal/` private packages: `box/pb`, `clock`, `engine`, `enigma`
+- Key verification: verifiers should show `fingerprint.Numeric` (about 132.9
+  bits) for users to compare; bus, tui and daemon still use
+  `fingerprint.Emoji` and `fingerprint.Hex` when they verify a peer.
+  `fingerprint.Emoji` (about 52.7 bits) is not enough on its own, and
+  `fingerprint.Pseudonym` (about 29.6 bits) is a display nickname, never a
+  fingerprint
 - Relay is a stateless blind session switch with optional PSK auth
 
 ## Storage
