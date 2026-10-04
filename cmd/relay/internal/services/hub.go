@@ -95,6 +95,13 @@ func (h *Hub) ReadPump(ch *exchange.Channel, token []byte) {
 	}
 }
 
+// handleMessage forwards one frame from sender to the other peer of its
+// session, and drops it if that peer has not joined yet. It never drops a
+// frame for a slow recipient: kamune treats a missing frame as fatal, so a
+// drop would only end the session later and less clearly. The write runs
+// on the sender's read pump, so a slow recipient holds up the sender's
+// frames, pings included, and one that has not taken a frame within 15
+// seconds ends the session for both peers.
 func (h *Hub) handleMessage(sender *exchange.Channel, token []byte, data []byte) {
 	// Recipient is looked up under sm.mu and the write happens after
 	// the lock is released. This is intentional: holding the session
