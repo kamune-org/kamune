@@ -1352,7 +1352,12 @@ open.
 
 #### `get_history_sessions`
 
-Returns the list of past chat sessions.
+Returns the history list: the sessions stored in the open storage, the one
+with the most recent message first. The daemon keeps the list in memory, and
+reads it again when a storage is opened, a server starts or a session ends,
+and on `refresh_history`. `message_count`, `first_message` and
+`last_message` describe the session's stored messages, and `loaded` tells
+whether `load_history` was called for it.
 
 **Input:** (no params)
 
@@ -1384,7 +1389,9 @@ Returns the list of past chat sessions.
 
 #### `load_history`
 
-Marks a history session as loaded so its messages can be retrieved.
+Marks a session of the history list as loaded, so that
+`get_history_messages` returns its messages. Fails with `history_not_found` for
+a session that is not in the list.
 
 **Input:**
 
@@ -1406,7 +1413,22 @@ Marks a history session as loaded so its messages can be retrieved.
 
 #### `get_history_messages`
 
-Returns messages for a loaded history session.
+Returns one page of the messages of a session, oldest first. The session must
+have been loaded with `load_history`; otherwise the command fails with
+`history_not_loaded`. It also fails with `storage_unavailable` or
+`history_fetch_failed`.
+
+`limit` is the most messages to return: 500 when it is 0, negative or absent.
+`offset` is how many messages to skip from the oldest: a negative offset is
+read as 0, and one past the last message as the message count. The response
+carries the page, `total` (all messages of the session), and the `offset` and
+`limit` that were used.
+
+Each message has `text` (the data as a string), `data_base64` (the data),
+`is_local` (`true` for a message this side sent), `timestamp`, when the
+message was stored by the local clock, which orders the history, and
+`sent_at`, the time its sender put on it. The sender can set `sent_at` to
+anything, and it is left out for messages stored without one.
 
 **Input:**
 
@@ -1415,7 +1437,7 @@ Returns messages for a loaded history session.
   "type": "cmd",
   "cmd": "get_history_messages",
   "id": "1",
-  "params": { "session_id": "abc123..." }
+  "params": { "session_id": "abc123...", "limit": 50, "offset": 0 }
 }
 ```
 
@@ -1430,17 +1452,23 @@ Returns messages for a loaded history session.
     "messages": [
       {
         "text": "Hello, World!",
-        "timestamp": "2026-06-20T09:00:00Z",
+        "data_base64": "SGVsbG8sIFdvcmxkIQ==",
+        "timestamp": "2026-06-20T09:00:00.120Z",
+        "sent_at": "2026-06-20T09:00:00.100Z",
         "is_local": true
       }
-    ]
+    ],
+    "total": 15,
+    "offset": 0,
+    "limit": 50
   }
 }
 ```
 
 #### `rename_history_session`
 
-Persists a new name for a history session.
+Saves a new name for a session of the history. Fails with
+`storage_unavailable` or `rename_failed`.
 
 **Input:**
 
@@ -1462,7 +1490,15 @@ Persists a new name for a history session.
 
 #### `delete_history_session`
 
-Deletes a history session and all its messages.
+Deletes a session of the history and all its messages. The database is then
+compacted, so that the deleted data does not stay in its file. When the
+compaction fails, the session is deleted all the same, and the response has a
+`warning` that the deleted data may still be in the file. Deleting a dropped
+relay session also ends the server's offer to resume it through the relay.
+
+Fails with `session_active` while the session is live, since its next message
+would start its history again (close it with `close_session` first), and with
+`storage_unavailable` or `delete_failed`.
 
 **Input:**
 
@@ -1480,6 +1516,12 @@ Deletes a history session and all its messages.
 ```json
 { "type": "evt", "evt": "history_updated", "data": {} }
 { "type": "evt", "evt": "response", "id": "1", "data": { "status": "deleted" } }
+```
+
+When the compaction failed:
+
+```json
+{ "type": "evt", "evt": "response", "id": "1", "data": { "status": "deleted", "warning": "deleted, but compacting the database failed, so the deleted data may still be in its file: ..." } }
 ```
 
 #### `refresh_history`
@@ -1503,7 +1545,8 @@ Reloads the history list from storage.
 
 #### `list_peers`
 
-Returns all known peers.
+Returns all known peers. `app_version` is empty for a peer added with
+`add_peer`. Fails with `storage_unavailable` or `peer_list_failed`.
 
 **Input:** (no params)
 
@@ -1535,7 +1578,11 @@ Returns all known peers.
 #### `add_peer`
 
 Adds a known peer manually. `name` is optional; defaults to the fingerprint
-pseudonym.
+pseudonym. `public_key` must be a valid Ed25519 key, 44 bytes of PKIX in
+base64url; anything else, such as a key of small order, fails with
+`invalid_peer_key`. A name that `start_server` would refuse fails with
+`invalid_name`. It also fails with `storage_unavailable`,
+`peer_already_exists` or `peer_store_failed`.
 
 **Input:**
 
@@ -1564,7 +1611,10 @@ pseudonym.
 
 #### `rename_peer`
 
-Updates the display name of a known peer.
+Updates the display name of a known peer. An empty or absent name resets it to
+the fingerprint pseudonym, and a name that `start_server` would refuse fails
+with `invalid_name`. It also fails with `invalid_peer_key`,
+`storage_unavailable`, `peer_not_found` or `peer_store_failed`.
 
 **Input:**
 
@@ -1593,7 +1643,8 @@ Updates the display name of a known peer.
 
 #### `get_peer`
 
-Returns a single known peer by base64 public key.
+Returns a single known peer by base64 public key. Fails with
+`invalid_peer_key`, `storage_unavailable` or `peer_not_found`.
 
 **Input:**
 
@@ -1625,7 +1676,10 @@ Returns a single known peer by base64 public key.
 
 #### `delete_peer`
 
-Removes a known peer.
+Removes a known peer. Its sessions are kept. The database is then compacted,
+and when that fails the peer is deleted all the same, with a `warning` in the
+response as for [`delete_history_session`](#delete_history_session). Fails
+with `storage_unavailable`, `invalid_peer_key` or `peer_delete_failed`.
 
 **Input:**
 
