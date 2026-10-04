@@ -1314,6 +1314,29 @@ Argon2id, with each parameter raised to at least its default, and with fresh
 `deriveSalt` and `wrappedSalt`. The database file is then rewritten so that the
 old wrapped key does not remain in it.
 
+Every value that is sealed under the DEK carries associated data that names
+where it is stored: a version byte (1), the number of buckets on its path as a
+big-endian uint32, then each bucket name and the key, each prefixed with its
+length as a big-endian uint32. A value copied to another key or bucket, by
+someone who can write the file but does not hold the DEK, then fails to open.
+This binding does not stop an old value from being put back at the key it
+came from.
+
+A database is bound once all its values are sealed this way, which a
+`value-binding` entry in the default bucket records; the entry is sealed under
+the DEK with associated data of its own. A bound database opens a value only
+with its location. Databases written before the binding existed hold values
+without associated data. The first open of such a database with its lock file
+(§11.1) replaces the data key, seals every value again under the new key with
+its location, writes the marker and rewrites the file. A value taken from an
+older copy of the file therefore opens nowhere in a bound database. Restoring
+the whole key metadata of an older, unbound copy, with the passphrase
+unchanged, takes the database back to that copy. A database that is not bound
+yet, because it was opened without its lock file or its upgrade failed, still
+opens values without associated data. Releases without the binding cannot read
+the values of a bound database. A custom storage backend does its own
+encryption and should bind values the same way.
+
 Changing the passphrase replaces the data key, not only its wrapping: every
 value is encrypted again under a new secret, which is wrapped under the new
 passphrase, and the database file is rewritten. Copies of the old file, such as
