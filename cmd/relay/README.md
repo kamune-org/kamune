@@ -227,13 +227,18 @@ logs: `debug`, `info` (the default), `warn` or `error`.
 
 ```bash
 make run                              # go run . -c assets/config.toml
-make test                             # go test -v ./...
+make test                             # go test -race -v ./...
 bash scripts/build.sh                 # cross-platform release binaries
 ```
 
-`scripts/build.sh` honors `RELAY_VERSION`, `RELAY_PLATFORMS`, and
-`RELAY_DIST_DIR` env vars; outputs to `dist/relay/` and zips to
-`dist/`.
+`scripts/build.sh` builds the relay for each platform in `RELAY_PLATFORMS`
+(by default darwin, linux and windows, each on amd64 and arm64) and writes one
+zip per platform, holding the binary, `config.toml`, `README.md` and `LICENSE`,
+to `dist/relay/` under the repository root. `RELAY_DIST_DIR` changes that
+directory and `RELAY_VERSION` overrides the version in `VERSION`. Without
+`zip` the script warns and leaves bare binaries. It removes a platform's old
+binary and zip before building it, and exits with status 1, naming the failed
+platforms, when any build fails.
 
 ## Testing
 
