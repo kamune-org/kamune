@@ -468,8 +468,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.verifyReq = nil
-		m.connectErr = msg.err
-		m.state = stateConnecting
+		m.turnedAway(msg.err)
 		return m, nil
 	case tickMsg:
 		if m.state == stateChat && !m.sessionExpiry.IsZero() {

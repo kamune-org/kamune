@@ -276,15 +276,25 @@ func (m *model) updateVerify(msg tea.Msg) (tea.Model, tea.Cmd) {
 	err := fmt.Errorf("peer verification rejected")
 	answer(m.verifyReq.responseCh, err)
 	m.verifyReq = nil
-	if m.mode == modeDirectServe || m.mode == modeRelayServe {
-		// A server goes on waiting for a peer.
+	m.turnedAway(err)
+	return m, nil
+}
+
+// turnedAway moves on from the prompt of a peer that was turned away for
+// err. A direct server goes on waiting for a peer. A relay registration
+// takes a single peer, so a relay server stops, and so does a dial.
+func (m *model) turnedAway(err error) {
+	switch m.mode {
+	case modeDirectServe:
+		m.connectErr = err
 		m.state = stateConnecting
-		return m, nil
+		return
+	case modeRelayServe:
+		err = fmt.Errorf("%w; %w", err, errRelaySessionEnded)
 	}
 	m.cancelConnect()
 	m.state = stateWelcome
 	m.connectErr = err
-	return m, nil
 }
 
 func (m *model) viewVerify() string {

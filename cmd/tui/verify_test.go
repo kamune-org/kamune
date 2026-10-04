@@ -348,3 +348,72 @@ func TestVerifier_PeerIsStoredOnlyWithItsSession(t *testing.T) {
 	a.Len(sessions, 1)
 	a.Equal(tr.SessionID(), sessions[0].ID)
 }
+
+func TestVerify_TurnedAwayPeer(t *testing.T) {
+	type turnAway func(*model) error
+	reject := func(m *model) error {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+		return nil
+	}
+	timeOut := func(m *model) error {
+		m.Update(verifyEndedMsg{
+			responseCh: m.verifyReq.responseCh, err: errPromptTimeout,
+		})
+		return errPromptTimeout
+	}
+	tests := []struct {
+		name string
+		mode inputMode
+		how  turnAway
+		// waits is whether the attempt goes on waiting for a peer.
+		waits bool
+	}{
+		{"direct server, rejected", modeDirectServe, reject, true},
+		{"direct server, timed out", modeDirectServe, timeOut, true},
+		{"relay server, rejected", modeRelayServe, reject, false},
+		{"relay server, timed out", modeRelayServe, timeOut, false},
+		{"dial, rejected", modeDirectDial, reject, false},
+		{"dial, timed out", modeRelayDial, timeOut, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			m := newTestModel()
+			m.store = openTestStore(t)
+			m.mode = tt.mode
+			m.inputs = []textinput.Model{mkInput("addr", "")}
+			m.att = newAttempt()
+			att := m.att
+			srv, l := idleServer(t, m.store)
+			m.srv = srv
+			m.state = stateVerify
+			m.verifyReq = &verifyRequest{
+				att:        m.att,
+				peer:       &storage.Peer{Name: "alice"},
+				responseCh: make(chan error, 1),
+			}
+
+			reason := tt.how(m)
+			a.Nil(m.verifyReq)
+			a.Error(m.connectErr)
+			if reason != nil {
+				a.ErrorIs(m.connectErr, reason)
+			}
+			if tt.waits {
+				a.Equal(stateConnecting, m.state)
+				a.Same(att, m.att)
+				a.Same(srv, m.srv)
+				a.NoError(att.ctx.Err())
+				return
+			}
+			a.Equal(stateWelcome, m.state)
+			a.Nil(m.att)
+			a.Nil(m.srv)
+			a.Error(att.ctx.Err())
+			waitFor(t, l.closed)
+			if tt.mode == modeRelayServe {
+				a.ErrorIs(m.connectErr, errRelaySessionEnded)
+			}
+		})
+	}
+}
