@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-get-fingerprint",
   "title": "get_fingerprint params",
-  "description": "Returns the local identity fingerprint.",
+  "description": "Returns the local identity fingerprint in every format: emoji, b64, hex, sum and numeric, plus format, the display format that set_fingerprint_format chose, and display, the fingerprint in that format. numeric, 40 digits in eight groups of five, is the one for people to compare when they verify a key. All are empty strings while no identity is loaded.",
   "type": "object",
   "properties": {},
   "additionalProperties": false

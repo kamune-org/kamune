@@ -92,7 +92,7 @@ func (d *Daemon) applyLogLevel(level string) bool {
 
 func validFingerprintFormat(format string) bool {
 	switch format {
-	case "hex", "emoji", "b64", "sum":
+	case "hex", "emoji", "b64", "sum", "numeric":
 		return true
 	default:
 		return false

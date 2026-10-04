@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-get-share-info",
   "title": "get_share_info params",
-  "description": "Returns a share card for the running server. For a tcp, udp or direct-p2p server, address and port are those the server is bound to, with a detected local IPv4 address when it is bound to every interface. For a relay server it first registers a new relay token for the card, for at most 15 seconds; other commands are handled meanwhile.",
+  "description": "Returns a share card for the running server. For a tcp, udp or direct-p2p server, address and port are those the server is bound to, with a detected local IPv4 address when it is bound to every interface. For a relay server it first registers a new relay token for the card, for at most 15 seconds; other commands are handled meanwhile. The card carries the server's fingerprint as fingerprint_emoji, fingerprint_hex and fingerprint_numeric, the last being the one for the peer to compare.",
   "type": "object",
   "properties": {},
   "additionalProperties": false

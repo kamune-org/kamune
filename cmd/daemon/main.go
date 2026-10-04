@@ -218,11 +218,13 @@ type PeerInfo struct {
 }
 
 // FingerprintInfo is the public fingerprint shape returned by get_fingerprint.
+// Numeric is the fingerprint for people to compare when they verify a key.
 type FingerprintInfo struct {
-	Emoji string `json:"emoji"`
-	B64   string `json:"b64"`
-	Hex   string `json:"hex"`
-	Sum   string `json:"sum"`
+	Emoji   string `json:"emoji"`
+	B64     string `json:"b64"`
+	Hex     string `json:"hex"`
+	Sum     string `json:"sum"`
+	Numeric string `json:"numeric"`
 }
 
 // MessageInfo is a single chat message in a session's history.

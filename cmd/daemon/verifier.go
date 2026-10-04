@@ -226,6 +226,7 @@ func (d *Daemon) askUser(
 	d.emit(EvtVerifyPeer, "", MapA{
 		"request_id": reqID,
 		"peer_name":  peer.Name,
+		"numeric":    fingerprint.Numeric(key),
 		"emoji":      fingerprint.Emoji(key),
 		"hex":        hexFP,
 		"known":      known,

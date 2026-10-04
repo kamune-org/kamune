@@ -358,6 +358,7 @@ func (d *Daemon) startServer(
 
 	d.emit(EvtFingerprintChange, "", MapA{
 		"emoji": emoji, "b64": b64, "hex": hexFP, "sum": sum,
+		"numeric": fingerprint.Numeric(pubKey),
 	})
 	d.emit(EvtServerRunning, "", MapA{
 		"running": true, "transport": serverTransport,
@@ -399,13 +400,14 @@ func (d *Daemon) startServer(
 	}
 
 	d.emit(EvtServerStarted, cmd.ID, MapA{
-		"addr":            params.Addr,
-		"transport":       serverTransport,
-		"name":            name,
-		"public_key":      b64,
-		"emoji":           fingerprint.Emoji(pubKey),
-		"fingerprint_hex": hexFP,
-		"fingerprint_sum": sum,
+		"addr":                params.Addr,
+		"transport":           serverTransport,
+		"name":                name,
+		"public_key":          b64,
+		"emoji":               fingerprint.Emoji(pubKey),
+		"fingerprint_hex":     hexFP,
+		"fingerprint_sum":     sum,
+		"fingerprint_numeric": fingerprint.Numeric(pubKey),
 	})
 }
 
@@ -1613,8 +1615,11 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 	p2pTokens := d.p2pTokensSnapshot()
 	d.mu.RUnlock()
 
-	emoji := strings.Join(fingerprint.Emoji(pubKey), " • ")
-	hexFP := fingerprint.Hex(pubKey)
+	fp := shareFingerprint{
+		Emoji:   strings.Join(fingerprint.Emoji(pubKey), " • "),
+		Hex:     fingerprint.Hex(pubKey),
+		Numeric: fingerprint.Numeric(pubKey),
+	}
 
 	var (
 		address   string
@@ -1648,7 +1653,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 			d.emitError(cmd.ID, "server_stopped", "server stopped while generating token")
 			return
 		}
-		d.wg.Go(func() { d.shareRelayInfo(cmd, target, emoji, hexFP) })
+		d.wg.Go(func() { d.shareRelayInfo(cmd, target, fp) })
 		return
 	case "p2p":
 		var token string
@@ -1663,21 +1668,27 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 	}
 
 	d.emit(EvtResponse, cmd.ID, MapA{
-		"url":               urlStr,
-		"transport":         transport,
-		"address":           address,
-		"port":              port,
-		"fingerprint_emoji": emoji,
-		"fingerprint_hex":   hexFP,
-		"relay_info":        relayInfo,
+		"url":                 urlStr,
+		"transport":           transport,
+		"address":             address,
+		"port":                port,
+		"fingerprint_emoji":   fp.Emoji,
+		"fingerprint_hex":     fp.Hex,
+		"fingerprint_numeric": fp.Numeric,
+		"relay_info":          relayInfo,
 	})
+}
+
+// shareFingerprint is the server's key fingerprint on a share card.
+type shareFingerprint struct {
+	Emoji, Hex, Numeric string
 }
 
 // shareRelayInfo answers get_share_info for a relay server with a card
 // that carries the token of the last card while that is fresh, or a
 // newly registered relay token.
 func (d *Daemon) shareRelayInfo(
-	cmd Command, target relayTarget, emoji, hexFP string,
+	cmd Command, target relayTarget, fp shareFingerprint,
 ) {
 	d.shareMu.Lock()
 	defer d.shareMu.Unlock()
@@ -1711,12 +1722,13 @@ func (d *Daemon) shareRelayInfo(
 		urlStr += "&password=1"
 	}
 	d.emit(EvtResponse, cmd.ID, MapA{
-		"url":               urlStr,
-		"transport":         "relay",
-		"address":           "",
-		"port":              "",
-		"fingerprint_emoji": emoji,
-		"fingerprint_hex":   hexFP,
+		"url":                 urlStr,
+		"transport":           "relay",
+		"address":             "",
+		"port":                "",
+		"fingerprint_emoji":   fp.Emoji,
+		"fingerprint_hex":     fp.Hex,
+		"fingerprint_numeric": fp.Numeric,
 		"relay_info": &relayShareInfo{
 			Address: host, Scheme: scheme, Token: rt.Token,
 			Password: target.password != "",

@@ -7,10 +7,11 @@
   "properties": {
     "request_id": { "type": "integer" },
     "peer_name":  { "type": "string" },
+    "numeric":    { "type": "string", "description": "Numeric fingerprint of the peer's key: 40 digits in eight groups of five. This is the code to compare with the peer over a trusted channel before accepting; the emoji fingerprint is too short to rely on alone." },
     "emoji":      { "type": "array", "items": { "type": "string" }, "description": "Array of emoji strings for fingerprint display." },
     "hex":        { "type": "string" },
     "known":      { "type": "boolean", "description": "Whether this peer is already in the known-peers list." },
     "mode":       { "type": "string", "enum": ["strict", "quick"] }
   },
-  "required": ["request_id", "peer_name", "emoji", "hex", "known", "mode"]
+  "required": ["request_id", "peer_name", "numeric", "emoji", "hex", "known", "mode"]
 }

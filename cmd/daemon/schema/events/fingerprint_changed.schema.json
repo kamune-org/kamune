@@ -8,7 +8,8 @@
     "emoji": { "type": "string" },
     "b64":   { "type": "string", "description": "Base64-encoded public key." },
     "hex":   { "type": "string" },
-    "sum":   { "type": "string" }
+    "sum":   { "type": "string" },
+    "numeric": { "type": "string", "description": "Numeric fingerprint: 40 digits in eight groups of five, the code for peers to compare when they verify the key." }
   },
-  "required": ["emoji", "b64", "hex", "sum"]
+  "required": ["emoji", "b64", "hex", "sum", "numeric"]
 }

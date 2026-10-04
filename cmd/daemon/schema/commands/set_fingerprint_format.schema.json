@@ -5,7 +5,7 @@
   "description": "Sets the fingerprint display format that get_fingerprint uses for display. While a storage is open the format is saved in it, and opening that storage restores it. Any other format fails with invalid_fingerprint_format.",
   "type": "object",
   "properties": {
-    "format": { "type": "string", "enum": ["hex", "emoji", "b64", "sum"], "description": "Fingerprint format." }
+    "format": { "type": "string", "enum": ["hex", "emoji", "b64", "sum", "numeric"], "description": "Fingerprint format. \"numeric\" is the one for people to compare when they verify a key." }
   },
   "required": ["format"]
 }

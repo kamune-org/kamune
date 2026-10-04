@@ -11,7 +11,8 @@
     "public_key":      { "type": "string", "description": "Server public key (base64)." },
     "emoji":           { "type": "array", "items": { "type": "string" }, "description": "Emoji fingerprint of the server." },
     "fingerprint_hex": { "type": "string", "description": "Hex-encoded fingerprint." },
-    "fingerprint_sum": { "type": "string", "description": "Short summary fingerprint." }
+    "fingerprint_sum": { "type": "string", "description": "Short summary fingerprint." },
+    "fingerprint_numeric": { "type": "string", "description": "Numeric fingerprint: 40 digits in eight groups of five, the code for peers to compare when they verify the server." }
   },
-  "required": ["addr", "transport", "name", "public_key", "emoji", "fingerprint_hex", "fingerprint_sum"]
+  "required": ["addr", "transport", "name", "public_key", "emoji", "fingerprint_hex", "fingerprint_sum", "fingerprint_numeric"]
 }

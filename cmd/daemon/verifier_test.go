@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/stretchr/testify/require"
 )
@@ -407,6 +408,7 @@ func TestVerifyUnknownPeer(t *testing.T) {
 			})
 			evt := serverRec.waitFor(t, isEvent(EvtVerifyPeer))
 			a.Equal(false, evt.Data["known"])
+			a.Equal(fingerprint.Numeric(clientPub), evt.Data["numeric"])
 			wantMode := map[VerificationMode]string{
 				VerificationModeStrict: "strict",
 				VerificationModeQuick:  "quick",

@@ -34,6 +34,7 @@ func (d *Daemon) loadIdentityAndHistory() {
 
 		d.emit(EvtFingerprintChange, "", MapA{
 			"emoji": emoji, "b64": b64, "hex": hexFP, "sum": sum,
+			"numeric": fingerprint.Numeric(pubKey),
 		})
 
 		name, nameErr := store.GetSettings("daemon", "local_name")
@@ -424,7 +425,9 @@ func (d *Daemon) handleDeletePeer(cmd Command) {
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "deleted"})
 }
 
-// handleGetFingerprint returns the current fingerprint.
+// handleGetFingerprint returns the current fingerprint in every format,
+// and in display the one that set_fingerprint_format chose. numeric is
+// the one for people to compare when they verify a key.
 func (d *Daemon) handleGetFingerprint(cmd Command) {
 	d.mu.RLock()
 	pubKey := d.pubKey
@@ -433,7 +436,7 @@ func (d *Daemon) handleGetFingerprint(cmd Command) {
 
 	if len(pubKey) == 0 {
 		d.emit(EvtResponse, cmd.ID, MapA{
-			"emoji": "", "b64": "", "hex": "", "sum": "",
+			"emoji": "", "b64": "", "hex": "", "sum": "", "numeric": "",
 			"format": format, "display": "",
 		})
 		return
@@ -443,6 +446,7 @@ func (d *Daemon) handleGetFingerprint(cmd Command) {
 	b64 := fingerprint.Base64(pubKey)
 	hexFP := fingerprint.Hex(pubKey)
 	sum := fingerprint.Sum(pubKey)
+	numeric := fingerprint.Numeric(pubKey)
 	display := hexFP
 	switch format {
 	case "emoji":
@@ -451,10 +455,12 @@ func (d *Daemon) handleGetFingerprint(cmd Command) {
 		display = b64
 	case "sum":
 		display = sum
+	case "numeric":
+		display = numeric
 	}
 	d.emit(EvtResponse, cmd.ID, MapA{
 		"emoji": emoji, "b64": b64, "hex": hexFP, "sum": sum,
-		"format": format, "display": display,
+		"numeric": numeric, "format": format, "display": display,
 	})
 }
 
