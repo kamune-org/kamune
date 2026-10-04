@@ -242,28 +242,32 @@ fall back to a full Introduction.
 only inside the HPKE-encrypted Exchange tunnel. Brute-forcing a valid token is
 computationally infeasible.
 
-**What a stolen token does _not_ grant.** Token + session ID together authorize
-establishing a transport and skipping the verifier callback. They do **not**
-allow forging application messages, since every message remains signed with the
-sender's long-term Ed25519 identity key (§6.5, §8.1). An attacker holding a
-stolen token cannot impersonate the peer's _replies_ in a way the victim would
-accept.
+**What a stolen token does _not_ grant.** A token and session ID alone do not
+authorize a resumption. The responder also verifies the `ResumeRequest`
+signature against the identity key stored for the session's peer (§6.1, step
+2), and every later message is signed with the sender's long-term Ed25519
+identity key (§6.5, §8.1). A stolen token is therefore useful only together
+with the initiator's identity private key. A copy of the responder's database
+holds the tokens but not that key, so it does not allow a resumption as the
+initiator.
 
-**What a stolen token _does_ grant.** If an attacker possesses both the session
-ID and an unused token (practically: has compromised the local encrypted
-database and its passphrase), they can complete a resumption as the known peer.
-The victim, believing they're reconnecting to their contact, would encrypt
-messages to the attacker's session keys — one-directional eavesdropping on
-future messages until the legitimate peer also reconnects and the mismatch
-becomes apparent through normal session identity checks.
+**What a stolen token _does_ grant.** An attacker who holds the initiator's
+identity private key, the session ID and an unused token can complete a
+resumption as the initiator. The initiator's own database holds all three, so
+its compromise together with its passphrase is enough. The responder then runs
+a full session with the attacker as with its known peer, without running its
+verifier: the attacker reads what the responder sends and can send messages in
+the peer's name until the session ends. The identity key alone already allows
+a cold Introduction as the peer, which the responder's verifier sees; the
+token lets the attacker skip that verifier until the session's window closes.
 
-This scenario requires the same compromise (DB + passphrase) that already
-exposes the full plaintext message history via the DEK (§11.2). Resumption
-tokens add a narrow, forward-looking exposure window on top of an already-
-total compromise; they do not introduce a new compromise category. The existing
-DB encryption hierarchy remains the actual security boundary — this RFC doesn't
-change that, and no further mitigation is proposed here beyond what §11.2
-already provides.
+This scenario requires the compromise of the initiator's database and its
+passphrase, which already exposes its identity key and its full plaintext
+message history via the DEK (§11.2). Resumption tokens add a narrow,
+forward-looking exposure window on top of an already-total compromise; they do
+not introduce a new compromise category. The existing DB encryption hierarchy
+remains the actual security boundary — this RFC doesn't change that, and no
+further mitigation is proposed here beyond what §11.2 already provides.
 
 **Skipped verification.** A resumption runs no remote verifier on either
 side. A peer that the verifier accepted once can therefore reconnect without
