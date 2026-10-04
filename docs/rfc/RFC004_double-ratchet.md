@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-**Target:** Kamune Protocol Specification v0.7.0
+**Target:** Kamune Protocol Specification after v0.7.0 (not scheduled)
 
 **Relates to:** §4 (Wire Format), §5 (Routes), §7 (Encryption and Key
 Derivation), §8 (Message Integrity and Replay Protection), §9 (Transport Layer),

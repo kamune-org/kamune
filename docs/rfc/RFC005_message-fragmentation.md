@@ -2,7 +2,7 @@
 
 **Status:** Draft — Third Revision
 
-**Target:** Kamune Protocol Specification v0.7.0
+**Target:** Kamune Protocol Specification after v0.7.0 (not scheduled)
 
 **Relates to:** §4 (Wire Format), §5 (Routes), §6.2 (Introduction),
 §9 (Transport Layer), §13 (Constants and Limits), §14 (Error Conditions)
