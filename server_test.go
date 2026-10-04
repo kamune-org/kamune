@@ -1,15 +1,19 @@
 package kamune
 
 import (
+	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xtaci/kcp-go/v5"
 
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/exchange"
@@ -615,6 +619,48 @@ func (l *testListener) Close() error {
 	return nil
 }
 
+// sourceConn reports a chosen remote address and records when it is closed.
+type sourceConn struct {
+	Conn
+	addr   net.Addr
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newSourceConn(cn Conn, addr string) *sourceConn {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		panic(err)
+	}
+	return &sourceConn{Conn: cn, addr: tcpAddr, closed: make(chan struct{})}
+}
+
+// newUDPSourceConn is newSourceConn for a connection over UDP, whose source
+// address can be forged.
+func newUDPSourceConn(cn Conn, addr string) *sourceConn {
+	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		panic(err)
+	}
+	return &sourceConn{Conn: cn, addr: udpAddr, closed: make(chan struct{})}
+}
+
+func (c *sourceConn) RemoteAddr() net.Addr { return c.addr }
+
+func (c *sourceConn) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return c.Conn.Close()
+}
+
+func (c *sourceConn) isClosed() bool {
+	select {
+	case <-c.closed:
+		return true
+	default:
+		return false
+	}
+}
+
 // startTestServer runs ListenAndServe on l and returns the server and a
 // channel with its result.
 func startTestServer(
@@ -696,5 +742,982 @@ func TestListenAndServeReturnsOnCloseWhateverAcceptReturns(t *testing.T) {
 			}
 			a.Empty(l.calls, "Accept called again after Close")
 		})
+	}
+}
+
+// sendConn hands cn to the server through l, failing the test if the server
+// does not accept it in time.
+func sendConn(t *testing.T, l *testListener, cn Conn) {
+	t.Helper()
+	select {
+	case l.conns <- cn:
+	case <-time.After(10 * time.Second):
+		require.New(t).FailNow("the server stopped accepting")
+	}
+}
+
+func TestListenAndServeDropsWaitingConnAtCap(t *testing.T) {
+	cases := []struct {
+		name string
+		// addrs are the sources of the connections in the order they are
+		// accepted. All of them wait; the last one arrives at the cap.
+		addrs []string
+		max   int
+		// drop is the index in addrs of the connection that is closed.
+		drop int
+	}{
+		{
+			name:  "one source",
+			max:   1,
+			addrs: []string{"10.0.0.1:1", "10.0.0.1:2"},
+			drop:  0,
+		},
+		{
+			name: "oldest of the busiest network",
+			max:  3,
+			addrs: []string{
+				"10.0.1.1:1", "10.0.2.1:1", "10.0.2.2:1", "10.0.3.1:1",
+			},
+			drop: 1,
+		},
+		{
+			name: "new connection counts for its network",
+			max:  3,
+			addrs: []string{
+				"10.0.1.1:1", "10.0.2.1:1", "10.0.3.1:1", "10.0.3.2:1",
+			},
+			drop: 2,
+		},
+		{
+			name: "ipv6 /64s of one /48 are one network",
+			max:  2,
+			addrs: []string{
+				"[2001:db8:1:1::1]:1",
+				"[2001:db8:1:2::1]:1",
+				"[2001:db8:2::1]:1",
+			},
+			drop: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			l := newTestListener(net.ErrClosed)
+			// Keep the idle connections waiting for the whole test.
+			startTestServer(
+				t, l,
+				ServeWithMaxPendingHandshakes(tc.max),
+				ServeWithIntroTimeout(time.Hour),
+			)
+
+			conns := make([]*sourceConn, len(tc.addrs))
+			for i, addr := range tc.addrs {
+				clientNet, serverNet := net.Pipe()
+				t.Cleanup(func() {
+					_ = clientNet.Close()
+					_ = serverNet.Close()
+				})
+				conns[i] = newSourceConn(newConn(serverNet), addr)
+				sendConn(t, l, conns[i])
+			}
+			// The server calls Accept once more after it has dealt with
+			// the last connection, so by then it has closed the one it
+			// dropped.
+			for range len(conns) + 1 {
+				select {
+				case <-l.calls:
+				case <-time.After(10 * time.Second):
+					a.FailNow("accept was not called again")
+				}
+			}
+			for i, c := range conns {
+				a.Equal(
+					i == tc.drop, c.isClosed(),
+					"connection %d from %s", i, tc.addrs[i],
+				)
+			}
+		})
+	}
+}
+
+func TestListenAndServeCapsPendingPerSource(t *testing.T) {
+	a := require.New(t)
+	l := newTestListener(net.ErrClosed)
+	startTestServer(t, l, ServeWithMaxPendingPerSource(1))
+
+	pending := func(addr string) *sourceConn {
+		clientNet, serverNet := net.Pipe()
+		t.Cleanup(func() {
+			_ = clientNet.Close()
+			_ = serverNet.Close()
+		})
+		return newSourceConn(newConn(serverNet), addr)
+	}
+	first := pending("10.0.0.1:4000")
+	second := pending("10.0.0.1:4001")
+	other := pending("10.0.0.2:4000")
+
+	l.conns <- first
+	l.conns <- second
+	select {
+	case <-second.closed:
+	case <-time.After(10 * time.Second):
+		a.FailNow("second connection from the same source was not closed")
+	}
+	l.conns <- other
+	// Accept handed out the three connections in its first three calls.
+	// The fourth call comes after the server has dealt with other.
+	for range 4 {
+		select {
+		case <-l.calls:
+		case <-time.After(10 * time.Second):
+			a.FailNow("accept was not called again")
+		}
+	}
+	a.False(first.isClosed(), "first connection was closed")
+	a.False(other.isClosed(), "connection from another source was closed")
+}
+
+// stringAddr is a net.Addr with a fixed string form.
+type stringAddr string
+
+func (stringAddr) Network() string  { return "test" }
+func (a stringAddr) String() string { return string(a) }
+
+func TestSourceKey(t *testing.T) {
+	cases := []struct {
+		name    string
+		addr    string
+		source  string
+		network string
+	}{
+		{
+			name:    "ipv4",
+			addr:    "192.0.2.7:4000",
+			source:  "192.0.2.7",
+			network: "192.0.2.0/24",
+		},
+		{
+			name:    "ipv4-mapped ipv6",
+			addr:    "[::ffff:192.0.2.7]:4000",
+			source:  "192.0.2.7",
+			network: "192.0.2.0/24",
+		},
+		{
+			name:    "ipv6",
+			addr:    "[2001:db8:1:2:aaaa:bbbb:cccc:dddd]:4000",
+			source:  "2001:db8:1:2::/64",
+			network: "2001:db8:1::/48",
+		},
+		{
+			name:    "ipv6 with zone",
+			addr:    "[fe80::1%eth0]:4000",
+			source:  "fe80::/64",
+			network: "fe80::/48",
+		},
+		{
+			name:    "ipv6 without port",
+			addr:    "2001:db8::1",
+			source:  "2001:db8::/64",
+			network: "2001:db8::/48",
+		},
+		{
+			name:    "host name",
+			addr:    "example.com:80",
+			source:  "example.com",
+			network: "example.com",
+		},
+		{
+			name:    "not an ip address",
+			addr:    "pipe",
+			source:  "pipe",
+			network: "pipe",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			a.Equal(tc.source, sourceKey(stringAddr(tc.addr)))
+			a.Equal(tc.network, networkKey(stringAddr(tc.addr)))
+		})
+	}
+}
+
+func TestListenAndServeLimitsPerSourceByDefault(t *testing.T) {
+	a := require.New(t)
+	l := newTestListener(net.ErrClosed)
+	// Keep the idle connections pending for the whole test.
+	startTestServer(t, l, ServeWithIntroTimeout(time.Hour))
+
+	// All addresses are in one /64, so they count as one source.
+	conns := make([]*sourceConn, defaultMaxPendingPerSource+1)
+	for i := range conns {
+		clientNet, serverNet := net.Pipe()
+		t.Cleanup(func() {
+			_ = clientNet.Close()
+			_ = serverNet.Close()
+		})
+		addr := fmt.Sprintf("[2001:db8::%x]:4000", i+1)
+		conns[i] = newSourceConn(newConn(serverNet), addr)
+		l.conns <- conns[i]
+	}
+
+	over := conns[len(conns)-1]
+	select {
+	case <-over.closed:
+	case <-time.After(10 * time.Second):
+		a.FailNow("connection over the default per-source cap was kept")
+	}
+	for i, c := range conns[:len(conns)-1] {
+		a.False(c.isClosed(), "connection %d was closed", i)
+	}
+}
+
+func TestIdleConnIsClosedAfterIntroTimeout(t *testing.T) {
+	a := require.New(t)
+	l := newTestListener(net.ErrClosed)
+	startTestServer(t, l, ServeWithIntroTimeout(time.Second))
+
+	clientNet, serverNet := net.Pipe()
+	t.Cleanup(func() {
+		_ = clientNet.Close()
+		_ = serverNet.Close()
+	})
+	sendConn(t, l, newConn(serverNet))
+
+	// The handshake timeout is 30 s, so a close within 10 s comes from the
+	// intro timeout. SetReadDeadline fails on a pipe whose other end is
+	// closed already, and then Read reports EOF.
+	_ = clientNet.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_, err := clientNet.Read(make([]byte, 1))
+	a.ErrorIs(err, io.EOF)
+}
+
+func TestIdleTCPConnsFromOneHostDoNotBlockDialer(t *testing.T) {
+	a := require.New(t)
+	// The idle connections come from a second loopback address, so that
+	// they and the dialer are different sources.
+	attacker := &net.Dialer{
+		LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2)},
+		Timeout:   10 * time.Second,
+	}
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	c, err := attacker.Dial("tcp", probe.Addr().String())
+	_ = probe.Close()
+	if err != nil {
+		t.Skipf("cannot dial from 127.0.0.2: %v", err)
+	}
+	_ = c.Close()
+
+	serverStore, cleanupServer := newTestStore(t)
+	t.Cleanup(cleanupServer)
+	clientStore, cleanupClient := newTestStore(t)
+	t.Cleanup(cleanupClient)
+	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	server, err := NewServer(
+		"127.0.0.1:0",
+		func(*Transport) error { return nil },
+		serverStore,
+		verifier,
+		ServeWithTCP(),
+	)
+	a.NoError(err)
+	addr := server.listener.(*tcpListener).Addr().String()
+	go func() { _ = server.ListenAndServe() }()
+	t.Cleanup(func() { _ = server.Close() })
+
+	// As many idle connections as may wait for their introduction by
+	// default.
+	for range defaultMaxPendingHandshakes {
+		c, err := attacker.Dial("tcp", addr)
+		a.NoError(err)
+		t.Cleanup(func() { _ = c.Close() })
+	}
+
+	dialer, err := NewDialer(addr, clientStore, verifier, DialWithTCP())
+	a.NoError(err)
+	dialed := make(chan error, 1)
+	go func() {
+		tr, err := dialer.Dial()
+		if err == nil {
+			_ = tr.CloseAbort()
+		}
+		dialed <- err
+	}()
+	// Before the per-source cap and the intro timeout, the dial waited
+	// for the 30 s handshake timeout and failed.
+	select {
+	case err := <-dialed:
+		a.NoError(err)
+	case <-time.After(defaultIntroTimeout + 10*time.Second):
+		a.FailNow("idle connections from one host blocked the dialer")
+	}
+}
+
+func TestIdleTCPConnsFromManyHostsDoNotBlockDialer(t *testing.T) {
+	const (
+		hosts = 64
+		// Each host keeps as many sockets as the per-source cap allows,
+		// so together they hold far more than the waiting connections
+		// the server allows.
+		perHost = defaultMaxPendingPerSource
+		// reconnectPause is how long an idle socket that the server
+		// closed waits before it connects again.
+		reconnectPause = 200 * time.Millisecond
+	)
+	a := require.New(t)
+	hostDialer := func(i int) *net.Dialer {
+		return &net.Dialer{
+			LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 1, byte(i+1))},
+			Timeout:   10 * time.Second,
+		}
+	}
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	c, err := hostDialer(hosts-1).Dial("tcp", probe.Addr().String())
+	_ = probe.Close()
+	if err != nil {
+		t.Skipf("cannot dial from 127.0.1.%d: %v", hosts, err)
+	}
+	_ = c.Close()
+
+	serverStore, cleanupServer := newTestStore(t)
+	t.Cleanup(cleanupServer)
+	clientStore, cleanupClient := newTestStore(t)
+	t.Cleanup(cleanupClient)
+	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	server, err := NewServer(
+		"127.0.0.1:0",
+		func(*Transport) error { return nil },
+		serverStore,
+		verifier,
+		ServeWithTCP(),
+	)
+	a.NoError(err)
+	addr := server.listener.(*tcpListener).Addr().String()
+	go func() { _ = server.ListenAndServe() }()
+	t.Cleanup(func() { _ = server.Close() })
+
+	// Every socket sends nothing and connects again whenever the server
+	// closes it, as an attacker holding its places would.
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	t.Cleanup(func() {
+		cancel()
+		wg.Wait()
+	})
+	connected := make(chan struct{}, hosts*perHost)
+	for i := range hosts {
+		d := hostDialer(i)
+		for range perHost {
+			wg.Go(func() {
+				first := true
+				for ctx.Err() == nil {
+					c, err := d.DialContext(ctx, "tcp", addr)
+					if err == nil {
+						if first {
+							connected <- struct{}{}
+							first = false
+						}
+						stop := context.AfterFunc(ctx, func() {
+							_ = c.Close()
+						})
+						_, _ = c.Read(make([]byte, 1))
+						stop()
+						_ = c.Close()
+					}
+					select {
+					case <-ctx.Done():
+					case <-time.After(reconnectPause):
+					}
+				}
+			})
+		}
+	}
+	for range hosts * perHost {
+		select {
+		case <-connected:
+		case <-time.After(30 * time.Second):
+			a.FailNow("the idle sockets did not connect")
+		}
+	}
+
+	dialer, err := NewDialer(addr, clientStore, verifier, DialWithTCP())
+	a.NoError(err)
+	dialed := make(chan error, 1)
+	go func() {
+		tr, err := dialer.Dial()
+		if err == nil {
+			_ = tr.CloseAbort()
+		}
+		dialed <- err
+	}()
+	// When the server stopped accepting at the cap, the dialer queued in
+	// the listen backlog behind the idle sockets and failed after 30 s.
+	select {
+	case err := <-dialed:
+		a.NoError(err)
+	case <-time.After(20 * time.Second):
+		a.FailNow("idle connections from many hosts blocked the dialer")
+	}
+}
+
+// gatedConn holds the first ReadBytes until gate is closed, as a slow link
+// holds the reply the dialer waits for.
+type gatedConn struct {
+	Conn
+	gate <-chan struct{}
+}
+
+func (c *gatedConn) ReadBytes() ([]byte, error) {
+	<-c.gate
+	return c.Conn.ReadBytes()
+}
+
+// newGate returns a gate for gatedConn and a func that opens it, which may
+// be called more than once. The gate is opened when the test ends.
+func newGate(t *testing.T) (<-chan struct{}, func()) {
+	gate := make(chan struct{})
+	var once sync.Once
+	open := func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(open)
+	return gate, open
+}
+
+// dialAsync runs dialer.Dial in a goroutine and returns its result.
+func dialAsync(dialer *Dialer) <-chan error {
+	dialed := make(chan error, 1)
+	go func() {
+		tr, err := dialer.Dial()
+		if err == nil {
+			_ = tr.CloseAbort()
+		}
+		dialed <- err
+	}()
+	return dialed
+}
+
+func TestIdleConnsFromOneNetworkDoNotDropDialer(t *testing.T) {
+	a := require.New(t)
+	clientStore, cleanupClient := newTestStore(t)
+	t.Cleanup(cleanupClient)
+	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	l := newTestListener(net.ErrClosed)
+	// Keep the idle connections waiting for the whole test.
+	startTestServer(t, l, ServeWithIntroTimeout(time.Hour))
+
+	// Every idle connection comes from its own /64, so each is a source
+	// with nothing else waiting, but all of them are in one /48.
+	next := 0
+	idle := func() {
+		clientNet, serverNet := net.Pipe()
+		t.Cleanup(func() {
+			_ = clientNet.Close()
+			_ = serverNet.Close()
+		})
+		next++
+		addr := fmt.Sprintf("[2001:db8:1:%x::1]:4000", next)
+		sendConn(t, l, newSourceConn(newConn(serverNet), addr))
+	}
+	for range defaultMaxPendingHandshakes {
+		idle()
+	}
+
+	// The dialer does not get the server's reply until the gate opens, as
+	// on a slow link.
+	gate, openGate := newGate(t)
+	clientNet, serverNet := net.Pipe()
+	clientConn := &gatedConn{Conn: newConn(clientNet), gate: gate}
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverNet.Close()
+	})
+	dialerConn := newSourceConn(newConn(serverNet), "[2001:db8:2::1]:4000")
+	sendConn(t, l, dialerConn)
+	dialer, err := NewDialer(
+		"", clientStore, verifier,
+		DialWithFunc(func(string) (Conn, error) { return clientConn, nil }),
+	)
+	a.NoError(err)
+	dialed := dialAsync(dialer)
+
+	// When the oldest waiting connection was dropped whenever every source
+	// had one waiting, the dialer was dropped after the next 256.
+	for range 2 * defaultMaxPendingHandshakes {
+		idle()
+	}
+	a.False(dialerConn.isClosed(), "the dialer was dropped")
+
+	openGate()
+	select {
+	case err := <-dialed:
+		a.NoError(err)
+	case <-time.After(30 * time.Second):
+		a.FailNow("the dial did not complete")
+	}
+}
+
+func TestTiedNetworksLoseConnsAtRandom(t *testing.T) {
+	a := require.New(t)
+	addrs := []string{"10.0.1.1:1", "10.0.2.1:1"}
+	dropped := make(map[string]int)
+	store, cleanup := newTestStore(t)
+	t.Cleanup(cleanup)
+	for range 200 {
+		server, err := NewServer(
+			"",
+			func(*Transport) error { return nil },
+			store,
+			func(*storage.Storage, *storage.Peer) error { return nil },
+			ServeWithListener(newTestListener(net.ErrClosed)),
+			ServeWithMaxPendingHandshakes(len(addrs)),
+		)
+		a.NoError(err)
+		for _, addr := range addrs {
+			_, victim, ok := server.admit(newSourceConn(nil, addr))
+			a.True(ok)
+			a.Nil(victim)
+		}
+		// Every network has one connection waiting, the new one's
+		// included, so either waiting connection may go.
+		_, victim, ok := server.admit(newSourceConn(nil, "10.0.3.1:1"))
+		a.True(ok)
+		a.NotNil(victim)
+		dropped[victim.(*sourceConn).addr.String()]++
+	}
+	for _, addr := range addrs {
+		a.Positive(dropped[addr], "%s was never dropped", addr)
+	}
+}
+
+func TestPendingCapsByTransport(t *testing.T) {
+	cases := []struct {
+		newConn func(cn Conn, addr string) *sourceConn
+		name    string
+		// atAccept is whether the per-source cap counts a connection from
+		// the moment it is accepted, rather than from the introduction.
+		atAccept bool
+	}{
+		{name: "tcp", newConn: newSourceConn, atAccept: true},
+		{name: "udp", newConn: newUDPSourceConn},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			store, cleanup := newTestStore(t)
+			t.Cleanup(cleanup)
+			newServer := func() *Server {
+				server, err := NewServer(
+					"",
+					func(*Transport) error { return nil },
+					store,
+					func(*storage.Storage, *storage.Peer) error { return nil },
+					ServeWithListener(newTestListener(net.ErrClosed)),
+				)
+				a.NoError(err)
+				return server
+			}
+
+			// One source, one more connection than the per-source cap.
+			server := newServer()
+			var conns []*pendingConn
+			for i := range defaultMaxPendingPerSource + 1 {
+				addr := fmt.Sprintf("10.0.0.1:%d", i+1)
+				p, _, ok := server.admit(tc.newConn(nil, addr))
+				last := i == defaultMaxPendingPerSource
+				a.Equal(!(last && tc.atAccept), ok, "admit %d", i)
+				if ok {
+					conns = append(conns, p)
+				}
+			}
+			if !tc.atAccept {
+				for i, p := range conns {
+					err := server.introduced(p)
+					if i < defaultMaxPendingPerSource {
+						a.NoError(err, "introduction %d", i)
+					} else {
+						a.Error(err, "introduction over the cap")
+					}
+				}
+			}
+			// The end of a handshake frees a place for the source.
+			server.endHandshake(conns[0])
+			p, _, ok := server.admit(tc.newConn(nil, "10.0.0.1:9999"))
+			a.True(ok)
+			a.NoError(server.introduced(p))
+
+			// Each connection from a network of its own: the cap on
+			// waiting connections applies whatever the transport.
+			server = newServer()
+			for i := range defaultMaxPendingHandshakes {
+				addr := fmt.Sprintf("10.1.%d.1:1", i)
+				_, victim, ok := server.admit(tc.newConn(nil, addr))
+				a.True(ok, "connection %d", i)
+				a.Nil(victim, "connection %d", i)
+			}
+			_, victim, ok := server.admit(tc.newConn(nil, "10.2.0.1:1"))
+			a.True(ok)
+			a.NotNil(victim, "connection over the cap made no room")
+		})
+	}
+}
+
+// kcpPush returns a KCP segment that pushes one byte on conversation conv.
+// It is all a kcp-go listener needs to accept a new session from the
+// datagram's source address.
+func kcpPush(conv uint32) []byte {
+	const cmdPush = 81
+	b := make([]byte, 25)
+	binary.LittleEndian.PutUint32(b[0:], conv)
+	b[4] = cmdPush
+	binary.LittleEndian.PutUint16(b[6:], 32) // window
+	binary.LittleEndian.PutUint32(b[20:], 1) // payload length
+	return b
+}
+
+// acceptCalls is a Listener that reports each Accept call on calls.
+type acceptCalls struct {
+	Listener
+	calls chan struct{}
+}
+
+func (l *acceptCalls) Accept() (Conn, error) {
+	select {
+	case l.calls <- struct{}{}:
+	default:
+	}
+	return l.Listener.Accept()
+}
+
+func TestKCPFloodFromManySourcesDoesNotDropDialer(t *testing.T) {
+	const sources = defaultMaxPendingHandshakes + 64
+	a := require.New(t)
+	// Each idle session comes from an address of its own, as a sender
+	// that forges its source address would make them. The addresses lie
+	// in two /24 networks, as in a flood from one site, so the server
+	// makes room by dropping idle sessions rather than the dialer's.
+	sourceIP := func(i int) net.IP {
+		return net.IPv4(127, 1, byte(i/250), byte(i%250+1))
+	}
+	probe, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: sourceIP(sources - 1)},
+	)
+	if err != nil {
+		t.Skipf("cannot bind %s: %v", sourceIP(sources-1), err)
+	}
+	_ = probe.Close()
+
+	serverStore, cleanupServer := newTestStore(t)
+	t.Cleanup(cleanupServer)
+	clientStore, cleanupClient := newTestStore(t)
+	t.Cleanup(cleanupClient)
+	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	kl, err := kcp.Listen("127.0.0.1:0")
+	a.NoError(err)
+	addr := kl.Addr().String()
+	l := &acceptCalls{
+		Listener: &udpListener{Listener: kl},
+		calls:    make(chan struct{}, 1),
+	}
+	server, err := NewServer(
+		"",
+		func(*Transport) error { return nil },
+		serverStore,
+		verifier,
+		ServeWithListener(l),
+		// Keep the idle sessions for the whole test.
+		ServeWithIntroTimeout(time.Hour),
+	)
+	a.NoError(err)
+	go func() { _ = server.ListenAndServe() }()
+	t.Cleanup(func() { _ = server.Close() })
+	waitAccept := func() bool {
+		select {
+		case <-l.calls:
+			return true
+		case <-time.After(time.Second):
+			return false
+		}
+	}
+	a.True(waitAccept(), "the server did not call Accept")
+
+	// The dialer does not get the server's reply until the gate opens, as
+	// on a slow link.
+	gate, openGate := newGate(t)
+	dialer, err := NewDialer(
+		addr, clientStore, verifier,
+		DialWithFunc(func(addr string) (Conn, error) {
+			c, err := kcp.Dial(addr)
+			if err != nil {
+				return nil, err
+			}
+			return &gatedConn{Conn: newConn(c), gate: gate}, nil
+		}),
+	)
+	a.NoError(err)
+	dialed := dialAsync(dialer)
+	// The server calls Accept again once it has taken the dialer's
+	// session.
+	accepted := false
+	for range 10 {
+		if accepted = waitAccept(); accepted {
+			break
+		}
+	}
+	a.True(accepted, "the server did not accept the dialer")
+
+	// When every source had one session waiting, the oldest was dropped
+	// for each new one, so the dialer was dropped after the next 256.
+	for i := range sources {
+		c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: sourceIP(i)})
+		a.NoError(err)
+		t.Cleanup(func() { _ = c.Close() })
+		to, err := net.ResolveUDPAddr("udp4", addr)
+		a.NoError(err)
+		// Send again in case the datagram was lost.
+		accepted = false
+		for range 10 {
+			_, err = c.WriteToUDP(kcpPush(uint32(i+1)), to)
+			a.NoError(err)
+			if accepted = waitAccept(); accepted {
+				break
+			}
+		}
+		a.True(accepted, "the server did not accept session %d", i)
+	}
+
+	openGate()
+	select {
+	case err := <-dialed:
+		a.NoError(err)
+	case <-time.After(30 * time.Second):
+		a.FailNow("the dial did not complete")
+	}
+}
+
+func TestIntroducedConnIsNotDropped(t *testing.T) {
+	a := require.New(t)
+	clientStore, cleanupClient := newTestStore(t)
+	t.Cleanup(cleanupClient)
+	serverStore, cleanupServer := newTestStore(t)
+	t.Cleanup(cleanupServer)
+
+	verifying := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseVerifier := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseVerifier)
+	l := newTestListener(net.ErrClosed)
+	server, err := NewServer(
+		"",
+		func(*Transport) error { return nil },
+		serverStore,
+		func(*storage.Storage, *storage.Peer) error {
+			close(verifying)
+			<-release
+			return nil
+		},
+		ServeWithListener(l),
+		ServeWithMaxPendingHandshakes(1),
+		ServeWithIntroTimeout(time.Hour),
+	)
+	a.NoError(err)
+	go func() { _ = server.ListenAndServe() }()
+	t.Cleanup(func() { _ = server.Close() })
+
+	clientNet, serverNet := net.Pipe()
+	clientConn := newConn(clientNet)
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverNet.Close()
+	})
+	dialerConn := newSourceConn(newConn(serverNet), "10.0.0.1:1")
+	sendConn(t, l, dialerConn)
+	dialer, err := NewDialer(
+		"",
+		clientStore,
+		func(*storage.Storage, *storage.Peer) error { return nil },
+		DialWithFunc(func(string) (Conn, error) { return clientConn, nil }),
+	)
+	a.NoError(err)
+	dialed := make(chan error, 1)
+	go func() {
+		tr, err := dialer.Dial()
+		if err == nil {
+			_ = tr.CloseAbort()
+		}
+		dialed <- err
+	}()
+	select {
+	case <-verifying:
+	case <-time.After(10 * time.Second):
+		a.FailNow("the server verifier did not run")
+	}
+
+	// While the server's user verifies the dialer, two idle connections
+	// arrive. The first takes the only waiting place, and the second takes
+	// it from the first; the dialer, which has introduced itself, does not
+	// count and is not dropped.
+	idle := make([]*sourceConn, 2)
+	for i := range idle {
+		clientNet, serverNet := net.Pipe()
+		t.Cleanup(func() {
+			_ = clientNet.Close()
+			_ = serverNet.Close()
+		})
+		addr := fmt.Sprintf("10.0.0.2:%d", i+1)
+		idle[i] = newSourceConn(newConn(serverNet), addr)
+		sendConn(t, l, idle[i])
+	}
+	select {
+	case <-idle[0].closed:
+	case <-time.After(10 * time.Second):
+		a.FailNow("the older idle connection was not dropped")
+	}
+	a.False(idle[1].isClosed(), "the newer idle connection was dropped")
+	a.False(dialerConn.isClosed(), "the introduced connection was dropped")
+
+	releaseVerifier()
+	select {
+	case err := <-dialed:
+		a.NoError(err)
+	case <-time.After(10 * time.Second):
+		a.FailNow("the dial did not complete")
+	}
+}
+
+// logRecorder is a slog.Handler that keeps every record.
+type logRecorder struct {
+	records []slog.Record
+	mu      sync.Mutex
+}
+
+func (*logRecorder) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *logRecorder) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, r.Clone())
+	return nil
+}
+
+func (h *logRecorder) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *logRecorder) WithGroup(string) slog.Handler      { return h }
+
+// levels returns the levels of the records with message msg.
+func (h *logRecorder) levels(msg string) []slog.Level {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var levels []slog.Level
+	for _, r := range h.records {
+		if r.Message == msg {
+			levels = append(levels, r.Level)
+		}
+	}
+	return levels
+}
+
+func TestServeConnLogLevel(t *testing.T) {
+	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	reject := func(*storage.Storage, *storage.Peer) error {
+		return ErrVerificationFailed
+	}
+	cases := []struct {
+		verifier RemoteVerifier
+		name     string
+		msg      string
+		level    slog.Level
+		// dial is whether a dialer introduces itself; otherwise the
+		// connection is closed before the exchange.
+		dial bool
+	}{
+		{
+			name:     "closed before the introduction",
+			verifier: accept,
+			msg:      "serve conn before introduction",
+			level:    slog.LevelDebug,
+		},
+		{
+			name:     "rejected after the introduction",
+			verifier: reject,
+			dial:     true,
+			msg:      "serve conn",
+			level:    slog.LevelError,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			rec := &logRecorder{}
+			prev := slog.Default()
+			slog.SetDefault(slog.New(rec))
+			t.Cleanup(func() { slog.SetDefault(prev) })
+
+			serverStore, cleanupServer := newTestStore(t)
+			t.Cleanup(cleanupServer)
+			l := newTestListener(net.ErrClosed)
+			server, err := NewServer(
+				"",
+				func(*Transport) error { return nil },
+				serverStore,
+				tc.verifier,
+				ServeWithListener(l),
+			)
+			a.NoError(err)
+			go func() { _ = server.ListenAndServe() }()
+			t.Cleanup(func() { _ = server.Close() })
+
+			clientNet, serverNet := net.Pipe()
+			clientConn := newConn(clientNet)
+			t.Cleanup(func() {
+				_ = clientConn.Close()
+				_ = serverNet.Close()
+			})
+			sendConn(t, l, newConn(serverNet))
+			if tc.dial {
+				clientStore, cleanupClient := newTestStore(t)
+				t.Cleanup(cleanupClient)
+				dialer, err := NewDialer(
+					"",
+					clientStore,
+					accept,
+					DialWithFunc(func(string) (Conn, error) {
+						return clientConn, nil
+					}),
+				)
+				a.NoError(err)
+				_, err = dialer.Dial()
+				a.Error(err)
+			} else {
+				a.NoError(clientConn.Close())
+			}
+
+			deadline := time.Now().Add(10 * time.Second)
+			for len(rec.levels(tc.msg)) == 0 {
+				if time.Now().After(deadline) {
+					a.FailNow("no log record", "%q", tc.msg)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			a.Equal([]slog.Level{tc.level}, rec.levels(tc.msg))
+			if tc.level != slog.LevelError {
+				a.Empty(rec.levels("serve conn"))
+			}
+		})
+	}
+}
+
+func TestIntroTimeoutOptionRejectsNonPositive(t *testing.T) {
+	a := require.New(t)
+	store, cleanup := newTestStore(t)
+	defer cleanup()
+	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	for _, d := range []time.Duration{0, -time.Second} {
+		_, err := NewServer(
+			"", func(*Transport) error { return nil }, store, verifier,
+			ServeWithIntroTimeout(d),
+		)
+		a.Error(err)
 	}
 }
