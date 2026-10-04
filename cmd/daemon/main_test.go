@@ -576,6 +576,7 @@ func TestCommandConstants(t *testing.T) {
 	expectedCommands := map[string]CMD{
 		"open_storage":              CmdOpenStorage,
 		"submit_passphrase":         CmdSubmitPassphrase,
+		"change_passphrase":         CmdChangePassphrase,
 		"start_server":              CmdStartServer,
 		"stop_server":               CmdStopServer,
 		"restart_server":            CmdRestartServer,

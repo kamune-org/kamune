@@ -16,6 +16,15 @@ type SubmitPassphraseParams struct {
 	SaveToKeychain bool   `json:"save_to_keychain,omitempty"`
 }
 
+// ChangePassphraseParams changes the passphrase of the open storage.
+// OldPassphrase is empty for a storage opened without a passphrase.
+// SaveToKeychain saves the new passphrase to the system keychain.
+type ChangePassphraseParams struct {
+	OldPassphrase  string `json:"old_passphrase"`
+	NewPassphrase  string `json:"new_passphrase"`
+	SaveToKeychain bool   `json:"save_to_keychain,omitempty"`
+}
+
 // StartServerParams contains parameters for starting a server.
 type StartServerParams struct {
 	Addr      string `json:"addr"`

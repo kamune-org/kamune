@@ -671,6 +671,8 @@ func (d *Daemon) handleCommand(cmd Command) {
 		d.handleOpenStorage(cmd)
 	case CmdSubmitPassphrase:
 		d.handleSubmitPassphrase(cmd)
+	case CmdChangePassphrase:
+		d.handleChangePassphrase(cmd)
 	case CmdStartServer:
 		d.handleStartServer(cmd)
 	case CmdStopServer:
@@ -859,6 +861,114 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	d.loadIdentityAndHistory()
 
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "opened"})
+}
+
+// handleChangePassphrase changes the passphrase of the open storage with
+// Storage.ChangePassphrase, which re-encrypts it under a new data key.
+// old_passphrase must open the storage, and is empty for one opened
+// without a passphrase; the new one must not be empty. Like open_storage,
+// it needs the storage idle: the file is rewritten, and a rewrite after
+// which the storage cannot be opened again leaves it closed.
+//
+// A keychain entry for the storage would hold the old passphrase, so it
+// is replaced with the new one when save_to_keychain is set, and removed
+// otherwise.
+func (d *Daemon) handleChangePassphrase(cmd Command) {
+	var params ChangePassphraseParams
+	if err := json.Unmarshal(cmd.Params, &params); err != nil {
+		d.emitError(cmd.ID, "invalid_params",
+			fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+	if params.NewPassphrase == "" {
+		d.emitError(cmd.ID, "passphrase_required",
+			"new_passphrase must not be empty")
+		return
+	}
+	store := d.store()
+	if store == nil {
+		d.emitError(cmd.ID, "storage_not_opened",
+			"storage not opened — call open_storage first")
+		return
+	}
+	if d.storageBusy() {
+		d.emitError(cmd.ID, "storage_busy", errStorageBusy.Error())
+		return
+	}
+	d.mu.RLock()
+	path := d.dbPath
+	d.mu.RUnlock()
+
+	unlock := storageUnlock{passphrase: []byte(params.NewPassphrase)}
+	err := store.ChangePassphrase(
+		[]byte(params.OldPassphrase), []byte(params.NewPassphrase),
+	)
+	switch {
+	case err == nil:
+		d.storeMu.Lock()
+		if d.db == store {
+			d.dbUnlock = unlock
+		}
+		d.storeMu.Unlock()
+	case errors.Is(err, storage.ErrWrongPassphrase):
+		d.emitError(cmd.ID, "wrong_passphrase",
+			"old_passphrase does not open the storage")
+		return
+	case errors.Is(err, storage.ErrReopen):
+		// The new passphrase is in effect, but the store must be
+		// opened again.
+		d.closeStore()
+		d.updateKeychain(path, params)
+		if err := d.replaceStore(path, unlock); err != nil {
+			d.mu.Lock()
+			d.pendingDBPath = path
+			d.mu.Unlock()
+			d.emitError(cmd.ID, "storage_reopen_failed", fmt.Sprintf(
+				"the new passphrase is in effect, but the storage "+
+					"could not be opened again: %v; open it with "+
+					"submit_passphrase", err,
+			))
+			return
+		}
+		d.loadIdentityAndHistory()
+		d.addLogEntry("INFO", "Storage passphrase changed")
+		d.emit(EvtResponse, cmd.ID, MapS{"status": "changed"})
+		return
+	default:
+		d.emitError(cmd.ID, "change_passphrase_failed",
+			fmt.Sprintf("failed to change passphrase: %v", err))
+		return
+	}
+
+	d.updateKeychain(path, params)
+	d.addLogEntry("INFO", "Storage passphrase changed")
+	d.emit(EvtResponse, cmd.ID, MapS{"status": "changed"})
+}
+
+// updateKeychain saves the new passphrase of params to the keychain for
+// path when it asks for that, and otherwise removes the passphrase saved
+// for path, which no longer opens the storage.
+func (d *Daemon) updateKeychain(path string, params ChangePassphraseParams) {
+	if params.SaveToKeychain {
+		err := keyring.Set(
+			keychainService, keychainAccount(path), params.NewPassphrase,
+		)
+		if err != nil {
+			d.addLogEntry("WARN",
+				"Failed to store passphrase in keychain: "+err.Error())
+		}
+		return
+	}
+	err := keychainDelete(path)
+	switch {
+	case err == nil:
+		d.addLogEntry("INFO",
+			"Removed the old passphrase from the keychain")
+	case !errors.Is(err, keyring.ErrNotFound):
+		d.addLogEntry("WARN",
+			"Failed to remove the old passphrase from the keychain: "+
+				err.Error())
+	}
 }
 
 // Shutdown gracefully shuts down the daemon

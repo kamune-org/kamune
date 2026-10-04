@@ -40,6 +40,7 @@ type CMD string
 const (
 	CmdOpenStorage             CMD = "open_storage"
 	CmdSubmitPassphrase        CMD = "submit_passphrase"
+	CmdChangePassphrase        CMD = "change_passphrase"
 	CmdStartServer             CMD = "start_server"
 	CmdStopServer              CMD = "stop_server"
 	CmdRestartServer           CMD = "restart_server"

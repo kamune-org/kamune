@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-cmd-change-passphrase",
+  "title": "change_passphrase params",
+  "description": "Changes the passphrase of the open storage: it is re-encrypted under a new data key that the new passphrase unlocks, and from then on only the new passphrase opens it. Copies of the old file made elsewhere, such as backups, still open with the old one. Like open_storage it needs the storage idle, and fails with storage_busy while a server runs, a server start or a dial is under way, or a session is open. It fails with storage_not_opened without an open storage, passphrase_required for an empty new_passphrase, wrong_passphrase when old_passphrase does not open the storage, and change_passphrase_failed otherwise, leaving the passphrase unchanged. In the rare case that the new passphrase is in effect but the storage cannot be opened again, it fails with storage_reopen_failed and the storage is closed: open it with submit_passphrase and the new passphrase. A keychain entry for the storage is replaced with the new passphrase when save_to_keychain is set, and removed otherwise. The response is {\"status\": \"changed\"}.",
+  "type": "object",
+  "properties": {
+    "old_passphrase": { "type": "string", "description": "The current passphrase. Empty or absent for a storage opened with db_no_passphrase, which the command then encrypts." },
+    "new_passphrase": { "type": "string", "minLength": 1, "description": "The new passphrase. Must not be empty." },
+    "save_to_keychain": { "type": "boolean", "default": false, "description": "If true, saves the new passphrase to the system keychain. Otherwise a passphrase saved for the storage is removed from it." }
+  },
+  "required": ["new_passphrase"]
+}

@@ -21,6 +21,7 @@ import (
 var commandParams = map[CMD]any{
 	CmdOpenStorage:          OpenStorageParams{},
 	CmdSubmitPassphrase:     SubmitPassphraseParams{},
+	CmdChangePassphrase:     ChangePassphraseParams{},
 	CmdStartServer:          StartServerParams{},
 	CmdDial:                 DialParams{},
 	CmdSendMessage:          SendMessageParams{},

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 )
 
 func TestStorageErrorReason(t *testing.T) {
@@ -78,4 +80,126 @@ func TestStorageOpenFailureReasons(t *testing.T) {
 		SubmitPassphraseParams{Passphrase: "right"})
 	a.Equal(EvtResponse, evt.Evt, "submit_passphrase: %v", evt.Data)
 	a.NotNil(d.store())
+}
+
+// openWith opens the storage at path with passphrase on a new daemon and
+// reports the error, closing the storage again.
+func openWith(t *testing.T, path, passphrase string) error {
+	d := newQuietDaemon()
+	t.Cleanup(d.cancel)
+	t.Setenv("KAMUNE_DB_PASSPHRASE", passphrase)
+	err := d.openStorage(OpenStorageParams{StoragePath: path})
+	d.closeStore()
+	return err
+}
+
+// change_passphrase re-encrypts the open storage so that only the new
+// passphrase opens it, keeps the storage open and usable, and replaces or
+// removes the passphrase saved in the keychain.
+func TestChangePassphrase(t *testing.T) {
+	tests := []struct {
+		name string
+		// old is the storage's passphrase, empty for one without.
+		old  string
+		save bool
+	}{
+		{name: "encrypted", old: "old secret"},
+		{name: "encrypted, saved", old: "old secret", save: true},
+		{name: "unencrypted"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			d := newQuietDaemon()
+			rec := newEventRecorder()
+			d.output = json.NewEncoder(rec)
+			t.Cleanup(func() {
+				d.cancel()
+				d.closeStore()
+			})
+			path := filepath.Join(t.TempDir(), "kamune.db")
+			t.Setenv("KAMUNE_DB_PASSPHRASE", tt.old)
+			a.NoError(d.openStorage(OpenStorageParams{
+				StoragePath: path, DBNoPassphrase: tt.old == "",
+			}))
+			pub, err := d.store().PublicKey()
+			a.NoError(err)
+			account := keychainAccount(path)
+			a.NoError(keyring.Set(keychainService, account, tt.old))
+			t.Cleanup(func() { _ = keyring.Delete(keychainService, account) })
+
+			n := 0
+			change := func(old, new string) recordedEvent {
+				t.Helper()
+				n++
+				id := ID(fmt.Sprintf("change-%d", n))
+				d.handleChangePassphrase(Command{
+					ID: id,
+					Params: mustJSON(ChangePassphraseParams{
+						OldPassphrase: old, NewPassphrase: new,
+						SaveToKeychain: tt.save,
+					}),
+				})
+				return rec.waitFor(t, func(e recordedEvent) bool {
+					return e.ID == id
+				})
+			}
+
+			evt := change("not it", "new secret")
+			a.Equal(EvtError, evt.Evt)
+			a.Equal("wrong_passphrase", evt.Data["code"])
+			evt = change(tt.old, "")
+			a.Equal(EvtError, evt.Evt)
+			a.Equal("passphrase_required", evt.Data["code"])
+
+			evt = change(tt.old, "new secret")
+			a.Equal(EvtResponse, evt.Evt, "change_passphrase: %v", evt.Data)
+			a.Equal("changed", evt.Data["status"])
+			got, err := d.store().PublicKey()
+			a.NoError(err, "the storage is no longer usable")
+			a.Equal(pub, got)
+
+			secret, err := keyring.Get(keychainService, account)
+			if tt.save {
+				a.NoError(err)
+				a.Equal("new secret", secret)
+			} else {
+				a.ErrorIs(err, keyring.ErrNotFound,
+					"the old passphrase stayed in the keychain")
+			}
+
+			// Reopening goes through the new passphrase.
+			d.closeStore()
+			if tt.old != "" {
+				a.ErrorIs(openWith(t, path, tt.old),
+					storage.ErrWrongPassphrase)
+			}
+			a.NoError(openWith(t, path, "new secret"))
+		})
+	}
+}
+
+// change_passphrase needs an open, idle storage.
+func TestChangePassphraseNeedsIdleStorage(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	run := func(id ID) recordedEvent {
+		t.Helper()
+		d.handleChangePassphrase(Command{
+			ID: id,
+			Params: mustJSON(ChangePassphraseParams{
+				NewPassphrase: "new secret",
+			}),
+		})
+		return rec.waitFor(t, func(e recordedEvent) bool { return e.ID == id })
+	}
+
+	startTestServer(t, d, rec)
+	evt := run("busy")
+	a.Equal("storage_busy", evt.Data["code"])
+
+	d.stopServer()
+	d.closeStore()
+	evt = run("closed")
+	a.Equal("storage_not_opened", evt.Data["code"])
 }
