@@ -141,10 +141,11 @@ func (b *BrokerClient) WaitMatch(
 		return nil, relaybroker.Payload{}, fmt.Errorf("send register: %w", err)
 	}
 
-	// Read NOTIFYs from the punch socket in a loop. We discard
-	// TOKEN_ASSIGNED (random-token mode is handled by RegisterP2PDialer
-	// which pre-resolves the token before WaitMatch is called) and
-	// return on the first PEER_MATCHED.
+	// Read NOTIFYs from the punch socket in a loop and return on the
+	// first PEER_MATCHED. TOKEN_ASSIGNED is skipped: the caller
+	// registers a token it already holds, the one the server shared or
+	// the static one both peers derive, so it has no use for one the
+	// broker assigns.
 	buf := make([]byte, 1500)
 	lastRegister := time.Now()
 	for {

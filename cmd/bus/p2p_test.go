@@ -505,31 +505,6 @@ func TestTokenFromKeysIsOrderIndependent(t *testing.T) {
 	a.Len(t1, 32)
 }
 
-// ---------------------------------------------------------------------------
-// RegisterP2PDialer tests
-// ---------------------------------------------------------------------------
-
-func TestRegisterP2PDialer_RequiresPeerOrToken(t *testing.T) {
-	a := require.New(t)
-	app := newTestAppForP2P(t)
-	_, _, err := app.RegisterP2PDialer("127.0.0.1:1", "", "")
-	a.Error(err)
-}
-
-func TestRegisterP2PDialer_RejectsBoth(t *testing.T) {
-	a := require.New(t)
-	app := newTestAppForP2P(t)
-	_, _, err := app.RegisterP2PDialer("127.0.0.1:1", "abc", "deadbeef")
-	a.Error(err)
-}
-
-func TestRegisterP2PDialer_EmptyAddress(t *testing.T) {
-	a := require.New(t)
-	app := newTestAppForP2P(t)
-	_, _, err := app.RegisterP2PDialer("", "abc", "")
-	a.Error(err)
-}
-
 // mustPKIXForRaw encodes an ed25519 public key in PKIX form.
 func mustPKIXForRaw(t *testing.T, raw ed25519.PublicKey) []byte {
 	t.Helper()

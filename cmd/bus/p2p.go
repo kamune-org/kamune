@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -214,72 +213,4 @@ func (a *App) p2pTokensSnapshot() []p2pToken {
 	out := make([]p2pToken, len(a.p2pTokens))
 	copy(out, a.p2pTokens)
 	return out
-}
-
-// RegisterP2PDialer registers as a dialer on the broker so the listener
-// can find this peer. The token is resolved from one of two sources:
-//
-//   - peerPubB64 (preferred): derives the static token via
-//     relayconn.TokenFromKeys. The listener must use the same derivation.
-//   - tokenHex: the listener-shared hex token (random-token-via-broker
-//     path, distributed out-of-band).
-//
-// Exactly one of the two must be non-empty. The returned token is what
-// the broker will associate with this registration.
-//
-// Hole-punch + connect happens in a later increment; for now this method
-// only registers and returns. The cancel func tears down the registration.
-func (a *App) RegisterP2PDialer(
-	brokerAddr, peerPubB64, tokenHex string,
-) (string, context.CancelFunc, error) {
-	if a.brokerClient == nil {
-		return "", nil, errors.New("broker client is not initialized")
-	}
-	if brokerAddr == "" {
-		return "", nil, errors.New("broker address is required")
-	}
-	if peerPubB64 == "" && tokenHex == "" {
-		return "", nil, errors.New(
-			"either peer or token is required to register on the broker")
-	}
-	if peerPubB64 != "" && tokenHex != "" {
-		return "", nil, errors.New(
-			"peer and token are mutually exclusive")
-	}
-
-	var token []byte
-	if peerPubB64 != "" {
-		t, err := a.deriveP2PToken(peerPubB64)
-		if err != nil {
-			return "", nil, err
-		}
-		token = t
-	} else {
-		raw, err := hex.DecodeString(tokenHex)
-		if err != nil {
-			return "", nil, fmt.Errorf("decode token: %w", err)
-		}
-		token = raw
-	}
-
-	client, err := a.brokerClient.Client(brokerAddr)
-	if err != nil {
-		return "", nil, fmt.Errorf("broker client: %w", err)
-	}
-
-	claimIP, claimPort, err := client.Echo(context.Background())
-	if err != nil {
-		return "", nil, fmt.Errorf("broker echo: %w", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	registered, err := client.Register(ctx, token, claimIP, claimPort)
-	if err != nil {
-		cancel()
-		return "", nil, fmt.Errorf("broker register: %w", err)
-	}
-
-	hexToken := hex.EncodeToString(registered)
-	a.addLogEntry("INFO", "Registered p2p dialer with token: "+hexToken)
-	return hexToken, cancel, nil
 }
