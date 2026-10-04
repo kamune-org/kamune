@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import jsQR from 'jsqr';
   import { importedRelayScheme } from './importurl';
 
@@ -84,8 +84,11 @@
         return;
       }
       stream = s;
-      videoEl.srcObject = stream;
+      // The video element is only there in camera mode.
       scanMode = 'camera';
+      await tick();
+      if (!stream) return;
+      videoEl.srcObject = stream;
       scanFrame();
     } catch {
       if (run !== cameraRun) return;
