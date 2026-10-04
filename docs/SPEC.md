@@ -741,6 +741,11 @@ the `Transport`:
 8. The inner message is deserialized into the expected type.
 9. The route and metadata are returned to the application layer.
 
+A receiver that allows concurrent receive calls on one session MUST complete
+steps 1 to 7 for one frame before it reads the next, so that frames are
+checked in wire order. The reference implementation serves such calls one at a
+time in wire order, and each frame goes to exactly one caller.
+
 ### 6.6 Session Teardown
 
 When a peer decides to close a session, it performs a **graceful teardown**:
