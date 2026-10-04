@@ -61,6 +61,24 @@ type RenameSessionParams struct {
 	Name      string `json:"name"`
 }
 
+// GenerateRelayTokenParams asks for a relay token: a static one derived
+// for PeerPubB64, or a random one when it is empty.
+type GenerateRelayTokenParams struct {
+	PeerPubB64 string `json:"peer_pub_b64,omitempty"`
+}
+
+// GenerateP2PTokenParams adds a p2p token to the running p2p server: a
+// static one derived for PeerPubB64, or a random one when it is empty.
+type GenerateP2PTokenParams struct {
+	BrokerAddr string `json:"broker_addr"`
+	PeerPubB64 string `json:"peer_pub_b64,omitempty"`
+}
+
+// RemoveP2PTokenParams removes an active p2p token.
+type RemoveP2PTokenParams struct {
+	Token string `json:"token"`
+}
+
 // RemoveRelayTokenParams removes an active relay token.
 type RemoveRelayTokenParams struct {
 	Token string `json:"token"`

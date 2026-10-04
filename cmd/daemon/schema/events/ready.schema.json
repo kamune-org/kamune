@@ -9,5 +9,5 @@
     "pid":              { "type": "string", "description": "Daemon process ID." },
     "protocol_version": { "type": "string", "description": "Protocol version (e.g. \"1\")." }
   },
-  "required": ["version", "pid"]
+  "required": ["version", "pid", "protocol_version"]
 }

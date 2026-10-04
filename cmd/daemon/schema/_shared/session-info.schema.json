@@ -2,20 +2,20 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-session-info",
   "title": "SessionInfo",
-  "description": "Public session shape returned by list_sessions and emitted in session_started / session_closed events.",
+  "description": "Public session shape returned by list_sessions and get_session_info (with type \"live\") and emitted in session_started / session_closed events.",
   "type": "object",
   "properties": {
     "session_id":         { "type": "string" },
     "peer_name":          { "type": "string" },
     "is_server":          { "type": "boolean" },
-    "msg_count":          { "type": "integer" },
-    "last_activity":      { "type": ["string", "null"], "format": "date-time", "description": "RFC3339 timestamp. Null for zero-value." },
-    "transport_type":     { "type": "string", "description": "e.g. \"tcp\", \"udp\", \"relay\"." },
-    "remote_version":     { "type": "string" },
+    "msg_count":          { "type": "integer", "description": "Messages stored for the session before it started plus those sent or received since." },
+    "last_activity":      { "type": "string", "format": "date-time", "description": "RFC3339 timestamp. Omitted while it is unset." },
+    "transport_type":     { "type": "string", "description": "\"tcp\", \"udp\", \"relay\", \"p2p\" or \"direct-p2p\". Omitted when empty." },
+    "remote_version":     { "type": "string", "description": "The peer's kamune version. Omitted when empty." },
     "cause":              { "type": "string", "enum": ["dial", "incoming"], "description": "How the session was initiated." },
     "session_ttl_ns":     { "type": "integer", "description": "Session TTL in nanoseconds." },
     "session_started_at": { "type": "string", "format": "date-time", "description": "RFC3339 timestamp." },
-    "remote_addr":        { "type": "string", "description": "Remote peer address." }
+    "remote_addr":        { "type": "string", "description": "Where a dialed session was dialed: the server's address, the relay's for relay, \"p2p\" for p2p and the peer's for direct-p2p. Omitted for incoming sessions." }
   },
   "required": ["session_id", "peer_name", "is_server", "msg_count", "session_ttl_ns", "session_started_at"]
 }

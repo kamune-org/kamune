@@ -7,7 +7,7 @@
   "properties": {
     "type": { "const": "evt" },
     "evt":  { "type": "string", "description": "Event name." },
-    "id":   { "type": "string", "description": "Correlation ID. Present for command responses and correlated events." },
+    "id":   { "type": "string", "description": "Correlation ID of the command that the event answers. Omitted for push events and for answers to commands sent without an id." },
     "data": { "type": "object", "description": "Event-specific payload." }
   },
   "required": ["type", "evt", "data"]

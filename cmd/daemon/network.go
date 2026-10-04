@@ -1077,10 +1077,7 @@ func (d *Daemon) handleRenameSession(cmd Command) {
 
 // handleGenerateP2PToken adds a p2p token to the running p2p server.
 func (d *Daemon) handleGenerateP2PToken(cmd Command) {
-	var params struct {
-		BrokerAddr string `json:"broker_addr"`
-		PeerPubB64 string `json:"peer_pub_b64,omitempty"`
-	}
+	var params GenerateP2PTokenParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
 		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
@@ -1106,9 +1103,7 @@ func (d *Daemon) handleGenerateP2PToken(cmd Command) {
 
 // handleRemoveP2PToken removes an active p2p token.
 func (d *Daemon) handleRemoveP2PToken(cmd Command) {
-	var params struct {
-		Token string `json:"token"`
-	}
+	var params RemoveP2PTokenParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
 		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
@@ -1425,9 +1420,7 @@ func (d *Daemon) dropRelayPool(sessionID string) {
 // with the relay after the command returns, so that a slow relay does not
 // hold up other commands; the response follows once it is registered.
 func (d *Daemon) handleGenerateRelayToken(cmd Command) {
-	var params struct {
-		PeerPubB64 string `json:"peer_pub_b64,omitempty"`
-	}
+	var params GenerateRelayTokenParams
 	if cmd.Params != nil {
 		if err := json.Unmarshal(cmd.Params, &params); err != nil {
 			d.emitError(cmd.ID, "invalid_params",

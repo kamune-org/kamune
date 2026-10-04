@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-submit-passphrase",
   "title": "submit_passphrase params",
-  "description": "Re-opens the previously-opened storage path with a new passphrase.",
+  "description": "Opens the storage path that open_storage was last given, or else the open storage's path, with this passphrase. Fails with storage_not_opened when there is neither.",
   "type": "object",
   "properties": {
     "passphrase": {

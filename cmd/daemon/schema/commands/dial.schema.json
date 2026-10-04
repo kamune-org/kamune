@@ -2,19 +2,41 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-dial",
   "title": "dial params",
-  "description": "Connects to a remote kamune server. Over a relay, connecting to the relay and the relay handshake are limited to 15 seconds.",
+  "description": "Connects to a remote kamune server. Which fields are required depends on transport: addr for tcp and udp, relay_addr and token for relay, broker_addr and p2p_token for p2p, and direct_peer_addr for direct-p2p. Over a relay, connecting to the relay and the relay handshake are limited to 15 seconds.",
   "type": "object",
   "properties": {
-    "addr":              { "type": "string", "description": "Server address (e.g. \"127.0.0.1:9000\"). Required for tcp and udp, where an empty addr fails with addr_required." },
-    "transport":         { "type": "string", "enum": ["tcp", "udp", "relay", "p2p", "direct-p2p"], "description": "Transport protocol. Defaults to \"tcp\" when empty or absent. Any other value fails with invalid_transport." },
+    "addr":              { "type": "string", "description": "Server address (e.g. \"127.0.0.1:9000\"). Required for tcp and udp, where an empty addr fails with addr_required. Ignored for relay, p2p and direct-p2p." },
+    "transport":         { "type": "string", "enum": ["", "tcp", "udp", "relay", "p2p", "direct-p2p"], "description": "Transport protocol. Defaults to \"tcp\" when empty or absent. Any other value fails with invalid_transport." },
     "relay_addr":        { "type": "string", "description": "Relay server address, host:port with an optional scheme: wss:// (the default), tls://, ws:// or tcp://. A trailing ?insecure=true turns off TLS certificate checks. ws://, tcp:// and ?insecure=true let an on-path attacker read the relay password and tokens, and are logged as a warning. Required when transport is \"relay\"." },
-    "token":             { "type": "string", "description": "Hex-encoded relay token." },
+    "token":             { "type": "string", "description": "Hex-encoded relay token. Required when transport is \"relay\"." },
     "password":          { "type": "string", "description": "Pre-shared key for relay authentication." },
-    "name":              { "type": "string", "description": "Client display name." },
-    "broker_addr":       { "type": "string", "description": "Broker address for P2P relay." },
-    "peer_pub_b64":      { "type": "string", "description": "Base64-encoded public key of the target peer." },
-    "p2p_token":         { "type": "string", "description": "Hex-encoded P2P token from the server: 32 hex characters for a token the broker assigned, 64 for a static token. Required when transport is \"p2p\". The dial waits at most 30 seconds for the broker to match it with the server." },
-    "direct_peer_addr":  { "type": "string", "description": "Direct peer address for transport \"direct-p2p\"." }
+    "name":              { "type": "string", "description": "Client display name. Defaults to a fingerprint pseudonym, which incognito mode always uses." },
+    "broker_addr":       { "type": "string", "description": "UDP host:port of the broker. Required when transport is \"p2p\"." },
+    "peer_pub_b64":      { "type": "string", "description": "Base64-encoded public key of the target peer. Not used by dial." },
+    "p2p_token":         { "type": "string", "pattern": "^([0-9A-Fa-f]{32}|[0-9A-Fa-f]{64})$", "description": "Hex-encoded P2P token from the server: 32 hex characters for a token the broker assigned, 64 for a static token. Required when transport is \"p2p\", where any other value fails with invalid_p2p_token. The dial waits at most 30 seconds for the broker to match it with the server." },
+    "direct_peer_addr":  { "type": "string", "description": "UDP host:port of the peer. Required when transport is \"direct-p2p\"." }
   },
-  "required": ["addr"]
+  "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          { "not": { "required": ["transport"] } },
+          { "properties": { "transport": { "enum": ["", "tcp", "udp"] } } }
+        ]
+      },
+      "then": { "required": ["addr"] }
+    },
+    {
+      "if": { "properties": { "transport": { "const": "relay" } }, "required": ["transport"] },
+      "then": { "required": ["relay_addr", "token"] }
+    },
+    {
+      "if": { "properties": { "transport": { "const": "p2p" } }, "required": ["transport"] },
+      "then": { "required": ["broker_addr", "p2p_token"] }
+    },
+    {
+      "if": { "properties": { "transport": { "const": "direct-p2p" } }, "required": ["transport"] },
+      "then": { "required": ["direct_peer_addr"] }
+    }
+  ]
 }

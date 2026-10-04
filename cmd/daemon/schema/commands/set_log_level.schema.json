@@ -2,10 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-set-log-level",
   "title": "set_log_level params",
-  "description": "Sets the minimum log level. Entries below it are left out of stderr, get_logs, export_logs and log_entry events alike.",
+  "description": "Sets the minimum log level. Entries below it are left out of stderr, get_logs, export_logs and log_entry events alike. While a storage is open the level is saved in it, and opening that storage restores it. Any other level fails with invalid_log_level.",
   "type": "object",
   "properties": {
-    "level": { "type": "string", "enum": ["DEBUG", "INFO", "WARN", "ERROR"] }
+    "level": {
+      "type": "string",
+      "pattern": "^([Dd][Ee][Bb][Uu][Gg]|[Ii][Nn][Ff][Oo]|[Ww][Aa][Rr][Nn]([Ii][Nn][Gg])?|[Ee][Rr][Rr][Oo][Rr])$",
+      "description": "DEBUG, INFO, WARN (or WARNING) or ERROR, in any case."
+    }
   },
   "required": ["level"]
 }

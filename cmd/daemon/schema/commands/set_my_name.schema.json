@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-set-my-name",
   "title": "set_my_name params",
-  "description": "Sets the local display name.",
+  "description": "Sets the local display name, and saves it while a storage is open. A name longer than 32 bytes fails with name_too_long.",
   "type": "object",
   "properties": {
     "name": { "type": "string" }

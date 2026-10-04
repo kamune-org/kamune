@@ -2,10 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-get-history-messages",
   "title": "get_history_messages params",
-  "description": "Fetches messages for a history session.",
+  "description": "Fetches one page of messages of a history session, oldest first. The session must have been loaded with load_history; otherwise the command fails with history_not_loaded. The response carries messages, total (all messages of the session), and the offset and limit that were used.",
   "type": "object",
   "properties": {
-    "session_id": { "type": "string" }
+    "session_id": { "type": "string" },
+    "limit":      { "type": "integer", "description": "Most messages to return. 0, a negative value or an absent limit means 500." },
+    "offset":     { "type": "integer", "description": "Messages to skip from the oldest. A negative offset is read as 0, and one past the last message as the message count. Defaults to 0." }
   },
   "required": ["session_id"]
 }

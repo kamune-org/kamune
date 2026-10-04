@@ -6,7 +6,7 @@
   "type": "object",
   "properties": {
     "public_key": { "type": "string" },
-    "name":       { "type": "string" }
+    "name":       { "type": "string", "description": "New name. An empty or absent name resets it to the fingerprint pseudonym of the key." }
   },
-  "required": ["public_key", "name"]
+  "required": ["public_key"]
 }

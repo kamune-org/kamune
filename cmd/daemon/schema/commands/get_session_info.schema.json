@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-get-session-info",
   "title": "get_session_info params",
-  "description": "Returns info for a single session (live or history).",
+  "description": "Returns info for a single session. A live session is described by the SessionInfo fields with type \"live\"; a history session by type \"history\", session_id, name, msg_count, first_message, last_message and loaded. A session that is neither fails with session_not_found.",
   "type": "object",
   "properties": {
     "session_id": { "type": "string" }

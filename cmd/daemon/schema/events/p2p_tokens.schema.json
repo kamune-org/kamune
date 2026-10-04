@@ -14,8 +14,8 @@
           "consumed":     { "type": "boolean" },
           "ttl_ns":       { "type": "integer", "description": "How long, in nanoseconds, the broker keeps the token's registration after a refresh: 60 seconds, the relay broker's default." },
           "expires_at":   { "type": "string", "format": "date-time", "description": "When the broker drops the registration unless the server refreshes it first. Each refresh moves it on, so it stays about 30 seconds ahead while refreshes go out." },
-          "mode":         { "type": "string" },
-          "peer_pub_b64": { "type": "string" }
+          "mode":         { "type": "string", "enum": ["random", "static"], "description": "\"static\" for a token derived for peer_pub_b64, \"random\" otherwise." },
+          "peer_pub_b64": { "type": "string", "description": "Base64 public key of the peer that a static token was derived for." }
         },
         "required": ["token", "consumed", "ttl_ns", "expires_at", "mode"]
       }

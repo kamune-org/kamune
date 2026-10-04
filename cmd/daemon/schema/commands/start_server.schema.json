@@ -2,17 +2,39 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-start-server",
   "title": "start_server params",
-  "description": "Starts a kamune server. transport is \"tcp\" (default), \"udp\", \"relay\", \"p2p\", or \"direct-p2p\"; any other value fails with invalid_transport.",
+  "description": "Starts a kamune server. transport is \"tcp\" (default), \"udp\", \"relay\", \"p2p\", or \"direct-p2p\"; any other value fails with invalid_transport. Which fields are required depends on transport: addr for tcp and udp, relay_addr for relay, broker_addr for p2p, and direct_peer_addr for direct-p2p.",
   "type": "object",
   "properties": {
-    "addr":              { "type": "string", "description": "Listen address (e.g. \"127.0.0.1:9000\"). Required for tcp and udp, where an empty addr fails with addr_required; pass \"0.0.0.0:0\" to listen on every interface." },
-    "transport":         { "type": "string", "enum": ["tcp", "udp", "relay", "p2p", "direct-p2p"], "description": "Transport protocol. Defaults to \"tcp\" when empty or absent. Any other value fails with invalid_transport." },
+    "addr":              { "type": "string", "description": "Listen address (e.g. \"127.0.0.1:9000\"). Required for tcp and udp, where an empty addr fails with addr_required; pass \"0.0.0.0:0\" to listen on every interface. For p2p and direct-p2p it is the UDP address the punch socket binds, any port on every interface when absent. Ignored for relay." },
+    "transport":         { "type": "string", "enum": ["", "tcp", "udp", "relay", "p2p", "direct-p2p"], "description": "Transport protocol. Defaults to \"tcp\" when empty or absent. Any other value fails with invalid_transport." },
     "relay_addr":        { "type": "string", "description": "Relay server address, host:port with an optional scheme: wss:// (the default), tls://, ws:// or tcp://. A trailing ?insecure=true turns off TLS certificate checks. ws://, tcp:// and ?insecure=true let an on-path attacker read the relay password and tokens, and are logged as a warning. Required when transport is \"relay\"." },
     "password":          { "type": "string", "description": "Pre-shared key for relay authentication." },
-    "name":              { "type": "string", "description": "Server display name. Defaults to a fingerprint pseudonym." },
-    "broker_addr":       { "type": "string", "description": "Broker address for P2P relay. Required for transport \"p2p\"." },
+    "name":              { "type": "string", "description": "Server display name. Defaults to a fingerprint pseudonym, which incognito mode always uses." },
+    "broker_addr":       { "type": "string", "description": "UDP host:port of the broker. Required when transport is \"p2p\"." },
     "peer_pub_b64":      { "type": "string", "description": "Base64-encoded public key of a specific peer for static P2P token derivation." },
-    "direct_peer_addr":  { "type": "string", "description": "Direct peer address for transport \"direct-p2p\"." }
+    "direct_peer_addr":  { "type": "string", "description": "UDP host:port of the peer. Required when transport is \"direct-p2p\"." }
   },
-  "required": ["addr"]
+  "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          { "not": { "required": ["transport"] } },
+          { "properties": { "transport": { "enum": ["", "tcp", "udp"] } } }
+        ]
+      },
+      "then": { "required": ["addr"] }
+    },
+    {
+      "if": { "properties": { "transport": { "const": "relay" } }, "required": ["transport"] },
+      "then": { "required": ["relay_addr"] }
+    },
+    {
+      "if": { "properties": { "transport": { "const": "p2p" } }, "required": ["transport"] },
+      "then": { "required": ["broker_addr"] }
+    },
+    {
+      "if": { "properties": { "transport": { "const": "direct-p2p" } }, "required": ["transport"] },
+      "then": { "required": ["direct_peer_addr"] }
+    }
+  ]
 }

@@ -8,5 +8,5 @@
     "status":  { "type": "string", "enum": ["disconnected", "connecting", "connected", "verifying", "error"] },
     "message": { "type": "string" }
   },
-  "required": ["status"]
+  "required": ["status", "message"]
 }
