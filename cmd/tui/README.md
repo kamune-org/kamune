@@ -1,7 +1,7 @@
 # TUI Chat
 
 Interactive terminal user interface for Kamune. Supports direct TCP and
-relay-based connections, peer verification via emoji/fingerprint, and chat
+relay-based connections, peer verification by numeric fingerprint, and chat
 history browsing.
 
 ## Usage
@@ -100,6 +100,35 @@ accepts only the certificate with that fingerprint, in place of the root
 and host name checks. The field is refused for `ws` and `tcp`. See
 [TLS / Certificates](../relay/README.md#tls--certificates) in the relay
 README.
+
+## Verifying a peer
+
+Every new connection, in any mode, opens a verify screen before the chat,
+also for a peer you have chatted with before. From the top, it shows:
+
+1. The numeric fingerprint of the peer's key, 40 digits in eight groups of
+   five, and that of your own key.
+2. The emoji and hex fingerprints of the peer's key.
+3. Whether the peer's key is stored from an earlier session, and if so the
+   name stored for it.
+4. The name and app version that the peer claims, which are not verified.
+
+Over a channel you trust, such as a phone call, ask the peer to read out
+the numeric fingerprint of its own key, and check it against the peer's
+number on the screen; then read yours out in turn. The numeric fingerprint
+carries about 132.9 bits. Do not rely on the emoji fingerprint: it carries
+about 52.7 bits, few enough that a well-funded attacker can make a key with
+the same emojis. If the peer's app shows no numeric fingerprint, compare
+the whole hex fingerprint; its first 12 bytes are the same for every key.
+
+Press `y` to accept the peer, or `n` or Esc to reject it. Every other key,
+Enter included, is ignored, so an Enter meant for the previous screen
+cannot accept a key you have not checked. A prompt left unanswered for two
+minutes rejects the peer, and a peer that connects while a prompt is open
+is rejected at once. After a rejection, Start Server goes on waiting for
+another peer; the other modes end and return to the menu. The TUI stores
+a peer you accept once its session is established. When the chat opens,
+it shows a line that names the peer and gives its numeric fingerprint.
 
 ## Controls
 
