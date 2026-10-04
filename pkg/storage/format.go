@@ -21,24 +21,15 @@ const formatKey = "storage-format"
 //     setting values are padded (see [nameKeyKey])
 const storageFormat = 2
 
-// upgradeFormat brings the database up to [storageFormat] and records it.
-// Each step can be run again on data it already converted, so a step that
-// is interrupted, by a crash or an error, is completed on the next open.
-// When a step changed anything, the database is compacted afterwards, so
-// that the old layout does not stay in free pages.
-func (s *Storage) upgradeFormat() error {
-	version, err := s.formatVersion()
-	if err != nil {
-		return err
-	}
-	switch {
-	case version == storageFormat:
+// upgradeFormat brings the database from version, its recorded layout,
+// up to [storageFormat] and records it. Each step can be run again on data
+// it already converted, so a step that is interrupted, by a crash or an
+// error, is completed on the next open. When a step changed anything, the
+// database is compacted afterwards, so that the old layout does not stay
+// in free pages.
+func (s *Storage) upgradeFormat(version byte) error {
+	if version >= storageFormat {
 		return nil
-	case version > storageFormat:
-		return fmt.Errorf(
-			"%w: version %d, supported %d",
-			ErrUnsupportedFormat, version, storageFormat,
-		)
 	}
 
 	var changed int
@@ -56,7 +47,7 @@ func (s *Storage) upgradeFormat() error {
 		}
 		changed += n
 	}
-	err = s.engine.Command(func(b engine.Namespace) error {
+	err := s.engine.Command(func(b engine.Namespace) error {
 		return b.Ensure([]byte(engine.DefaultNamespace)).PutEncrypted(
 			[]byte(formatKey), []byte{storageFormat},
 		)

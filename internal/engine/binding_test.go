@@ -161,6 +161,7 @@ func TestNewBoltDB_BindsLegacyValues(t *testing.T) {
 
 	db, err := NewBoltDB(path, pass)
 	a.NoError(err)
+	a.NoError(db.UpgradeErr())
 	a.True(db.bound)
 	a.True(markerBound(t, db))
 	requirePeerData(t, db)
@@ -388,6 +389,7 @@ func TestNewBoltDB_ReadsLegacyValuesWithoutLockFile(t *testing.T) {
 	a.NoError(err)
 	defer db.Close()
 	a.False(db.bound)
+	a.ErrorIs(db.UpgradeErr(), errNoLock)
 	requirePeerData(t, db)
 	a.NoError(db.Command(func(b Namespace) error {
 		return b.Sub([]byte(PeersNamespace)).PutEncrypted(

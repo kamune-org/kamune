@@ -28,8 +28,10 @@ type BoltStore struct {
 	cipher *enigma.Enigma
 	opts   *bolt.Options
 	lock   *fileLock
-	path   string
-	mu     sync.RWMutex
+	// upgradeErr is the error that kept open from upgrading the store.
+	upgradeErr error
+	path       string
+	mu         sync.RWMutex
 	// bound reports a store whose values are all bound to their location
 	// (see [valueAD]). Only an unbound store opens values written without
 	// associated data.
@@ -45,12 +47,18 @@ type BoltStore struct {
 // key on that open, with every value re-sealed under it with its location
 // (see [valueAD]).
 //
+// If that upgrade fails, the store still opens as it was, and
+// [BoltStore.UpgradeErr] returns the error; it is tried again on the next
+// open. If it fails after the file was replaced, NewBoltDB fails with an
+// error that wraps [ErrReopen].
+//
 // Symbolic links in path are resolved first. Until it is closed, the store
 // holds an exclusive lock on a file named after the database with a
 // ".lock" suffix next to it (see [fileLock]); another open of the same
 // database waits for it, up to the timeout. Copies left behind by an
 // interrupted rewrite are removed. If the lock file cannot be opened, the
-// store opens without it but never rewrites its file.
+// store opens without it but never rewrites its file, so a store that
+// needs an upgrade is not upgraded.
 func NewBoltDB(
 	path string, passphrase []byte, opts ...Option,
 ) (*BoltStore, error) {
@@ -131,6 +139,14 @@ func NewBoltDB(
 
 	opened = true
 	return s, nil
+}
+
+// UpgradeErr returns the error that kept [NewBoltDB] from upgrading the
+// key wrapping or the value binding of the store, or nil when the store
+// needed neither or was upgraded. Until an open upgrades it, a store
+// written by an older version keeps the layout that version reads.
+func (s *BoltStore) UpgradeErr() error {
+	return s.upgradeErr
 }
 
 // Close closes the database and then releases the store's lock file.
@@ -398,6 +414,7 @@ func (s *BoltStore) open(pass []byte) error {
 		return fmt.Errorf("upgrade store: %w", err)
 	default:
 		slog.Warn("could not upgrade database", slog.Any("error", err))
+		s.upgradeErr = err
 	}
 	return nil
 }

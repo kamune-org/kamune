@@ -56,6 +56,13 @@ var (
 	// ErrUnsupportedFormat is returned by [OpenStorage] for a database
 	// written in a newer layout than this version of the package knows.
 	ErrUnsupportedFormat = errors.New("database format is not supported")
+	// ErrUpgradeFailed is returned by [OpenStorage], wrapping the cause,
+	// for a database written by an older version whose key wrapping and
+	// values could not be upgraded, for example because the disk is full
+	// or the lock file next to the database cannot be created. Its layout
+	// is then not upgraded either, so the older version can still open
+	// it. Every open tries the upgrade again.
+	ErrUpgradeFailed = errors.New("could not upgrade the database")
 
 	sessionMetaKey = []byte("name")
 
@@ -129,9 +136,11 @@ type Storage struct {
 // OpenStorage opens the database, creating it unless [WithCreateDB] says
 // otherwise. A database written by an older version is brought up to the
 // current layout first, and then compacted (see [Storage.Compact]), so the
-// first open after an upgrade can take a while. A database written by a
-// newer version gives [ErrUnsupportedFormat]. Older versions cannot read
-// a database after it has been upgraded.
+// first open after an upgrade can take a while. Older versions cannot read
+// a database after it has been upgraded. Its key wrapping and values are
+// upgraded before its layout; if that fails, OpenStorage returns
+// [ErrUpgradeFailed] and leaves the database as the older version wrote
+// it. A database written by a newer version gives [ErrUnsupportedFormat].
 func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	s := &Storage{
 		passphraseHandler: defaultPassphraseHandler,
@@ -204,12 +213,32 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 }
 
 // prepare loads the name key and brings the database up to the current
-// layout.
+// layout. A database in an older layout is changed only once the engine
+// has upgraded its key wrapping and values (see [engine.Upgrader]):
+// until then the older version that wrote it can still open it, and it
+// must not find a layout it cannot read.
 func (s *Storage) prepare() error {
+	version, err := s.formatVersion()
+	if err != nil {
+		return fmt.Errorf("upgrading storage format: %w", err)
+	}
+	switch {
+	case version > storageFormat:
+		return fmt.Errorf(
+			"upgrading storage format: %w: version %d, supported %d",
+			ErrUnsupportedFormat, version, storageFormat,
+		)
+	case version < storageFormat:
+		if u, ok := s.engine.(engine.Upgrader); ok {
+			if err := u.UpgradeErr(); err != nil {
+				return fmt.Errorf("%w: %w", ErrUpgradeFailed, err)
+			}
+		}
+	}
 	if err := s.loadNameKey(); err != nil {
 		return err
 	}
-	if err := s.upgradeFormat(); err != nil {
+	if err := s.upgradeFormat(version); err != nil {
 		return fmt.Errorf("upgrading storage format: %w", err)
 	}
 	return nil

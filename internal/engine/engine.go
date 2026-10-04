@@ -85,6 +85,16 @@ type Store interface {
 	RotateDataKey(old, new []byte) error
 }
 
+// Upgrader is implemented by a [Store] that brings the key wrapping and
+// value encryption of a store written by an older version up to date when
+// it opens it, as [BoltStore] does. A store whose upgrade fails still
+// opens, as it was, so the older version can still read it.
+type Upgrader interface {
+	// UpgradeErr returns the error that kept the open from bringing the
+	// store up to date, or nil when it needed no upgrade or was upgraded.
+	UpgradeErr() error
+}
+
 // Compacter is implemented by a [Store] that can rewrite its storage to
 // hold only live data. Without it, deleted values and names can stay in
 // free space until it is reused.
