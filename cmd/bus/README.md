@@ -210,8 +210,9 @@ session is live or still closing.
 ### Starting a Server
 
 1. Click **Start Server** in the sidebar or press `Ctrl+S`
-2. Pick the transport: **TCP**, **UDP** or **Relay** (see
-   [Relay Connections](#relay-connections))
+2. Pick the transport: **TCP**, **UDP** or **Relay**. See
+   [Relay Connections](#relay-connections) and, for hole punching over UDP,
+   [P2P Connections](#p2p-connections)
 3. For TCP and UDP, enter the listen address (e.g., `:8443`)
 4. Click **Start Server**
 
@@ -336,6 +337,61 @@ a saved peer, the dialog then sends no token: Bus derives the static token
 from both keys and pins that key. The camera of **Scan with Camera** turns
 off however the import dialog closes, and on macOS the app asks for camera
 access the first time.
+
+## P2P Connections
+
+With the **UDP** transport, **Hole punching** connects two peers directly
+over KCP through their NATs: through a broker, or straight to an address
+both peers know. A P2P server has no share card.
+
+### Through a Broker
+
+A broker, such as the one a Kamune relay can run, tells two peers that
+registered the same token each other's public address.
+
+**Server.** Start a server with **UDP**, **Hole punching** and **Use
+broker**, and enter the broker's `host:port`. Select a saved peer for a
+static token, which is derived from both keys and admits only that peer, or
+leave it empty for a random token that the broker assigns. The server binds
+a random port and registers its tokens with the broker every 30 seconds. It
+takes KCP packets only from the IP address of a peer that the broker matched
+with one of its current tokens in the last minute, and from sessions it has
+accepted. For 10 seconds after a match it sends packets to the peer to open
+its own NAT, so it also works behind an address- or port-restricted NAT. A
+dialer whose packets come from another IP address than the one the broker
+saw, as when both peers share a NAT that does not hairpin, is not accepted.
+
+**Signaling tokens.** While a P2P server runs, the **Signaling Tokens**
+panel in the sidebar makes more tokens for it: a random one, new on each
+click, or a static one for the selected peer. Every token, the server's own
+included, stays registered until you remove it or the server stops, so a
+random token can be used more than once. While any random token is listed,
+the server takes sessions from any peer, not only from the peers of its
+static tokens, and the panel warns about it. Removing a token stops its
+registration; the peer of a removed static token is turned away only while
+no random token is listed. A server keeps at most 8 tokens, its own
+included, since each is registered every 30 seconds and a broker by default
+takes 20 registrations a minute from one IPv4 address. All registrations of
+one Bus process use the same broker key, so the broker can link them.
+
+**Connect.** Connect with **UDP**, **Hole punching** and **Use broker**,
+enter the broker's address, and select a saved peer, which derives the
+static token and pins the peer's key, or paste a shared token in hex. Bus
+waits up to 30 seconds for the broker to match the token, starts the punch
+and runs the handshake over the punched socket. The log then says
+"Hole-punch started", and whether the handshake succeeds shows whether the
+punch worked. A P2P session through a broker is not resumed after a drop.
+
+### Direct
+
+Peers that know each other's public address can punch without a broker.
+Start a server with **UDP** and **Hole punching**, without **Use broker**,
+and enter a listen address and the address of the peer to punch to. The
+peer connects with **UDP** and **Hole punching** to your address, at about
+the same time. The server accepts sessions only from the IP address of the
+peer address it was given, on any port, so other hosts that reach the port
+get neither a handshake nor a verification dialog. A dropped direct P2P
+session that Bus dialed is resumed with a new punch.
 
 ## Peer Verification
 
