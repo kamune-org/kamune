@@ -216,6 +216,12 @@ session is live or still closing.
 3. For TCP and UDP, enter the listen address (e.g., `:8443`)
 4. Click **Start Server**
 
+While the server starts, the sidebar's **Cancel** button stops the start,
+and a second start is refused until the first has ended. **Stop Server**
+closes every live session, dialed ones included, and asks first when any is
+live. It also closes the server's open verification dialogs and waits up to
+5 seconds for handshakes still in progress.
+
 The **Fingerprint** card at the bottom of the sidebar shows your emoji
 fingerprint and, under it, your numeric fingerprint, the one peers compare
 (see [Verifying Peers](#verifying-peers)). Click the card to copy the
@@ -228,6 +234,11 @@ numeric fingerprint.
    `192.168.1.100:8443`) or the relay details
 3. Click **Connect**
 
+While the connect runs, the sidebar's **Cancel** button stops it at any
+step: the broker wait, the punch, the relay handshake, the verification
+dialog or the Kamune handshake. No session is created, and the status reads
+"Connection cancelled".
+
 **Connection > Import Connection** (`Ctrl+I`) fills the Connect dialog from
 a connection URL that you paste, that a QR code in an image holds, or that
 the camera scans; `Ctrl+Shift+I` imports the URL on the clipboard. See
@@ -239,12 +250,41 @@ the camera scans; `Ctrl+Shift+I` imports the URL on the clipboard. See
 2. Type your message in the input area
 3. Press **Enter** or click the send button
 
+Each live session keeps its own draft. A message that did not go out
+because the connection was lost goes back into the input box, unless you
+have typed something else since, and can be sent again once the session
+reconnects. The copy button on a message bubble copies its text; a click on
+the bubble only selects text.
+
+### Live Sessions
+
+- A live session shows its newest 1000 messages, with a note when older ones
+  are hidden. The history of a session keeps every message, unless the
+  session is incognito; when some messages could not be saved, the chat
+  panel shows a warning on the session.
+- A new session opens in the chat panel when no chat is open or when it is
+  the one you just dialed; otherwise a toast names it.
+- A message on a session that is not open raises a system notification with
+  its first 50 characters (none in incognito mode), at most one per session
+  every 5 seconds.
+- When the connection of a session you dialed drops, through a reset, a
+  close or a network error such as an unreachable host, Bus tries to resume
+  it (see [Resumed Sessions](#resumed-sessions)) up to 10 times, waiting 1
+  second before the second try and twice as long before each next one, up
+  to 30 seconds. The session header shows "reconnecting (n/10)". A session
+  that the peer closed, or whose traffic failed to decrypt, is not resumed.
+  When a peer resumes a session with your server, the session takes the
+  place of its old entry.
+
 ### Viewing Session History
 
 1. Click the **History** tab in the sidebar
 2. Browse past sessions — each shows message count and last activity
 3. Click a session to load and view its messages (read-only)
 4. Use **Refresh** to reload the list
+
+Deleting a session from the History tab asks first and closes the session
+if it is still live.
 
 ### Keyboard Shortcuts
 
