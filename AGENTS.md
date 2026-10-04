@@ -86,8 +86,9 @@ Wails v3.0.0-beta.23 builds against.
 - `pkg/` public packages: `attest`, `exchange`, `fingerprint`, `relayconn`, `storage`
 - `internal/` private packages: `box/pb`, `clock`, `engine`, `enigma`
 - Key verification: verifiers should show `fingerprint.Numeric` (about 132.9
-  bits) for users to compare; bus, tui and daemon still use
-  `fingerprint.Emoji` and `fingerprint.Hex` when they verify a peer.
+  bits) for users to compare. Bus and tui show it first on their verify
+  screens, with `fingerprint.Emoji` and `fingerprint.Hex` below it, and the
+  daemon sends all three in `verify_peer`.
   `fingerprint.Emoji` (about 52.7 bits) is not enough on its own, and
   `fingerprint.Pseudonym` (about 29.6 bits) is a display nickname, never a
   fingerprint

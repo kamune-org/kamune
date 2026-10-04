@@ -37,7 +37,7 @@ suite.
 | [`cmd/bus/`](cmd/bus/)       | Desktop GUI client     | Wails + Svelte desktop app with relay transport UI, session management, and encrypted history                                    |
 | [`cmd/relay/`](cmd/relay/)   | Relay server           | Stateless blind relay that routes encrypted sessions between peers without decrypting traffic — supports WebSocket, TCP, and TLS |
 | [`cmd/daemon/`](cmd/daemon/) | JSON-over-stdio daemon | Headless IPC wrapper for integrating kamune into external applications                                                           |
-| [`cmd/tui/`](cmd/tui/)       | Terminal chat client   | Interactive Bubble Tea TUI with direct TCP, relay, peer verification (emoji/hex fingerprint), and chat history browsing          |
+| [`cmd/tui/`](cmd/tui/)       | Terminal chat client   | Interactive Bubble Tea TUI with direct TCP, relay, peer verification (numeric fingerprint), and chat history browsing            |
 
 ## Roadmap
 
@@ -109,7 +109,9 @@ peers see:
   nickname for display, not a fingerprint, and must not be used to verify a
   key.
 
-The bus, tui and daemon clients in this repository do not use `Numeric` yet;
-they use `Emoji` and `Hex` when they verify a peer.
+The bus and tui clients in this repository show `Numeric` first when they ask
+the user to verify a peer, with `Emoji` and `Hex` below it as secondary forms.
+The daemon sends all three in its `verify_peer` event and returns the user's
+own `numeric` from `get_fingerprint`.
 
 See [SPEC §6.2.1](docs/SPEC.md#621-key-fingerprints).
