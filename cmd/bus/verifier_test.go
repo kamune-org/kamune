@@ -543,3 +543,112 @@ func TestPromptRestoresStatus(t *testing.T) {
 		a.Equal(StatusInfo{StatusError, "Connection failed"}, app.GetStatus())
 	})
 }
+
+// TestVerificationDecidesAdmission runs a strict-mode prompt end to end,
+// for a peer the app dials and one that dials the app's server, and
+// checks that the user's answer decides whether the session is
+// established and the peer stored.
+func TestVerificationDecidesAdmission(t *testing.T) {
+	cases := []struct {
+		name   string
+		serve  bool
+		accept bool
+	}{
+		{"dialed peer accepted", false, true},
+		{"dialed peer rejected", false, false},
+		{"serving peer accepted", true, true},
+		{"serving peer rejected", true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, _ := newUnlockedApp(t, "secret")
+			app.mu.Lock()
+			app.verifMode = VerificationModeStrict
+			app.mu.Unlock()
+
+			var peerKey []byte
+			done := make(chan error, 1)
+			if tc.serve {
+				addr := freeTCPAddr(t)
+				_, _, err := app.StartServer(
+					addr, "tcp", "", "srv", "", "", "", false, false, "",
+				)
+				a.NoError(err)
+				t.Cleanup(func() { _ = app.StopServer() })
+				peerStore := openTestStorage(t)
+				peerKey, err = peerStore.PublicKey()
+				a.NoError(err)
+				// The server listens once StartServer returns.
+				d, err := kamune.NewDialer(
+					addr, peerStore, acceptAll, kamune.DialWithTCP(),
+				)
+				a.NoError(err)
+				go func() {
+					tr, err := d.Dial()
+					if err == nil {
+						t.Cleanup(func() { _ = tr.Close() })
+					}
+					done <- err
+				}()
+			} else {
+				var addr string
+				addr, peerKey = startTestServer(t, "srv", readUntilEnd)
+				go func() {
+					_, err := app.ConnectToServer(
+						addr, "tcp", "", "", "", "", "", "", "",
+						false, false, "",
+					)
+					done <- err
+				}()
+			}
+
+			ids := waitPending(t, app, 1)
+			app.VerifyResponse(ids[0], tc.accept)
+			err := waitVerdict(t, done)
+
+			_, peerErr := app.store().FindPeer(peerKey)
+			if !tc.accept {
+				a.Error(err, "a rejected peer must not get a session")
+				a.Empty(app.GetSessions())
+				a.Error(peerErr, "a rejected peer must not be stored")
+				return
+			}
+			a.NoError(err)
+			a.Eventually(func() bool {
+				return len(app.GetSessions()) == 1
+			}, testWait, time.Millisecond)
+			a.Eventually(func() bool {
+				_, err := app.store().FindPeer(peerKey)
+				return err == nil
+			}, testWait, time.Millisecond, "an accepted peer is stored")
+		})
+	}
+}
+
+// TestVerifyResponseIgnoresStaleAnswers checks that an answer to a
+// request that does not exist changes nothing, and that a second answer
+// to a request cannot overturn the first.
+func TestVerifyResponseIgnoresStaleAnswers(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	app.verifMode = VerificationModeStrict
+
+	app.VerifyResponse(12345, true)
+	a.Empty(pendingIDs(app))
+
+	errCh := runVerifier(app, app.getVerifier(), newTestPeer(t, "x"))
+	ids := waitPending(t, app, 1)
+	app.VerifyResponse(ids[0]+1, true)
+	a.Equal(ids, pendingIDs(app), "an answer for another request is ignored")
+
+	app.VerifyResponse(ids[0], false)
+	app.VerifyResponse(ids[0], true)
+	a.ErrorIs(waitVerdict(t, errCh), kamune.ErrVerificationFailed)
+	a.Empty(pendingIDs(app))
+
+	// The request is gone, so a late answer reaches nothing.
+	app.VerifyResponse(ids[0], true)
+	a.Empty(pendingIDs(app))
+}
