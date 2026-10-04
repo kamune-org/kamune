@@ -140,20 +140,19 @@ func (c *Client) Register(
 		return nil, fmt.Errorf("write register: %w", err)
 	}
 
-	// Static mode: no response expected. The broker holds the registration; the
-	// matching peer will trigger a NOTIFY later (delivered via Listen). Treat
-	// any incoming packet as the response and parse it; if it's empty, treat as
-	// success.
+	// Static mode: the broker holds the registration and answers only
+	// when a peer already holds the token, with a PEER_MATCHED that this
+	// socket cannot use once it is closed. A wire token of all zeros is
+	// random mode to the broker, which then sends TOKEN_ASSIGNED. Wait
+	// briefly for that; any other reply leaves the input token in place.
 	if len(token) != 0 {
-		// Best-effort: drain a single packet with a short timeout so we don't
-		// hang if the broker sends nothing (which it won't for static mode).
-		// Return the input token.
 		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 		buf := make([]byte, 1500)
-		if _, err := conn.Read(buf); err == nil {
-			// Broker unexpectedly sent something; parse and return the token
-			// from the response.
-			return c.decodeAssignedToken(buf)
+		if n, err := conn.Read(buf); err == nil {
+			p, err := c.decodeNotify(buf[:n])
+			if err == nil && p.Type == NotifyTokenAssigned {
+				return p.Token, nil
+			}
 		}
 		return token, nil
 	}

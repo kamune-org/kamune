@@ -296,3 +296,66 @@ func TestClient_PublicKey_Stable(t *testing.T) {
 	a.True(bytes.Equal(k1, k2), "PublicKey must be stable")
 	a.Len(k1, 32)
 }
+
+// TestClient_Register_Static_ImmediateReply answers a static REGISTER at
+// once, as the broker does when a peer already holds the token, and
+// checks that Register decodes only the received packet and does not
+// fail on a reply other than TOKEN_ASSIGNED.
+func TestClient_Register_Static_ImmediateReply(t *testing.T) {
+	token := make([]byte, 16)
+	for i := range token {
+		token[i] = byte(i + 1)
+	}
+	otherEph, err := ecdh.X25519().GenerateKey(rand.Reader)
+	require.New(t).NoError(err)
+
+	tests := []struct {
+		reply func(tb *testBroker, src *net.UDPAddr, pub []byte) []byte
+		name  string
+	}{
+		{
+			name: "token assigned",
+			reply: func(tb *testBroker, src *net.UDPAddr, pub []byte) []byte {
+				return tb.respondAssignedToken(t, src, pub)
+			},
+		},
+		{
+			name: "peer matched",
+			reply: func(tb *testBroker, src *net.UDPAddr, pub []byte) []byte {
+				tb.respondPeerMatched(
+					t, src, pub, otherEph.PublicKey().Bytes(),
+					net.IPv4(192, 0, 2, 1), 54321,
+				)
+				return token
+			},
+		},
+		{
+			name: "garbage",
+			reply: func(tb *testBroker, src *net.UDPAddr, _ []byte) []byte {
+				_, err := tb.conn.WriteToUDP([]byte("KBRK\x01\x03junk"), src)
+				require.New(t).NoError(err)
+				return token
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			tb := newTestBroker(t)
+			c, err := NewClient(tb.addr.String())
+			a.NoError(err)
+
+			want := make(chan []byte, 1)
+			go func() {
+				_, src := tb.readOne(t, 2*time.Second)
+				want <- tc.reply(tb, src, c.PublicKey())
+			}()
+
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			got, err := c.Register(ctx, token, net.IPv4(127, 0, 0, 1), 12345)
+			a.NoError(err)
+			a.Equal(<-want, got)
+		})
+	}
+}
