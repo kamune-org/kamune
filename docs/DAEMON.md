@@ -1208,8 +1208,9 @@ list. A session ID that is neither fails with `session_not_found`.
 Modes: `0` = Strict (prompt for every peer, known or not), `1` = Quick
 (accept known peers without a prompt, prompt for others), `2` = Auto-Accept
 (accept every peer, and store none of them as a known peer). Without a saved
-mode the daemon uses Quick. No mode prompts for a peer that resumes a session.
-See [Verification Flow](#verification-flow).
+mode the daemon uses Quick, unless the client set a mode before it opened
+the first storage. No mode prompts for a peer that resumes a session, Strict
+included. See [Verification Flow](#verification-flow).
 
 #### `set_verification_mode`
 
@@ -2586,8 +2587,9 @@ The daemon supports three peer verification modes. The mode is saved in the
 storage settings under `daemon/verification_mode`, applied when the storage is
 opened, and can be changed at runtime with `set_verification_mode`; each peer
 is verified in the mode in effect at the time. Without a saved mode the
-daemon uses Quick. A saved value that names no mode means Strict, and a
-warning is logged.
+daemon uses Quick, or the mode that the client set before it opened the
+first storage. A saved value that names no mode means Strict, and a warning
+is logged.
 
 ```
                   ┌─────────────────────────────────────────────────────────┐
@@ -2626,11 +2628,26 @@ warning is logged.
 ```
 
 The verifier runs only on a cold handshake. The kamune library does not run it
-when a peer resumes a session, which it allows within 24 hours of the
-session's cold handshake (a resume does not extend that). So in every mode,
-Strict included, a peer that resumes a session is not prompted, and the daemon
-resumes dropped dialed sessions on its own. A server started in incognito mode
-refuses resumption.
+when a peer resumes a session
+([SPEC §6.8.4](SPEC.md#684-resumption-asymmetry)), which it allows within 24
+hours of the session's cold handshake (a resume does not extend that). So in
+every mode, Strict included, a peer that resumes a session is not prompted,
+and the daemon resumes dropped dialed sessions on its own.
+
+The daemon does not turn resumption off in Strict mode, although SPEC §6.8.4
+recommends that for a verifier that must run on every connection: Strict mode
+prompts on every cold handshake, not on every connection. A session can be
+resumed only while its peer is a stored peer and the session has resumption
+tokens left, so a session with an unknown peer that Auto-Accept mode let in,
+without storing it, is never resumed. To keep a peer from resuming without a
+prompt:
+
+- `close_session` ends a live session for good;
+- `delete_history_session` deletes a session that is not live, and its
+  resumption tokens with it;
+- `delete_peer` keeps every session with the peer from being resumed, until
+  the peer is stored again;
+- a server started in incognito mode refuses resumption.
 
 A prompt that waits for the user holds the handshake open. The kamune library
 allows the verifier 150 seconds, so the daemon's 2-minute timeout ends the
