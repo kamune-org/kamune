@@ -42,14 +42,14 @@ func (a *App) identifyPeer(
 	store *storage.Storage, peer *storage.Peer,
 ) peerIdentity {
 	id := peerIdentity{
-		ClaimedName: peer.Name,
+		ClaimedName: sanitizeName(peer.Name),
 		KeyB64:      fingerprint.Base64(peer.PublicKey),
 		Fingerprint: strings.Join(fingerprint.Emoji(peer.PublicKey), " • "),
 	}
 	if store != nil {
 		if stored, err := store.FindPeer(peer.PublicKey); err == nil {
 			id.Known = true
-			id.Label = stored.Name
+			id.Label = sanitizeName(stored.Name)
 		}
 	}
 	if id.Label == "" {

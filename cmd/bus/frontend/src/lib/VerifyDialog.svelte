@@ -181,6 +181,10 @@
     border-radius: var(--border-radius-xl);
     min-width: 440px;
     max-width: 500px;
+    /* Keep the actions on screen whatever the body holds. */
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
     box-shadow: var(--shadow-lg);
     animation: fadeInScale 0.15s ease-out;
     overflow: hidden;
@@ -221,6 +225,8 @@
   }
   .dialog-body {
     padding: 16px 20px 4px;
+    min-height: 0;
+    overflow-y: auto;
   }
   .dialog-actions {
     display: flex;
@@ -262,6 +268,10 @@
     color: var(--text-muted);
     font-weight: 600;
     margin-bottom: 6px;
+  }
+  .verify-peer-name,
+  .verify-claim {
+    overflow-wrap: anywhere;
   }
   .verify-peer-name {
     font-size: 15px;

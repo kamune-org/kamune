@@ -101,28 +101,6 @@ func TestMessageAppend(t *testing.T) {
 	a.False(msgs[1].IsLocal, "expected second message to be from peer")
 }
 
-func TestTruncateSessionID(t *testing.T) {
-	a := require.New(t)
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"short", "short"},
-		{"12345678abcdefgh", "12345678abcdefgh"},
-		{"12345678901234567", "12345678...4567"},
-		{"thisisalongersessionid", "thisisal...onid"},
-		{"", ""},
-		{"abc", "abc"},
-		{"abcdefghijklmnop", "abcdefghijklmnop"},
-		{"abcdefghijklmnopq", "abcdefgh...nopq"},
-	}
-
-	for _, tc := range tests {
-		result := truncateSessionID(tc.input)
-		a.Equal(tc.expected, result, "truncateSessionID(%q)", tc.input)
-	}
-}
-
 func TestConcurrentSliceAccess(t *testing.T) {
 	a := require.New(t)
 	var mu sync.RWMutex

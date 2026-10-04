@@ -7,6 +7,7 @@
     sidebarTab,
     showWelcome,
     versionWarnings,
+    toast,
   } from './stores';
   import { CopyToClipboard, RenameSession, RenameHistorySession } from './go.js';
   import { K } from './keyboard';
@@ -131,7 +132,8 @@
         }
         onRenamed?.();
       } catch (e) {
-        console.error('Rename error:', e);
+        toast.set({ message: 'Rename failed: ' + e, type: 'error' });
+        setTimeout(() => toast.set(null), 4000);
       }
     }
     editingName = false;
@@ -193,6 +195,7 @@
             <input
               class="info-name-input"
               type="text"
+              maxlength="64"
               bind:value={editName}
               use:selectOnMount
               onblur={saveName}
@@ -532,6 +535,7 @@
   .info-name {
     font-size: 13px;
     font-weight: 600;
+    overflow-wrap: anywhere;
     color: var(--text-primary);
     cursor: pointer;
     padding: 1px 3px;

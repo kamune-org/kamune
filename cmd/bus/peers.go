@@ -67,6 +67,11 @@ func (a *App) AddPeer(publicKeyB64, name string) error {
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(name) != "" {
+		if name, err = validateLabel(name); err != nil {
+			return err
+		}
+	}
 
 	store := a.store()
 	if store == nil {
@@ -130,9 +135,9 @@ func (a *App) RenamePeer(publicKeyB64, name string) error {
 		return err
 	}
 
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
-		return errors.New("name is required")
+	trimmed, err := validateLabel(name)
+	if err != nil {
+		return err
 	}
 
 	store := a.store()
@@ -233,7 +238,7 @@ func (a *App) refreshPeersCache() {
 
 func peerToInfo(p *storage.Peer) PeerInfo {
 	return PeerInfo{
-		Name:             p.Name,
+		Name:             sanitizeName(p.Name),
 		PublicKeyBase64:  fingerprint.Base64(p.PublicKey),
 		FirstSeen:        p.FirstSeen,
 		LastSeen:         p.LastSeen,

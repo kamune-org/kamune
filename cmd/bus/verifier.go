@@ -137,7 +137,7 @@ func (a *App) promptVerification(
 	reqID := a.verifIDCounter.Add(1)
 	a.verifRequests[reqID] = &pendingVerification{
 		result: result,
-		peerID: id.Label,
+		label:  id.Label,
 		hex:    hex,
 	}
 	a.verifMu.Unlock()
@@ -226,12 +226,12 @@ func (a *App) VerifyResponse(requestID int64, accepted bool) {
 		case pending.result <- nil:
 		default:
 		}
-		a.addLogEntry("INFO", "Accepted peer: "+truncateSessionID(pending.peerID))
+		a.addLogEntry("INFO", "Accepted peer: "+pending.label)
 	} else {
 		select {
 		case pending.result <- kamune.ErrVerificationFailed:
 		default:
 		}
-		a.addLogEntry("INFO", "Rejected peer: "+truncateSessionID(pending.peerID))
+		a.addLogEntry("INFO", "Rejected peer: "+pending.label)
 	}
 }

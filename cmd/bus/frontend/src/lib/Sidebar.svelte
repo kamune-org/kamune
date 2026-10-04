@@ -148,11 +148,16 @@
         }
         onRenamed?.();
       } catch (e) {
-        console.error('Rename error:', e);
+        showError('Rename failed: ' + e);
       }
     }
     editingSessionId = null;
     editSessionName = '';
+  }
+
+  function showError(message) {
+    toast.set({ message, type: 'error' });
+    setTimeout(() => toast.set(null), 4000);
   }
 
   function cancelRename() {
@@ -173,7 +178,11 @@
   async function saveName() {
     const trimmed = editName.trim();
     if (trimmed && trimmed !== $myName) {
-      await SetMyName(trimmed);
+      try {
+        await SetMyName(trimmed);
+      } catch (e) {
+        showError('Name not changed: ' + e);
+      }
     }
     editingName = false;
   }
@@ -566,6 +575,7 @@
                   <input
                     class="session-name-input"
                     type="text"
+                    maxlength="64"
                     bind:value={editSessionName}
                     use:focusInput
                     onblur={saveRename}
@@ -675,6 +685,7 @@
                   <input
                     class="session-name-input"
                     type="text"
+                    maxlength="64"
                     bind:value={editSessionName}
                     use:focusInput
                     onblur={saveRename}

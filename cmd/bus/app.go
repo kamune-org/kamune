@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -227,8 +228,9 @@ type historySession struct {
 
 type pendingVerification struct {
 	result chan error
-	peerID string
-	hex    string
+	// label names the peer in log entries; see peerIdentity.Label.
+	label string
+	hex   string
 }
 
 type relayToken struct {
@@ -603,7 +605,7 @@ func (a *App) addLogEntry(level, msg string) {
 	entry := LogEntryInfo{
 		Timestamp: time.Now(),
 		Level:     level,
-		Message:   "[cmd/bus] " + msg,
+		Message:   "[cmd/bus] " + escapeLogText(msg),
 	}
 
 	a.logMu.Lock()
@@ -747,7 +749,7 @@ func (a *App) loadHistorySessions(store *storage.Storage) {
 	for _, s := range summaries {
 		a.histSessions = append(a.histSessions, &historySession{
 			ID:           s.ID,
-			Name:         s.Name,
+			Name:         sanitizeName(s.Name),
 			MessageCount: s.MessageCount,
 			FirstMessage: s.FirstMessage,
 			LastMessage:  s.LastMessage,
@@ -774,11 +776,18 @@ func (a *App) GetMyName() string {
 	return a.myName
 }
 
-const maxNameLength = 32
-
+// SetMyName sets the name this side introduces itself with. It must be
+// at most maxLocalNameLength bytes and pass kamune.ValidatePeerName, which
+// NewServer and NewDialer enforce.
 func (a *App) SetMyName(name string) error {
-	if len(name) > maxNameLength {
-		return fmt.Errorf("name must be %d characters or fewer", maxNameLength)
+	name = strings.TrimSpace(name)
+	if len(name) > maxLocalNameLength {
+		return fmt.Errorf(
+			"name must be %d bytes or fewer", maxLocalNameLength,
+		)
+	}
+	if err := kamune.ValidatePeerName(name); err != nil {
+		return err
 	}
 
 	store := a.store()
@@ -1428,7 +1437,12 @@ func (a *App) SetActiveSession(sessionID string) {
 	a.mu.Unlock()
 }
 
-func (a *App) RenameSession(sessionID string, name string) {
+// RenameSession gives a live session a local label.
+func (a *App) RenameSession(sessionID string, name string) error {
+	name, err := validateLabel(name)
+	if err != nil {
+		return err
+	}
 	a.mu.Lock()
 	for _, s := range a.sessions {
 		if s.ID == sessionID {
@@ -1438,18 +1452,24 @@ func (a *App) RenameSession(sessionID string, name string) {
 	}
 	a.mu.Unlock()
 	a.emitEvent("session-updated")
+	return nil
 }
 
-func (a *App) RenameHistorySession(sessionID string, name string) {
+// RenameHistorySession gives a stored session a label.
+func (a *App) RenameHistorySession(sessionID string, name string) error {
+	name, err := validateLabel(name)
+	if err != nil {
+		return err
+	}
 	store := a.store()
 	if store == nil {
-		return
+		return errors.New("storage is not available")
 	}
 
-	err := store.SetSessionName(sessionID, name)
+	err = store.SetSessionName(sessionID, name)
 	if err != nil {
 		a.addLogEntry("ERROR", "Failed to rename history session: "+err.Error())
-		return
+		return fmt.Errorf("rename session: %w", err)
 	}
 
 	a.mu.Lock()
@@ -1463,6 +1483,7 @@ func (a *App) RenameHistorySession(sessionID string, name string) {
 
 	a.emitEvent("history-updated")
 	a.addLogEntry("INFO", "Renamed history session: "+sessionID)
+	return nil
 }
 
 func (a *App) DeleteHistorySession(sessionID string) {
@@ -1551,11 +1572,4 @@ func (a *App) GetSessionInfo(sessionID string) map[string]interface{} {
 	}
 
 	return nil
-}
-
-func truncateSessionID(id string) string {
-	if len(id) <= 16 {
-		return id
-	}
-	return id[:8] + "..." + id[len(id)-4:]
 }

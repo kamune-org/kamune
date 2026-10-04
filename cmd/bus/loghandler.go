@@ -102,7 +102,7 @@ func (h *appLogHandler) Handle(ctx context.Context, r slog.Record) error {
 	entry := LogEntryInfo{
 		Timestamp: time.Now(),
 		Level:     level,
-		Message:   msg,
+		Message:   escapeLogText(msg),
 	}
 
 	h.app.logMu.Lock()

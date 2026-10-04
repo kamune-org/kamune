@@ -1,5 +1,6 @@
 <script>
   import { RenameSession, RenameHistorySession } from './go.js';
+  import { toast } from './stores';
 
   /**
    * @typedef {Object} Props
@@ -24,7 +25,8 @@
       }
       onRenamed?.();
     } catch (e) {
-      console.error('Rename error:', e);
+      toast.set({ message: 'Rename failed: ' + e, type: 'error' });
+      setTimeout(() => toast.set(null), 4000);
     }
   }
 </script>
@@ -48,6 +50,7 @@
         bind:value={name}
         placeholder="Enter new name..."
         class="dialog-input"
+        maxlength="64"
         onkeydown={(e) => {
           if (e.key === 'Enter') handleRename();
         }}
