@@ -17,6 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// soKeepAlive reports whether SO_KEEPALIVE is set on c. getsockoptInt is
+// the platform's syscall.GetsockoptInt, whose descriptor type differs
+// between Unix and Windows.
 func soKeepAlive(c *net.TCPConn) (bool, error) {
 	raw, err := c.SyscallConn()
 	if err != nil {
@@ -25,8 +28,8 @@ func soKeepAlive(c *net.TCPConn) (bool, error) {
 	var value int
 	var soerr error
 	err = raw.Control(func(fd uintptr) {
-		value, soerr = syscall.GetsockoptInt(
-			int(fd), syscall.SOL_SOCKET, syscall.SO_KEEPALIVE,
+		value, soerr = getsockoptInt(
+			fd, syscall.SOL_SOCKET, syscall.SO_KEEPALIVE,
 		)
 	})
 	if err != nil {
