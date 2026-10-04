@@ -613,7 +613,8 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	switch params.Transport {
 	case "relay":
 		fn, err := dialRelayFuncWithSessionTTL(
-			ctx, params.RelayAddr, params.Token, params.Password, false, &sessionTTL,
+			ctx, d.relayTimeout, params.RelayAddr, params.Token,
+			params.Password, false, &sessionTTL,
 		)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to prepare relay dial")
@@ -1161,7 +1162,8 @@ func (d *Daemon) makeReconnectFn(
 			); err == nil && m.Value() != nil {
 				if tokens := decodeTokenList(m.Value()); len(tokens) > 0 {
 					fn, err := dialRelayFuncMultiToken(
-						ctx, relayAddr, password, false, tokens,
+						ctx, d.relayTimeout, relayAddr, password,
+						false, tokens,
 					)
 					if err == nil {
 						resumeOpts = append(
@@ -1371,10 +1373,8 @@ func (d *Daemon) currentRelayTarget() (relayTarget, bool) {
 func (d *Daemon) addRelayToken(
 	target relayTarget, staticToken []byte, mode, peerPubB64 string,
 ) (relayToken, string, error) {
-	ctx, cancel := context.WithTimeout(d.ctx, d.relayTimeout)
-	defer cancel()
 	listener, token, ttl, sessionTTL, err := listenRelayTracked(
-		ctx, d, target.addr, target.password, false, staticToken,
+		d.ctx, d, target.addr, target.password, false, staticToken,
 	)
 	if err != nil {
 		return relayToken{}, "relay_listen_failed", err

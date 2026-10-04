@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-dial",
   "title": "dial params",
-  "description": "Connects to a remote kamune server.",
+  "description": "Connects to a remote kamune server. Over a relay, connecting to the relay and the relay handshake are limited to 15 seconds.",
   "type": "object",
   "properties": {
     "addr":              { "type": "string", "description": "Server address (e.g. \"127.0.0.1:9000\")." },

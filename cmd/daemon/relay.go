@@ -16,9 +16,10 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-// defaultRelayTimeout bounds one relay registration or relay dial:
-// connecting to the relay, TLS, the HPKE exchange, PSK auth and the
-// relay's Registered reply.
+// defaultRelayTimeout bounds each relay registration and each relay dial,
+// including a resume dial that tries several stored tokens: connecting to
+// the relay, TLS, the HPKE exchange, PSK auth and the relay's Registered
+// reply. It does not limit the connection after that.
 const defaultRelayTimeout = 15 * time.Second
 
 func wrapRelayError(scheme, host string, password bool, err error) error {
@@ -170,8 +171,14 @@ func startExpiryTimer(t *tokenTracker) {
 	t.expiryFn = func() { timer.Stop() }
 }
 
+// listenRelayTracked registers with the relay at relayAddr, for at most
+// a.relayTimeout, and returns a listener that tracks the token's expiry
+// and use.
 func listenRelayTracked(ctx context.Context, a *Daemon, relayAddr, password string, insecureSkipVerify bool, staticToken []byte) (kamune.Listener, string, time.Duration, time.Duration, error) {
-	listener, tokenHex, ttl, sessionTTL, err := listenRelay(ctx, relayAddr, password, insecureSkipVerify, staticToken)
+	listener, tokenHex, ttl, sessionTTL, err := listenRelay(
+		ctx, a.relayTimeout, relayAddr, password, insecureSkipVerify,
+		staticToken,
+	)
 	if err != nil {
 		return nil, "", 0, 0, err
 	}
@@ -220,12 +227,20 @@ func parseInsecureFlag(s string) (host string, override *bool) {
 	return s, nil
 }
 
-func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVerify bool, staticToken []byte) (kamune.Listener, string, time.Duration, time.Duration, error) {
+// listenRelay registers with the relay at relayAddr. Connecting and the
+// relay handshake end after timeout, or when ctx does.
+func listenRelay(
+	ctx context.Context,
+	timeout time.Duration,
+	relayAddr, password string,
+	insecureSkipVerify bool,
+	staticToken []byte,
+) (kamune.Listener, string, time.Duration, time.Duration, error) {
 	if strings.TrimSpace(relayAddr) == "" {
 		return nil, "", 0, 0, errors.New("relay server address is required")
 	}
 
-	var opts []relayconn.Option
+	opts := []relayconn.Option{relayconn.WithHandshakeTimeout(timeout)}
 	if password != "" {
 		opts = append(opts, relayconn.WithPassword(password))
 	}
@@ -258,14 +273,18 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 
 func dialRelayFunc(relayAddr, tokenHex, password string, insecureSkipVerify bool) (func(string) (kamune.Conn, error), error) {
 	return dialRelayFuncWithSessionTTL(
-		context.Background(), relayAddr, tokenHex, password, insecureSkipVerify, nil,
+		context.Background(), defaultRelayTimeout,
+		relayAddr, tokenHex, password, insecureSkipVerify, nil,
 	)
 }
 
 // dialRelayFuncMultiToken returns a dial function that tries each of the given
-// relay tokens in order, returning the first successful connection.
+// relay tokens in order, returning the first successful connection. All
+// the tries together end after timeout, or when ctx does, so a stalled
+// relay holds the dial for timeout however many tokens there are.
 func dialRelayFuncMultiToken(
 	ctx context.Context,
+	timeout time.Duration,
 	relayAddr, password string,
 	insecureSkipVerify bool,
 	tokens [][]byte,
@@ -283,37 +302,59 @@ func dialRelayFuncMultiToken(
 	}
 
 	return func(addr string) (kamune.Conn, error) {
+		// The relay handshake ends when dctx does; the connection it
+		// returns does not.
+		dctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
 		var lastErr error
-		for _, rawToken := range tokens {
+		for _, tok := range tokens {
+			if dctx.Err() != nil {
+				break
+			}
 			var (
 				conn kamune.Conn
 				err  error
 			)
-			opts := []relayconn.Option{}
+			opts := []relayconn.Option{
+				relayconn.WithHandshakeTimeout(timeout),
+			}
 			if password != "" {
 				opts = append(opts, relayconn.WithPassword(password))
 			}
+			tlsCfg := &tls.Config{InsecureSkipVerify: insecureSkipVerify}
 			switch scheme {
 			case "tcp":
-				conn, err = relayconn.DialRelayTCP(ctx, host, rawToken, opts...)
+				conn, err = relayconn.DialRelayTCP(dctx, host, tok, opts...)
 			case "wss":
-				conn, err = relayconn.DialRelayWSS(ctx, host, rawToken, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+				conn, err = relayconn.DialRelayWSS(
+					dctx, host, tok, tlsCfg, opts...,
+				)
 			case "tls":
-				conn, err = relayconn.DialRelayTLS(ctx, host, rawToken, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+				conn, err = relayconn.DialRelayTLS(
+					dctx, host, tok, tlsCfg, opts...,
+				)
 			default:
-				conn, err = relayconn.DialRelay(ctx, host, rawToken, opts...)
+				conn, err = relayconn.DialRelay(dctx, host, tok, opts...)
 			}
 			if err == nil {
 				return conn, nil
 			}
 			lastErr = wrapRelayError(scheme, host, password != "", err)
 		}
+		if lastErr == nil {
+			lastErr = wrapRelayError(scheme, host, password != "", dctx.Err())
+		}
 		return nil, lastErr
 	}, nil
 }
 
+// dialRelayFuncWithSessionTTL returns a dial function that joins the relay
+// session of tokenHex. Connecting and the relay handshake end after
+// timeout, or when ctx does. When sessionTTL is not nil, the dial
+// function stores the session TTL the relay reports in it.
 func dialRelayFuncWithSessionTTL(
 	ctx context.Context,
+	timeout time.Duration,
 	relayAddr, tokenHex, password string,
 	insecureSkipVerify bool,
 	sessionTTL *time.Duration,
@@ -336,7 +377,7 @@ func dialRelayFuncWithSessionTTL(
 	}
 
 	return func(addr string) (kamune.Conn, error) {
-		var opts []relayconn.Option
+		opts := []relayconn.Option{relayconn.WithHandshakeTimeout(timeout)}
 		if password != "" {
 			opts = append(opts, relayconn.WithPassword(password))
 		}

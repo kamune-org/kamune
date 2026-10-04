@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -43,10 +46,11 @@ func TestRelayReconnectLoop_EmptySessionDoesNotQueryRoot(t *testing.T) {
 // relay that has stopped responding would. Close closes the connections
 // it holds, which ends a relay handshake waiting on them.
 type stallingRelay struct {
-	ln     net.Listener
-	mu     sync.Mutex
-	conns  []net.Conn
-	closed bool
+	ln       net.Listener
+	mu       sync.Mutex
+	conns    []net.Conn
+	accepted int
+	closed   bool
 }
 
 func newStallingRelay(t *testing.T) *stallingRelay {
@@ -61,6 +65,7 @@ func newStallingRelay(t *testing.T) *stallingRelay {
 				return
 			}
 			r.mu.Lock()
+			r.accepted++
 			if r.closed {
 				_ = conn.Close()
 			} else {
@@ -74,6 +79,13 @@ func newStallingRelay(t *testing.T) *stallingRelay {
 }
 
 func (r *stallingRelay) addr() string { return "tcp://" + r.ln.Addr().String() }
+
+// acceptedConns returns how many connections the relay has accepted.
+func (r *stallingRelay) acceptedConns() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.accepted
+}
 
 func (r *stallingRelay) Close() {
 	_ = r.ln.Close()
@@ -159,4 +171,58 @@ func TestRelayRegistrationTimesOut(t *testing.T) {
 	a.Equal(EvtError, evt.Evt)
 	a.Equal("relay_listen_failed", evt.Data["code"])
 	a.Contains(evt.Data["error"], "deadline exceeded")
+}
+
+func TestRelayDialTimesOut(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	d.relayTimeout = 200 * time.Millisecond
+	relay := newStallingRelay(t)
+
+	d.handleDial(Command{
+		ID: "dial",
+		Params: mustJSON(DialParams{
+			Transport: "relay",
+			RelayAddr: relay.addr(),
+			Token:     strings.Repeat("ab", 16),
+		}),
+	})
+
+	evt := rec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "dial"
+	})
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("dial_failed", evt.Data["code"])
+	a.Contains(evt.Data["error"], "deadline exceeded")
+
+	// The failed dial no longer holds the storage.
+	deadline := time.Now().Add(testEventTimeout)
+	for d.storageBusy() {
+		a.True(time.Now().Before(deadline), "dial never ended")
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestRelayMultiTokenDialHasOneTimeLimit(t *testing.T) {
+	a := require.New(t)
+	relay := newStallingRelay(t)
+	tokens := make([][]byte, 5)
+	for i := range tokens {
+		tokens[i] = bytes.Repeat([]byte{byte(i + 1)}, 16)
+	}
+
+	dial, err := dialRelayFuncMultiToken(
+		t.Context(), 200*time.Millisecond, relay.addr(), "", false, tokens,
+	)
+	a.NoError(err)
+	_, err = dial("")
+	a.ErrorIs(err, context.DeadlineExceeded)
+
+	// The first token used up the limit, so no other token was tried.
+	deadline := time.Now().Add(testEventTimeout)
+	for relay.acceptedConns() == 0 {
+		a.True(time.Now().Before(deadline), "relay accepted nothing")
+		time.Sleep(10 * time.Millisecond)
+	}
+	a.Equal(1, relay.acceptedConns())
 }
