@@ -1293,23 +1293,35 @@ When incognito mode is enabled:
   their name, and do not save it as the local name.
 - Messages that are sent or received are not saved.
 - Sessions leave no record in the storage. The daemon creates no session
-  record, and the kamune library stores no resumption state for them
-  (`ServeWithoutPersistence`, `DialWithoutPersistence`).
+  record and stores no relay reconnect tokens, and the kamune library
+  (`ServeWithoutPersistence`, `DialWithoutPersistence`) stores neither the
+  peer's key, the session's start time nor resumption tokens, and leaves the
+  last-seen time of a stored peer alone.
 - Accepted peers are not stored.
 - Sessions cannot be resumed. A dialed session whose connection drops ends with
   `session_closed`, with no `session_reconnecting`; a server started in
   incognito mode refuses resumption; and a dropped relay session gets no
   reconnect listener.
 
+Incognito mode keeps sessions out of this daemon's storage only: a peer that
+is not in incognito mode stores the session and its messages as usual.
+Commands that change the storage still do so, such as the settings commands
+(the incognito flag is itself saved), `set_my_name`, and the peer and history
+commands.
+
 The identity key stays the same, so a peer that knows the key, or its
 fingerprint, still recognizes the user, and the pseudonym is derived from it.
 Existing session history and peers remain accessible. The incognito flag is
 saved in the open storage and applied when that storage is opened.
 
-`set_incognito` takes effect at once, except that a running server keeps the
-name it started with and its choice of whether the kamune library stores its
-sessions' resumption state, until `restart_server`. Changing the flag while a
-server runs logs a warning.
+`set_incognito` applies at once to what the daemon saves itself (messages,
+session records and peers) and to the next dial. A running server keeps what
+it started with until `restart_server`: its name, and whether the kamune
+library stores its sessions and lets peers resume them. So a server started
+with incognito mode off still has the library store the peer's key, start
+time and resumption tokens of each new session, and update a stored peer's
+last-seen time. A dialed session likewise keeps what was chosen when it was
+dialed. Changing the flag while a server runs logs a warning.
 
 #### `get_incognito`
 
