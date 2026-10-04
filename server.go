@@ -3,6 +3,7 @@ package kamune
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"runtime/debug"
@@ -52,6 +53,14 @@ func (l *udpListener) Accept() (Conn, error) {
 	return newConn(c, l.connOpts...), nil
 }
 
+const (
+	// minAcceptDelay and maxAcceptDelay bound how long ListenAndServe waits
+	// after an Accept error before it calls Accept again. The wait doubles
+	// on each consecutive error.
+	minAcceptDelay = 5 * time.Millisecond
+	maxAcceptDelay = time.Second
+)
+
 // Server handles incoming connections and manages the handshake process.
 type Server struct {
 	listener      Listener
@@ -59,6 +68,7 @@ type Server struct {
 	attest        *attest.Attest
 	storage       *storage.Storage
 	handlerFunc   HandlerFunc
+	done          chan struct{}
 	serverName    string
 	addr          string
 	connOpts      []ConnOption
@@ -71,6 +81,9 @@ type Server struct {
 // ListenAndServe starts the server and listens for incoming connections. It
 // blocks until the listener is closed via [Server.Close] or an unrecoverable
 // error occurs.
+//
+// Other Accept errors, such as running out of file descriptors, are logged
+// and retried after a wait that starts at 5 ms and doubles up to 1 s.
 func (s *Server) ListenAndServe() error {
 	s.mu.Lock()
 	if s.closed {
@@ -90,23 +103,69 @@ func (s *Server) ListenAndServe() error {
 
 	slog.Info("server started", slog.String("addr", s.addr))
 
+	var delay time.Duration
 	for {
 		cn, err := s.listener.Accept()
 		if err != nil {
 			// Exit cleanly when the listener is closed (shutdown).
-			if errors.Is(err, net.ErrClosed) {
+			if s.isClosed() || isListenerClosed(err) {
 				return nil
 			}
 
-			slog.Error("accept conn", slog.Any("error", err))
+			// Errors such as EMFILE repeat until something changes, so
+			// wait before trying again instead of spinning.
+			delay = nextAcceptDelay(delay)
+			slog.Error(
+				"accept conn",
+				slog.Any("error", err),
+				slog.Duration("retry_in", delay),
+			)
+			if !s.pause(delay) {
+				return nil
+			}
 			continue
 		}
+		delay = 0
 		go func() {
 			if err := s.serve(cn); err != nil {
 				slog.Error("serve conn", slog.Any("error", err))
 			}
 		}()
 	}
+}
+
+// isListenerClosed reports whether an Accept error means the listener was
+// closed. kcp-go reports a closed listener as io.ErrClosedPipe.
+func isListenerClosed(err error) bool {
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.ErrClosedPipe)
+}
+
+// nextAcceptDelay returns the wait after an Accept error that followed a
+// wait of prev.
+func nextAcceptDelay(prev time.Duration) time.Duration {
+	if prev <= 0 {
+		return minAcceptDelay
+	}
+	return min(2*prev, maxAcceptDelay)
+}
+
+// pause waits for d and reports true, or reports false as soon as the server
+// is closed.
+func (s *Server) pause(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return !s.isClosed()
+	case <-s.done:
+		return false
+	}
+}
+
+func (s *Server) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
 }
 
 // Close gracefully shuts down the server by closing the underlying listener,
@@ -120,11 +179,15 @@ func (s *Server) Close() error {
 		return nil
 	}
 
+	// Mark the server closed before closing the listener, so the Accept
+	// error that follows is read as shutdown whatever it is.
+	s.closed = true
+	if s.done != nil {
+		close(s.done)
+	}
 	if s.listener != nil {
 		_ = s.listener.Close()
 	}
-
-	s.closed = true
 	return nil
 }
 
@@ -354,6 +417,7 @@ func NewServer(
 			timeout:        30 * time.Second,
 		},
 		clock:         clock.Real(),
+		done:          make(chan struct{}),
 		resumeEnabled: true,
 	}
 

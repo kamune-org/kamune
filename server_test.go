@@ -2,7 +2,10 @@ package kamune
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -559,6 +562,139 @@ func TestNilStorageIsAnError(t *testing.T) {
 			var err error
 			a.NotPanics(func() { err = tc.build() })
 			a.ErrorIs(err, ErrMissingStorage)
+		})
+	}
+}
+
+// testListener is a Listener driven by the test. Accept first returns errs
+// in order, then hands out the conns sent on conns until Close, after which
+// it returns closeErr. Each Accept call is reported on calls.
+type testListener struct {
+	closeErr error
+	conns    chan Conn
+	calls    chan time.Time
+	done     chan struct{}
+	errs     []error
+	once     sync.Once
+	mu       sync.Mutex
+}
+
+func newTestListener(closeErr error, errs ...error) *testListener {
+	return &testListener{
+		closeErr: closeErr,
+		conns:    make(chan Conn),
+		calls:    make(chan time.Time, 64),
+		done:     make(chan struct{}),
+		errs:     errs,
+	}
+}
+
+func (l *testListener) Accept() (Conn, error) {
+	select {
+	case l.calls <- time.Now():
+	default:
+	}
+	l.mu.Lock()
+	if len(l.errs) > 0 {
+		err := l.errs[0]
+		l.errs = l.errs[1:]
+		l.mu.Unlock()
+		return nil, err
+	}
+	l.mu.Unlock()
+	select {
+	case cn := <-l.conns:
+		return cn, nil
+	case <-l.done:
+		return nil, l.closeErr
+	}
+}
+
+func (l *testListener) Close() error {
+	l.once.Do(func() { close(l.done) })
+	return nil
+}
+
+// startTestServer runs ListenAndServe on l and returns the server and a
+// channel with its result.
+func startTestServer(
+	t *testing.T, l Listener, opts ...ServerOptions,
+) (*Server, chan error) {
+	t.Helper()
+	a := require.New(t)
+	store, cleanup := newTestStore(t)
+	t.Cleanup(cleanup)
+	server, err := NewServer(
+		"",
+		func(*Transport) error { return nil },
+		store,
+		func(*storage.Storage, *storage.Peer) error { return nil },
+		append(opts, ServeWithListener(l))...,
+	)
+	a.NoError(err)
+	result := make(chan error, 1)
+	go func() { result <- server.ListenAndServe() }()
+	t.Cleanup(func() { _ = server.Close() })
+	return server, result
+}
+
+func TestListenAndServeBacksOffOnAcceptErrors(t *testing.T) {
+	a := require.New(t)
+	errTemp := errors.New("accept4: too many open files")
+	l := newTestListener(net.ErrClosed, errTemp, errTemp, errTemp, errTemp)
+	server, result := startTestServer(t, l)
+
+	var calls []time.Time
+	for range 5 {
+		select {
+		case c := <-l.calls:
+			calls = append(calls, c)
+		case <-time.After(10 * time.Second):
+			a.FailNow("accept was not called again")
+		}
+	}
+	want := minAcceptDelay
+	for i := 1; i < len(calls); i++ {
+		a.GreaterOrEqual(calls[i].Sub(calls[i-1]), want, "wait %d", i)
+		want *= 2
+	}
+
+	a.NoError(server.Close())
+	select {
+	case err := <-result:
+		a.NoError(err)
+	case <-time.After(10 * time.Second):
+		a.FailNow("ListenAndServe did not return after Close")
+	}
+}
+
+func TestListenAndServeReturnsOnCloseWhateverAcceptReturns(t *testing.T) {
+	cases := []struct {
+		closeErr error
+		name     string
+	}{
+		{name: "net.ErrClosed", closeErr: net.ErrClosed},
+		{
+			name:     "kcp closed pipe",
+			closeErr: fmt.Errorf("accept: %w", io.ErrClosedPipe),
+		},
+		{name: "other error", closeErr: errors.New("listener gone")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			l := newTestListener(tc.closeErr)
+			server, result := startTestServer(t, l)
+			<-l.calls
+
+			a.NoError(server.Close())
+			select {
+			case err := <-result:
+				a.NoError(err)
+			case <-time.After(10 * time.Second):
+				a.FailNow("ListenAndServe did not return after Close")
+			}
+			a.Empty(l.calls, "Accept called again after Close")
 		})
 	}
 }
