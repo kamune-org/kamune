@@ -715,10 +715,8 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		keepAliveDone:    make(chan struct{}),
 	}
 
-	var sessionStore *storage.Storage
-	if s := d.store(); s != nil && !incognito {
-		sessionStore = s
-		if err := sessionStore.CreateSession(
+	if !incognito {
+		if err := store.CreateSession(
 			sessionID, peer.PublicKey,
 		); err != nil {
 			d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
@@ -727,13 +725,14 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	}
 
 	// Store dial params for transparent resumption on involuntary
-	// disconnect.
+	// disconnect. Resuming reads the session's tokens and peer from the
+	// store, so the reconnect gets it in every mode.
 	reconnectCtx, reconnectCancel := context.WithCancel(d.ctx)
 	session.mu.Lock()
 	session.reconnectCtx = reconnectCtx
 	session.reconnectCancel = reconnectCancel
 	session.reconnectFn = d.makeReconnectFn(
-		reconnectCtx, session, &params, sessionStore, opts,
+		reconnectCtx, session, &params, store, opts,
 	)
 	session.mu.Unlock()
 
@@ -1103,7 +1102,8 @@ func (d *Daemon) deriveAndStoreRelayTokensForPeers(peerPubB64 ...string) error {
 
 // makeReconnectFn returns a reconnect function that re-dials with resumption
 // tokens, trying stored ECDH tokens for relay connections (mirrors
-// cmd/bus/network.go:687-723).
+// cmd/bus/network.go:687-723). The function fails with an error wrapping
+// errNotResumable, without dialing, when store has no peer for the session.
 func (d *Daemon) makeReconnectFn(
 	ctx context.Context,
 	session *liveSession,
@@ -1120,6 +1120,14 @@ func (d *Daemon) makeReconnectFn(
 	isDirectP2P := params.Transport == "direct-p2p"
 	directPeerAddr := params.DirectPeerAddr
 	return func(sessionID string) (*kamune.Transport, error) {
+		if store == nil {
+			return nil, kamune.ErrMissingStorage
+		}
+		// Resuming needs the session's peer record. Without it each try
+		// would spend a resumption token and fail the same way.
+		if _, err := store.GetPeer(sessionID); err != nil {
+			return nil, fmt.Errorf("%w: %w", errNotResumable, err)
+		}
 		resumeOpts := append(
 			[]kamune.DialOption{kamune.DialWithResume(sessionID)}, opts...,
 		)
@@ -1133,7 +1141,7 @@ func (d *Daemon) makeReconnectFn(
 					return pConn, nil
 				},
 			))
-		} else if store != nil && relayAddr != "" {
+		} else if relayAddr != "" {
 			if m, err := store.GetMeta(
 				sessionID, storage.RelayTokensKey,
 			); err == nil && m.Value() != nil {

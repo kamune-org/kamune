@@ -155,11 +155,12 @@ func (d *Daemon) sendMessage(
 
 // receiveMessages is the wrapper for client-side (dialed) sessions. It
 // closes session.ReceiveDone when the receive loop exits and cleans up the
-// session from the map. On involuntary disconnect (ErrConnClosed) it attempts
-// transparent resumption when reconnectFn is available (mirrors
-// cmd/bus/messaging.go:64-80).
+// session from the map, also when the loop panics. On involuntary
+// disconnect (ErrConnClosed) it attempts transparent resumption when
+// reconnectFn is available (mirrors cmd/bus/messaging.go:64-80).
 func (d *Daemon) receiveMessages(session *liveSession) {
 	defer close(session.ReceiveDone)
+	defer d.finishSession(session)
 
 	for {
 		transport := session.snapshotTransport()
@@ -231,8 +232,6 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 		d.emit(EvtSessionUpdated, "", MapS{"session_id": session.ID})
 		d.addLogEntry("DEBUG", "Received message from "+session.ID)
 	}
-
-	d.finishSession(session)
 }
 
 // receiveMessagesBlocking is the blocking receive loop used by the server
@@ -396,9 +395,53 @@ func sendPing(
 	}
 }
 
+var (
+	// errNotResumable is returned by a reconnect function when the session
+	// has no stored state to resume from.
+	errNotResumable = errors.New("session cannot be resumed")
+	// errReconnectPanic is returned by tryReconnect when the reconnect
+	// function panics.
+	errReconnectPanic = errors.New("reconnect panicked")
+)
+
+// tryReconnect calls fn and turns a panic into an error wrapping
+// errReconnectPanic, so that a failed reconnect ends the session instead of
+// the goroutine that receives on it.
+func tryReconnect(
+	fn func(string) (*kamune.Transport, error), sessionID string,
+) (t *kamune.Transport, err error) {
+	defer func() {
+		if msg := recover(); msg != nil {
+			t, err = nil, fmt.Errorf("%w: %v", errReconnectPanic, msg)
+		}
+	}()
+	return fn(sessionID)
+}
+
+// reconnectRetryable reports whether a failed reconnect may succeed on a
+// later attempt. Missing storage or resumption state, a resume the peer
+// rejected and a panic do not change between attempts.
+func reconnectRetryable(err error) bool {
+	for _, target := range []error{
+		errNotResumable,
+		errReconnectPanic,
+		kamune.ErrMissingStorage,
+		kamune.ErrResumptionRejected,
+		storage.ErrNotFound,
+		storage.ErrSessionNotFound,
+		storage.ErrPeerExpired,
+	} {
+		if errors.Is(err, target) {
+			return false
+		}
+	}
+	return true
+}
+
 // reconnectSession attempts to re-establish a session after an involuntary
 // disconnect using the stored reconnectFn. It retries with exponential backoff
-// up to maxAttempts times (mirrors cmd/bus/messaging.go:223-266).
+// up to maxAttempts times, and gives up at once on an error that a retry
+// cannot fix (mirrors cmd/bus/messaging.go:223-266).
 func (d *Daemon) reconnectSession(session *liveSession) bool {
 	const (
 		maxAttempts = 10
@@ -432,9 +475,12 @@ func (d *Daemon) reconnectSession(session *liveSession) bool {
 			"max_attempts": maxAttempts,
 		})
 
-		t, err := reconnectFn(session.ID)
+		t, err := tryReconnect(reconnectFn, session.ID)
 		if err != nil {
 			d.addLogEntry("WARN", "Reconnect failed: "+err.Error())
+			if !reconnectRetryable(err) {
+				return false
+			}
 			continue
 		}
 
