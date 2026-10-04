@@ -501,3 +501,63 @@ func TestServer_Level(t *testing.T) {
 		})
 	}
 }
+
+// TestNew_RejectsUnknownKeys checks that a key no setting has is an error
+// naming it, rather than being dropped: a misspelt or misplaced password
+// would otherwise start the relay in open mode.
+func TestNew_RejectsUnknownKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		toml string
+		keys []string
+	}{
+		{
+			name: "misspelt password",
+			toml: "[server]\npasword = \"s3cret\"\n",
+			keys: []string{"server.pasword"},
+		},
+		{
+			name: "password in the wrong table",
+			toml: "[session]\npassword = \"s3cret\"\n",
+			keys: []string{"session.password"},
+		},
+		{
+			name: "keys the relay does not have",
+			toml: "[server]\naddress = \"127.0.0.1:8888\"\n" +
+				"expose_ip = false\n[rate_limit]\nenabled = true\n",
+			keys: []string{
+				"server.address", "server.expose_ip", "rate_limit.enabled",
+			},
+		},
+		{
+			name: "unknown table",
+			toml: "[http]\nenabled = true\n",
+			keys: []string{"http"},
+		},
+		{
+			name: "top-level key",
+			toml: "password = \"s3cret\"\n",
+			keys: []string{"password"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			t.Setenv(EnvKey, tc.toml)
+			_, err := New("")
+			a.ErrorIs(err, ErrUnknownKey)
+			for _, key := range tc.keys {
+				a.Contains(err.Error(), key)
+			}
+		})
+	}
+}
+
+// TestNew_ShippedConfigHasOnlyKnownKeys loads assets/config.toml, which
+// New would reject if it had a key no setting has.
+func TestNew_ShippedConfigHasOnlyKnownKeys(t *testing.T) {
+	a := require.New(t)
+	cfg, err := New("../../assets/config.toml")
+	a.NoError(err)
+	a.NoError(cfg.Validate())
+}

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -274,9 +275,14 @@ func validHeaderName(s string) bool {
 
 const EnvKey = "KAMUNE_RELAY_CONFIG"
 
+// ErrUnknownKey is returned by New for a config with a key that no
+// setting has.
+var ErrUnknownKey = errors.New("unknown config key")
+
 // New loads config from the given file path. If path is empty, it falls back to
 // the KAMUNE_RELAY_CONFIG environment variable. Returns an error if neither
-// source is available or parsing fails.
+// source is available, parsing fails, or the config has a key that no
+// setting has (ErrUnknownKey).
 func New(path string) (Config, error) {
 	var data []byte
 	if path != "" {
@@ -308,8 +314,21 @@ func New(path string) (Config, error) {
 			MaxEntries: defaultRateLimitMaxEntries,
 		},
 	}
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	md, err := toml.Decode(string(data), &cfg)
+	if err != nil {
 		return Config{}, fmt.Errorf("unmarshal: %w", err)
+	}
+	// A misspelt or misplaced key would otherwise be dropped in silence,
+	// and a dropped password starts the relay in open mode.
+	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+		keys := make([]string, len(undecoded))
+		for i, key := range undecoded {
+			keys[i] = key.String()
+		}
+		return Config{}, fmt.Errorf(
+			"%w: %s (check the spelling and the [table] each is in)",
+			ErrUnknownKey, strings.Join(keys, ", "),
+		)
 	}
 	return cfg, nil
 }
