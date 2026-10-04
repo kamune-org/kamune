@@ -1172,22 +1172,18 @@ other listeners are public.
 
 ### Direct TLS (single host)
 
-A single host runs the relay bound to a public IP on port 443, with self-signed
-(auto-generated) certificates. Simple, no infrastructure dependencies, but the
-relay's IP is exposed.
+A single host runs the relay bound to a public IP on port 443, with the relay's
+self-signed certificate (see [TLS](#tls-tls)). Simple, no infrastructure
+dependencies, but the relay's IP is exposed, and clients pin the certificate's
+fingerprint. A listener whose section is left out stays off.
 
 ```toml
 [server]
-address = "127.0.0.1:8888"
 password = ""
-expose_health = false
-expose_ip = false
 
-[ws]
-enabled = false
-
-[tcp]
-enabled = false
+[session]
+token_ttl = "10m"
+max_concurrent_sessions = 10_000
 
 [tls]
 enabled = true
@@ -1209,13 +1205,15 @@ hole-punching fails, they fall back to the relay as before.
 
 ```toml
 [server]
-address = "127.0.0.1:8888"
 password = ""
-expose_health = false
-expose_ip = false
 
-[ws]
-enabled = true           # WebSocket still available as the relay fallback
+[session]
+token_ttl = "10m"
+max_concurrent_sessions = 10_000
+
+[wss]
+enabled = true            # WSS still available as the relay fallback
+address = "0.0.0.0:8891"
 
 [broker]
 enabled = true
@@ -1224,9 +1222,11 @@ address = "0.0.0.0:4788"  # public, so peers behind NATs can reach it
 ```
 
 The broker and the relay's transports run in the same process but on
-different ports. The broker shares the relay's per-IP rate limiter. Peers
-talk to the broker first to discover each other's IP:port; if direct UDP
-fails, they fall back to the relay over WS/WSS/TCP/TLS as usual.
+different ports. The broker has rate limiters of its own, apart from those of
+the TCP, TLS and WebSocket listeners (see
+[Broker](#broker-stun-echo-and-signal-introduction)). Peers talk to the broker
+first to discover each other's IP:port; if direct UDP fails, they fall back to
+the relay over WS/WSS/TCP/TLS as usual.
 
 ## Known Limits
 
@@ -1259,8 +1259,8 @@ The relay operator is responsible for:
 - Setting `[server] password` to enable PSK mode if the relay is exposed.
 - Tuning `max_concurrent_sessions`, `token_ttl`, and `session_ttl` to match
   expected load.
-- Disabling `expose_health` and `expose_ip` on public deployments to avoid
-  leaking connection metadata.
+- Keeping the `[diagnose]` listener, if enabled, on loopback or a private
+  network: `/health` reveals uptime and the current session count.
 - When `[tls]` or `[wss]` uses the self-signed certificate, giving clients its
   fingerprint to pin, and keeping `server.data_dir` across restarts and
   redeployments so that the pin stays valid.
