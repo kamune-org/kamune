@@ -49,13 +49,13 @@ func (m *model) selectMode(idx int) (tea.Model, tea.Cmd) {
 	case 2:
 		m.mode = modeRelayDial
 		m.inputs = []textinput.Model{
-			mkInput("Relay address (host:port)", "localhost:9001"),
+			mkInput(relayAddrLabel, defaultRelayAddr),
 			mkInput("Token (hex)", ""),
 		}
 	case 3:
 		m.mode = modeRelayServe
 		m.inputs = []textinput.Model{
-			mkInput("Relay address (host:port)", "localhost:9001"),
+			mkInput(relayAddrLabel, defaultRelayAddr),
 		}
 	case 4:
 		return m, loadSessions(m.store)
@@ -69,6 +69,14 @@ func (m *model) selectMode(idx int) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
+const (
+	relayAddrLabel = "Relay address (wss://, tls://, ws:// or tcp:// " +
+		"host:port; wss if none)"
+	// defaultRelayAddr is the wss listener of a relay that runs with its
+	// default settings on this host.
+	defaultRelayAddr = "wss://localhost:8891"
+)
 
 func mkInput(placeholder, defaultVal string) textinput.Model {
 	ti := textinput.New()
@@ -110,6 +118,7 @@ func (m *model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEsc:
+			m.connectErr = nil
 			m.state = stateWelcome
 			return m, nil
 		case tea.KeyEnter:
@@ -119,6 +128,14 @@ func (m *model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			} else if m.inputs[0].Value() == "" {
 				return m, nil
+			}
+			m.connectErr = nil
+			if m.mode == modeRelayDial || m.mode == modeRelayServe {
+				_, err := parseRelayAddr(m.inputs[0].Value())
+				if err != nil {
+					m.connectErr = err
+					return m, nil
+				}
 			}
 			m.state = stateConnecting
 			return m, m.startConnect()
@@ -186,15 +203,29 @@ func (m *model) viewInput() string {
 	b.WriteString(m.s.title.Render(" " + modeLabel))
 	b.WriteString("\n\n")
 
-	for i, ti := range m.inputs {
-		b.WriteString(ti.View())
-		b.WriteString("\n")
-		if i < len(m.inputs)-1 {
-			_ = i // just separator between inputs
+	for _, ti := range m.inputs {
+		b.WriteString(m.s.muted.Render(ti.Placeholder) + "\n")
+		b.WriteString(ti.View() + "\n\n")
+	}
+	if m.mode == modeRelayDial || m.mode == modeRelayServe {
+		r, err := parseRelayAddr(m.inputs[0].Value())
+		if err == nil && !r.secure() {
+			b.WriteString(m.s.highlight.Render(
+				"⚠ "+r.scheme+" does not authenticate the relay: anyone "+
+					"on the path\n  can pose as it and read the session "+
+					"token. Prefer wss or tls.",
+			) + "\n\n")
 		}
 	}
+	if m.connectErr != nil {
+		b.WriteString(m.s.err.Render(
+			"Error: "+sanitizeText(m.connectErr.Error()),
+		) + "\n\n")
+	}
 
-	b.WriteString("\n" + m.s.muted.Render("[Enter] connect  [Esc] back  [Tab] next field"))
+	b.WriteString(m.s.muted.Render(
+		"[Enter] connect  [Esc] back  [Tab] next field",
+	))
 	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
 }
 

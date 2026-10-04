@@ -728,6 +728,16 @@ func (m *model) startConnect() tea.Cmd {
 		send(connectedMsg{att: att, transport: t, release: release})
 	}
 	stopped := serverStopped(att, m.mode, send)
+	failed := func(err error) tea.Cmd {
+		return func() tea.Msg { return connectFailedMsg{att, err} }
+	}
+	var relay relayTarget
+	if m.mode == modeRelayDial || m.mode == modeRelayServe {
+		var err error
+		if relay, err = parseRelayAddr(addr); err != nil {
+			return failed(err)
+		}
+	}
 
 	switch m.mode {
 	case modeDirectDial:
@@ -745,7 +755,7 @@ func (m *model) startConnect() tea.Cmd {
 			kamune.ServeWithTCP(),
 		)
 		if err != nil {
-			return func() tea.Msg { return connectFailedMsg{att, err} }
+			return failed(err)
 		}
 		m.srv = srv
 
@@ -753,7 +763,7 @@ func (m *model) startConnect() tea.Cmd {
 		token := m.inputs[1].Value()
 		go func() {
 			t, sessionTTL, err := relayDial(
-				att.ctx, addr, token, "", store, vfn,
+				att.ctx, relay, token, "", store, vfn,
 			)
 			if err != nil {
 				send(connectFailedMsg{att, err})
@@ -767,7 +777,7 @@ func (m *model) startConnect() tea.Cmd {
 	case modeRelayServe:
 		go func() {
 			srv, token, sessionTTL, err := relayServe(
-				att.ctx, addr, "", store, vfn, deliver, stopped,
+				att.ctx, relay, "", store, vfn, deliver, stopped,
 			)
 			if err != nil {
 				send(connectFailedMsg{att, err})

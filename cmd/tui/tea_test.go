@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -239,6 +240,57 @@ func TestInput_TabMovesFocus(t *testing.T) {
 				a.Equal(i == tt.field, m.inputs[i].Focused(), "field %d", i)
 			}
 		})
+	}
+}
+
+func TestInput_RelayAddress(t *testing.T) {
+	tests := []struct {
+		name  string
+		addr  string
+		valid bool
+		warns bool
+	}{
+		{"default", "", true, false},
+		{"tls", "tls://relay.example:8890", true, false},
+		{"ws", "ws://relay.example:8888", true, true},
+		{"tcp", "tcp://relay.example:8889", true, true},
+		{"unknown scheme", "http://relay.example", false, false},
+		{"path", "wss://relay.example/ws", false, false},
+	}
+	for _, mode := range []rune{'3', '4'} {
+		for _, tt := range tests {
+			t.Run(string(mode)+" "+tt.name, func(t *testing.T) {
+				a := require.New(t)
+				m := newTestModel()
+				m.state = stateWelcome
+				m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{mode}})
+				a.Equal(stateInput, m.state)
+				if tt.addr == "" {
+					a.True(strings.HasPrefix(m.inputs[0].Value(), "wss://"))
+				} else {
+					m.inputs[0].SetValue(tt.addr)
+				}
+				view := m.viewInput()
+				a.Contains(view, "Relay address")
+				a.Equal(tt.warns,
+					strings.Contains(view, "does not authenticate the relay"))
+				if tt.valid {
+					return
+				}
+
+				if m.mode == modeRelayDial {
+					m.inputs[1].SetValue("00ff")
+				}
+				m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+				a.Equal(stateInput, m.state)
+				a.Nil(m.att)
+				a.ErrorIs(m.connectErr, errRelayAddress)
+				a.Contains(m.viewInput(), "invalid relay address")
+				m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+				a.Equal(stateWelcome, m.state)
+				a.Nil(m.connectErr)
+			})
+		}
 	}
 }
 

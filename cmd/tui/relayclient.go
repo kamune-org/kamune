@@ -11,10 +11,11 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-// relayDial joins the relay session named by tokenHex and runs the kamune
-// handshake through it. Cancelling ctx ends the dial at any step.
+// relayDial joins the session named by tokenHex on the relay r and runs
+// the kamune handshake through it. Cancelling ctx ends the dial at any
+// step.
 func relayDial(
-	ctx context.Context, relayAddr, tokenHex, password string,
+	ctx context.Context, r relayTarget, tokenHex, password string,
 	store *storage.Storage, verifyFn kamune.RemoteVerifier,
 ) (*kamune.Transport, time.Duration, error) {
 	token, err := hex.DecodeString(tokenHex)
@@ -28,9 +29,9 @@ func relayDial(
 	}
 
 	var sessionTTL time.Duration
-	t, err := dialBound(ctx, relayAddr, store, verifyFn,
-		func(ctx context.Context, addr string) (kamune.Conn, error) {
-			conn, err := relayconn.DialRelay(ctx, addr, token, opts...)
+	t, err := dialBound(ctx, r.host, store, verifyFn,
+		func(ctx context.Context, _ string) (kamune.Conn, error) {
+			conn, err := r.dial(ctx, token, opts...)
 			if err != nil {
 				return nil, err
 			}
