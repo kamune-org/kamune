@@ -55,7 +55,7 @@ func (a *App) SendMessage(sessionID string, text string) error {
 	session.LastActivity = time.Now()
 	a.mu.Unlock()
 
-	if store := a.store(); store != nil && !a.incognito {
+	if store := a.store(); store != nil && !a.GetIncognito() {
 		if err := store.AddChatEntry(
 			sessionID, []byte(text), metadata.Timestamp(), storage.SenderLocal,
 		); err != nil {
@@ -145,7 +145,7 @@ func (a *App) receiveMessages(session *liveSession) {
 		isActive := a.activeSessionID == session.ID
 		a.mu.Unlock()
 
-		if store := a.store(); store != nil && !a.incognito {
+		if store := a.store(); store != nil && !a.GetIncognito() {
 			if err := store.AddChatEntry(
 				session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
 			); err != nil {

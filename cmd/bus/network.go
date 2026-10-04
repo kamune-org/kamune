@@ -88,7 +88,8 @@ func (a *App) StartServer(
 		return "", "", fmt.Errorf("storage is not available")
 	}
 
-	if name == "" || a.incognito {
+	incognito := a.GetIncognito()
+	if name == "" || incognito {
 		pubKey, err := store.PublicKey()
 		if err != nil {
 			return "", "", fmt.Errorf("getting identity: %w", err)
@@ -105,10 +106,12 @@ func (a *App) StartServer(
 	a.mu.Lock()
 	a.myName = name
 	a.mu.Unlock()
-	if !a.incognito {
+	if !incognito {
 		_ = store.SetSettings("bus", "local_name", name)
 	}
 
+	// p2pL is the P2P listener the server uses, if any.
+	var p2pL p2pListenerI
 	var firstToken string
 	var opts []kamune.ServerOptions
 	opts = append(opts, kamune.ServeWithServerName(name))
@@ -154,11 +157,13 @@ func (a *App) StartServer(
 		firstToken = token
 		opts = append(opts, kamune.ServeWithListener(ml))
 		addr = "" // addr is unused with ServeWithListener
+		a.mu.Lock()
 		a.relayAddr = relayAddr
 		a.relayPassword = password
 		a.relaySessionTTL = sessionTTL
 		a.relayListeners = ml
 		a.relayTokens = []relayToken{{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), Mode: relayMode, PeerPubB64: peerPubB64, listener: listener}}
+		a.mu.Unlock()
 		go a.relayReconnectLoop(ctx, ml)
 	case "udp":
 		if useP2P && useBroker && brokerAddr != "" {
@@ -189,7 +194,10 @@ func (a *App) StartServer(
 				_ = listener.Close()
 				return "", "", fmt.Errorf("add p2p listener: %w", err)
 			}
+			p2pL = listener
+			a.mu.Lock()
 			a.p2pListener = listener
+			a.mu.Unlock()
 			opts = append(opts, kamune.ServeWithListener(ml))
 
 			// Register the p2pListener's token in a.p2pTokens so the
@@ -231,7 +239,10 @@ func (a *App) StartServer(
 				_ = listener.Close()
 				return "", "", fmt.Errorf("add direct p2p listener: %w", err)
 			}
+			p2pL = listener
+			a.mu.Lock()
 			a.p2pListener = listener
+			a.mu.Unlock()
 			opts = append(opts, kamune.ServeWithListener(ml))
 		} else {
 			opts = append(opts, kamune.ServeWithUDP())
@@ -284,10 +295,9 @@ func (a *App) StartServer(
 
 	// Auto-register a P2P token on the broker for broker-synced mode.
 	// When p2pListener is active it already registered, so skip.
-	if transport == "udp" && a.serverUseP2P && a.serverUseBroker &&
-		a.serverBrokerAddr != "" && a.p2pListener == nil {
-		if _, err := a.GenerateP2PToken(
-			a.serverBrokerAddr, a.serverPeerPubB64); err != nil {
+	if transport == "udp" && useP2P && useBroker &&
+		brokerAddr != "" && p2pL == nil {
+		if _, err := a.GenerateP2PToken(brokerAddr, peerPubB64); err != nil {
 			a.addLogEntry("ERROR",
 				"Failed to register p2p token: "+err.Error())
 		}
@@ -333,9 +343,9 @@ func (a *App) StartServer(
 	switch {
 	case transport == "relay":
 		statusMsg = "Server (relay) — connected to " + relayAddr
-	case transport == "udp" && a.p2pListener != nil:
+	case transport == "udp" && p2pL != nil:
 		statusMsg = "Server (udp+p2p) — listening on " +
-			a.p2pListener.Addr().String()
+			p2pL.Addr().String()
 	default:
 		statusMsg = "Server running on " + addr
 	}
@@ -606,7 +616,8 @@ func (a *App) ConnectToServer(
 			fmt.Errorf("storage is not available")
 	}
 
-	if name == "" || a.incognito {
+	incognito := a.GetIncognito()
+	if name == "" || incognito {
 		pubKey, err := store.PublicKey()
 		if err != nil {
 			return ConnectResult{ErrorCode: "identity_unavailable"},
@@ -618,7 +629,7 @@ func (a *App) ConnectToServer(
 	a.mu.Lock()
 	a.myName = name
 	a.mu.Unlock()
-	if !a.incognito {
+	if !incognito {
 		_ = store.SetSettings("bus", "local_name", name)
 	}
 
@@ -793,7 +804,7 @@ func (a *App) ConnectToServer(
 		keepAliveDone:    make(chan struct{}),
 	}
 
-	if store := a.store(); store != nil && !a.incognito {
+	if !incognito {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
@@ -1057,7 +1068,7 @@ func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 		keepAliveDone:    make(chan struct{}),
 	}
 
-	if store != nil && !a.incognito {
+	if store != nil && !a.GetIncognito() {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			a.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
@@ -1151,7 +1162,7 @@ func (a *App) finishRelayToken(session *liveSession, payload []byte) {
 }
 
 func (a *App) loadChatHistory(session *liveSession) {
-	if a.incognito {
+	if a.GetIncognito() {
 		return
 	}
 	store := a.store()

@@ -1138,8 +1138,28 @@ func (a *App) GetIncognito() bool {
 	return a.incognito
 }
 
+// incognitoBusyLocked reports whether a server start or a dial is in
+// progress. Each reads the incognito mode when it begins, so a change
+// would not reach the session it makes. The caller holds a.mu.
+func (a *App) incognitoBusyLocked() bool {
+	return a.starting > 0 || a.dialOps > 0
+}
+
+// incognitoBusyNote says why incognito mode cannot change while a server
+// starts or a dial is in progress.
+const incognitoBusyNote = "wait until the server has started and every " +
+	"connection attempt has ended"
+
+// refuseIncognito logs and shows why incognito mode was not changed.
+func (a *App) refuseIncognito(reason string) {
+	msg := "Incognito mode not changed: " + reason
+	a.addLogEntry("WARN", msg)
+	a.emitEvent("toast", msg, "warning")
+}
+
 // SetIncognito turns incognito mode on or off and reports whether it
-// changed. It does nothing until a database is unlocked.
+// changed. It does nothing until a database is unlocked, and while a
+// server start or a dial is in progress.
 func (a *App) SetIncognito(on bool) bool {
 	if a.store() == nil {
 		a.addLogEntry("WARN",
@@ -1147,14 +1167,16 @@ func (a *App) SetIncognito(on bool) bool {
 		return false
 	}
 
-	a.mu.RLock()
+	a.mu.Lock()
 	if a.incognito == on {
-		a.mu.RUnlock()
+		a.mu.Unlock()
 		return false
 	}
-	a.mu.RUnlock()
-
-	a.mu.Lock()
+	if a.incognitoBusyLocked() {
+		a.mu.Unlock()
+		a.refuseIncognito(incognitoBusyNote)
+		return false
+	}
 	a.incognito = on
 	a.mu.Unlock()
 

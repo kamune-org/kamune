@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -521,4 +522,110 @@ func TestSubmitPassphraseReportsWrongPassphrase(t *testing.T) {
 	err := app.SubmitPassphrase(other, "wrong", false)
 	a.ErrorIs(err, storage.ErrWrongPassphrase)
 	a.Equal("Wrong passphrase", err.Error())
+}
+
+// TestIncognitoReadsAreSynchronized toggles incognito mode while a session
+// loads its history. It only finds a data race when run with -race;
+// without it, it checks nothing.
+func TestIncognitoReadsAreSynchronized(t *testing.T) {
+	app, _ := newUnlockedApp(t, "secret")
+	session := &liveSession{ID: "s1"}
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for i := range 20 {
+			app.SetIncognito(i%2 == 0)
+		}
+	})
+	wg.Go(func() {
+		for range 20 {
+			app.loadChatHistory(session)
+		}
+	})
+	wg.Wait()
+}
+
+func TestSetIncognitoRefusedWhileSessionStarts(t *testing.T) {
+	cases := []struct {
+		name string
+		// begin starts a server or a dial and returns once it is under
+		// way, with a function that lets it end and waits for it.
+		begin func(t *testing.T, app *App) (finish func())
+	}{
+		{
+			name: "dial waiting for verification",
+			begin: func(t *testing.T, app *App) func() {
+				addr, _ := startTestServer(t, "srv", readUntilEnd)
+				done := make(chan error, 1)
+				go func() {
+					_, err := app.ConnectToServer(
+						addr, "tcp", "", "", "", "", "", "", "",
+						false, false,
+					)
+					done <- err
+				}()
+				ids := waitPending(t, app, 1)
+				return func() {
+					app.VerifyResponse(ids[0], true)
+					require.New(t).NoError(<-done)
+				}
+			},
+		},
+		{
+			name: "server start waiting for its relay",
+			begin: func(t *testing.T, app *App) func() {
+				a := require.New(t)
+				ln, err := net.Listen("tcp", "127.0.0.1:0")
+				a.NoError(err)
+				t.Cleanup(func() { _ = ln.Close() })
+				accepted := make(chan net.Conn, 1)
+				go func() {
+					if c, err := ln.Accept(); err == nil {
+						accepted <- c
+					}
+				}()
+				done := make(chan error, 1)
+				go func() {
+					_, _, err := app.StartServer(
+						"", "relay", "tcp://"+ln.Addr().String(), "srv",
+						"", "", "", false, false, "",
+					)
+					done <- err
+				}()
+				var conn net.Conn
+				select {
+				case conn = <-accepted:
+				case <-time.After(testWait):
+					t.Fatal("the server start did not reach the relay")
+				}
+				return func() {
+					_ = conn.Close()
+					a.Error(<-done)
+				}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, _ := newUnlockedApp(t, "secret")
+			var toasts []string
+			app.onEvent = func(name string, data ...any) {
+				if name == "toast" {
+					toasts = append(toasts, data[0].(string))
+				}
+			}
+
+			finish := tc.begin(t, app)
+			a.False(app.SetIncognito(true),
+				"what is starting read the mode already")
+			a.False(app.GetIncognito())
+			a.Len(toasts, 1)
+			a.Contains(toasts[0], "Incognito mode not changed")
+
+			finish()
+			a.True(app.SetIncognito(true))
+			a.True(app.GetIncognito())
+		})
+	}
 }
