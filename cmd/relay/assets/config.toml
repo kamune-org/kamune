@@ -88,8 +88,12 @@ address   = "0.0.0.0:8891"
 enabled = false
 address = "0.0.0.0:4788"
 # A registration lapses registration_ttl after its last REGISTER. Clients
-# refresh every 30s. A refresh from a new source address moves the entry only
-# once its held address has gone 35s without one, whatever the TTL, so after a
-# NAT rebinding a matched peer may be sent the old address for up to about two
-# refresh intervals.
+# refresh every 30s. A REGISTER from a new port on the held IP, as after a
+# client restart, a dial retry or a NAT port change, moves the entry at once.
+# One from a new IP moves it only once the held address has gone 35s without
+# a refresh, whatever the TTL. So for up to about two refresh intervals after
+# a client's IP changes, a peer that matches is sent the old address. That
+# match consumes the entry: the peer's hole punch fails, and the client,
+# whose NOTIFY went to the old address, holds a new entry only from its next
+# REGISTER.
 # registration_ttl = "60s"

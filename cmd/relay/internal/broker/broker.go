@@ -47,7 +47,7 @@ const defaultMaxRegistry = 100_000
 const peerRefreshInterval = 30 * time.Second
 
 // rebindAfter is how long the held address must go without refreshing before
-// a REGISTER with the held public key from another address may move the entry
+// a REGISTER with the held public key from another IP may move the entry
 // there: one client refresh interval plus slack for delay and jitter.
 const rebindAfter = peerRefreshInterval + 5*time.Second
 
@@ -70,9 +70,10 @@ type Limits struct {
 }
 
 // registration is the broker's per-token state. A REGISTER with the held
-// public key keeps the entry alive from any source address, and moves it to a
-// new one only once the held address has gone quiet (see
-// heldAddrQuietLocked). One with a different key matches it.
+// public key keeps the entry alive from any source address. It moves the entry
+// to its source at once when only the port changed, and to another IP only
+// once the held address has gone quiet (see rebindLocked). One with a
+// different key matches it.
 type registration struct {
 	addr *net.UDPAddr
 	// expires is when the entry lapses. Every REGISTER with the held public
@@ -331,7 +332,7 @@ func (b *Broker) handleStaticRegister(
 	}
 	if exists && bytes.Equal(held.peerEphPub[:], pub[:]) {
 		now := b.now()
-		if sameUDPAddr(held.addr, src) || b.heldAddrQuietLocked(held) {
+		if b.rebindLocked(held, src) {
 			held.addr = src
 			held.refreshed = now
 		}
@@ -369,27 +370,38 @@ func (b *Broker) newRegistration(
 	}
 }
 
-// heldAddrQuietLocked reports whether a REGISTER with the held public key from
-// another address may move the entry there: true once the held address has
-// gone rebindAfter without sending a REGISTER for it.
+// rebindLocked reports whether a REGISTER with the held public key from src
+// refreshes the held address or moves the entry to src. That is so when src
+// has the held IP, whatever its port, and for another IP once the held
+// address has gone rebindAfter without sending a REGISTER for the entry.
+//
+// A port change on the same IP is what a client restart, a dial retry from a
+// new socket and most NAT port rebindings look like, and the old port is then
+// usually closed, so the entry follows it at once.
 //
 // The public key travels in clear, so repeating it proves nothing about the
-// sender. A same-key REGISTER from another address still pushes the entry's
-// expiry a TTL ahead, as before, so a peer that refreshes from a new socket
-// each time, as Client.Register does, keeps its entry alive. It does not count
-// as a refresh of the held address, so it cannot make that address look live
-// or quiet. While the held address refreshes on schedule it is never quiet,
-// and a replayed REGISTER cannot move a live peer's entry however it is timed.
+// sender. A same-key REGISTER from another IP still pushes the entry's expiry
+// a TTL ahead, so a peer whose IP changed keeps its entry alive. It does not
+// count as a refresh of the held address, so it cannot make that address look
+// live or quiet. While the held address refreshes on schedule it is never
+// quiet, and a replayed REGISTER from another IP cannot move a live peer's
+// entry however it is timed.
 //
-// The cost falls on a peer whose address really changed, as after a NAT
-// rebinding. Its first refresh from the new address, one refresh interval
-// after its last from the old one, only keeps the entry alive. Its second,
-// about two intervals after, moves the entry. A peer matched in between is
-// sent the old address. The threshold follows the client cadence, not the
-// TTL, so a longer registration_ttl does not lengthen that delay.
+// The cost falls on a peer whose IP really changed, as when its NAT maps it
+// to a new public address or it moves to another network. Its first refresh
+// from the new IP, one refresh interval after its last from the old one, only
+// keeps the entry alive. Its second, about two intervals after, moves the
+// entry. A peer matched in between is sent the old address, and the match
+// consumes the entry: the matched peer's hole punch fails, and the owner,
+// whose NOTIFY goes to the old address, holds a new entry only from its next
+// REGISTER. The threshold follows the client cadence, not the TTL, so a
+// longer registration_ttl does not lengthen that window.
 //
 // Without proof of possession of the private key in REGISTER, a broker wire
 // format change, an observer holding a captured REGISTER can still:
+//   - replay it from the owner's IP with another source port, by sharing the
+//     owner's NAT or by forging its source IP, which moves the entry to that
+//     port until the owner's next refresh moves it back;
 //   - replay it to keep the entry alive after its owner has stopped
 //     refreshing;
 //   - replay it while the other peer of a static token holds the entry. That
@@ -398,11 +410,12 @@ func (b *Broker) newRegistration(
 //   - evict the entry by matching it with a key of its own, which sends the
 //     owner a spurious NOTIFY, and then replay the capture from its own
 //     address. The squat holds while the replayer refreshes within
-//     rebindAfter, and the owner's refreshes only keep it alive meanwhile.
-//     Before this rule the owner's next refresh moved the entry back;
+//     rebindAfter, and the owner's refreshes from another IP only keep it
+//     alive meanwhile;
 //   - take the entry once the owner misses a refresh.
-func (b *Broker) heldAddrQuietLocked(held *registration) bool {
-	return b.now().Sub(held.refreshed) >= rebindAfter
+func (b *Broker) rebindLocked(held *registration, src *net.UDPAddr) bool {
+	return held.addr.IP.Equal(src.IP) ||
+		b.now().Sub(held.refreshed) >= rebindAfter
 }
 
 // sendTokenAssigned builds and sends NOTIFY(TOKEN_ASSIGNED) to the given peer
@@ -541,10 +554,6 @@ func ipv4FromAddr(addr *net.UDPAddr) *net.UDPAddr {
 		return nil
 	}
 	return &net.UDPAddr{IP: ip, Port: addr.Port}
-}
-
-func sameUDPAddr(a, b *net.UDPAddr) bool {
-	return a.Port == b.Port && a.IP.Equal(b.IP)
 }
 
 func ipv4KeyFromAddr(addr *net.UDPAddr) string {
