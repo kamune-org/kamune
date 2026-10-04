@@ -659,7 +659,10 @@
         connectTransport === 'relay'
           ? `${connectRelayScheme}://${connectRelayAddr.trim()}${connectRelayInsecure ? '?insecure=true' : ''}`
           : '';
-      const relayToken = connectTransport === 'relay' ? connectRelayToken.trim() : '';
+      // With a peer selected, the token is derived from its key: the
+      // token field is hidden and may still hold an earlier value.
+      const relayToken =
+        connectTransport === 'relay' && !connectPeerKey.trim() ? connectRelayToken.trim() : '';
       const relayPeerPub = connectTransport === 'relay' ? connectPeerKey.trim() : '';
       const pw = connectTransport === 'relay' ? connectRelayPassword : '';
       const result = await ConnectToServer(

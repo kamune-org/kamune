@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"net"
 	"os"
@@ -146,6 +147,40 @@ func TestConnectToServerRejectsOtherKnownPeer(t *testing.T) {
 	a.Equal("peer_key_mismatch", res.ErrorCode)
 	a.Empty(app.GetSessions())
 	a.Empty(pendingIDs(app))
+}
+
+// TestRelayDialToken checks which relay token a dial joins: a token the
+// user gave, also along with a peer, whose key ConnectToServer then pins,
+// and otherwise the static token derived for the peer.
+func TestRelayDialToken(t *testing.T) {
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	peer := fingerprint.Base64(newTestPubKey(t))
+	static, err := app.deriveP2PToken(peer)
+	require.New(t).NoError(err)
+
+	tests := []struct {
+		name, token, peer, want string
+		wantErr                 bool
+	}{
+		{name: "token", token: "ab12", want: "ab12"},
+		{name: "peer", peer: peer, want: hex.EncodeToString(static)},
+		{name: "token and peer", token: "ab12", peer: peer, want: "ab12"},
+		{name: "neither"},
+		{name: "bad peer key", peer: "not-a-key", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			got, err := app.relayDialToken(tc.token, tc.peer)
+			if tc.wantErr {
+				a.Error(err)
+				return
+			}
+			a.NoError(err)
+			a.Equal(tc.want, got)
+		})
+	}
 }
 
 func TestConnectToServerRejectsBadPeerKey(t *testing.T) {

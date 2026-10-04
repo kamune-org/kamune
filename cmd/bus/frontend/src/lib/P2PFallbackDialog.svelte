@@ -1,4 +1,6 @@
 <script>
+  // @ts-check
+  // (svelte-check then reports names this script uses but never declares)
   import { ConnectToServer } from './go.js';
 
   /**
@@ -13,6 +15,12 @@
 
   let useRelayAddr = $state('');
   let useRelayToken = $state('');
+  let useRelayPassword = $state('');
+  // TLS by default, so the relay password and token are not sent in
+  // the clear.
+  let useRelayScheme = $state('wss');
+  const relaySchemes = ['tcp', 'tls', 'ws', 'wss'];
+  let useRelayInsecure = $state(false);
   let loading = $state(false);
 
   async function retryP2P() {
@@ -54,17 +62,41 @@
       alert('Enter a relay address to fall back to');
       return;
     }
+    // Without a token, the relay token is derived from the peer that the
+    // P2P attempt was for. With one, the backend dials the token and
+    // still pins that peer's key, so nobody else can answer on it.
+    const peer = context.peerPubB64 || '';
+    if (!useRelayToken.trim() && !peer) {
+      alert('Enter the relay token from the share card');
+      return;
+    }
+    // A pasted address may carry its scheme: use it rather than put the
+    // chosen one in front of it.
+    let host = useRelayAddr.trim();
+    const typed = /^([a-z][a-z0-9+.-]*):\/\//i.exec(host);
+    if (typed) {
+      const scheme = (typed[1] || '').toLowerCase();
+      if (!relaySchemes.includes(scheme)) {
+        alert('Unsupported relay scheme: ' + scheme);
+        return;
+      }
+      useRelayScheme = scheme;
+      host = host.slice(typed[0].length);
+    }
+    const tlsScheme = useRelayScheme === 'wss' || useRelayScheme === 'tls';
+    const insecure = tlsScheme && useRelayInsecure && !host.includes('?insecure=');
+    const relayAddr = `${useRelayScheme}://${host}` + (insecure ? '?insecure=true' : '');
     loading = true;
     try {
       const result = await ConnectToServer(
-        useRelayAddr.trim(),
+        '',
         'relay',
-        useRelayAddr.trim(),
+        relayAddr,
         useRelayToken.trim(),
         context.name || '',
-        useRelayPassword.trim(),
+        useRelayPassword,
         '',
-        '',
+        peer,
         '',
         false,
         false
@@ -85,6 +117,8 @@
     open = false;
     useRelayAddr = '';
     useRelayToken = '';
+    useRelayPassword = '';
+    useRelayInsecure = false;
     onClose();
   }
 </script>
@@ -101,6 +135,16 @@
         <button class="primary" onclick={retryP2P} disabled={loading}> Retry P2P </button>
         <div class="relay-fallback">
           <div class="relay-fields">
+            <div class="scheme-pills">
+              {#each relaySchemes as s}
+                <button
+                  class="scheme-btn"
+                  class:active={useRelayScheme === s}
+                  disabled={loading}
+                  onclick={() => (useRelayScheme = s)}>{s}</button
+                >
+              {/each}
+            </div>
             <input
               type="text"
               placeholder="Relay address (host:port)"
@@ -109,10 +153,24 @@
             />
             <input
               type="text"
-              placeholder="Relay token (from share card)"
+              placeholder={context?.peerPubB64
+                ? 'Relay token (optional, for a random token)'
+                : 'Relay token (from share card)'}
               bind:value={useRelayToken}
               disabled={loading}
             />
+            <input
+              type="password"
+              placeholder="Relay password (if required)"
+              bind:value={useRelayPassword}
+              disabled={loading}
+            />
+            {#if useRelayScheme === 'wss' || useRelayScheme === 'tls'}
+              <label class="insecure-option">
+                <input type="checkbox" bind:checked={useRelayInsecure} disabled={loading} />
+                Skip TLS verification
+              </label>
+            {/if}
           </div>
           <button onclick={useRelay} disabled={loading || !useRelayAddr.trim()}> Use relay </button>
         </div>
@@ -176,6 +234,30 @@
   }
   .relay-fallback button {
     flex-shrink: 0;
+  }
+  .scheme-pills {
+    display: flex;
+    gap: 0.25rem;
+  }
+  .relay-fallback .scheme-btn {
+    flex: 1;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.75rem;
+  }
+  .relay-fallback .scheme-btn.active {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: var(--text-on-accent);
+  }
+  .insecure-option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .relay-fields .insecure-option input {
+    width: auto;
   }
   button {
     padding: 0.4rem 0.8rem;

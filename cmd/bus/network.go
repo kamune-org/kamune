@@ -734,14 +734,12 @@ func (a *App) ConnectToServer(
 	if !(transport == "udp" && useP2P) {
 		switch transport {
 		case "relay":
-			if peerPubB64 != "" {
-				staticTokenRaw, err := a.deriveP2PToken(peerPubB64)
-				if err != nil {
-					return ConnectResult{ErrorCode: "invalid_peer_key"},
-						fmt.Errorf("derive static token: %w", err)
-				}
-				relayTokenHex = hex.EncodeToString(staticTokenRaw)
+			tok, err := a.relayDialToken(relayTokenHex, peerPubB64)
+			if err != nil {
+				return ConnectResult{ErrorCode: "invalid_peer_key"},
+					fmt.Errorf("derive static token: %w", err)
 			}
+			relayTokenHex = tok
 			fn, err := dialRelayFuncWithSessionTTL(
 				a.lifeCtx(), relayAddr, relayTokenHex, password, false,
 				&sessionTTL,
@@ -943,6 +941,22 @@ func transportTypeFor(transport string, useP2P bool) string {
 		return "p2p"
 	}
 	return transport
+}
+
+// relayDialToken returns the relay token that ConnectToServer dials:
+// tokenHex when the user gave one, or else the static token derived for
+// the peer. A peer given along with a token does not change the token,
+// but ConnectToServer pins its key, so that only that peer can answer on
+// the token.
+func (a *App) relayDialToken(tokenHex, peerPubB64 string) (string, error) {
+	if tokenHex != "" || peerPubB64 == "" {
+		return tokenHex, nil
+	}
+	raw, err := a.deriveP2PToken(peerPubB64)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 // resolveP2PDialerToken returns the broker registration token for the
