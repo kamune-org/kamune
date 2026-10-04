@@ -117,6 +117,14 @@ func (d *Daemon) startServer(
 	var firstToken string
 	var opts []kamune.ServerOptions
 	opts = append(opts, kamune.ServeWithServerName(name))
+	if incognito {
+		// Keep incognito sessions out of storage. Without a record they
+		// cannot be resumed, so refuse resumption as well.
+		opts = append(opts,
+			kamune.ServeWithoutPersistence(),
+			kamune.ServeWithResumeEnabled(false),
+		)
+	}
 
 	switch params.Transport {
 	case "relay":
@@ -596,6 +604,9 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	}
 
 	opts = append(opts, kamune.DialWithClientName(name))
+	if incognito {
+		opts = append(opts, kamune.DialWithoutPersistence())
+	}
 
 	var sessionTTL time.Duration
 	switch params.Transport {
@@ -725,15 +736,17 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	}
 
 	// Store dial params for transparent resumption on involuntary
-	// disconnect. Resuming reads the session's tokens and peer from the
-	// store, so the reconnect gets it in every mode.
+	// disconnect. An incognito session has no stored resumption state, so
+	// it ends when its connection drops.
 	reconnectCtx, reconnectCancel := context.WithCancel(d.ctx)
 	session.mu.Lock()
 	session.reconnectCtx = reconnectCtx
 	session.reconnectCancel = reconnectCancel
-	session.reconnectFn = d.makeReconnectFn(
-		reconnectCtx, session, &params, store, opts,
-	)
+	if !incognito {
+		session.reconnectFn = d.makeReconnectFn(
+			reconnectCtx, session, &params, store, opts,
+		)
+	}
 	session.mu.Unlock()
 
 	d.loadChatHistory(session)

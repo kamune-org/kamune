@@ -480,10 +480,18 @@ func (d *Daemon) handleSetIncognito(cmd Command) {
 		return
 	}
 	d.mu.Lock()
+	changed := d.incognito != params.Enabled
 	d.incognito = params.Enabled
+	serverRunning := d.server != nil
 	d.mu.Unlock()
 	if store := d.store(); store != nil {
 		_ = store.SetSettings("daemon", "incognito", strconv.FormatBool(params.Enabled))
+	}
+	if changed && serverRunning {
+		// The server chose whether to store session records when it
+		// started.
+		d.addLogEntry("WARN",
+			"Restart the server to apply incognito to its session records")
 	}
 	d.emit(EvtResponse, cmd.ID, MapA{"enabled": params.Enabled})
 }

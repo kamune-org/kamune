@@ -173,10 +173,26 @@ func dropServerSession(t *testing.T, d *Daemon, id string) {
 	a.NoError(session.snapshotTransport().CloseAbort())
 }
 
-func TestIncognitoDialSessionReconnects(t *testing.T) {
+// waitForSession returns d's live session id once it is registered.
+func waitForSession(t *testing.T, d *Daemon, id string) *liveSession {
+	a := require.New(t)
+	deadline := time.Now().Add(testEventTimeout)
+	for {
+		d.mu.RLock()
+		session := d.sessions[id]
+		d.mu.RUnlock()
+		if session != nil {
+			return session
+		}
+		a.True(time.Now().Before(deadline), "no session %s", id)
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestDialSessionReconnects(t *testing.T) {
 	a := require.New(t)
 	server, serverRec := newTestDaemon(t, VerificationModeQuick, false)
-	client, clientRec := newTestDaemon(t, VerificationModeQuick, true)
+	client, clientRec := newTestDaemon(t, VerificationModeQuick, false)
 	trustPeer(t, server, client)
 	trustPeer(t, client, server)
 
@@ -190,6 +206,95 @@ func TestIncognitoDialSessionReconnects(t *testing.T) {
 	})
 	a.Equal(EvtSessionReconnected, evt.Evt, "got %v", evt.Data)
 	a.Equal(id, evt.Data["session_id"])
+}
+
+func TestIncognitoDialSessionEndsOnDrop(t *testing.T) {
+	a := require.New(t)
+	server, serverRec := newTestDaemon(t, VerificationModeQuick, false)
+	client, clientRec := newTestDaemon(t, VerificationModeQuick, true)
+	trustPeer(t, server, client)
+	trustPeer(t, client, server)
+
+	addr := startTestServer(t, server, serverRec)
+	id := dialTestServer(t, client, clientRec, addr)
+	dropServerSession(t, server, id)
+
+	evt := clientRec.waitFor(t, func(e recordedEvent) bool {
+		return e.Evt == EvtSessionReconnecting ||
+			e.Evt == EvtSessionClosed
+	})
+	a.Equal(EvtSessionClosed, evt.Evt, "got %v", evt.Data)
+	a.Equal(id, evt.Data["session_id"])
+	// The dial goroutine leaves soon after the session closes.
+	a.Eventually(func() bool { return !client.storageBusy() },
+		testEventTimeout, 10*time.Millisecond)
+}
+
+func TestIncognitoSessionsLeaveNoRecord(t *testing.T) {
+	tests := []struct {
+		name                               string
+		serverIncognito                    bool
+		clientIncognito                    bool
+		wantServerRecord, wantClientRecord bool
+	}{
+		{
+			name:             "incognito server",
+			serverIncognito:  true,
+			wantClientRecord: true,
+		},
+		{
+			name:             "incognito client",
+			clientIncognito:  true,
+			wantServerRecord: true,
+		},
+		{
+			name:            "both incognito",
+			serverIncognito: true,
+			clientIncognito: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			server, serverRec := newTestDaemon(
+				t, VerificationModeQuick, tt.serverIncognito,
+			)
+			client, clientRec := newTestDaemon(
+				t, VerificationModeQuick, tt.clientIncognito,
+			)
+			trustPeer(t, server, client)
+			trustPeer(t, client, server)
+
+			addr := startTestServer(t, server, serverRec)
+			id := dialTestServer(t, client, clientRec, addr)
+			waitForSession(t, server, id)
+
+			client.handleCloseSession(Command{
+				ID:     "close",
+				Params: mustJSON(CloseSessionParams{SessionID: id}),
+			})
+			serverRec.waitFor(t, func(e recordedEvent) bool {
+				return e.Evt == EvtSessionClosed &&
+					e.Data["session_id"] == id
+			})
+
+			for _, side := range []struct {
+				d    *Daemon
+				want bool
+			}{
+				{server, tt.wantServerRecord},
+				{client, tt.wantClientRecord},
+			} {
+				ids, err := side.d.store().ListSessions()
+				a.NoError(err)
+				if side.want {
+					a.Contains(ids, id)
+				} else {
+					a.Empty(ids)
+				}
+			}
+		})
+	}
 }
 
 func TestReconnectSessionStopsOnPermanentError(t *testing.T) {
