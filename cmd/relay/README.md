@@ -243,11 +243,12 @@ platforms, when any build fails.
 ## Testing
 
 ```bash
-go test -v ./...
+go test -race -v ./...
 ```
 
 Tests use real implementations, interfaces, and standard `testing.T` — no mocks.
-Assertions use `testify` (`assert` and `require`).
+Assertions use `require` from `testify` with the instance pattern
+(`a := require.New(t)`), never `assert`, as in the rest of the repository.
 
 ## Related
 
