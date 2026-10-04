@@ -1350,18 +1350,40 @@ scenarios and SHOULD NOT be used where the database file may be exposed.
 
 ### 11.3 Stored Entities
 
-| Entity                       | Contents                                                                                                    | Encryption      |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------- |
-| **Local identity**           | The local attester's Ed25519 private key.                                                                   | Encrypted (DEK) |
-| **Peers**                    | One record per known peer: name, identity public key, application version, first-seen time, last-seen time. | Encrypted (DEK) |
-| **Session metadata**         | Per-session display name.                                                                                   | Encrypted (DEK) |
-| **Session message log**      | Per-session ordered list of message payloads with sender and timestamp.                                     | Encrypted (DEK) |
-| **Session resumption state** | Per-session: unused resumption tokens, the initiator's public key, and the established-at timestamp.        | Encrypted (DEK) |
+| Entity                       | Contents                                                                                                                                   | Encryption      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------- |
+| **Local identity**           | The local attester's Ed25519 private key (PKCS #8), under `attest` in the default bucket.                                                  | Encrypted (DEK) |
+| **Peers**                    | One record per known peer: name, identity public key, application version, first-seen time, last-seen time.                                | Encrypted (DEK) |
+| **Session metadata**         | Per session: the session ID, a display name, the message count, and relay reconnection tokens that the application stores.                 | Encrypted (DEK) |
+| **Session message log**      | Per session: messages in the order they were stored, each with the local receive time, the sender's timestamp, the sender and the payload. | Encrypted (DEK) |
+| **Session resumption state** | Per session: unused resumption tokens, the remote peer's public key, and the time of the session's cold handshake (`established_at`).      | Encrypted (DEK) |
+| **Settings**                 | Application settings, one value per application name and key.                                                                              | Encrypted (DEK) |
 
 Peer records are identified by a stable hash of their public key
-(SHA3-512 of the PKIX/DER-encoded public key). The session message log
-preserves the per-session ordering of messages and is keyed so that messages
-sharing the same timestamp do not collide.
+(SHA3-512 of the PKIX/DER-encoded public key).
+
+The library does not store peers itself: the application stores a peer,
+typically once it has verified it. After every cold handshake and resumption
+that stores session state, the implementation sets the remote peer's
+last-seen time to the current time, if the peer is stored. Resumption looks
+the peer up by the key stored for the session, so a session whose peer was
+deleted or has expired cannot be resumed.
+
+Each message is stored under the next index of its session, so the message
+log returns messages in the order they were stored. The receive time comes
+from the local clock. The sender's timestamp is kept for display only and
+never orders the log (§4.2). The message count is updated with every stored
+message, so listing sessions does not read their whole logs. Storing a message
+for a session that is not stored, such as one deleted while still connected,
+stores that session again with the message.
+
+Every cold handshake stores a new session. To bound what a peer adds by
+connecting and closing repeatedly, storing a new session also deletes the
+oldest idle sessions with the same peer, those with no messages and no display
+name, beyond 8 per peer, counting the new one. The limit is configurable and
+can be turned off. It does not bound sessions that hold messages. An idle
+session that is still connected can be deleted this way, and it then cannot be
+resumed.
 
 The resumption root itself is not stored — only the derived token set. A
 database compromise exposes only the remaining unused tokens for sessions
