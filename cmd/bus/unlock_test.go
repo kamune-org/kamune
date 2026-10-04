@@ -257,13 +257,18 @@ func TestStorageBusyUntilTeardownEnds(t *testing.T) {
 	}
 }
 
-func TestCancelledServerStartKeepsStorageBusy(t *testing.T) {
+// TestCancelServerStart cancels a server start that waits for its relay
+// and checks that the start ends at once without a server, that it holds
+// the database until then, and that no second start may run alongside
+// it.
+func TestCancelServerStart(t *testing.T) {
 	a := require.New(t)
 	app, _ := newUnlockedApp(t, "secret")
+	t.Cleanup(func() { _ = app.StopServer() })
 	other := createDB(t, "other")
 
 	// A relay that takes the server's connection and never answers, so
-	// the start waits on it until the test closes the connection.
+	// the start waits on it until it is cancelled.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	a.NoError(err)
 	t.Cleanup(func() { _ = ln.Close() })
@@ -282,26 +287,33 @@ func TestCancelledServerStartKeepsStorageBusy(t *testing.T) {
 		)
 		started <- err
 	}()
-	var conn net.Conn
 	select {
-	case conn = <-accepted:
+	case conn := <-accepted:
+		t.Cleanup(func() { _ = conn.Close() })
 	case <-time.After(testWait):
 		t.Fatal("the server start did not reach the relay")
 	}
 
-	app.CancelStartServer()
 	a.ErrorIs(
 		app.SubmitPassphrase(other, "other", false), ErrStorageBusy,
-		"a cancelled start that still runs uses the database",
+		"a start in progress uses the database",
 	)
+	_, _, err = app.StartServer(
+		"127.0.0.1:0", "tcp", "", "srv", "", "", "", false, false, "",
+	)
+	a.ErrorIs(err, ErrServerStarting)
 
-	a.NoError(conn.Close())
+	app.CancelStartServer()
+	// Well below the relay handshake timeout, which would end the start
+	// as well.
+	const cancelWait = 10 * time.Second
 	select {
 	case err := <-started:
-		a.Error(err)
-	case <-time.After(testWait):
-		t.Fatal("the server start did not end")
+		a.ErrorIs(err, ErrStartCancelled)
+	case <-time.After(cancelWait):
+		t.Fatal("the cancelled server start did not end")
 	}
+	a.False(app.GetServerRunning())
 	a.NoError(app.SubmitPassphrase(other, "other", false))
 }
 

@@ -24,6 +24,19 @@ func hexDecodeString(s string) ([]byte, error) {
 	return hex.DecodeString(s)
 }
 
+// ErrServerStarting is returned by StartServer while another start is in
+// progress, even one that CancelStartServer has cancelled but that has
+// not returned yet.
+var ErrServerStarting = errors.New("a server is already starting")
+
+// ErrStartCancelled is returned by StartServer when CancelStartServer
+// cancelled the start before the server was up.
+var ErrStartCancelled = errors.New("the server start was cancelled")
+
+// StartServer starts the server. Only one start may run at a time.
+// CancelStartServer ends the wait for the relay, and a start cancelled
+// before the server is up closes what it set up and returns
+// ErrStartCancelled.
 func (a *App) StartServer(
 	addr, transport, relayAddr, name, password, brokerAddr, peerPubB64 string,
 	useP2P bool, useBroker bool,
@@ -33,6 +46,10 @@ func (a *App) StartServer(
 	if a.server != nil {
 		a.mu.Unlock()
 		return "", "", fmt.Errorf("server is already running")
+	}
+	if a.starting > 0 {
+		a.mu.Unlock()
+		return "", "", ErrServerStarting
 	}
 	// The server and its listeners keep the store, so the database must
 	// not change until the server is in a.server or the start has failed,
@@ -68,23 +85,31 @@ func (a *App) StartServer(
 	a.serverUseBroker = useBroker
 	a.mu.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(a.lifeCtx())
 	a.mu.Lock()
-	if a.startCancel != nil {
-		a.startCancel()
-	}
 	a.startCtx = ctx
 	a.startCancel = cancel
 	a.mu.Unlock()
 
 	cleanupStart := func() {
 		a.mu.Lock()
-		a.startCancel = nil
-		a.startCtx = nil
+		if a.startCtx == ctx {
+			a.startCancel = nil
+			a.startCtx = nil
+		}
 		a.mu.Unlock()
 		cancel()
 	}
 	defer cleanupStart()
+
+	// stopCancelled closes what a cancelled start set up.
+	stopCancelled := func() (string, string, error) {
+		cancelled = true
+		a.dropStartListeners()
+		a.setStatus(StatusDisconnected, "Cancelled")
+		a.addLogEntry("INFO", "Server start cancelled")
+		return "", "", ErrStartCancelled
+	}
 
 	store := a.store()
 	if store == nil {
@@ -119,17 +144,11 @@ func (a *App) StartServer(
 	var opts []kamune.ServerOptions
 	opts = append(opts, kamune.ServeWithServerName(name))
 
+	if ctx.Err() != nil {
+		return stopCancelled()
+	}
 	switch transport {
 	case "relay":
-		a.mu.RLock()
-		wasCancelled := a.startCancel == nil
-		a.mu.RUnlock()
-		if wasCancelled {
-			cancelled = true
-			a.setStatus(StatusDisconnected, "Cancelled")
-			a.addLogEntry("INFO", "Server start cancelled")
-			return "", "", fmt.Errorf("cancelled")
-		}
 		// A peer was chosen: a token it cannot derive must not be
 		// replaced by a random one it never learns.
 		relayStaticToken, err := a.deriveP2PToken(peerPubB64)
@@ -143,16 +162,14 @@ func (a *App) StartServer(
 		if len(relayStaticToken) > 0 {
 			relayMode = "static"
 		}
-		listener, token, ttl, sessionTTL, err := listenRelayTracked(context.Background(), a, relayAddr, password, false, relayStaticToken)
+		// The relay registration ends with ctx, but not the listener
+		// that it yields.
+		listener, token, ttl, sessionTTL, err := listenRelayTracked(
+			ctx, a, relayAddr, password, false, relayStaticToken,
+		)
 		if err != nil {
-			a.mu.RLock()
-			wasCancelled := a.startCancel == nil
-			a.mu.RUnlock()
-			if wasCancelled {
-				cancelled = true
-				a.setStatus(StatusDisconnected, "Cancelled")
-				a.addLogEntry("INFO", "Server start cancelled")
-				return "", "", fmt.Errorf("cancelled")
+			if ctx.Err() != nil {
+				return stopCancelled()
 			}
 			a.setStatus(StatusError, "Failed to connect to relay")
 			a.addLogEntry("ERROR", "Relay listen failed: "+err.Error())
@@ -162,6 +179,7 @@ func (a *App) StartServer(
 			listener, staticPeerKey(peerPubB64, relayStaticToken),
 		)
 		if err := ml.Add(listener); err != nil {
+			_ = listener.Close()
 			return "", "", fmt.Errorf("add listener: %w", err)
 		}
 		firstToken = token
@@ -293,6 +311,17 @@ func (a *App) StartServer(
 
 	done := make(chan struct{})
 	a.mu.Lock()
+	if ctx.Err() != nil {
+		// CancelStartServer came while the listeners were set up, and
+		// the user was told that the start was cancelled.
+		a.mu.Unlock()
+		_ = svr.Close()
+		serverCancel()
+		return stopCancelled()
+	}
+	// From here on the start cannot be cancelled.
+	a.startCancel = nil
+	a.startCtx = nil
 	a.pubKey = pubKey
 	a.server = svr
 	a.serverCancel = serverCancel
@@ -531,14 +560,19 @@ func (a *App) restartServer(reason string) error {
 	return err
 }
 
+// CancelStartServer cancels the server start in progress, if any. A
+// start that has already brought its server up is not cancelled: the
+// server runs, and StopServer stops it.
 func (a *App) CancelStartServer() {
 	a.mu.Lock()
-	if a.startCancel != nil {
-		a.startCancel()
-		a.startCancel = nil
-		a.startCtx = nil
-	}
+	cancel := a.startCancel
+	a.startCancel = nil
+	a.startCtx = nil
 	a.mu.Unlock()
+	if cancel == nil {
+		return
+	}
+	cancel()
 	a.setStatus(StatusDisconnected, "Cancelled")
 	a.addLogEntry("INFO", "Server start cancelled by user")
 }

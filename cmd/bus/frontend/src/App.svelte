@@ -195,6 +195,9 @@
 
   let serverLoading = $state(false);
   let connectLoading = $state(false);
+  // serverStartSeq numbers server starts; Cancel moves it on, so that a
+  // cancelled start's late result is ignored.
+  let serverStartSeq = 0;
   let showPassphraseDialog = $state(true);
   let passphraseDismissable = $state(false);
   let p2pFallbackOpen = $state(false);
@@ -544,6 +547,7 @@
       return;
     }
     closeAllDialogs();
+    const seq = ++serverStartSeq;
     serverLoading = true;
     try {
       // Broker P2P mode binds to a random local port — the broker
@@ -573,6 +577,7 @@
         serverUseP2P && !serverUseBroker ? serverDirectPeerAddr.trim() : ''
       );
       await loadSessions();
+      if (seq !== serverStartSeq) return;
       if (token) {
         toast.set({
           message: `Relay token: ${token}`,
@@ -582,9 +587,10 @@
         setTimeout(() => toast.set(null), 4000);
       }
     } catch (e) {
+      if (seq !== serverStartSeq) return;
       alert('Failed to start server: ' + e);
     } finally {
-      serverLoading = false;
+      if (seq === serverStartSeq) serverLoading = false;
     }
   }
 
@@ -604,12 +610,12 @@
 
   async function handleCancel() {
     if (serverLoading) {
+      serverStartSeq++;
+      serverLoading = false;
       try {
         await CancelStartServer();
       } catch (e) {
         console.error('Cancel server error:', e);
-      } finally {
-        serverLoading = false;
       }
     } else if (connectLoading) {
       connectLoading = false;
