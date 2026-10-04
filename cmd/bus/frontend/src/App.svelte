@@ -210,6 +210,14 @@
   let p2pFallbackOpen = $state(false);
   let p2pFallbackContext = $state(null);
 
+  // The backend hears of every change of the open chat, as it raises no
+  // notifications for the chat the user is looking at. Each call waits
+  // for the one before, so that the last change is the one that stays.
+  let activeSync = Promise.resolve();
+  const stopActiveSync = activeSessionId.subscribe((id) => {
+    activeSync = activeSync.then(() => SetActiveSession(id || '').catch(() => {}));
+  });
+
   onMount(() => {
     // 1) Cleanup stale handlers — sync, before any async work
     //    (Wails EventsOn adds without dedup — if onMount ran before,
@@ -249,7 +257,20 @@
     EventsOn('status-changed', (data) => status.set(data));
     EventsOn('session-new', async (data) => {
       await loadSessions();
-      activeSessionId.set(data.id);
+      // A new session, which a peer may have opened, takes the chat
+      // panel only when no chat is open, so that it never takes over a
+      // chat the user is typing in; a toast names it instead. A session
+      // the user is dialing opens once the connect returns.
+      const open = $activeSessionId;
+      if (open === null) {
+        activeSessionId.set(data.id);
+      } else if (open !== data.id && (data.isServer || !connectLoading)) {
+        toast.set({
+          message: `New session with ${data.peerName || data.id.slice(0, 16)}`,
+          type: 'info',
+        });
+        setTimeout(() => toast.set(null), 4000);
+      }
     });
     EventsOn('session-closed', async (data) => {
       await loadSessions();
@@ -475,6 +496,7 @@
   });
 
   onDestroy(() => {
+    stopActiveSync();
     EventsOff('status-changed');
     EventsOff('session-new');
     EventsOff('session-closed');
@@ -812,7 +834,6 @@
 
   async function handleSelectTab(sessionId) {
     activeSessionId.set(sessionId);
-    SetActiveSession(sessionId || '');
     if (sessionId) {
       const existing = $sessionMessages[sessionId];
       if (!existing || existing.length === 0) {
@@ -857,7 +878,6 @@
       await DisconnectSession(s.id);
     }
     activeSessionId.set(null);
-    SetActiveSession('');
     await loadSessions();
   }
 

@@ -25,7 +25,24 @@
 
   const randomTip = welcomeTips[Math.floor(Math.random() * welcomeTips.length)];
 
-  let messageText = $state('');
+  // drafts holds each live session's unsent text, so that text is only
+  // ever sent to the session it was typed for, even when another session
+  // takes the chat panel meanwhile.
+  let drafts = $state({});
+  let messageText = $derived(($activeSessionId && drafts[$activeSessionId]) || '');
+  // isLive tells whether the open chat is a live session, the only kind
+  // that takes a message.
+  let isLive = $derived(!!$activeSessionId && $sessions.some((s) => s.id === $activeSessionId));
+  function setDraft(text) {
+    if (isLive) drafts[$activeSessionId] = text;
+  }
+  // Drafts of sessions that ended go with them.
+  $effect(() => {
+    const live = new Set($sessions.map((s) => s.id));
+    for (const id of Object.keys(drafts)) {
+      if (!live.has(id)) delete drafts[id];
+    }
+  });
   let messagesEl = $state();
   let copiedId = $state(null);
   let editingName = $state(false);
@@ -151,10 +168,12 @@
   }
 
   function handleSend() {
-    const text = messageText.trim();
-    if (!text || !$activeSessionId) return;
-    onSendMessage?.({ sessionId: $activeSessionId, text });
-    messageText = '';
+    const sessionId = $activeSessionId;
+    if (!sessionId) return;
+    const text = (drafts[sessionId] || '').trim();
+    if (!text) return;
+    onSendMessage?.({ sessionId, text });
+    drafts[sessionId] = '';
   }
 
   async function handleCopy(text, key) {
@@ -484,12 +503,12 @@
     {/if}
   </div>
 
-  {#if $activeSessionId && !isHistory}
+  {#if isLive && !isHistory}
     <div class="input-area">
       <div class="input-wrapper">
         <input
           type="text"
-          bind:value={messageText}
+          bind:value={() => messageText, setDraft}
           placeholder="Type a message..."
           onkeydown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
