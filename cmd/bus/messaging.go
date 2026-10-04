@@ -72,12 +72,13 @@ func (a *App) SendMessage(sessionID string, text string) error {
 
 // receiveMessages runs the receive loop for a session. On involuntary
 // disconnect (ErrConnClosed) it attempts transparent resumption when
-// reconnectFn is available. When the loop exits, it cleans up the session and
-// emits session-closed. It reports whether the session ended because its
-// connection dropped, rather than because either side closed it; it
-// reports false for a session that DisconnectSession or StopServer took
-// out of the app.
-func (a *App) receiveMessages(session *liveSession) (dropped bool) {
+// reconnectFn is available. When the loop exits, it takes the session out
+// of the app and emits session-closed, and reports removed and whether
+// the session ended because its connection dropped, rather than because
+// either side closed it. A session that is no longer in the app, because
+// DisconnectSession or StopServer took it out or a resumed session
+// replaced it, is left alone, and both results are false.
+func (a *App) receiveMessages(session *liveSession) (dropped, removed bool) {
 	defer close(session.ReceiveDone)
 
 	var endErr error
@@ -171,9 +172,9 @@ func (a *App) receiveMessages(session *liveSession) (dropped bool) {
 		a.addLogEntry("DEBUG", "Received message | session_id="+session.ID+" msg_id="+metadata.ID())
 	}
 
-	sessionsRemaining, removed := a.removeSession(session.ID)
+	sessionsRemaining, removed := a.removeSession(session)
 	if !removed {
-		return false
+		return false, false
 	}
 	// A dialed session is over once it stops reconnecting, so its relay
 	// reconnect tokens are of no more use. serverHandler sees to those of
@@ -192,7 +193,7 @@ func (a *App) receiveMessages(session *liveSession) (dropped bool) {
 		a.setStatus(StatusDisconnected, "Not connected")
 		a.addLogEntry("INFO", "All sessions disconnected")
 	}
-	return errors.Is(endErr, kamune.ErrConnClosed)
+	return errors.Is(endErr, kamune.ErrConnClosed), true
 }
 
 // notificationPreviewRunes caps how much of a message a notification

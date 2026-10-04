@@ -1136,18 +1136,36 @@ func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 		a.mu.Unlock()
 		return a.dropStoppedSession(t)
 	}
-	a.sessions = append(a.sessions, session)
+	stale := a.addServerSessionLocked(session)
 	info := session.info()
 	a.mu.Unlock()
 
-	a.emitEvent("session-new", info)
+	if stale != nil {
+		// The old connection is gone, but the session goes on: closing
+		// it must neither tell the peer nor drop the resumption tokens.
+		stale.mu.Lock()
+		staleTransport := stale.Transport
+		stale.mu.Unlock()
+		_ = staleTransport.CloseAbort()
+		a.addLogEntry("INFO", "Resumed session "+sessionID+
+			" on a new connection; closed its old connection")
+		a.emitEvent("session-updated", sessionID)
+	} else {
+		a.emitEvent("session-new", info)
+		a.addLogEntry("INFO", "New incoming connection: "+sessionID)
+	}
 	a.emitEvent("session-messages", session.ID, session.Messages)
-	a.addLogEntry("INFO", "New incoming connection: "+sessionID)
 
 	go a.keepAliveLoop(session, session.keepAliveDone)
+	dropped, removed := a.receiveMessages(session)
+	if !removed {
+		// DisconnectSession or StopServer, which drop its relay reconnect
+		// tokens, took it out, or a resumed session that keeps them
+		// replaced it.
+		return nil
+	}
 	// Only a session whose connection dropped may be resumed, here
 	// through the relay. Any other has no use for its reconnect tokens.
-	dropped := a.receiveMessages(session)
 	resuming := dropped && a.resumeRelaySession(t.AcceptedMeta(), session)
 	if !resuming && !session.incognito {
 		a.dropRelayPool(sessionID)
@@ -1246,16 +1264,38 @@ func (a *App) loadChatHistory(session *liveSession) {
 	a.mu.Unlock()
 }
 
-func (a *App) removeSession(sessionID string) (int, bool) {
+// removeSession takes session out of the app and reports how many
+// sessions remain and whether it was there. It compares pointers, so a
+// session that a resumed one with the same ID replaced does not take the
+// new one out.
+func (a *App) removeSession(session *liveSession) (int, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	for i, s := range a.sessions {
-		if s.ID == sessionID {
-			a.sessions = append(a.sessions[:i], a.sessions[i+1:]...)
-			return len(a.sessions), true
-		}
+	i := slices.Index(a.sessions, session)
+	if i < 0 {
+		return len(a.sessions), false
 	}
-	return len(a.sessions), false
+	a.sessions = slices.Delete(a.sessions, i, i+1)
+	return len(a.sessions), true
+}
+
+// addServerSessionLocked adds session, which a server established, to
+// the app. A server session with the same ID is one that its peer has
+// resumed on a new connection while the old one still looked open, as a
+// connection does for a while after its network drops: session takes
+// its place in the list, and addServerSessionLocked returns it so that
+// the caller closes it. The caller holds a.mu.
+func (a *App) addServerSessionLocked(session *liveSession) *liveSession {
+	i := slices.IndexFunc(a.sessions, func(s *liveSession) bool {
+		return s.IsServer && s.ID == session.ID
+	})
+	if i < 0 {
+		a.sessions = append(a.sessions, session)
+		return nil
+	}
+	old := a.sessions[i]
+	a.sessions[i] = session
+	return old
 }
 
 // ErrNoShareCard is returned by GetShareInfo for a P2P server, which has
