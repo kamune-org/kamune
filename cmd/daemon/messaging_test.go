@@ -140,3 +140,36 @@ func TestSendMessageKeepsCommandOrder(t *testing.T) {
 		a.Equal(n, d.sessionInfo(waitForSession(t, d, id)).MsgCount, name)
 	}
 }
+
+// A message that cannot be saved to history is still sent and received,
+// and each side reports history_save_failed for it.
+func TestFailedHistorySaveIsReported(t *testing.T) {
+	a := require.New(t)
+	server, serverRec := newTestDaemon(t, VerificationModeQuick, false)
+	client, clientRec := newTestDaemon(t, VerificationModeQuick, false)
+	trustPeer(t, server, client)
+	trustPeer(t, client, server)
+	addr := startTestServer(t, server, serverRec)
+	id := dialTestServer(t, client, clientRec, addr)
+	waitForSession(t, server, id)
+
+	// Close both stores under the daemons, so that every save fails.
+	for _, d := range []*Daemon{server, client} {
+		a.NoError(d.store().Close())
+	}
+	client.handleSendMessage(Command{
+		ID: "send",
+		Params: mustJSON(SendMessageParams{
+			SessionID:  id,
+			DataBase64: base64.StdEncoding.EncodeToString([]byte("hi")),
+		}),
+	})
+
+	clientRec.waitFor(t, isEvent(EvtMessageSent))
+	serverRec.waitFor(t, isEvent(EvtMessageReceived))
+	for _, rec := range []*eventRecorder{clientRec, serverRec} {
+		evt := rec.waitFor(t, isEvent(EvtHistorySaveFailed))
+		a.Equal(id, evt.Data["session_id"])
+		a.NotEmpty(evt.Data["error"])
+	}
+}

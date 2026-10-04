@@ -178,11 +178,9 @@ func (d *Daemon) sendMessage(
 
 	session.countMessage()
 
-	if store := d.store(); store != nil && !d.isIncognito() {
-		store.AddChatEntry(
-			sessionID, data, metadata.Timestamp(), storage.SenderLocal,
-		)
-	}
+	d.saveChatEntry(
+		sessionID, data, metadata.Timestamp(), storage.SenderLocal,
+	)
 
 	d.emit(EvtMessageSent, cmd.ID, MapA{
 		"session_id": sessionID,
@@ -250,11 +248,9 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 
 		session.countMessage()
 
-		if store := d.store(); store != nil && !d.isIncognito() {
-			store.AddChatEntry(
-				session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
-			)
-		}
+		d.saveChatEntry(
+			session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
+		)
 
 		d.emit(EvtMessageReceived, "", MapA{
 			"session_id":  session.ID,
@@ -319,11 +315,9 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) error {
 
 		session.countMessage()
 
-		if store := d.store(); store != nil && !d.isIncognito() {
-			store.AddChatEntry(
-				session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
-			)
-		}
+		d.saveChatEntry(
+			session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
+		)
 
 		d.emit(EvtMessageReceived, "", MapA{
 			"session_id":  session.ID,
@@ -333,6 +327,29 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) error {
 		d.emit(EvtSessionUpdated, "", MapS{"session_id": session.ID})
 		d.addLogEntry("DEBUG", "Received message from "+session.ID)
 	}
+}
+
+// saveChatEntry adds a message of the session sessionID to its history,
+// unless storage is closed or incognito is on. The message was sent or
+// received all the same, so a failure is logged and reported with
+// history_save_failed instead.
+func (d *Daemon) saveChatEntry(
+	sessionID string, data []byte, ts time.Time, sender storage.Sender,
+) {
+	store := d.store()
+	if store == nil || d.isIncognito() {
+		return
+	}
+	err := store.AddChatEntry(sessionID, data, ts, sender)
+	if err == nil {
+		return
+	}
+	d.addLogEntry("WARN",
+		"Failed to save a message of session "+sessionID+" to history: "+
+			err.Error())
+	d.emit(EvtHistorySaveFailed, "", MapS{
+		"session_id": sessionID, "error": err.Error(),
+	})
 }
 
 // keepAliveLoop sends periodic pings to detect dead connections. After 3

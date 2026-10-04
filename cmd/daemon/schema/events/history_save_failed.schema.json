@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kamune-daemon-evt-history-save-failed",
+  "title": "history_save_failed data",
+  "description": "Emitted when a message that was sent or received could not be saved to history. message_sent or message_received is still emitted for it.",
+  "type": "object",
+  "properties": {
+    "session_id": { "type": "string" },
+    "error":      { "type": "string", "description": "Why the message was not saved." }
+  },
+  "required": ["session_id", "error"]
+}

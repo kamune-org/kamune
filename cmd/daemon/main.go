@@ -116,6 +116,7 @@ const (
 	EvtVerifyPeer          Evt = "verify_peer"
 	EvtHistoryUpdated      Evt = "history_updated"
 	EvtHistoryLoaded       Evt = "history_loaded"
+	EvtHistorySaveFailed   Evt = "history_save_failed"
 	EvtLocalNameChanged    Evt = "local_name_changed"
 	EvtError               Evt = "error"
 	EvtResponse            Evt = "response"

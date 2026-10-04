@@ -654,6 +654,7 @@ func TestEventConstants(t *testing.T) {
 		"verify_peer":            EvtVerifyPeer,
 		"history_updated":        EvtHistoryUpdated,
 		"history_loaded":         EvtHistoryLoaded,
+		"history_save_failed":    EvtHistorySaveFailed,
 		"local_name_changed":     EvtLocalNameChanged,
 		"error":                  EvtError,
 		"response":               EvtResponse,
