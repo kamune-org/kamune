@@ -89,6 +89,15 @@ type verifyRequest struct {
 	hexFP          string
 	responseCh     chan<- error
 	isNew          bool
+	// claimedNameTaken and knownNameTaken report that another stored
+	// peer, with a different key, has a name that reads the same as the
+	// name the peer claims, or as the name stored for its key.
+	claimedNameTaken bool
+	knownNameTaken   bool
+	// storeAs is the name that a new peer is stored under if the user
+	// accepts it (see [nameToStore]), or "" for a peer whose key is
+	// stored.
+	storeAs string
 }
 
 // verifyEndedMsg tells Update that the verifier stopped waiting for the
@@ -680,6 +689,17 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 			knownName = known.Name
 		}
 		key := peer.PublicKey
+		// Without the stored peers there is no warning, but a new peer is
+		// then stored under its pseudonym, and the prompt says so.
+		others, listErr := otherPeerNames(store, key)
+		if listErr != nil {
+			slog.Warn("could not read the stored peers",
+				slog.Any("error", listErr))
+		}
+		var storeAs string
+		if isNew {
+			storeAs = nameToStore(peer, others, listErr)
+		}
 		var localFP string
 		if own, err := store.PublicKey(); err == nil {
 			localFP = fingerprint.Numeric(own)
@@ -695,6 +715,10 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 			emojiFP:        strings.Join(fingerprint.Emoji(key), " • "),
 			hexFP:          fingerprint.Hex(key),
 			responseCh:     respCh,
+
+			claimedNameTaken: others[nameKey(peer.Name)],
+			knownNameTaken:   !isNew && others[nameKey(knownName)],
+			storeAs:          storeAs,
 		})
 
 		timer := time.NewTimer(timeout)
@@ -926,12 +950,13 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 }
 
 // peerNotice returns the notice that names peer, the peer of the chat
-// that starts, with its stored name and its numeric fingerprint. A peer
-// that the user did not accept at a prompt of this attempt resumed an
-// earlier session, which does not run the verifier, and the notice says
-// so.
+// that starts, with its stored name and its numeric fingerprint. The name
+// the peer claims is never used: a peer that could not be stored is named
+// by the pseudonym of its key. A peer that the user did not accept at a
+// prompt of this attempt resumed an earlier session, which does not run
+// the verifier, and the notice says so.
 func (m *model) peerNotice(peer *storage.Peer) chatLine {
-	name := peer.Name
+	name := fingerprint.Pseudonym(peer.PublicKey)
 	if known, err := m.store.FindPeer(peer.PublicKey); err == nil {
 		name = known.Name
 	}
@@ -951,13 +976,15 @@ func (m *model) peerNotice(peer *storage.Peer) chatLine {
 }
 
 // rememberPeer stores peer, whose session has been established, unless it
-// is stored already. The verifier does not store a peer the user accepts,
-// since its handshake can still fail after that.
+// is stored already, under the name that newPeerName gives. The verifier
+// does not store a peer the user accepts, since its handshake can still
+// fail after that.
 func rememberPeer(store *storage.Storage, peer *storage.Peer) {
 	if _, err := store.FindPeer(peer.PublicKey); err == nil {
 		return
 	}
 	p := *peer
+	p.Name = newPeerName(store, peer)
 	p.FirstSeen = time.Now()
 	if err := store.StorePeer(&p); err != nil {
 		slog.Error("failed to store peer", slog.Any("error", err))

@@ -368,6 +368,11 @@ func (m *model) turnedAway(err error) {
 	m.connectErr = err
 }
 
+// nameTakenWarning follows a name on the verify screen that reads the
+// same as the stored name of a peer with another key.
+const nameTakenWarning = "⚠ A stored peer with a different key has this " +
+	"name. Check the fingerprint."
+
 func (m *model) viewVerify() string {
 	var b strings.Builder
 	b.WriteString(m.s.title.Render(" Verify Peer Identity"))
@@ -408,11 +413,27 @@ func (m *model) viewVerify() string {
 		b.WriteString("\nStored name: " + m.s.bold.Render(
 			displayName(req.knownName),
 		))
+		if req.knownNameTaken {
+			b.WriteString("\n" + m.s.highlight.Render(nameTakenWarning))
+		}
 	}
 
 	b.WriteString("\n\nClaimed name (unverified): " + m.s.bold.Render(
 		displayName(req.peer.Name),
 	))
+	if req.claimedNameTaken {
+		b.WriteString("\n" + m.s.highlight.Render(nameTakenWarning))
+	}
+	if req.storeAs != "" && req.storeAs != req.peer.Name {
+		style := m.s.muted
+		if req.claimedNameTaken {
+			style = m.s.highlight
+		}
+		b.WriteString("\n" + style.Render(
+			"  If you accept, it is stored as "+
+				displayName(req.storeAs)+".",
+		))
+	}
 	b.WriteString("\nApp version: " + displayVersion(req.peer.AppVersion))
 
 	b.WriteString("\n\n  [Y] Accept  [N/Esc] Reject")
