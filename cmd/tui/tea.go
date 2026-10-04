@@ -51,11 +51,13 @@ type connectFailedMsg struct {
 }
 
 type verifyRequest struct {
-	peer       *storage.Peer
-	isNew      bool
+	peer *storage.Peer
+	// knownName is the name stored for the peer's key, if it is known.
+	knownName  string
 	emojiFP    string
 	hexFP      string
 	responseCh chan<- error
+	isNew      bool
 }
 
 type relayReadyMsg struct {
@@ -322,8 +324,11 @@ func (m *model) refreshHistory() {
 func (m *model) mkVerifier() kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
 		var isNew bool
-		if _, err := store.FindPeer(peer.PublicKey); err != nil {
+		var knownName string
+		if known, err := store.FindPeer(peer.PublicKey); err != nil {
 			isNew = true
+		} else {
+			knownName = known.Name
 		}
 		key := peer.PublicKey
 		emojiFP := strings.Join(fingerprint.Emoji(key), " • ")
@@ -332,6 +337,7 @@ func (m *model) mkVerifier() kamune.RemoteVerifier {
 		m.program.Send(verifyRequest{
 			peer:       peer,
 			isNew:      isNew,
+			knownName:  knownName,
 			emojiFP:    emojiFP,
 			hexFP:      hexFP,
 			responseCh: respCh,

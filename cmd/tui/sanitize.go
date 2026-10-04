@@ -3,8 +3,11 @@ package main
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/kamune-org/kamune"
 )
 
 // sanitizeText makes text that a peer sent, or that was read from the
@@ -56,4 +59,28 @@ func isHiddenFormat(r rune) bool {
 		return false
 	}
 	return unicode.Is(unicode.Cf, r)
+}
+
+// displayName returns a peer's name for display on one line, or
+// "(unnamed)" for an empty name. A name that a peer introduces itself with
+// has passed [kamune.ValidatePeerName], but a peer stored by an older
+// version may have any name. Such a name is shown without the code points
+// that the check rejects and cut to [kamune.MaxPeerNameLength] bytes.
+func displayName(name string) string {
+	if kamune.ValidatePeerName(name) != nil {
+		var b strings.Builder
+		for _, r := range sanitizeLine(name) {
+			if b.Len()+utf8.RuneLen(r) > kamune.MaxPeerNameLength {
+				break
+			}
+			if kamune.ValidatePeerName(string(r)) == nil {
+				b.WriteRune(r)
+			}
+		}
+		name = b.String()
+	}
+	if name == "" {
+		return "(unnamed)"
+	}
+	return name
 }

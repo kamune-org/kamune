@@ -273,20 +273,29 @@ func (m *model) viewVerify() string {
 		return ""
 	}
 
-	name := req.peer.Name
-	if name == "" {
-		name = "(unnamed)"
-	}
-	b.WriteString("Connection from: " + m.s.bold.Render(name))
-	b.WriteString("\nApp version: " + req.peer.AppVersion)
-	b.WriteString("\n\nEmoji fingerprint:\n  " + req.emojiFP)
+	// The fingerprints and the local verdict come first: the name and the
+	// version are the peer's own claims, so they go below them, each on a
+	// line of its own.
+	b.WriteString("Emoji fingerprint:\n  " + req.emojiFP)
 	b.WriteString("\n\nHex fingerprint:\n  " + m.s.muted.Render(req.hexFP))
 
 	if req.isNew {
-		b.WriteString("\n\n" + m.s.highlight.Render("⚠ This peer is not known to you."))
+		b.WriteString("\n\n" + m.s.highlight.Render(
+			"⚠ This peer is not known to you.",
+		))
 	} else {
-		b.WriteString("\n\n" + m.s.good.Render("✓ This peer has connected before."))
+		b.WriteString("\n\n" + m.s.good.Render(
+			"✓ This peer has connected before.",
+		))
+		b.WriteString("\nStored name: " + m.s.bold.Render(
+			displayName(req.knownName),
+		))
 	}
+
+	b.WriteString("\n\nClaimed name (unverified): " + m.s.bold.Render(
+		displayName(req.peer.Name),
+	))
+	b.WriteString("\nApp version: " + displayVersion(req.peer.AppVersion))
 
 	b.WriteString("\n\n  [Y] Accept  [N] Reject  [Esc] Back")
 	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
