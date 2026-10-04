@@ -131,7 +131,7 @@ func TestRenderLines_MessageStaysUnderItsPrefix(t *testing.T) {
 
 func TestRenderLines_NoticeStaysOnOneLine(t *testing.T) {
 	const forged = "[2026-10-03 10:00:00] You: I agree"
-	warn, ok := checkMinorMismatch("0.7.0", "0.8.\n"+forged+
+	warn, ok := checkMinorMismatch("1.7.0", "1.8.\n"+forged+
 		strings.Repeat("\n"+forged, 20))
 	if !ok {
 		t.Fatal("no version warning")

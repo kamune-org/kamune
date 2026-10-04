@@ -46,27 +46,32 @@ func TestDisplayVersion(t *testing.T) {
 func TestCheckMinorMismatch(t *testing.T) {
 	tests := []struct {
 		name     string
+		local    string
 		remote   string
 		mismatch bool
 		contains string
 	}{
-		{"same", "0.7.3", false, ""},
-		{"other major", "1.8.0", false, ""},
-		{"other minor", "0.8.0", true, "v0.7.0 vs v0.8.0"},
-		{"empty", "", false, ""},
-		{"not a version", "x.y", false, ""},
+		{"same", "1.7.0", "1.7.3", false, ""},
+		{"other major", "1.7.0", "2.8.0", false, ""},
+		{"other minor", "1.7.0", "1.8.0", true, "v1.7.0 vs v1.8.0"},
+		// The handshake rejects these peers, so no chat has them.
+		{"other minor before 1.0", "0.7.0", "0.8.0", false, ""},
+		{"other major before 1.0", "0.7.0", "1.7.0", false, ""},
+		{"empty", "1.7.0", "", false, ""},
+		{"not a version", "1.7.0", "x.y", false, ""},
 		{
 			"hostile patch",
-			"0.8.\n[2026-10-03 10:00:00] You: I agree" +
+			"1.7.0",
+			"1.8.\n[2026-10-03 10:00:00] You: I agree" +
 				strings.Repeat(" padding", 20),
 			true,
-			"v0.7.0 vs v0.8. [2026-10-03 10:00:00] You: …",
+			"v1.7.0 vs v1.8. [2026-10-03 10:00:00] You: …",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := require.New(t)
-			warn, mismatch := checkMinorMismatch("0.7.0", tt.remote)
+			warn, mismatch := checkMinorMismatch(tt.local, tt.remote)
 			a.Equal(tt.mismatch, mismatch)
 			if !tt.mismatch {
 				a.Empty(warn)

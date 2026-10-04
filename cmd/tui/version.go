@@ -50,6 +50,10 @@ func displayVersion(v string) string {
 // same major version as local and another minor one. local is the
 // version of this app; remote is what the peer sent and is shown through
 // displayVersion.
+//
+// It follows the kamune handshake, which rejects a peer of another major
+// version, and before 1.0 also one of another minor version, so only a
+// minor mismatch from 1.0 on reaches a chat.
 func checkMinorMismatch(local, remote string) (string, bool) {
 	if remote == "" {
 		return "", false
@@ -62,7 +66,7 @@ func checkMinorMismatch(local, remote string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	if lv.major == rv.major && lv.minor != rv.minor {
+	if lv.major > 0 && lv.major == rv.major && lv.minor != rv.minor {
 		return fmt.Sprintf(
 			"Minor version mismatch (v%s vs v%s): things may not work as expected",
 			local,
