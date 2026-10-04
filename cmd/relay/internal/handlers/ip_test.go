@@ -9,264 +9,205 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// ParseForwardedIP
-// ---------------------------------------------------------------------------
-
-func TestParseForwardedIP_Empty(t *testing.T) {
-	a := require.New(t)
-	a.Equal("", ParseForwardedIP(""))
-}
-
-func TestParseForwardedIP_SinglePublicIP(t *testing.T) {
-	a := require.New(t)
-	a.Equal("203.0.113.50", ParseForwardedIP("203.0.113.50"))
-}
-
-func TestParseForwardedIP_SinglePublicIPWithPort(t *testing.T) {
-	a := require.New(t)
-	a.Equal("203.0.113.50", ParseForwardedIP("203.0.113.50:8080"))
-}
-
-func TestParseForwardedIP_MultiplePublicIPs(t *testing.T) {
-	a := require.New(t)
-	// Left-most public IP should be returned.
-	a.Equal("203.0.113.50", ParseForwardedIP("203.0.113.50, 70.41.3.18, 150.172.238.178"))
-}
-
-func TestParseForwardedIP_PrivateThenPublic(t *testing.T) {
-	a := require.New(t)
-	// Should skip private 10.x and return first public.
-	a.Equal("203.0.113.50", ParseForwardedIP("10.0.0.1, 203.0.113.50"))
-}
-
-func TestParseForwardedIP_MultiplePrivateThenPublic(t *testing.T) {
-	a := require.New(t)
-	a.Equal("8.8.8.8", ParseForwardedIP("192.168.1.1, 10.0.0.2, 8.8.8.8"))
-}
-
-func TestParseForwardedIP_AllPrivate(t *testing.T) {
-	a := require.New(t)
-	// When everything is private, return the left-most valid IP.
-	a.Equal("192.168.1.1", ParseForwardedIP("192.168.1.1, 10.0.0.1"))
-}
-
-func TestParseForwardedIP_Loopback(t *testing.T) {
-	a := require.New(t)
-	// Loopback is private; if it's the only entry, return it as fallback.
-	a.Equal("127.0.0.1", ParseForwardedIP("127.0.0.1"))
-}
-
-func TestParseForwardedIP_LoopbackThenPublic(t *testing.T) {
-	a := require.New(t)
-	a.Equal("93.184.216.34", ParseForwardedIP("127.0.0.1, 93.184.216.34"))
-}
-
-func TestParseForwardedIP_IPv6Public(t *testing.T) {
-	a := require.New(t)
-	result := ParseForwardedIP("2001:db8::1")
-	a.Equal("2001:db8::1", result)
-}
-
-func TestParseForwardedIP_IPv6Private(t *testing.T) {
-	a := require.New(t)
-	// fc00::/7 is private; when followed by a public one, skip it.
-	a.Equal("2001:db8::1", ParseForwardedIP("fd00::1, 2001:db8::1"))
-}
-
-func TestParseForwardedIP_IPv6Loopback(t *testing.T) {
-	a := require.New(t)
-	a.Equal("2001:db8::2", ParseForwardedIP("::1, 2001:db8::2"))
-}
-
-func TestParseForwardedIP_GarbageEntries(t *testing.T) {
-	a := require.New(t)
-	// Invalid entries should be skipped.
-	a.Equal("1.2.3.4", ParseForwardedIP("not-an-ip, , 1.2.3.4"))
-}
-
-func TestParseForwardedIP_AllGarbage(t *testing.T) {
-	a := require.New(t)
-	a.Equal("", ParseForwardedIP("not-an-ip, also-bad"))
-}
-
-func TestParseForwardedIP_WhitespaceHandling(t *testing.T) {
-	a := require.New(t)
-	a.Equal("1.2.3.4", ParseForwardedIP("  1.2.3.4  "))
-	a.Equal("1.2.3.4", ParseForwardedIP("  1.2.3.4  ,  5.6.7.8  "))
-}
-
-func TestParseForwardedIP_PortInList(t *testing.T) {
-	a := require.New(t)
-	a.Equal("203.0.113.50", ParseForwardedIP("10.0.0.1:1234, 203.0.113.50:5678"))
-}
-
-func TestParseForwardedIP_LinkLocal(t *testing.T) {
-	a := require.New(t)
-	// 169.254.x.x is link-local (private), should be skipped.
-	a.Equal("8.8.4.4", ParseForwardedIP("169.254.1.1, 8.8.4.4"))
-}
-
-func TestParseForwardedIP_172Private(t *testing.T) {
-	a := require.New(t)
-	// 172.16.0.0/12 is private.
-	a.Equal("5.5.5.5", ParseForwardedIP("172.16.0.1, 172.31.255.255, 5.5.5.5"))
-	// 172.32.x is NOT private.
-	a.Equal("172.32.0.1", ParseForwardedIP("172.32.0.1, 5.5.5.5"))
-}
-
-// ---------------------------------------------------------------------------
 // clientIP
 // ---------------------------------------------------------------------------
 
-func newRequest(headers map[string]string, remoteAddr string) *http.Request {
+type headerLine struct{ name, value string }
+
+func newRequest(remoteAddr string, lines ...headerLine) *http.Request {
 	r, _ := http.NewRequest("GET", "/ip", nil)
 	r.RemoteAddr = remoteAddr
-	for k, v := range headers {
-		r.Header.Set(k, v)
+	for _, l := range lines {
+		r.Header.Add(l.name, l.value)
 	}
 	return r
 }
 
 var testTrustedProxies = func() []*net.IPNet {
 	var ranges []*net.IPNet
-	for _, cidr := range []string{"10.0.0.0/8", "::1/128"} {
+	for _, cidr := range []string{"10.0.0.0/8", "127.0.0.0/8", "::1/128"} {
 		_, block, _ := net.ParseCIDR(cidr)
 		ranges = append(ranges, block)
 	}
 	return ranges
 }()
 
-func TestClientIP_XRealIP(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"X-Real-Ip": "93.184.216.34"}, "10.0.0.1:12345")
-	a.Equal("93.184.216.34", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_XRealIPWithPort(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"X-Real-Ip": "93.184.216.34:8080"}, "10.0.0.1:12345")
-	a.Equal("93.184.216.34", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_TrueClientIP(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"True-Client-IP": "1.2.3.4"}, "10.0.0.1:12345")
-	a.Equal("1.2.3.4", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_CFConnectingIP(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"CF-Connecting-IP": "104.16.0.1"}, "10.0.0.1:12345")
-	a.Equal("104.16.0.1", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_FlyClientIP(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"Fly-Client-IP": "5.6.7.8"}, "10.0.0.1:12345")
-	a.Equal("5.6.7.8", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_FastlyClientIP(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"Fastly-Client-IP": "9.10.11.12"}, "10.0.0.1:12345")
-	a.Equal("9.10.11.12", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_XForwardedFor(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"X-Forwarded-For": "203.0.113.50, 10.0.0.1"}, "10.0.0.1:12345")
-	a.Equal("203.0.113.50", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_FallbackToRemoteAddr(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(nil, "198.51.100.1:54321")
-	a.Equal("198.51.100.1", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_FallbackToRemoteAddrNoPort(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(nil, "198.51.100.1")
-	a.Equal("198.51.100.1", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_HeaderPriority_XRealIPOverXFF(t *testing.T) {
-	a := require.New(t)
-	// X-Real-Ip should take priority over X-Forwarded-For.
-	r := newRequest(map[string]string{
-		"X-Real-Ip":       "1.1.1.1",
-		"X-Forwarded-For": "2.2.2.2",
-	}, "10.0.0.1:12345")
-	a.Equal("1.1.1.1", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_HeaderPriority_TrueClientIPOverCF(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{
-		"True-Client-IP":   "3.3.3.3",
-		"CF-Connecting-IP": "4.4.4.4",
-	}, "10.0.0.1:12345")
-	a.Equal("3.3.3.3", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_XFFSkipsPrivateReturnsPublic(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{
-		"X-Forwarded-For": "192.168.1.1, 10.0.0.5, 8.8.8.8",
-	}, "10.0.0.1:12345")
-	a.Equal("8.8.8.8", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_InvalidXRealIPFallsThrough(t *testing.T) {
-	a := require.New(t)
-	// Invalid X-Real-Ip should be skipped, falling through to XFF.
-	r := newRequest(map[string]string{
-		"X-Real-Ip":       "not-a-valid-ip",
-		"X-Forwarded-For": "4.4.4.4",
-	}, "10.0.0.1:12345")
-	a.Equal("4.4.4.4", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_IPv6RemoteAddr(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(nil, "[2001:db8::1]:12345")
-	a.Equal("2001:db8::1", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_IPv6XRealIP(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"X-Real-Ip": "2001:db8::1"}, "[::1]:12345")
-	a.Equal("2001:db8::1", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_AllHeadersEmpty(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{
-		"X-Real-Ip":        "",
-		"True-Client-IP":   "",
-		"CF-Connecting-IP": "",
-		"Fly-Client-IP":    "",
-		"Fastly-Client-IP": "",
-		"X-Forwarded-For":  "",
-	}, "192.0.2.1:9999")
-	a.Equal("192.0.2.1", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_UntrustedPeerCannotSpoofHeader(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(
-		map[string]string{"X-Real-Ip": "203.0.113.50"},
-		"198.51.100.1:12345",
+func TestClientIP(t *testing.T) {
+	const (
+		xff = "X-Forwarded-For"
+		cf  = "Cf-Connecting-Ip"
+		xri = "X-Real-Ip"
 	)
-	a.Equal("198.51.100.1", clientIP(r, testTrustedProxies))
-}
-
-func TestClientIP_XForwardedForStopsAtFirstUntrustedHop(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{
-		"X-Forwarded-For": "192.0.2.9, 203.0.113.8, 10.0.0.2",
-	}, "10.0.0.1:12345")
-	a.Equal("203.0.113.8", clientIP(r, testTrustedProxies))
+	tests := []struct {
+		name   string
+		remote string
+		header string
+		lines  []headerLine
+		want   string
+	}{
+		{
+			name:   "untrusted peer ignores headers",
+			remote: "198.51.100.1:12345",
+			header: xff,
+			lines: []headerLine{
+				{xff, "203.0.113.50"},
+				{xri, "203.0.113.51"},
+			},
+			want: "198.51.100.1",
+		},
+		{
+			name:   "untrusted peer without port",
+			remote: "198.51.100.1",
+			header: xff,
+			want:   "198.51.100.1",
+		},
+		{
+			name:   "untrusted ipv6 peer",
+			remote: "[2001:db8::1]:12345",
+			header: xff,
+			want:   "2001:db8::1",
+		},
+		{
+			name:   "client x-real-ip does not override x-forwarded-for",
+			remote: "127.0.0.1:12345",
+			header: xff,
+			lines: []headerLine{
+				{cf, "198.51.100.7"},
+				{xff, "203.0.113.50, 198.51.100.7"},
+				{xri, "203.0.113.99"},
+			},
+			want: "198.51.100.7",
+		},
+		{
+			name:   "configured cf-connecting-ip ignores spoofed headers",
+			remote: "127.0.0.1:12345",
+			header: cf,
+			lines: []headerLine{
+				{cf, "198.51.100.7"},
+				{xff, "203.0.113.50"},
+				{xri, "203.0.113.99"},
+			},
+			want: "198.51.100.7",
+		},
+		{
+			name:   "configured header missing falls back to peer",
+			remote: "127.0.0.1:12345",
+			header: cf,
+			lines:  []headerLine{{xri, "203.0.113.99"}},
+			want:   "127.0.0.1",
+		},
+		{
+			name:   "configured single header with port",
+			remote: "10.0.0.1:12345",
+			header: xri,
+			lines:  []headerLine{{xri, "93.184.216.34:8080"}},
+			want:   "93.184.216.34",
+		},
+		{
+			name:   "configured single header ipv6",
+			remote: "[::1]:12345",
+			header: xri,
+			lines:  []headerLine{{xri, "2001:db8::1"}},
+			want:   "2001:db8::1",
+		},
+		{
+			name:   "single header sent twice is not trusted",
+			remote: "10.0.0.1:12345",
+			header: xri,
+			lines: []headerLine{
+				{xri, "203.0.113.99"},
+				{xri, "198.51.100.7"},
+			},
+			want: "10.0.0.1",
+		},
+		{
+			name:   "single header holding a list is not trusted",
+			remote: "10.0.0.1:12345",
+			header: xri,
+			lines:  []headerLine{{xri, "203.0.113.99, 198.51.100.7"}},
+			want:   "10.0.0.1",
+		},
+		{
+			name:   "single header garbage falls back to peer",
+			remote: "10.0.0.1:12345",
+			header: xri,
+			lines:  []headerLine{{xri, "not-a-valid-ip"}},
+			want:   "10.0.0.1",
+		},
+		{
+			name:   "x-forwarded-for single entry",
+			remote: "10.0.0.1:12345",
+			header: xff,
+			lines:  []headerLine{{xff, "203.0.113.50"}},
+			want:   "203.0.113.50",
+		},
+		{
+			name:   "x-forwarded-for skips trusted hops from the right",
+			remote: "10.0.0.1:12345",
+			header: xff,
+			lines:  []headerLine{{xff, "192.0.2.9, 203.0.113.8, 10.0.0.2"}},
+			want:   "203.0.113.8",
+		},
+		{
+			name:   "x-forwarded-for takes the right-most untrusted entry",
+			remote: "10.0.0.1:12345",
+			header: xff,
+			lines:  []headerLine{{xff, "192.168.1.1, 10.0.0.5, 8.8.8.8"}},
+			want:   "8.8.8.8",
+		},
+		{
+			name:   "x-forwarded-for reads every header line",
+			remote: "10.0.0.1:12345",
+			header: xff,
+			lines: []headerLine{
+				{xff, "203.0.113.99"},
+				{xff, "198.51.100.7"},
+			},
+			want: "198.51.100.7",
+		},
+		{
+			name:   "x-forwarded-for entry with port",
+			remote: "10.0.0.1:12345",
+			header: xff,
+			lines:  []headerLine{{xff, "203.0.113.50:5678"}},
+			want:   "203.0.113.50",
+		},
+		{
+			name:   "x-forwarded-for garbage stops the search",
+			remote: "10.0.0.1:12345",
+			header: xff,
+			lines:  []headerLine{{xff, "203.0.113.99, not-an-ip, 10.0.0.2"}},
+			want:   "10.0.0.1",
+		},
+		{
+			name:   "x-forwarded-for all trusted falls back to peer",
+			remote: "10.0.0.1:12345",
+			header: xff,
+			lines:  []headerLine{{xff, "10.0.0.3, 10.0.0.2"}},
+			want:   "10.0.0.1",
+		},
+		{
+			name:   "x-forwarded-for missing falls back to peer",
+			remote: "10.0.0.1:12345",
+			header: xff,
+			lines:  []headerLine{{xri, "203.0.113.99"}},
+			want:   "10.0.0.1",
+		},
+		{
+			name:   "x-forwarded-for empty falls back to peer",
+			remote: "10.0.0.1:12345",
+			header: xff,
+			lines:  []headerLine{{xff, ""}},
+			want:   "10.0.0.1",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			r := newRequest(tc.remote, tc.lines...)
+			a.Equal(tc.want, clientIP(r, testTrustedProxies, tc.header))
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -335,96 +276,4 @@ func TestValidateIP_Empty(t *testing.T) {
 func TestValidateIP_Hostname(t *testing.T) {
 	a := require.New(t)
 	a.Equal("", validateIP("example.com"))
-}
-
-// ---------------------------------------------------------------------------
-// isPrivateIP
-// ---------------------------------------------------------------------------
-
-func TestIsPrivateIP_RFC1918_10(t *testing.T) {
-	a := require.New(t)
-	a.True(isPrivateIP(net.ParseIP("10.0.0.1")))
-	a.True(isPrivateIP(net.ParseIP("10.255.255.255")))
-}
-
-func TestIsPrivateIP_RFC1918_172(t *testing.T) {
-	a := require.New(t)
-	a.True(isPrivateIP(net.ParseIP("172.16.0.1")))
-	a.True(isPrivateIP(net.ParseIP("172.31.255.255")))
-	a.False(isPrivateIP(net.ParseIP("172.32.0.1")))
-}
-
-func TestIsPrivateIP_RFC1918_192(t *testing.T) {
-	a := require.New(t)
-	a.True(isPrivateIP(net.ParseIP("192.168.0.1")))
-	a.True(isPrivateIP(net.ParseIP("192.168.255.255")))
-}
-
-func TestIsPrivateIP_Loopback(t *testing.T) {
-	a := require.New(t)
-	a.True(isPrivateIP(net.ParseIP("127.0.0.1")))
-	a.True(isPrivateIP(net.ParseIP("127.255.255.255")))
-}
-
-func TestIsPrivateIP_LinkLocal(t *testing.T) {
-	a := require.New(t)
-	a.True(isPrivateIP(net.ParseIP("169.254.0.1")))
-	a.True(isPrivateIP(net.ParseIP("169.254.255.255")))
-}
-
-func TestIsPrivateIP_IPv6Loopback(t *testing.T) {
-	a := require.New(t)
-	a.True(isPrivateIP(net.ParseIP("::1")))
-}
-
-func TestIsPrivateIP_IPv6ULA(t *testing.T) {
-	a := require.New(t)
-	a.True(isPrivateIP(net.ParseIP("fd00::1")))
-	a.True(isPrivateIP(net.ParseIP("fc00::1")))
-}
-
-func TestIsPrivateIP_IPv6LinkLocal(t *testing.T) {
-	a := require.New(t)
-	a.True(isPrivateIP(net.ParseIP("fe80::1")))
-}
-
-func TestIsPrivateIP_PublicIPv4(t *testing.T) {
-	a := require.New(t)
-	a.False(isPrivateIP(net.ParseIP("8.8.8.8")))
-	a.False(isPrivateIP(net.ParseIP("93.184.216.34")))
-	a.False(isPrivateIP(net.ParseIP("1.1.1.1")))
-}
-
-func TestIsPrivateIP_PublicIPv6(t *testing.T) {
-	a := require.New(t)
-	a.False(isPrivateIP(net.ParseIP("2001:db8::1")))
-	a.False(isPrivateIP(net.ParseIP("2606:4700::1111")))
-}
-
-// ---------------------------------------------------------------------------
-// singleHeader
-// ---------------------------------------------------------------------------
-
-func TestSingleHeader_Present(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"X-Real-Ip": "1.2.3.4"}, "")
-	a.Equal("1.2.3.4", singleHeader(r, "X-Real-Ip"))
-}
-
-func TestSingleHeader_Missing(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(nil, "")
-	a.Equal("", singleHeader(r, "X-Real-Ip"))
-}
-
-func TestSingleHeader_Invalid(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"X-Real-Ip": "garbage"}, "")
-	a.Equal("", singleHeader(r, "X-Real-Ip"))
-}
-
-func TestSingleHeader_WithPort(t *testing.T) {
-	a := require.New(t)
-	r := newRequest(map[string]string{"X-Real-Ip": "1.2.3.4:9090"}, "")
-	a.Equal("1.2.3.4", singleHeader(r, "X-Real-Ip"))
 }

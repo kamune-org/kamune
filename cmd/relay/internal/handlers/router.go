@@ -6,35 +6,9 @@ import (
 	"strings"
 )
 
-var privateRanges []*net.IPNet
-
-func init() {
-	cidrs := []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"127.0.0.0/8",
-		"169.254.0.0/16",
-		"::1/128",
-		"fc00::/7",
-		"fe80::/10",
-	}
-	for _, cidr := range cidrs {
-		_, block, _ := net.ParseCIDR(cidr)
-		if block != nil {
-			privateRanges = append(privateRanges, block)
-		}
-	}
-}
-
-func isPrivateIP(ip net.IP) bool {
-	for _, block := range privateRanges {
-		if block.Contains(ip) {
-			return true
-		}
-	}
-	return false
-}
+// xForwardedFor is the canonical form of the one list-valued client
+// address header clientIP understands.
+const xForwardedFor = "X-Forwarded-For"
 
 func extractIP(s string) string {
 	s = strings.TrimSpace(s)
@@ -59,11 +33,15 @@ func validateIP(s string) string {
 	return ip.String()
 }
 
-func singleHeader(r *http.Request, name string) string {
-	return validateIP(r.Header.Get(name))
-}
-
-func clientIP(r *http.Request, trustedProxies []*net.IPNet) string {
+// clientIP returns the address a request is keyed and logged by. Only when
+// the TCP peer is in trustedProxies does it read a header, and then only
+// header (canonical form). A proxy sets one client address header and
+// passes the others through from the client, so reading any other one
+// would let the client choose its own address. It falls back to the TCP
+// peer when the header holds no usable address.
+func clientIP(
+	r *http.Request, trustedProxies []*net.IPNet, header string,
+) string {
 	remoteIP := validateIP(r.RemoteAddr)
 	if remoteIP == "" {
 		remoteIP = extractIP(r.RemoteAddr)
@@ -72,39 +50,45 @@ func clientIP(r *http.Request, trustedProxies []*net.IPNet) string {
 		return remoteIP
 	}
 
-	for _, header := range []string{
-		"X-Real-Ip",
-		"True-Client-IP",
-		"CF-Connecting-IP",
-		"Fly-Client-IP",
-		"Fastly-Client-IP",
-	} {
-		if ip := singleHeader(r, header); ip != "" {
-			return ip
-		}
+	var ip string
+	if header == xForwardedFor {
+		ip = forwardedClientIP(r.Header.Values(header), trustedProxies)
+	} else {
+		ip = singleHeaderIP(r.Header.Values(header))
 	}
-
-	if ip := forwardedClientIP(
-		r.Header.Get("X-Forwarded-For"), trustedProxies,
-	); ip != "" {
-		return ip
+	if ip == "" {
+		return remoteIP
 	}
-
-	return remoteIP
+	return ip
 }
 
-func forwardedClientIP(header string, trustedProxies []*net.IPNet) string {
-	parts := strings.Split(header, ",")
+// forwardedClientIP returns the right-most X-Forwarded-For entry, across
+// all header lines, that is not a trusted proxy. Each proxy appends the
+// address it got the request from, so everything left of that entry was
+// written by the client. An entry that does not parse ends the search, as
+// a trusted proxy did not write it.
+func forwardedClientIP(values []string, trustedProxies []*net.IPNet) string {
+	parts := strings.Split(strings.Join(values, ","), ",")
 	for i := len(parts) - 1; i >= 0; i-- {
 		ip := validateIP(parts[i])
 		if ip == "" {
-			continue
+			return ""
 		}
 		if !ipInRanges(net.ParseIP(ip), trustedProxies) {
 			return ip
 		}
 	}
 	return ""
+}
+
+// singleHeaderIP returns the address in a header that a proxy sets to one
+// address, such as X-Real-IP or CF-Connecting-IP. Several lines or a list
+// mean the proxy did not replace what the client sent, so none is used.
+func singleHeaderIP(values []string) string {
+	if len(values) != 1 || strings.Contains(values[0], ",") {
+		return ""
+	}
+	return validateIP(values[0])
 }
 
 func ipInRanges(ip net.IP, ranges []*net.IPNet) bool {
@@ -117,26 +101,4 @@ func ipInRanges(ip net.IP, ranges []*net.IPNet) bool {
 		}
 	}
 	return false
-}
-
-func ParseForwardedIP(header string) string {
-	if header == "" {
-		return ""
-	}
-
-	var firstValid string
-	for _, part := range strings.Split(header, ",") {
-		ip := validateIP(part)
-		if ip == "" {
-			continue
-		}
-		if firstValid == "" {
-			firstValid = ip
-		}
-		parsed := net.ParseIP(ip)
-		if parsed != nil && !isPrivateIP(parsed) {
-			return ip
-		}
-	}
-	return firstValid
 }

@@ -67,6 +67,35 @@ func TestConfig_Validate_RejectsInvalidTrustedProxy(t *testing.T) {
 	a.Contains(err.Error(), "trusted_proxies")
 }
 
+func TestConfig_Validate_ClientIPHeader(t *testing.T) {
+	tests := []struct {
+		header string
+		ok     bool
+	}{
+		{header: "", ok: true},
+		{header: "X-Forwarded-For", ok: true},
+		{header: "cf-connecting-ip", ok: true},
+		{header: "X-Real-IP", ok: true},
+		{header: "X Forwarded For", ok: false},
+		{header: "X-Forwarded-For:", ok: false},
+		{header: "X-Forwarded-For\r\nX-Real-IP", ok: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.header, func(t *testing.T) {
+			a := require.New(t)
+			cfg := validConfig()
+			cfg.Server.ClientIPHeader = tc.header
+			err := cfg.Validate()
+			if tc.ok {
+				a.NoError(err)
+				return
+			}
+			a.Error(err)
+			a.Contains(err.Error(), "client_ip_header")
+		})
+	}
+}
+
 func TestConfig_Validate_RejectsZeroMaxConns(t *testing.T) {
 	cfg := validConfig()
 	cfg.Session.MaxConcurrentSessions = 0
@@ -382,6 +411,7 @@ max_concurrent_sessions = 500
 	a.Equal(defaultRateLimitWindow, cfg.RateLimit.TimeWindow)
 	a.Equal(defaultRateLimitQuota, cfg.RateLimit.Quota)
 	a.Equal(defaultRateLimitMaxEntries, cfg.RateLimit.MaxEntries)
+	a.Equal(DefaultClientIPHeader, cfg.Server.ClientIPHeader)
 }
 
 func TestNew_EnvVarEmpty(t *testing.T) {

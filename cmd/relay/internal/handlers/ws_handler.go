@@ -30,7 +30,7 @@ func claimHandshake(state *atomic.Int32, next int32) bool {
 }
 
 func (h *Handler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
-	remoteAddr := clientIP(r, h.trustedProxies)
+	remoteAddr := h.clientIP(r)
 	if rl := h.service.Hub().RateLimiter(); rl != nil && !rl.Allow(remoteAddr) {
 		slog.Warn("rate limit exceeded", slog.String("remote", remoteAddr))
 		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)

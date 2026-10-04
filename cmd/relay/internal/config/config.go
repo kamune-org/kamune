@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -22,9 +23,19 @@ type Config struct {
 }
 
 type Server struct {
-	Password       string   `toml:"password"`
+	Password string `toml:"password"`
+	// ClientIPHeader is the one request header read for the client address
+	// when the TCP peer is in TrustedProxies. X-Forwarded-For is read from
+	// the right, skipping trusted hops. Any other header must hold a single
+	// address that the proxy sets itself. Empty means
+	// DefaultClientIPHeader.
+	ClientIPHeader string   `toml:"client_ip_header"`
 	TrustedProxies []string `toml:"trusted_proxies"`
 }
+
+// DefaultClientIPHeader is the client address header read from a trusted
+// proxy when server.client_ip_header is not set.
+const DefaultClientIPHeader = "X-Forwarded-For"
 
 type Diagnose struct {
 	Enabled bool   `toml:"enabled"`
@@ -98,6 +109,11 @@ func (c Config) Validate() error {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
 			return fmt.Errorf("server.trusted_proxies contains invalid CIDR %q", cidr)
 		}
+	}
+	if h := c.Server.ClientIPHeader; h != "" && !validHeaderName(h) {
+		return fmt.Errorf(
+			"server.client_ip_header is not a valid header name: %q", h,
+		)
 	}
 	if c.Session.MaxConcurrentSessions <= 0 {
 		return fmt.Errorf(
@@ -197,6 +213,23 @@ func (c Config) Validate() error {
 	return nil
 }
 
+// validHeaderName reports whether s is an HTTP field name (RFC 9110 token).
+func validHeaderName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
+		case strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 const EnvKey = "KAMUNE_RELAY_CONFIG"
 
 // New loads config from the given file path. If path is empty, it falls back to
@@ -221,6 +254,9 @@ func New(path string) (Config, error) {
 	}
 
 	cfg := Config{
+		Server: Server{
+			ClientIPHeader: DefaultClientIPHeader,
+		},
 		Session: Session{
 			HandshakeTimeout: 30 * time.Second,
 		},
