@@ -254,8 +254,19 @@ func SessionDataPeerKey(msg *pb.SessionData) ([]byte, bool) {
 // concurrently — the exchange is synchronous (send then receive) so each peer
 // must send before the other's receive completes.
 //
+// DeriveRelayTokens takes the next frame from transport, so no other goroutine
+// may receive on it meanwhile. That frame must be the peer's SessionData: a
+// frame on any other route is consumed and reported as an error wrapping
+// kamune.ErrUnexpectedRoute that names the route. The exchange runs under a
+// 5-second Transport deadline, which also applies to concurrent sends, and the
+// deadline is cleared on return, replacing any deadline the caller had set.
+//
 // The shared secret is never stored. Tokens are derived via HKDF and stored by
 // the caller in persistent storage.
+//
+// Deprecated: a frame the peer sends first, such as a chat message, is lost.
+// Call BeginRelayTokenExchange and pass the peer's RouteSessionData payload
+// from the receive loop to CompleteRelayTokenPayload instead.
 func DeriveRelayTokens(
 	transport *kamune.Transport,
 ) ([tokenPoolSize][32]byte, error) {
@@ -269,13 +280,14 @@ func DeriveRelayTokens(
 		return zero, err
 	}
 
-	var peerSession pb.SessionData
-	if _, err := transport.Receive(&peerSession); err != nil {
+	md, payload, err := transport.ReceivePayload()
+	if err != nil {
 		return zero, fmt.Errorf("receiving ecdh pubkey: %w", err)
 	}
-	peerPub, ok := SessionDataPeerKey(&peerSession)
-	if !ok {
-		return zero, ErrECDHPeerKeyMissing
+	if route := md.Route(); route != kamune.RouteSessionData {
+		return zero, fmt.Errorf(
+			"receiving ecdh pubkey: %w: %s", kamune.ErrUnexpectedRoute, route,
+		)
 	}
-	return pending.Complete(peerPub)
+	return CompleteRelayTokenPayload(pending, payload)
 }

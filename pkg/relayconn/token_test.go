@@ -243,3 +243,65 @@ func TestRelayTokenPending_BothSidesMatch(t *testing.T) {
 	var zero [tokenPoolSize][32]byte
 	a.NotEqual(zero, local)
 }
+
+// TestDeriveRelayTokens checks that both peers derive the same pool and
+// that a frame on another route is reported by route instead of being
+// parsed as the peer's SessionData.
+func TestDeriveRelayTokens(t *testing.T) {
+	type result struct {
+		err    error
+		tokens [tokenPoolSize][32]byte
+	}
+	tests := []struct {
+		peer    func(*kamune.Transport) result
+		wantErr error
+		name    string
+		errText string
+	}{
+		{
+			name: "both sides",
+			peer: func(tr *kamune.Transport) result {
+				tokens, err := DeriveRelayTokens(tr)
+				return result{tokens: tokens, err: err}
+			},
+		},
+		{
+			name: "chat first",
+			peer: func(tr *kamune.Transport) result {
+				_, err := tr.Send(
+					kamune.Bytes([]byte("hello")),
+					kamune.RouteExchangeMessages,
+				)
+				var ignore pb.SessionData
+				_, _ = tr.Receive(&ignore)
+				return result{err: err}
+			},
+			wantErr: kamune.ErrUnexpectedRoute,
+			errText: kamune.RouteExchangeMessages.String(),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			peerRes := make(chan result, 1)
+			tr := dialEstablished(t, func(peer *kamune.Transport) error {
+				res := tc.peer(peer)
+				peerRes <- res
+				return res.err
+			})
+
+			local, err := DeriveRelayTokens(tr)
+			remote := <-peerRes
+			a.NoError(remote.err)
+			if tc.wantErr != nil {
+				a.ErrorIs(err, tc.wantErr)
+				a.ErrorContains(err, tc.errText)
+				return
+			}
+			a.NoError(err)
+			a.Equal(remote.tokens, local)
+			var zero [tokenPoolSize][32]byte
+			a.NotEqual(zero, local)
+		})
+	}
+}
