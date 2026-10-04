@@ -334,6 +334,7 @@ func (s *Server) PublicKey() []byte {
 // NewServer creates a new server with the given address, handler, and storage.
 // By default the server uses TCP on the given address when [Server.ListenAndServe]
 // is called, unless a different listener or transport is configured via options.
+// It returns ErrMissingStorage when store is nil.
 func NewServer(
 	addr string,
 	handler HandlerFunc,
@@ -341,6 +342,9 @@ func NewServer(
 	rv RemoteVerifier,
 	opts ...ServerOptions,
 ) (*Server, error) {
+	if store == nil {
+		return nil, ErrMissingStorage
+	}
 	s := &Server{
 		addr:        addr,
 		storage:     store,

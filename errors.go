@@ -37,4 +37,7 @@ var (
 	// ErrResumptionRejected is returned when a ResumeRequest is rejected by the
 	//  responder (session not found, expired, token invalid, etc.).
 	ErrResumptionRejected = errors.New("resumption rejected")
+	// ErrMissingStorage is returned by NewServer and NewDialer when they are
+	// given a nil storage.
+	ErrMissingStorage = errors.New("storage is required")
 )

@@ -198,9 +198,13 @@ func (d *Dialer) PublicKey() []byte {
 }
 
 // NewDialer creates a new dialer with the given address, storage, and options.
+// It returns ErrMissingStorage when store is nil.
 func NewDialer(
 	addr string, store *storage.Storage, rv RemoteVerifier, opts ...DialOption,
 ) (*Dialer, error) {
+	if store == nil {
+		return nil, ErrMissingStorage
+	}
 	d := &Dialer{
 		address:     addr,
 		storage:     store,

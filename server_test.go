@@ -525,3 +525,40 @@ func TestWithoutPersistenceResumedSessionLosesTokensOnClose(t *testing.T) {
 		})
 	}
 }
+
+func TestNilStorageIsAnError(t *testing.T) {
+	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	cases := []struct {
+		build func() error
+		name  string
+	}{
+		{
+			name: "server",
+			build: func() error {
+				_, err := NewServer(
+					"127.0.0.1:0",
+					func(*Transport) error { return nil },
+					nil,
+					verifier,
+					ServeWithTCP(),
+				)
+				return err
+			},
+		},
+		{
+			name: "dialer",
+			build: func() error {
+				_, err := NewDialer("127.0.0.1:0", nil, verifier)
+				return err
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			var err error
+			a.NotPanics(func() { err = tc.build() })
+			a.ErrorIs(err, ErrMissingStorage)
+		})
+	}
+}
