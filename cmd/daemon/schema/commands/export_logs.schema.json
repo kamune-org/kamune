@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-export-logs",
   "title": "export_logs params",
-  "description": "Exports log entries to a file.",
+  "description": "Exports log entries to a file, one line per entry, with characters that are not printable, such as line breaks, escaped Go-style (\\n, \\u2028). The file is written as a new file that only the user can read (mode 0600) and then renamed to file_path, so it replaces whatever is there, a symbolic link included, without writing through it.",
   "type": "object",
   "properties": {
-    "file_path": { "type": "string", "description": "Filesystem path for the exported log file." }
+    "file_path": { "type": "string", "description": "Filesystem path for the exported log file. Defaults to kamune-logs-<timestamp>.txt in the daemon's working directory." }
   },
   "required": []
 }

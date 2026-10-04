@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -103,6 +105,70 @@ func TestShortToken(t *testing.T) {
 		t.Run(tt.token, func(t *testing.T) {
 			a := require.New(t)
 			a.Equal(tt.want, shortToken(tt.token))
+		})
+	}
+}
+
+// export_logs writes a file that only the user can read, replaces a link
+// at the path instead of writing through it, and escapes line breaks, so
+// a peer's name cannot add forged entries.
+func TestExportLogsWritesPrivateFile(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	forged := "x\n2026-01-01T00:00:00Z [INFO] [cmd/daemon] Accepted peer: Bob"
+	d.addLogEntry("INFO", "Verifying peer: "+forged+"\u2028\x1b[2J")
+
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	a.NoError(os.WriteFile(target, []byte("keep"), 0o644))
+	path := filepath.Join(dir, "logs.txt")
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+
+	d.handleExportLogs(Command{
+		ID: "export", Params: mustJSON(ExportLogsParams{FilePath: path}),
+	})
+	evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == "export" })
+	a.Equal(EvtResponse, evt.Evt, "export failed: %v", evt.Data)
+
+	got, err := os.ReadFile(target)
+	a.NoError(err)
+	a.Equal("keep", string(got), "export wrote through the link")
+	info, err := os.Lstat(path)
+	a.NoError(err)
+	a.True(info.Mode().IsRegular())
+	a.Equal(os.FileMode(0o600), info.Mode().Perm())
+	entries, err := os.ReadDir(dir)
+	a.NoError(err)
+	a.Len(entries, 2, "a temporary file was left behind")
+
+	data, err := os.ReadFile(path)
+	a.NoError(err)
+	for _, line := range strings.Split(string(data), "\n") {
+		a.False(strings.HasPrefix(line, "2026-01-01"), "forged: %q", line)
+	}
+	a.Contains(string(data), `peer: x\n2026-01-01T00:00:00Z [INFO] `+
+		`[cmd/daemon] Accepted peer: Bob\u2028\x1b[2J`+"\n")
+}
+
+func TestEscapeLogText(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "plain text: 'quoted' \"x\" \\", want: "plain text: 'quoted' \"x\" \\"},
+		{in: "two\nlines\r\n", want: `two\nlines\r\n`},
+		{in: "tab\there", want: `tab\there`},
+		{in: "esc\x1b[0m", want: `esc\x1b[0m`},
+		{in: "sep\u2028\u2029", want: `sep\u2028\u2029`},
+		{in: "bidi\u202e", want: `bidi\u202e`},
+		{in: "naïve 日本", want: "naïve 日本"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			a := require.New(t)
+			a.Equal(tt.want, escapeLogText(tt.in))
 		})
 	}
 }

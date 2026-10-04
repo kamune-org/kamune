@@ -10,11 +10,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
@@ -1044,24 +1047,83 @@ func (d *Daemon) handleExportLogs(cmd Command) {
 		filePath = fmt.Sprintf("kamune-logs-%s.txt", time.Now().Format("2006-01-02_150405"))
 	}
 
-	f, err := os.Create(filePath)
-	if err != nil {
-		d.emitError(cmd.ID, "export_file_failed", fmt.Sprintf("create file: %v", err))
-		return
-	}
-	defer f.Close()
-
-	for _, e := range entries {
-		if _, err := fmt.Fprintf(f, "%s [%s] %s\n",
-			e.Timestamp.Format(time.RFC3339), e.Level, e.Message,
-		); err != nil {
-			d.emitError(cmd.ID, "export_write_failed", fmt.Sprintf("write file: %v", err))
-			return
+	if err := exportLogs(filePath, entries); err != nil {
+		code := "export_file_failed"
+		if errors.Is(err, errExportWrite) {
+			code = "export_write_failed"
 		}
+		d.emitError(cmd.ID, code, err.Error())
+		return
 	}
 
 	d.addLogEntry("INFO", "Exported logs to "+filePath)
 	d.emit(EvtResponse, cmd.ID, MapA{"status": "exported", "file_path": filePath})
+}
+
+// errExportWrite is returned by exportLogs when writing the entries
+// fails, after the file was created.
+var errExportWrite = errors.New("write file")
+
+// exportLogs writes entries to path as text, one line each. It writes a
+// new file that only the user can read, in path's directory, and then
+// renames it to path. A file already at path is replaced, and a link at
+// path is replaced, not followed. Characters that are not printable,
+// such as a line break in a peer's name, are escaped, so an entry cannot
+// pass for others.
+func exportLogs(path string, entries []LogEntryInfo) error {
+	dir, base := filepath.Split(path)
+	if dir == "" {
+		dir = "."
+	}
+	f, err := os.CreateTemp(dir, "."+base+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+	tmp := f.Name()
+	defer func() {
+		if tmp != "" {
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	w := bufio.NewWriter(f)
+	for _, e := range entries {
+		_, _ = fmt.Fprintf(w, "%s [%s] %s\n",
+			e.Timestamp.Format(time.RFC3339),
+			escapeLogText(e.Level), escapeLogText(e.Message),
+		)
+	}
+	err = w.Flush()
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %w", errExportWrite, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+	tmp = ""
+	return nil
+}
+
+// escapeLogText returns s with each character that is not printable,
+// other than a space, written as a Go escape such as \n, \x1b or \u2028.
+func escapeLogText(s string) string {
+	escaped := func(r rune) bool { return r != ' ' && !unicode.IsPrint(r) }
+	if !strings.ContainsFunc(s, escaped) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if !escaped(r) {
+			b.WriteRune(r)
+			continue
+		}
+		q := strconv.QuoteRune(r)
+		b.WriteString(q[1 : len(q)-1])
+	}
+	return b.String()
 }
 
 // handleGetLogLevel returns the current log level (mirrors cmd/bus/app.go:1084-1087).
