@@ -6,7 +6,8 @@
 
 Communication over untrusted networks.
 
-Kamune provides `Ed25519_MLKEM768_ChaCha20-Poly1305X` security suite.
+Kamune provides `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X` security
+suite.
 
 ![demo](assets/demo.gif)
 
