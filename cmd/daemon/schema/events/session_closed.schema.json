@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-evt-session-closed",
   "title": "session_closed data",
-  "description": "Emitted when a session ends (peer disconnect or close_session response).",
+  "description": "Emitted when a session ends: on peer disconnect, close_session, stop_server, restart_server and shutdown.",
   "type": "object",
   "properties": {
     "session_id":         { "type": "string" },

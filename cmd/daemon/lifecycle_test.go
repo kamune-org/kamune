@@ -514,3 +514,66 @@ func TestReopenOpenStoragePath(t *testing.T) {
 		})
 	}
 }
+
+// stop_server, restart_server and shutdown close every live session,
+// incoming and dialed, and report each with session_closed.
+func TestStoppingServerReportsClosedSessions(t *testing.T) {
+	tests := []struct {
+		stop func(t *testing.T, d *Daemon, rec *eventRecorder)
+		name string
+	}{
+		{
+			name: "stop_server",
+			stop: func(t *testing.T, d *Daemon, _ *eventRecorder) {
+				d.handleStopServer(Command{ID: "stop"})
+			},
+		},
+		{
+			name: "restart_server",
+			stop: func(t *testing.T, d *Daemon, rec *eventRecorder) {
+				d.handleRestartServer(Command{ID: "restart"})
+				rec.waitFor(t, func(e recordedEvent) bool {
+					return e.ID == "restart"
+				})
+			},
+		},
+		{
+			name: "shutdown",
+			stop: func(t *testing.T, d *Daemon, _ *eventRecorder) {
+				d.handleShutdown(Command{ID: "shutdown"})
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			d, rec := newTestDaemon(t, VerificationModeQuick, false)
+			caller, callerRec := newTestDaemon(t, VerificationModeQuick, false)
+			callee, calleeRec := newTestDaemon(t, VerificationModeQuick, false)
+			for _, peer := range []*Daemon{caller, callee} {
+				trustPeer(t, d, peer)
+				trustPeer(t, peer, d)
+			}
+			incoming := dialTestServer(
+				t, caller, callerRec, startTestServer(t, d, rec),
+			)
+			dialed := dialTestServer(
+				t, d, rec, startTestServer(t, callee, calleeRec),
+			)
+			waitForSession(t, d, incoming)
+
+			tt.stop(t, d, rec)
+
+			closed := map[string]any{}
+			rec.mu.Lock()
+			for _, e := range rec.events {
+				if e.Evt == EvtSessionClosed {
+					id, _ := e.Data["session_id"].(string)
+					closed[id] = e.Data["is_server"]
+				}
+			}
+			rec.mu.Unlock()
+			a.Equal(map[string]any{incoming: true, dialed: false}, closed)
+		})
+	}
+}

@@ -862,6 +862,7 @@ func (d *Daemon) shutdown(cmdID ID) {
 	}
 
 	d.wg.Wait()
+	d.reportClosed(sessions)
 
 	d.closeStore()
 

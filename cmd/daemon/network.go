@@ -432,7 +432,7 @@ func (d *Daemon) announceRelayToken(first relayToken) {
 }
 
 // handleStopServer closes the running server and all sessions, without
-// exiting the daemon.
+// exiting the daemon. Each session gets session_closed.
 func (d *Daemon) handleStopServer(cmd Command) {
 	d.stopServer()
 	d.emit(EvtServerStopped, "", MapA{"running": false})
@@ -478,12 +478,25 @@ func (d *Daemon) stopServer() {
 	for _, s := range sessions {
 		waitOrTimeout(s.ReceiveDone, "session receive: "+s.ID)
 	}
+	d.reportClosed(sessions)
+	if len(sessions) > 0 {
+		d.loadHistorySessions()
+	}
 
 	if serverDone != nil {
 		waitOrTimeout(serverDone, "ListenAndServe")
 	}
 	if startDone != nil {
 		waitOrTimeout(startDone, "server start")
+	}
+}
+
+// reportClosed emits session_closed for sessions, which the daemon took
+// off the live sessions and closed itself. Their receive loops then find
+// them gone and do not report them; see finishSession.
+func (d *Daemon) reportClosed(sessions []*liveSession) {
+	for _, s := range sessions {
+		d.emit(EvtSessionClosed, "", d.sessionInfo(s))
 	}
 }
 
