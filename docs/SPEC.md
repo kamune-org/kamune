@@ -1557,7 +1557,7 @@ The bump is selected independently per message and capped at bucket 6.
 | `handshakeSaltSize`        | 16 bytes                               | Size of random salts for handshake key derivation                                                                       |
 | `handshakeChallengeSize`   | 32 bytes                               | Size of handshake challenge tokens                                                                                      |
 | `sessionIDLength`          | 24 characters                          | Total session-ID length (12 prefix + 12 suffix)                                                                         |
-| `base32Alphabet`           | `ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`     | Custom base32 alphabet (excludes 0/O/1/I) used for session-ID halves                                                    |
+| `base32Alphabet`           | `ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`     | Base32 alphabet used for session-ID halves: A-Z and 2-7, so it has O and I but not 0, 1, 8 or 9                         |
 | `nonceSize`                | 24 bytes                               | XChaCha20-Poly1305 nonce size                                                                                           |
 | `keySize`                  | 32 bytes                               | ChaCha20-Poly1305 / HKDF output key size                                                                                |
 | `defaultReadTimeout`       | 5 minutes                              | Default read deadline applied to the underlying transport                                                               |
