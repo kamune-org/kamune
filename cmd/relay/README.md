@@ -33,40 +33,52 @@ The default config enables raw TCP on `0.0.0.0:8889`, kamune-over-TLS on
 
 Sections in `assets/config.toml`:
 
-| Section      | Fields                                                                                         | Notes                                                             |
-| ------------ | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `server`     | `password`, `trusted_proxies`                                                                  | Relay-wide PSK and proxy CIDRs.                                   |
-| `diagnose`   | `enabled`, `address`                                                                           | Plain HTTP, always serves `/health` when enabled. Admin audience. |
-| `ws`         | `enabled`, `address`                                                                           | Plain WebSocket, always serves `/ws`. Peer audience.              |
-| `tcp`        | `enabled`, `address`                                                                           | Raw kamune-over-TCP. Peer audience.                               |
-| `tls`        | `enabled`, `address`, `cert_file`, `key_file`                                                  | Raw kamune-over-TLS.                                              |
-| `wss`        | `enabled`, `address`, `cert_file`, `key_file`                                                  | WebSocket over TLS, always serves `/ws`. Peer audience.           |
-| `broker`     | `enabled`, `address`, `registration_ttl`                                                       | UDP signaling (STUN-like IP echo + signal intro). On by default.  |
-| `session`    | `token_ttl`, `session_ttl`, `handshake_timeout`, `max_concurrent_sessions`, `max_message_size` |                                                                   |
-| `rate_limit` | `disabled`, `time_window`, `quota`, `max_entries`                                              | Rate limit is **on** out of the box.                              |
+| Section      | Fields                                                                                         | Notes                                                                              |
+| ------------ | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `server`     | `password`, `trusted_proxies`, `client_ip_header`, `data_dir`, `log_level`                     | Relay-wide PSK, proxy CIDRs and client address header, state directory, log level. |
+| `diagnose`   | `enabled`, `address`                                                                           | Plain HTTP, always serves `/health` when enabled. Admin audience.                  |
+| `ws`         | `enabled`, `address`                                                                           | Plain WebSocket, always serves `/ws`. Peer audience.                               |
+| `tcp`        | `enabled`, `address`                                                                           | Raw kamune-over-TCP. Peer audience.                                                |
+| `tls`        | `enabled`, `address`, `cert_file`, `key_file`                                                  | Raw kamune-over-TLS.                                                               |
+| `wss`        | `enabled`, `address`, `cert_file`, `key_file`                                                  | WebSocket over TLS, always serves `/ws`. Peer audience.                            |
+| `broker`     | `enabled`, `address`, `registration_ttl`                                                       | UDP signaling (STUN-like IP echo + signal intro). Off by default.                  |
+| `session`    | `token_ttl`, `session_ttl`, `handshake_timeout`, `max_concurrent_sessions`, `max_message_size` | `token_ttl` and `max_concurrent_sessions` are required.                            |
+| `rate_limit` | `disabled`, `time_window`, `quota`, `max_entries`                                              | Rate limit is **on** out of the box.                                               |
 
 At least one of `diagnose`, `ws`, `tcp`, `tls`, `wss`, or `broker` must be
-enabled. The relay exits with status 1 otherwise.
+enabled. The relay exits with status 1 otherwise. It also exits at startup on a
+key it does not know or one in the wrong table, so a misspelt `password` cannot
+leave the relay open. Without `-c`, the relay reads the TOML text itself from
+the `KAMUNE_RELAY_CONFIG` environment variable. Every key's default and range
+are listed in
+[Configuration Reference](../../docs/RELAY.md#configuration-reference).
 
-Forwarded client-IP headers are ignored unless the connection's immediate peer
-matches a CIDR in `server.trusted_proxies`. Leave the list empty when the relay
-is directly exposed. When deploying behind a reverse proxy, list only the proxy
-networks that overwrite forwarded headers.
+A WebSocket request's client address is read from a header only when the
+connection's immediate peer matches a CIDR in `server.trusted_proxies`, and
+then only from the header named by `server.client_ip_header`. The default,
+`X-Forwarded-For`, is read from the right, skipping trusted hops; any other
+header must hold the one address the proxy sets. Leave the list empty when the
+relay is directly exposed. Behind a reverse proxy, CDN or tunnel, list the
+addresses the proxy connects from and name the header it writes (for example
+`CF-Connecting-IP` behind Cloudflare), or every client shares the proxy's rate
+limit. Earlier releases also read `X-Real-IP`, `True-Client-IP`,
+`CF-Connecting-IP`, `Fly-Client-IP` and `Fastly-Client-IP`; a proxy that sets
+only one of those now needs `client_ip_header` set to its name.
 
 If `[rate_limit]` is omitted, it defaults to 20 requests per minute and 100,000
 tracked client IPs. Set `disabled = true` to turn it off.
 
 ### Listener matrix
 
-| `ws` | `tcp` | `tls` | `wss` | `diagnose` | Listeners                   |
-| ---- | ----- | ----- | ----- | ---------- | --------------------------- |
-| ✓    | ✗     | ✗     | ✗     | ✗          | ws:8888                     |
-| ✓    | ✓     | ✗     | ✗     | ✗          | ws:8888, tcp:8889           |
-| ✓    | ✓     | ✓     | ✗     | ✗          | ws:8888, tcp:8889, tls:8890 |
-| ✓    | ✓     | ✗     | ✓     | ✗          | ws:8888, tcp:8889, wss:8891 |
-| ✓    | ✓     | ✓     | ✓     | ✓          | all 5                       |
-| ✗    | ✓     | ✗     | ✓     | ✗          | tcp:8889, wss:8891          |
-| ✗    | ✗     | ✗     | ✗     | ✗          | error: "no server enabled"  |
+| `ws` | `tcp` | `tls` | `wss` | `diagnose` | Listeners                                    |
+| ---- | ----- | ----- | ----- | ---------- | -------------------------------------------- |
+| ✓    | ✗     | ✗     | ✗     | ✗          | ws:8888                                      |
+| ✓    | ✓     | ✗     | ✗     | ✗          | ws:8888, tcp:8889                            |
+| ✓    | ✓     | ✓     | ✗     | ✗          | ws:8888, tcp:8889, tls:8890                  |
+| ✓    | ✓     | ✗     | ✓     | ✗          | ws:8888, tcp:8889, wss:8891                  |
+| ✓    | ✓     | ✓     | ✓     | ✓          | all 5                                        |
+| ✗    | ✓     | ✗     | ✓     | ✗          | tcp:8889, wss:8891                           |
+| ✗    | ✗     | ✗     | ✗     | ✗          | error: "at least one server must be enabled" |
 
 ## TLS / Certificates
 

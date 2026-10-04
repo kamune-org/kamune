@@ -246,8 +246,9 @@ Listener                                    Relay
 3. **Expired**: if the listener disconnects before a dialer joins, the token is
    discarded and cannot be used. Once paired, the session ends when either
    peer's connection closes: the relay removes it and closes the other peer.
-4. **TTL**: tokens have a configurable time-to-live (`token_ttl`, default 5
-   minutes). If no dialer joins within the TTL, the session is cleaned up.
+4. **TTL**: tokens have a configurable time-to-live (`token_ttl`, which every
+   config must set; the shipped config uses 10 minutes). If no dialer joins
+   within the TTL, the session is cleaned up.
 
 **Design decision: 16-byte tokens.** A 16-byte (128-bit) token provides 128 bits
 of entropy, which is more than enough to make guessing infeasible. 16 bytes also
@@ -264,10 +265,10 @@ Relay-generated tokens are:
 
 ### Session Lifetime
 
-A paired session is bounded by `session_ttl` (default 30 minutes;
-`0 = no limit`). After this duration, the relay closes both peers regardless of
-activity. This is independent of `token_ttl`, which controls the offer window
-before pairing.
+A paired session is bounded by `session_ttl` (`0` or unset = no limit; the
+shipped config uses 60 minutes). After this duration, the relay closes both
+peers regardless of activity. This is independent of `token_ttl`, which
+controls the offer window before pairing.
 
 **Design decision: two-tier TTL.** The token offer window and the session max
 lifetime are conceptually different:
@@ -540,10 +541,10 @@ problem. Plain TCP is the lowest common denominator for trusted networks.
 
 ### Handshake Timeout
 
-A configurable `handshake_timeout` (default 30 s) bounds the time between
-connection accept and successful registration. Slow clients that hold a
-connection open without registering are dropped, freeing the slot the relay had
-reserved for them.
+A configurable `handshake_timeout` (30 s when unset or `0`; it cannot be turned
+off) bounds the time between connection accept and successful registration.
+Slow clients that hold a connection open without registering are dropped,
+freeing the slot the relay had reserved for them.
 
 **Design decision: separate from token_ttl.** Token TTL applies _after_
 successful registration (offer window for the dialer). The handshake timeout
@@ -649,9 +650,9 @@ are an implementation detail of the Go ecosystem.
 - **Coexists with the existing random-token system.** Listeners can ask the
   relay to generate a random token (the default); static tokens are opt-in per
   registration.
-- **Same TTL semantics.** Static tokens use the existing `token_ttl` config
-  (default 5 minutes). The listener re-registers periodically to keep the
-  session alive.
+- **Same TTL semantics.** Static tokens use the existing `token_ttl` config.
+  An unpaired session ends when it passes, so a listener that wants to stay
+  reachable registers again.
 - **Forward secrecy is unaffected.** The static token is a routing identifier
   for the relay only; end-to-end authentication and encryption are established
   directly between the two peers after rendezvous, using the kamune protocol
@@ -1058,15 +1059,43 @@ the per-IP rate limiter caps the most relevant attack (replayed REGISTER).
 
 ## Configuration Reference
 
+The relay reads its configuration from the TOML file given with `-c`, or,
+without `-c`, from the TOML text in the `KAMUNE_RELAY_CONFIG` environment
+variable. A key the relay does not know, or one in the wrong table, stops it at
+startup with `unknown config key`, so a misspelt `password` cannot start the
+relay in open mode.
+
+The sample lists every key. Its values are those of the shipped
+`cmd/relay/assets/config.toml`; the commented keys are not set there.
+
 ```toml
 [server]
-address = "127.0.0.1:8888"    # HTTP/WS listen address
 password = ""                 # PSK password, empty = open mode
-expose_health = true          # expose /health endpoint
-expose_ip = true              # expose /ip endpoint
+trusted_proxies = []          # CIDRs whose forwarded client address is read
+# client_ip_header = "X-Forwarded-For"  # The one header read from them
+# data_dir = "/var/lib/kamune-relay"    # Keeps the self-signed certificate
+# log_level = "info"          # debug, info, warn or error
+
+[session]
+token_ttl = "10m"             # Offer window of an unpaired session (required)
+session_ttl = "60m"           # Max lifetime of paired sessions (0 = no limit)
+handshake_timeout = "30s"     # Max time for HPKE + registration (0 = 30s)
+max_concurrent_sessions = 10_000  # Maximum sessions (required, > 0)
+max_message_size = 65536      # Largest relay frame read, 65536 to 131072
+
+[rate_limit]
+# disabled = false            # true turns every rate limiter off
+time_window = "1m"            # Sliding window duration
+quota = 20                    # Connections or requests per window per address
+max_entries = 100_000         # Addresses tracked per limiter (0 = no cap)
+
+[diagnose]
+enabled = false               # Plain HTTP server for GET /health
+address = "127.0.0.1:9090"
 
 [ws]
-enabled = true                # WebSocket listener (shares server address)
+enabled = false               # Plain WebSocket listener (/ws)
+address = "127.0.0.1:8888"
 
 [tcp]
 enabled = true                # Raw TCP listener
@@ -1074,64 +1103,70 @@ address = "127.0.0.1:8889"
 
 [tls]
 enabled = true                # TLS listener
-address = "0.0.0.0:443"
-# cert_file = "assets/cert/server.crt"   # auto-generated if missing
-# key_file  = "assets/cert/server.key"   # auto-generated if missing
+address = "0.0.0.0:8890"
+# cert_file = "assets/cert/server.crt"   # both empty = self-signed
+# key_file  = "assets/cert/server.key"   # certificate in data_dir
+
+[wss]
+enabled = true                # WebSocket over TLS listener (/ws)
+address = "0.0.0.0:8891"
+# cert_file = "assets/cert/server.crt"   # both empty = self-signed
+# key_file  = "assets/cert/server.key"   # certificate in data_dir
 
 [broker]
-enabled = false               # UDP signaling (STUN-echo + signal intro); off by default
-address = "127.0.0.1:4788"    # IPv4 only in v1
-# registration_ttl = "60s"    # How long a held registration lives before eviction
-
-[session]
-token_ttl = "5m"              # Token time-to-live (unpaired sessions)
-session_ttl = "30m"           # Max lifetime of paired sessions (0 = no limit)
-handshake_timeout = "30s"     # Max time for HPKE + registration (0 = default 30s)
-max_concurrent_sessions = 10000  # Maximum active sessions (>0 required)
-max_message_size = 65536      # Maximum frame payload in bytes (0 = no limit)
-
-[rate_limit]
-enabled = true                # Enable per-IP rate limiting
-time_window = "1m"            # Sliding window duration
-quota = 20                    # Max registrations per window per IP
-# max_entries = 100000        # Max unique IPs tracked (default: max_concurrent_sessions)
+enabled = false               # UDP signaling (STUN-echo + signal intro)
+address = "0.0.0.0:4788"      # IPv4 only in v1
+# registration_ttl = "60s"    # Life of a registration after its last REGISTER
 ```
+
+At least one of `diagnose`, `ws`, `tcp`, `tls`, `wss` or `broker` must be
+enabled, and an enabled one needs an `address`.
 
 ### Field Semantics
 
-| Field                     | Default          | Range  | Behavior on `0`                                                 |
-| ------------------------- | ---------------- | ------ | --------------------------------------------------------------- |
-| `token_ttl`               | `5m`             | `> 0`  | (rejected)                                                      |
-| `session_ttl`             | `30m`            | `>= 0` | no limit                                                        |
-| `handshake_timeout`       | `30s`            | `>= 0` | treated as default (30s)                                        |
-| `max_concurrent_sessions` | `10000`          | `> 0`  | (rejected)                                                      |
-| `max_message_size`        | `65536`          | `>= 0` | no limit                                                        |
-| `time_window`             | `1m`             | `> 0`  | (rejected)                                                      |
-| `quota`                   | `20`             | `> 0`  | (rejected)                                                      |
-| `broker.enabled`          | `false`          | bool   | broker goroutine not started                                    |
-| `broker.address`          | `127.0.0.1:4788` | string | (no default when `enabled = true`; must be a valid `host:port`) |
-| `broker.registration_ttl` | `60s`            | `> 0`  | (rejected)                                                      |
+"Default" is the value the relay uses when the key is left out.
 
-### Diagnostics Endpoints
+| Field                                   | Default                             | Range                                | Behavior on `0` or empty                     |
+| --------------------------------------- | ----------------------------------- | ------------------------------------ | -------------------------------------------- |
+| `server.password`                       | empty                               | string                               | open mode, no PSK                            |
+| `server.trusted_proxies`                | empty                               | CIDRs                                | no forwarded client address is read          |
+| `server.client_ip_header`               | `X-Forwarded-For`                   | HTTP header name                     | `X-Forwarded-For`                            |
+| `server.data_dir`                       | `kamune-relay` in user's config dir | path                                 | the default                                  |
+| `server.log_level`                      | `info`                              | `debug`, `info`, `warn`, `error`     | `info`                                       |
+| `session.token_ttl`                     | none                                | `> 0`                                | (rejected; must be set)                      |
+| `session.session_ttl`                   | `0`                                 | `>= 0`                               | no limit                                     |
+| `session.handshake_timeout`             | `30s`                               | `>= 0`                               | `30s`; the timeout cannot be turned off      |
+| `session.max_concurrent_sessions`       | none                                | `> 0`                                | (rejected; must be set)                      |
+| `session.max_message_size`              | `65536`                             | `0`, or `65536` to `131072`          | `65536`                                      |
+| `rate_limit.disabled`                   | `false`                             | bool                                 | rate limiting on                             |
+| `rate_limit.time_window`                | `1m`                                | `> 0`                                | (rejected unless `disabled = true`)          |
+| `rate_limit.quota`                      | `20`                                | `> 0`                                | (rejected unless `disabled = true`)          |
+| `rate_limit.max_entries`                | `100000`                            | `>= 0`                               | no cap on tracked addresses                  |
+| `<listener>.enabled`                    | `false`                             | bool                                 | listener not started                         |
+| `<listener>.address`                    | none                                | `host:port`                          | (rejected when `enabled = true`)             |
+| `tls` and `wss` `cert_file`, `key_file` | empty                               | both set or both empty               | self-signed certificate kept in `data_dir`   |
+| `broker.registration_ttl`               | `60s`                               | duration                             | `60s` (a negative value too)                 |
 
-When `expose_health = true`, `GET /health` returns:
+`max_message_size` bounds WebSocket messages; a TCP or TLS frame cannot exceed
+65,535 bytes whatever it is set to (see [Wire Format](#wire-format)).
+
+### Diagnostics Endpoint
+
+The `[diagnose]` listener is a separate plain HTTP server with one route.
+`GET /health` returns:
 
 ```json
 { "status": "ok", "uptime": "1h2m3s", "sessionCount": 12 }
 ```
 
-When `expose_ip = true`, `GET /ip` returns the client's IP as seen by the relay
-(proxy-aware for WebSocket):
+The relay has no other diagnostics route, and none that tells a client its own
+address.
 
-```json
-{ "ip": "203.0.113.42" }
-```
-
-**Design decision: opt-in diagnostics.** Both endpoints leak information (relay
-uptime, current load, perceived client IP) that is useful for debugging but is
-metadata a public relay should not expose. Both are off-by-default-friendly in
-the sense that the operator is expected to set them to `false` on public
-deployments.
+**Design decision: a separate, opt-in listener.** `/health` reveals uptime and
+current load, which is useful for monitoring but is metadata a public relay
+should not expose. It is served only when `[diagnose]` is enabled, on its own
+address, so it can stay on loopback or a private network while the relay's
+other listeners are public.
 
 ## Deployment Patterns
 
