@@ -38,6 +38,48 @@ func TestChaCha20Poly1305(t *testing.T) {
 	a.NotEqual(msg, secondEncryption)
 }
 
+func TestAssociatedData(t *testing.T) {
+	a := require.New(t)
+	cipher, err := enigma.NewEnigma(
+		[]byte(rand.Text()), []byte(rand.Text()), []byte(rand.Text()),
+	)
+	a.NoError(err)
+	msg := []byte("bound")
+	ad := []byte("peers/key")
+	sealed := cipher.EncryptWithAD(msg, ad)
+
+	cases := []struct {
+		name string
+		ad   []byte
+		ok   bool
+	}{
+		{"same ad", ad, true},
+		{"other ad", []byte("peers/other"), false},
+		{"no ad", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			got, err := cipher.DecryptWithAD(sealed, tc.ad)
+			if !tc.ok {
+				a.Error(err)
+				return
+			}
+			a.NoError(err)
+			a.Equal(msg, got)
+		})
+	}
+
+	// Encrypt uses empty associated data, so its output opens only without
+	// any.
+	plain := cipher.Encrypt(msg)
+	_, err = cipher.DecryptWithAD(plain, ad)
+	a.Error(err)
+	got, err := cipher.DecryptWithAD(plain, nil)
+	a.NoError(err)
+	a.Equal(msg, got)
+}
+
 func BenchmarkEnigma_NewEnigma(b *testing.B) {
 	var (
 		secret = []byte(rand.Text())

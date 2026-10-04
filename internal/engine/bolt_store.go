@@ -30,6 +30,10 @@ type BoltStore struct {
 	lock   *fileLock
 	path   string
 	mu     sync.RWMutex
+	// bound reports a store whose values are all bound to their location
+	// (see [valueAD]). Only an unbound store opens values written without
+	// associated data.
+	bound bool
 }
 
 // NewBoltDB creates a new BoltStore at the given path, encrypting values with
@@ -37,6 +41,9 @@ type BoltStore struct {
 // whose key is wrapped with the legacy HKDF derivation, or with weaker
 // Argon2id parameters, is re-wrapped on its first successful open, and its
 // file is rewritten so the old wrapped key does not remain in a free page.
+// A store whose values are not all bound to their location gets a new data
+// key on that open, with every value re-sealed under it with its location
+// (see [valueAD]).
 //
 // Symbolic links in path are resolved first. Until it is closed, the store
 // holds an exclusive lock on a file named after the database with a
@@ -142,7 +149,7 @@ func (s *BoltStore) Query(f func(b Namespace) error) error {
 	defer s.mu.RUnlock()
 
 	return s.db.View(func(tx *bolt.Tx) error {
-		return f(newRootNamespace(tx, s.cipher))
+		return f(newRootNamespace(tx, s.cipher, !s.bound))
 	})
 }
 
@@ -151,7 +158,7 @@ func (s *BoltStore) Command(f func(b Namespace) error) error {
 	defer s.mu.RUnlock()
 
 	return s.db.Update(func(tx *bolt.Tx) error {
-		return f(newRootNamespace(tx, s.cipher))
+		return f(newRootNamespace(tx, s.cipher, !s.bound))
 	})
 }
 
@@ -311,10 +318,15 @@ func unlock(tx *bolt.Tx, pass []byte) (cipherMeta, []byte, error) {
 var errStopIteration = errors.New("stop iteration")
 
 // hasData reports whether any top-level bucket holds a key or a nested
-// bucket.
+// bucket. The [bindingKey] marker does not count as data.
 func hasData(tx *bolt.Tx) (bool, error) {
-	err := tx.ForEach(func(_ []byte, b *bolt.Bucket) error {
-		if k, _ := b.Cursor().First(); k != nil {
+	err := tx.ForEach(func(name []byte, b *bolt.Bucket) error {
+		c := b.Cursor()
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			if bytes.Equal(name, defaultNamespace) &&
+				string(k) == bindingKey {
+				continue
+			}
 			return errStopIteration
 		}
 		return nil
@@ -330,12 +342,8 @@ func hasData(tx *bolt.Tx) (bool, error) {
 }
 
 // open unlocks the data cipher with pass, or creates the key hierarchy of a
-// new store. When the stored wrapping is legacy HKDF, or its Argon2id time
-// or memory is below [defaultKDF], the secret is re-wrapped with fresh
-// salts under the parameters [kdfParams.atLeast] gives, through
-// [BoltStore.rewrite]. If that upgrade fails before the file is
-// replaced, the store stays usable with its old wrapping and the upgrade is
-// tried again on the next open.
+// new store, and then brings an existing store up to date with
+// [BoltStore.upgrade].
 func (s *BoltStore) open(pass []byte) error {
 	var (
 		meta   cipherMeta
@@ -344,12 +352,21 @@ func (s *BoltStore) open(pass []byte) error {
 	err := s.db.View(func(tx *bolt.Tx) error {
 		var err error
 		meta, secret, err = unlock(tx, pass)
-		return err
+		if err != nil {
+			return err
+		}
+		s.cipher, err = newDataCipher(secret, meta.secretSalt)
+		if err != nil {
+			return err
+		}
+		s.bound = isBound(tx, s.cipher)
+		return nil
 	})
 	if errors.Is(err, errNoCipherMeta) {
 		return s.db.Update(func(tx *bolt.Tx) error {
 			var err error
 			s.cipher, err = createCipher(tx, pass)
+			s.bound = err == nil
 			return err
 		})
 	}
@@ -357,37 +374,83 @@ func (s *BoltStore) open(pass []byte) error {
 		return err
 	}
 
-	if target := meta.wrap.kdf.atLeast(defaultKDF); target != meta.wrap.kdf {
-		err := s.upgradeWrap(secret, pass, target)
-		switch {
-		case err == nil:
+	rewrap := meta.wrap.kdf.atLeast(defaultKDF) != meta.wrap.kdf
+	if !rewrap && s.bound {
+		return nil
+	}
+	bind := !s.bound
+	err = s.upgrade(meta, secret, pass, bind)
+	switch {
+	case err == nil:
+		if rewrap {
 			slog.Info(
 				"upgraded database key wrapping",
 				slog.String("kdf", "argon2id"),
 			)
-		case errors.Is(err, ErrReopen):
-			return fmt.Errorf("upgrade key wrapping: %w", err)
-		default:
-			slog.Warn(
-				"could not upgrade database key wrapping",
-				slog.Any("error", err),
+		}
+		if bind {
+			slog.Info(
+				"bound database values to their location " +
+					"under a new data key",
 			)
 		}
+	case errors.Is(err, ErrReopen):
+		return fmt.Errorf("upgrade store: %w", err)
+	default:
+		slog.Warn("could not upgrade database", slog.Any("error", err))
 	}
-
-	s.cipher, err = newDataCipher(secret, meta.secretSalt)
-	return err
+	return nil
 }
 
-// upgradeWrap re-wraps secret under params.
-func (s *BoltStore) upgradeWrap(secret, pass []byte, params kdfParams) error {
-	w, err := wrapSecret(secret, pass, params)
+// upgrade rewrites the store file, through [BoltStore.rewrite], with the
+// changes an older store needs. open asks for an upgrade when the stored
+// wrapping is legacy HKDF, or its Argon2id time or memory is below
+// [defaultKDF], and when the store is not bound. Either way the data key
+// ends up wrapped with fresh salts under the parameters [kdfParams.atLeast]
+// gives for [defaultKDF].
+//
+// Without bind, the secret is wrapped again. With bind, the store is bound:
+// the data key is replaced, as [BoltStore.RotateDataKey] does, every value
+// that opens under the old key, with its location or without associated
+// data, is sealed under the new key with its location (see [valueAD]), and
+// [bindingKey] is recorded. Rewriting the file leaves no copy of the old
+// wrapping or of the unbound values in it.
+//
+// If the upgrade fails before the file is replaced, the store stays usable
+// as it was, and the upgrade is tried again on the next open. s.cipher
+// must be set.
+func (s *BoltStore) upgrade(
+	meta cipherMeta, secret, pass []byte, bind bool,
+) error {
+	params := meta.wrap.kdf.atLeast(defaultKDF)
+	if !bind {
+		w, err := wrapSecret(secret, pass, params)
+		if err != nil {
+			return err
+		}
+		_, err = s.rewrite(rewriteOp{update: func(tx *bolt.Tx) error {
+			return w.put(tx.Bucket(defaultNamespace))
+		}})
+		return err
+	}
+
+	key, err := newDataKey(pass, params)
 	if err != nil {
 		return err
 	}
-	_, err = s.rewrite(rewriteOp{update: func(tx *bolt.Tx) error {
-		return w.put(tx.Bucket(defaultNamespace))
-	}})
+	old := s.cipher
+	replaced, err := s.rewrite(rewriteOp{
+		update: func(tx *bolt.Tx) error {
+			return key.put(tx.Bucket(defaultNamespace))
+		},
+		mapValue: func(path [][]byte, k, v []byte) []byte {
+			return rebindValue(old, key.cipher, path, k, v, true)
+		},
+	})
+	if replaced {
+		s.cipher = key.cipher
+		s.bound = true
+	}
 	return err
 }
 
@@ -409,10 +472,10 @@ func (s *BoltStore) rewrite(op rewriteOp) (bool, error) {
 	return replaced, err
 }
 
-// createCipher writes a new key hierarchy wrapped under [defaultKDF]. Only a
-// store without any data may get one. Anything else means the metadata was
-// removed, and writing a new wrapped key would accept any passphrase and
-// orphan the data.
+// createCipher writes a new key hierarchy wrapped under [defaultKDF], for a
+// bound store. Only a store without any data may get one. Anything else
+// means the metadata was removed, and writing a new wrapped key would
+// accept any passphrase and orphan the data.
 func createCipher(tx *bolt.Tx, pass []byte) (*enigma.Enigma, error) {
 	populated, err := hasData(tx)
 	if err != nil {
@@ -424,20 +487,49 @@ func createCipher(tx *bolt.Tx, pass []byte) (*enigma.Enigma, error) {
 		)
 	}
 
-	secret := randomBytes(secretSize)
-	secretSalt := randomBytes(saltSize)
-	w, err := wrapSecret(secret, pass, defaultKDF)
+	key, err := newDataKey(pass, defaultKDF)
 	if err != nil {
 		return nil, err
 	}
-	bucket := tx.Bucket(defaultNamespace)
-	if err := w.put(bucket); err != nil {
+	if err := key.put(tx.Bucket(defaultNamespace)); err != nil {
 		return nil, err
 	}
-	if err := bucket.Put([]byte(secretSaltKey), secretSalt); err != nil {
-		return nil, fmt.Errorf("put secret salt: %w", err)
+	return key.cipher, nil
+}
+
+// dataKey is a new data encryption key, with its cipher and its wrapping.
+type dataKey struct {
+	cipher *enigma.Enigma
+	salt   []byte
+	wrap   wrappedSecret
+}
+
+// newDataKey generates a data encryption key and wraps it under pass with
+// params.
+func newDataKey(pass []byte, params kdfParams) (dataKey, error) {
+	secret := randomBytes(secretSize)
+	salt := randomBytes(saltSize)
+	c, err := newDataCipher(secret, salt)
+	if err != nil {
+		return dataKey{}, err
 	}
-	return newDataCipher(secret, secretSalt)
+	w, err := wrapSecret(secret, pass, params)
+	if err != nil {
+		return dataKey{}, fmt.Errorf("wrap data key: %w", err)
+	}
+	return dataKey{cipher: c, salt: salt, wrap: w}, nil
+}
+
+// put stores k in bucket, the default bucket, as the data key of a bound
+// store, replacing any previous key and its wrapping.
+func (k dataKey) put(bucket *bolt.Bucket) error {
+	if err := bucket.Put([]byte(secretSaltKey), k.salt); err != nil {
+		return fmt.Errorf("put %s: %w", secretSaltKey, err)
+	}
+	if err := putBinding(bucket, k.cipher); err != nil {
+		return err
+	}
+	return k.wrap.put(bucket)
 }
 
 // RotatePassphrase re-wraps the data encryption key under a new passphrase,
@@ -475,7 +567,11 @@ func (s *BoltStore) RotatePassphrase(old, new []byte) error {
 
 // RotateDataKey generates a new data encryption key, re-encrypts every
 // encrypted value in every namespace with it, and wraps it under the new
-// passphrase with the parameters [BoltStore.RotatePassphrase] uses.
+// passphrase with the parameters [BoltStore.RotatePassphrase] uses. Values
+// are re-encrypted bound to their location (see [valueAD]), and the store
+// is bound afterwards. Values written without associated data are
+// re-encrypted only in a store that was not bound yet; in a bound store
+// they do not open, and they are copied as they are.
 //
 // Values are re-encrypted as the database file is rewritten, and the new
 // file atomically replaces the old one, so neither the old wrapped key nor
@@ -498,41 +594,26 @@ func (s *BoltStore) RotateDataKey(old, new []byte) error {
 			return err
 		}
 
-		newSecret := randomBytes(secretSize)
-		newSecretSalt := randomBytes(saltSize)
-		newCipher, err = newDataCipher(newSecret, newSecretSalt)
+		key, err := newDataKey(new, meta.wrap.kdf.atLeast(defaultKDF))
 		if err != nil {
-			return err
+			return fmt.Errorf("new data key: %w", err)
 		}
-		newWrap, err := wrapSecret(
-			newSecret, new, meta.wrap.kdf.atLeast(defaultKDF),
-		)
-		if err != nil {
-			return fmt.Errorf("wrap with new passphrase: %w", err)
-		}
-
+		newCipher = key.cipher
 		// Store all cipher metadata so future reads reconstruct the correct
 		// cipher on restart.
-		bucket := tx.Bucket(defaultNamespace)
-		err = bucket.Put([]byte(secretSaltKey), newSecretSalt)
-		if err != nil {
-			return fmt.Errorf("put %s: %w", secretSaltKey, err)
-		}
-		return newWrap.put(bucket)
+		return key.put(tx.Bucket(defaultNamespace))
 	}
 	// Values that do not decrypt under the old key, such as the raw cipher
 	// metadata, are copied as they are.
-	reencrypt := func(v []byte) []byte {
-		plaintext, err := oldCipher.Decrypt(v)
-		if err != nil {
-			return v
-		}
-		return newCipher.Encrypt(plaintext)
+	legacy := !s.bound
+	reencrypt := func(path [][]byte, k, v []byte) []byte {
+		return rebindValue(oldCipher, newCipher, path, k, v, legacy)
 	}
 
 	replaced, err := s.rewrite(rewriteOp{update: update, mapValue: reencrypt})
 	if replaced {
 		s.cipher = newCipher
+		s.bound = true
 	}
 	if err != nil {
 		return fmt.Errorf("rotate data key: %w", err)

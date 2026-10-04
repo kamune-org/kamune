@@ -13,8 +13,19 @@ import (
 // writeStore builds a store the way an older release would have, with its
 // secret wrapped under params, and stores one encrypted peer value. For
 // legacyKDF it reproduces the pre-Argon2id code path and writes no
-// kdf-params entry.
+// kdf-params entry. The value is sealed without associated data, as before
+// values were bound to their location.
 func writeStore(t *testing.T, path string, pass []byte, params kdfParams) {
+	t.Helper()
+	writeStoreBound(t, path, pass, params, false)
+}
+
+// writeStoreBound is [writeStore], and with bound it builds a store whose
+// value is bound to its location, as a release that binds values but uses
+// weaker key derivation parameters than [defaultKDF] would have.
+func writeStoreBound(
+	t *testing.T, path string, pass []byte, params kdfParams, bound bool,
+) {
 	t.Helper()
 	a := require.New(t)
 
@@ -59,9 +70,15 @@ func writeStore(t *testing.T, path string, pass []byte, params kdfParams) {
 			a.NoError(w.put(bucket))
 		}
 
-		return tx.Bucket(peersNamespace).Put(
-			[]byte("peer"), data.Encrypt([]byte("peer-data")),
-		)
+		value := data.Encrypt([]byte("peer-data"))
+		if bound {
+			a.NoError(putBinding(bucket, data))
+			value = sealValue(
+				data, [][]byte{peersNamespace}, []byte("peer"),
+				[]byte("peer-data"),
+			)
+		}
+		return tx.Bucket(peersNamespace).Put([]byte("peer"), value)
 	}))
 }
 
@@ -110,17 +127,18 @@ func TestNewBoltDB_WrapsWithArgon2id(t *testing.T) {
 }
 
 func TestNewBoltDB_UpgradesWeakWrapping(t *testing.T) {
+	weak := kdfParams{alg: kdfArgon2id, time: 1, memory: 64, threads: 1}
 	cases := []struct {
 		name   string
 		params kdfParams
 		want   kdfParams
+		// bound stores keep their data key; the others get a new one as
+		// they are bound.
+		bound bool
 	}{
-		{"legacy hkdf", legacyKDF, defaultKDF},
-		{
-			"weak argon2id",
-			kdfParams{alg: kdfArgon2id, time: 1, memory: 64, threads: 1},
-			defaultKDF,
-		},
+		{"legacy hkdf", legacyKDF, defaultKDF, false},
+		{"weak argon2id", weak, defaultKDF, false},
+		{"weak argon2id bound", weak, defaultKDF, true},
 		{
 			// Raising the time must keep the larger memory cost.
 			"low time high memory",
@@ -130,6 +148,7 @@ func TestNewBoltDB_UpgradesWeakWrapping(t *testing.T) {
 			kdfParams{
 				alg: kdfArgon2id, time: 3, memory: 128 * 1024, threads: 4,
 			},
+			false,
 		},
 	}
 	for _, tc := range cases {
@@ -137,7 +156,7 @@ func TestNewBoltDB_UpgradesWeakWrapping(t *testing.T) {
 			a := require.New(t)
 			path := filepath.Join(t.TempDir(), "db")
 			pass := []byte("old-store-pass")
-			writeStore(t, path, pass, tc.params)
+			writeStoreBound(t, path, pass, tc.params, tc.bound)
 			before := readMeta(t, path)
 			a.Equal(tc.params, before.wrap.kdf)
 
@@ -153,7 +172,11 @@ func TestNewBoltDB_UpgradesWeakWrapping(t *testing.T) {
 
 			after := readMeta(t, path)
 			a.Equal(tc.want, after.wrap.kdf)
-			a.Equal(before.secretSalt, after.secretSalt)
+			if tc.bound {
+				a.Equal(before.secretSalt, after.secretSalt)
+			} else {
+				a.NotEqual(before.secretSalt, after.secretSalt)
+			}
 			a.NotEqual(before.wrap.deriveSalt, after.wrap.deriveSalt)
 			a.NotEqual(before.wrap.wrappedSalt, after.wrap.wrappedSalt)
 			a.NotEqual(before.wrap.wrappedKey, after.wrap.wrappedKey)

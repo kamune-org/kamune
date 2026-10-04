@@ -42,22 +42,38 @@ func NewEnigma(secret, salt, info []byte) (*Enigma, error) {
 	return &Enigma{aead: aead}, nil
 }
 
+// Encrypt seals plaintext under a random nonce with no associated data. The
+// result is the nonce followed by the ciphertext.
 func (e *Enigma) Encrypt(plaintext []byte) []byte {
+	return e.EncryptWithAD(plaintext, nil)
+}
+
+// Decrypt opens a ciphertext made by [Enigma.Encrypt].
+func (e *Enigma) Decrypt(ciphertext []byte) ([]byte, error) {
+	return e.DecryptWithAD(ciphertext, nil)
+}
+
+// EncryptWithAD seals plaintext under a random nonce and authenticates ad
+// with it. The ciphertext opens only with the same ad, so ad can bind it to
+// a context, such as where it is stored. ad itself is not included.
+func (e *Enigma) EncryptWithAD(plaintext, ad []byte) []byte {
 	nonce := make(
 		[]byte, nonceSize, nonceSize+len(plaintext)+e.aead.Overhead(),
 	)
 	if _, err := rand.Read(nonce); err != nil {
 		panic("enigma: crypto/rand: " + err.Error())
 	}
-	return e.aead.Seal(nonce, nonce, plaintext, nil)
+	return e.aead.Seal(nonce, nonce, plaintext, ad)
 }
 
-func (e *Enigma) Decrypt(ciphertext []byte) ([]byte, error) {
+// DecryptWithAD opens a ciphertext made by [Enigma.EncryptWithAD] with the
+// same ad.
+func (e *Enigma) DecryptWithAD(ciphertext, ad []byte) ([]byte, error) {
 	if len(ciphertext) < nonceSize {
 		return nil, ErrInvalidCiphertext
 	}
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := e.aead.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := e.aead.Open(nil, nonce, ciphertext, ad)
 	if err != nil {
 		return nil, fmt.Errorf("aead.Open: %w", err)
 	}

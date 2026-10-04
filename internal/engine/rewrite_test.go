@@ -181,13 +181,16 @@ func TestRewriteFile_CopiesTree(t *testing.T) {
 				return root.Put([]byte("z"), []byte("last"))
 			}))
 
+			seen := map[string]bool{}
 			db, replaced, err := rewriteFile(db, path, nil, rewriteOp{
 				update: func(tx *bolt.Tx) error {
 					return tx.Bucket([]byte("root")).Put(
 						[]byte("new"), []byte("n"),
 					)
 				},
-				mapValue: func(v []byte) []byte {
+				mapValue: func(path [][]byte, k, v []byte) []byte {
+					seen[string(bytes.Join(path, []byte("|")))+
+						"|"+string(k)] = true
 					return append([]byte("m:"), v...)
 				},
 			})
@@ -213,6 +216,11 @@ func TestRewriteFile_CopiesTree(t *testing.T) {
 				a.Equal([]byte("m:gv"), grand.Get([]byte("gk")))
 				return nil
 			}))
+			for _, loc := range []string{
+				"root|k", "root|new", "root|a/b|ck", "root|a/b|c|gk",
+			} {
+				a.True(seen[loc], "mapValue not given %s", loc)
+			}
 		})
 	}
 }

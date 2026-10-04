@@ -29,10 +29,15 @@ type rewriteOp struct {
 	// update changes the state to copy. It runs in a write transaction on
 	// the old file that is rolled back after the copy.
 	update func(*bolt.Tx) error
-	// mapValue, when set, is applied to every value as it is copied. It
-	// must not keep or modify its argument.
-	mapValue func([]byte) []byte
+	// mapValue, when set, is applied to every value as it is copied, with
+	// the names of the buckets that hold it and its key. It must not keep
+	// or modify its arguments.
+	mapValue valueMapper
 }
+
+// valueMapper returns the value to copy for key, whose value is value, in
+// the bucket at path.
+type valueMapper func(path [][]byte, key, value []byte) []byte
 
 // rewriteFile runs op.update in a write transaction on db, writes the state
 // it leaves into a new file next to path, passing every value through
@@ -154,13 +159,13 @@ func writeCopy(db *bolt.DB, path string, op rewriteOp) (string, error) {
 type copier struct {
 	db       *bolt.DB
 	tx       *bolt.Tx
-	mapValue func([]byte) []byte
+	mapValue valueMapper
 	size     int
 }
 
 // copyTx copies every bucket of src, with its keys, nested buckets and
 // sequences, into dst.
-func copyTx(dst *bolt.DB, src *bolt.Tx, mapValue func([]byte) []byte) error {
+func copyTx(dst *bolt.DB, src *bolt.Tx, mapValue valueMapper) error {
 	tx, err := dst.Begin(true)
 	if err != nil {
 		return err
@@ -227,7 +232,7 @@ func (c *copier) copyBucket(path [][]byte, src *bolt.Bucket) error {
 	return src.ForEach(func(k, v []byte) error {
 		sub := src.Bucket(k)
 		if sub == nil && c.mapValue != nil {
-			v = c.mapValue(v)
+			v = c.mapValue(path, k, v)
 		}
 		if err := c.reserve(len(k) + len(v)); err != nil {
 			return err

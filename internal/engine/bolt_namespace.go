@@ -1,10 +1,12 @@
 package engine
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
+	"slices"
 
 	bolt "go.etcd.io/bbolt"
 	boltErrors "go.etcd.io/bbolt/errors"
@@ -12,16 +14,36 @@ import (
 	"github.com/kamune-org/kamune/internal/enigma"
 )
 
-// boltNamespace is the BoltDB implementation of [Namespace].
+// boltNamespace is the BoltDB implementation of [Namespace]. Values are
+// sealed with their location, path and key (see [valueAD]).
 type boltNamespace struct {
 	tx     *bolt.Tx
 	buck   *bolt.Bucket
 	cipher *enigma.Enigma
 	name   string
+	// path holds the names of the buckets from the root to this one.
+	path [][]byte
+	// legacy lets values without associated data open, in a store that
+	// is not bound yet (see [openValue]).
+	legacy bool
 }
 
-func newRootNamespace(tx *bolt.Tx, c *enigma.Enigma) Namespace {
-	return &boltNamespace{tx: tx, cipher: c}
+// child returns the namespace for sub, the bucket called name in b.
+func (b *boltNamespace) child(sub *bolt.Bucket, name []byte) *boltNamespace {
+	return &boltNamespace{
+		tx:     b.tx,
+		buck:   sub,
+		cipher: b.cipher,
+		name:   string(name),
+		path:   append(slices.Clip(b.path), bytes.Clone(name)),
+		legacy: b.legacy,
+	}
+}
+
+// newRootNamespace returns the root namespace of tx. With legacy, values
+// written without associated data open too.
+func newRootNamespace(tx *bolt.Tx, c *enigma.Enigma, legacy bool) Namespace {
+	return &boltNamespace{tx: tx, cipher: c, legacy: legacy}
 }
 
 // Sub navigates to a child namespace. Unlike [Ensure], it never creates a
@@ -43,12 +65,7 @@ func (b *boltNamespace) Sub(name []byte) Namespace {
 		return nilNamespace{}
 	}
 
-	return &boltNamespace{
-		tx:     b.tx,
-		buck:   sub,
-		cipher: b.cipher,
-		name:   string(name),
-	}
+	return b.child(sub, name)
 }
 
 // Ensure navigates to a child namespace, creating it if it does not exist. It
@@ -91,12 +108,7 @@ func (b *boltNamespace) Ensure(name []byte) Namespace {
 		}
 	}
 
-	return &boltNamespace{
-		tx:     b.tx,
-		buck:   sub,
-		cipher: b.cipher,
-		name:   string(name),
-	}
+	return b.child(sub, name)
 }
 
 func (b *boltNamespace) get(key []byte) ([]byte, error) {
@@ -117,7 +129,7 @@ func (b *boltNamespace) GetEncrypted(key []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := b.cipher.Decrypt(value)
+	data, err := openValue(b.cipher, b.path, key, value, b.legacy)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}
@@ -134,7 +146,7 @@ func (b *boltNamespace) IterateEncrypted() iter.Seq2[[]byte, []byte] {
 			kc := make([]byte, len(k))
 			copy(kc, k)
 
-			data, err := b.cipher.Decrypt(v)
+			data, err := openValue(b.cipher, b.path, kc, v, b.legacy)
 			if err != nil {
 				slog.Warn(
 					"decrypting value",
@@ -212,8 +224,7 @@ func (b *boltNamespace) PutEncrypted(key, value []byte) error {
 	if b == nil || b.buck == nil {
 		return ErrMissingNamespace
 	}
-	encrypted := b.cipher.Encrypt(value)
-	return b.put(key, encrypted)
+	return b.put(key, sealValue(b.cipher, b.path, key, value))
 }
 
 func (b *boltNamespace) Delete(key []byte) error {
