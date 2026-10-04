@@ -27,6 +27,8 @@ token_ttl = "10m"
 session_ttl = "60m"          # max lifetime for paired sessions (0 = no limit)
 handshake_timeout = "30s"    # max time for HPKE + registration (0 = no limit)
 max_concurrent_sessions = 10_000
+# Largest relay frame read from a client, in bytes: 65536 to 131072, or 0 for
+# 65536. It limits WebSocket messages; TCP and TLS frames stop at 65535.
 max_message_size = 65536
 
 # Rate limit is ON by default. TCP, TLS and WS share one per-IP limiter, which

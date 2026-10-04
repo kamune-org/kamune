@@ -118,3 +118,25 @@ func TestServices_New_LogsAuthMode(t *testing.T) {
 		})
 	}
 }
+
+// TestServices_New_MaxMessageSize checks that max_message_size = 0 means
+// the default, which the ws and tcp handlers then read, not "no limit".
+func TestServices_New_MaxMessageSize(t *testing.T) {
+	tests := []struct {
+		size, want int
+	}{
+		{size: 0, want: config.DefaultMaxMessageSize},
+		{size: config.MaxMaxMessageSize, want: config.MaxMaxMessageSize},
+	}
+	for _, tc := range tests {
+		a := require.New(t)
+		cfg := validConfig()
+		cfg.Session.MaxMessageSize = tc.size
+		ctx, cancel := context.WithCancel(context.Background())
+		s, err := New(ctx, cfg)
+		a.NoError(err)
+		a.Equal(tc.want, s.MaxMessageSize())
+		a.Equal(tc.want, s.Hub().MaxMessageSize())
+		cancel()
+	}
+}

@@ -139,11 +139,29 @@ func (rl RateLimit) IsEnabled() bool {
 	return !rl.Disabled
 }
 
+// Bounds of session.max_message_size, the largest relay frame, in bytes,
+// that the relay reads from a client. A TCP or TLS frame cannot exceed
+// 65535 bytes, whatever the setting; it limits WebSocket messages.
+const (
+	// DefaultMaxMessageSize is used when max_message_size is 0.
+	DefaultMaxMessageSize = 65536
+	// MinMaxMessageSize is the smallest allowed value. A kamune peer's
+	// largest frame, once wrapped and sealed for the relay, fits in 65535
+	// bytes and must fit here too, or every message padded to that size
+	// would end its session.
+	MinMaxMessageSize = 65536
+	// MaxMaxMessageSize is the largest allowed value: the most a relayconn
+	// client reads in one WebSocket message. A larger frame could only end
+	// the sender's session, and would let every connection hold more
+	// memory.
+	MaxMaxMessageSize = 2 * 65536
+)
+
 // Validate returns an error if any field of c has a value that would put
 // the relay into a degraded state. It is deliberately permissive about
-// zero values that have an established "no limit" meaning (session_ttl,
-// max_message_size) and restrictive about values that would silently
-// degrade behavior (token_ttl, max_concurrent_sessions).
+// zero values that have an established "no limit" (session_ttl) or
+// "default" (max_message_size) meaning and restrictive about values that
+// would silently degrade behavior (token_ttl, max_concurrent_sessions).
 func (c Config) Validate() error {
 	for _, cidr := range c.Server.TrustedProxies {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
@@ -176,10 +194,12 @@ func (c Config) Validate() error {
 			c.Session.SessionTTL,
 		)
 	}
-	if c.Session.MaxMessageSize < 0 {
+	if m := c.Session.MaxMessageSize; m != 0 &&
+		(m < MinMaxMessageSize || m > MaxMaxMessageSize) {
 		return fmt.Errorf(
-			"session.max_message_size must be >= 0 (0 = no limit), got %d",
-			c.Session.MaxMessageSize,
+			"session.max_message_size must be 0 (default %d) or "+
+				"from %d to %d, got %d",
+			DefaultMaxMessageSize, MinMaxMessageSize, MaxMaxMessageSize, m,
 		)
 	}
 	if c.RateLimit.IsEnabled() {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -168,23 +169,37 @@ func TestConfig_Validate_AllowsZeroSessionTTL(t *testing.T) {
 	}
 }
 
-func TestConfig_Validate_RejectsNegativeMaxMessageSize(t *testing.T) {
-	cfg := validConfig()
-	cfg.Session.MaxMessageSize = -1
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("expected error for MaxMessageSize=-1, got nil")
+// TestConfig_Validate_MaxMessageSize checks the bounds of
+// max_message_size: a value too small for a full kamune frame breaks
+// sessions, and a large one only costs memory.
+func TestConfig_Validate_MaxMessageSize(t *testing.T) {
+	tests := []struct {
+		size    int
+		wantErr bool
+	}{
+		{size: -1, wantErr: true},
+		{size: 0},
+		{size: 1024, wantErr: true},
+		{size: 65535, wantErr: true},
+		{size: MinMaxMessageSize},
+		{size: 100_000},
+		{size: MaxMaxMessageSize},
+		{size: MaxMaxMessageSize + 1, wantErr: true},
+		{size: 1 << 20, wantErr: true},
 	}
-	if !strings.Contains(err.Error(), "max_message_size") {
-		t.Errorf("error = %v, want it to mention max_message_size", err)
-	}
-}
-
-func TestConfig_Validate_AllowsZeroMaxMessageSize(t *testing.T) {
-	cfg := validConfig()
-	cfg.Session.MaxMessageSize = 0 // documented "no limit" mode
-	if err := cfg.Validate(); err != nil {
-		t.Errorf("0 = no limit should be allowed, got %v", err)
+	for _, tc := range tests {
+		t.Run(fmt.Sprint(tc.size), func(t *testing.T) {
+			a := require.New(t)
+			cfg := validConfig()
+			cfg.Session.MaxMessageSize = tc.size
+			err := cfg.Validate()
+			if !tc.wantErr {
+				a.NoError(err)
+				return
+			}
+			a.Error(err)
+			a.Contains(err.Error(), "max_message_size")
+		})
 	}
 }
 

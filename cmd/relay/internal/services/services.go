@@ -58,10 +58,15 @@ func New(ctx context.Context, cfg config.Config) (*Service, error) {
 		)
 	}
 
+	maxMsgSize := cfg.Session.MaxMessageSize
+	if maxMsgSize == 0 {
+		maxMsgSize = config.DefaultMaxMessageSize
+	}
+
 	hub := NewHub(
 		sessions,
 		cfg.Server.Password,
-		cfg.Session.MaxMessageSize,
+		maxMsgSize,
 		rl,
 		handshakeTimeout,
 	)
@@ -98,8 +103,10 @@ func (s *Service) SessionTTL() time.Duration {
 	return s.sessions.SessionTTL()
 }
 
+// MaxMessageSize returns the largest relay frame the relay reads from a
+// client: session.max_message_size, or its default when that is 0.
 func (s *Service) MaxMessageSize() int {
-	return s.cfg.Session.MaxMessageSize
+	return s.hub.MaxMessageSize()
 }
 
 func (s *Service) StartedAt() time.Time {
