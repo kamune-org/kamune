@@ -6,17 +6,39 @@
 # the first Debian release that ships both.
 FROM golang:1.26-trixie
 
-ARG NODE_MAJOR=22
+ARG TARGETARCH
+
+# Node.js comes from the official release tarball, pinned by version and
+# checked against the SHA-256 that
+# https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt lists for it.
+# Update all three values together.
+ARG NODE_VERSION=24.21.0
+ARG NODE_SHA256_AMD64=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
+ARG NODE_SHA256_ARM64=6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc pkg-config \
     libgtk-4-dev libwebkitgtk-6.0-dev \
-    curl ca-certificates gnupg \
+    ca-certificates curl xz-utils \
     && pkg-config --atleast-version=4.14 gtk4 \
     && pkg-config --exists webkitgtk-6.0 x11 \
-    && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) arch=x64; sum="$NODE_SHA256_AMD64" ;; \
+        arm64) arch=arm64; sum="$NODE_SHA256_ARM64" ;; \
+        *) echo "no Node.js checksum for $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    file="node-v${NODE_VERSION}-linux-${arch}.tar.xz"; \
+    curl -fsSL -o "/tmp/$file" \
+        "https://nodejs.org/dist/v${NODE_VERSION}/$file"; \
+    echo "$sum  /tmp/$file" | sha256sum -c -; \
+    tar -xJf "/tmp/$file" -C /usr/local --strip-components=1 \
+        --no-same-owner; \
+    rm "/tmp/$file"; \
+    node --version; \
+    npm --version
 
 RUN go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.23
 

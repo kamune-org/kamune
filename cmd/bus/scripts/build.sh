@@ -69,7 +69,7 @@ build_linux() {
 		-w /src/cmd/bus \
 		"$DOCKER_IMAGE" \
 		/bin/sh -c "
-			cd frontend && npm install && cd .. && \
+			cd frontend && npm ci && cd .. && \
 			wails3 build GOOS=linux GOARCH=amd64 \
 				VERSION='$FULL_VERSION' \
 				OUTPUT='build/bin/$output'
