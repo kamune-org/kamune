@@ -7,6 +7,7 @@ frontend/dist
 frontend/bindings
 frontend/node_modules
 build/bin/
+build/linux/appimage/build/
 build/darwin/icons.icns
 build/darwin/Assets.car
 build/windows/icon.ico
