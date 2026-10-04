@@ -447,3 +447,85 @@ func TestClosedRelaySessionDropsReconnectTokens(t *testing.T) {
 		})
 	}
 }
+
+// get_share_info hands out the relay token of the last card again while
+// no peer has used it and it has more than half its lifetime left, and
+// registers a new one otherwise.
+func TestShareInfoReusesFreshRelayToken(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	startRelayServer(t, d, rec, relay)
+	share := func(id ID) string {
+		d.handleGetShareInfo(Command{ID: id})
+		evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == id })
+		a.Equal(EvtResponse, evt.Evt, "share failed: %v", evt.Data)
+		info, _ := evt.Data["relay_info"].(map[string]any)
+		token, _ := info["token"].(string)
+		a.NotEmpty(token)
+		return token
+	}
+
+	first := share("share-1")
+	a.Equal(first, share("share-2"))
+	a.Len(relay.created(), 2)
+
+	// Past half its lifetime, the token is not handed out again.
+	d.mu.Lock()
+	for i, rt := range d.relayTokens {
+		if rt.Token == first {
+			d.relayTokens[i].ExpiresAt = time.Now().Add(rt.TTL / 4)
+		}
+	}
+	d.mu.Unlock()
+	second := share("share-3")
+	a.NotEqual(first, second)
+	a.Len(relay.created(), 3)
+
+	// Nor is a token that the user removed.
+	d.handleRemoveRelayToken(Command{
+		ID: "remove", Params: mustJSON(MapS{"token": second}),
+	})
+	evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == "remove" })
+	a.Equal(EvtResponse, evt.Evt, "remove failed: %v", evt.Data)
+	third := share("share-4")
+	a.NotEqual(second, third)
+	a.Len(relay.created(), 4)
+}
+
+// An expired relay token leaves the token list and its listener leaves
+// the server's listeners.
+func TestExpiredRelayTokenIsRemoved(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	relay.ttl.Store(1)
+	server, rec := newTestDaemon(t, VerificationModeQuick, false)
+	startRelayServer(t, server, rec, relay)
+
+	rec.waitFor(t, func(e recordedEvent) bool {
+		tokens, ok := e.Data["tokens"].([]any)
+		return e.Evt == EvtRelayTokens && ok && len(tokens) == 0
+	})
+	// The server keeps running, and says that no peer can connect.
+	rec.waitFor(t, func(e recordedEvent) bool {
+		msg, _ := e.Data["message"].(string)
+		return e.Evt == EvtLogEntry &&
+			strings.Contains(msg, "no relay token left")
+	})
+	server.mu.RLock()
+	a.Empty(server.relayTokens)
+	a.NotNil(server.server)
+	ml := server.relayListeners
+	server.mu.RUnlock()
+	deadline := time.Now().Add(testEventTimeout)
+	for {
+		ml.mu.Lock()
+		n := len(ml.listeners)
+		ml.mu.Unlock()
+		if n == 0 {
+			break
+		}
+		a.True(time.Now().Before(deadline), "expired listener kept")
+		time.Sleep(10 * time.Millisecond)
+	}
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"slices"
 	"sync"
 
 	"github.com/kamune-org/kamune"
@@ -37,6 +38,7 @@ func (m *multiListener) Add(l kamune.Listener) error {
 		for {
 			cn, err := l.Accept()
 			if err != nil {
+				m.remove(l)
 				return
 			}
 			select {
@@ -48,6 +50,15 @@ func (m *multiListener) Add(l kamune.Listener) error {
 		}
 	}()
 	return nil
+}
+
+// remove forgets l, whose Accept has failed for good.
+func (m *multiListener) remove(l kamune.Listener) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.listeners = slices.DeleteFunc(m.listeners, func(x kamune.Listener) bool {
+		return x == l
+	})
 }
 
 // Done is closed once the listener is closed.

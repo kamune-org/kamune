@@ -1545,8 +1545,9 @@ func (d *Daemon) handleListRelayTokens(cmd Command) {
 }
 
 // handleGetShareInfo returns a share card for the running server. For a
-// relay server it registers a new relay token for the card, after the
-// command returns; see addRelayToken.
+// relay server the card carries the token of the last card while that is
+// fresh, see reusableShareToken, and a newly registered relay token
+// otherwise, after the command returns; see addRelayToken.
 func (d *Daemon) handleGetShareInfo(cmd Command) {
 	d.mu.RLock()
 	if d.server == nil {
@@ -1625,20 +1626,33 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 }
 
 // shareRelayInfo answers get_share_info for a relay server with a card
-// that carries a newly registered relay token.
+// that carries the token of the last card while that is fresh, or a
+// newly registered relay token.
 func (d *Daemon) shareRelayInfo(
 	cmd Command, target relayTarget, emoji, hexFP string,
 ) {
-	rt, code, err := d.addRelayToken(target, nil, "random", "", "")
-	if err != nil {
-		if code == "relay_listen_failed" {
-			code = "relay_token_failed"
-			err = fmt.Errorf("generate relay token: %w", err)
+	d.shareMu.Lock()
+	defer d.shareMu.Unlock()
+	rt, ok := d.reusableShareToken(target)
+	if !ok {
+		var code string
+		var err error
+		rt, code, err = d.addRelayToken(target, nil, "random", "", "")
+		if err != nil {
+			if code == "relay_listen_failed" {
+				code = "relay_token_failed"
+				err = fmt.Errorf("generate relay token: %w", err)
+			}
+			d.emitError(cmd.ID, code, err.Error())
+			return
 		}
-		d.emitError(cmd.ID, code, err.Error())
-		return
+		d.mu.Lock()
+		if d.relayListeners == target.listeners {
+			d.shareListener = rt.listener
+		}
+		d.mu.Unlock()
+		d.addLogEntry("INFO", "Share card: generated relay token: "+rt.Token)
 	}
-	d.addLogEntry("INFO", "Share card: generated relay token: "+rt.Token)
 
 	scheme, host, _ := parseRelayAddr(target.addr)
 	urlStr := fmt.Sprintf(
@@ -1659,6 +1673,31 @@ func (d *Daemon) shareRelayInfo(
 			Password: target.password != "",
 		},
 	})
+}
+
+// reusableShareToken returns the relay token of the last share card of
+// target's server while a peer can still use it for a good while: the
+// token list holds it, no peer has used it and it has more than half
+// its lifetime left. A client that asks for a card again and again so
+// gets the same token, rather than a new relay registration each time.
+func (d *Daemon) reusableShareToken(target relayTarget) (relayToken, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.shareListener == nil || d.relayListeners != target.listeners {
+		return relayToken{}, false
+	}
+	if tt, ok := d.shareListener.(*tokenTracker); ok &&
+		(tt.consumed.Load() || tt.stopping.Load()) {
+		return relayToken{}, false
+	}
+	for _, rt := range d.relayTokens {
+		if rt.listener != d.shareListener {
+			continue
+		}
+		fresh := rt.TTL <= 0 || time.Until(rt.ExpiresAt) > rt.TTL/2
+		return rt, fresh && !rt.Consumed
+	}
+	return relayToken{}, false
 }
 
 // loadChatHistory starts the session's message count and last activity
@@ -1757,19 +1796,9 @@ func (d *Daemon) setStatusIfEmpty(status ConnectionStatus, msg string) {
 // registered for a session to resume on is registered again by
 // awaitRelayResume.
 func (d *Daemon) relayLinkLost(t *tokenTracker) {
-	d.mu.Lock()
-	idx := slices.IndexFunc(d.relayTokens, func(rt relayToken) bool {
-		return rt.listener == t
-	})
-	if idx == -1 {
-		d.mu.Unlock()
+	if !d.dropRelayToken(t) {
 		return
 	}
-	d.relayTokens = slices.Delete(d.relayTokens, idx, idx+1)
-	tokens := slices.Clone(d.relayTokens)
-	d.mu.Unlock()
-
-	d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})
 	if t.resumeOf != "" {
 		d.addLogEntry("WARN",
 			"Relay reconnect listener for session "+t.resumeOf+
@@ -1780,6 +1809,41 @@ func (d *Daemon) relayLinkLost(t *tokenTracker) {
 		"generate a new relay token"
 	d.addLogEntry("WARN", msg)
 	d.emitError("", "relay_link_lost", msg)
+}
+
+// relayTokenExpired removes the relay token of t, which expired before a
+// peer used it.
+func (d *Daemon) relayTokenExpired(t *tokenTracker) {
+	if d.dropRelayToken(t) {
+		d.addLogEntry("INFO", "Relay token expired: "+t.token)
+	}
+}
+
+// dropRelayToken removes the relay token whose listener is t from the
+// token list and emits the new list, with a warning when it is empty. It
+// returns false when the list does not hold t.
+func (d *Daemon) dropRelayToken(t *tokenTracker) bool {
+	d.mu.Lock()
+	idx := slices.IndexFunc(d.relayTokens, func(rt relayToken) bool {
+		return rt.listener == t
+	})
+	if idx == -1 {
+		d.mu.Unlock()
+		return false
+	}
+	d.relayTokens = slices.Delete(d.relayTokens, idx, idx+1)
+	tokens := slices.Clone(d.relayTokens)
+	d.mu.Unlock()
+
+	d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})
+	if len(tokens) == 0 {
+		// The server keeps running: new tokens can still be registered.
+		d.addLogEntry("WARN",
+			"The relay server has no relay token left; no peer can "+
+				"connect until generate_relay_token or get_share_info "+
+				"registers one")
+	}
+	return true
 }
 
 // markRelayTokenConsumed flips the consumed flag and schedules removal after
@@ -1870,6 +1934,7 @@ func (d *Daemon) stopRelayResources() {
 	listeners := d.relayListeners
 	d.relayListeners = nil
 	d.relayTokens = nil
+	d.shareListener = nil
 	d.relayAddr = ""
 	d.relayPassword = ""
 	d.mu.Unlock()

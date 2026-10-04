@@ -149,6 +149,12 @@ type Daemon struct {
 	relayResumeWindow time.Duration
 	relayTokens       []relayToken
 	relayListeners    *multiListener
+	// shareListener is the listener of the relay token on the last share
+	// card, which get_share_info hands out again while it is fresh; see
+	// reusableShareToken. shareMu makes those calls take turns, so that
+	// calls made together share a token.
+	shareListener kamune.Listener
+	shareMu       sync.Mutex
 
 	p2pTokens    []p2pToken
 	p2pListener  kamune.Listener

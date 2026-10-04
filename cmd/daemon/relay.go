@@ -52,10 +52,12 @@ type tokenTracker struct {
 	sessionTTL time.Duration
 	expiresAt  time.Time
 	app        *Daemon
-	expiryOnce sync.Once
-	expiryFn   func()
-	dead       chan struct{}
-	deadOnce   sync.Once
+	// expiryMu guards expiry, the timer that stops the listener once the
+	// token expires.
+	expiryMu sync.Mutex
+	expiry   *time.Timer
+	dead     chan struct{}
+	deadOnce sync.Once
 	// sessionID is the session that ran on the token's connection. It is
 	// written and read under app.mu.
 	sessionID string
@@ -178,22 +180,25 @@ func loadRelayPool(store *storage.Storage, sessionID string) [][]byte {
 }
 
 func (t *tokenTracker) cancelExpiry() {
-	t.expiryOnce.Do(func() {
-		if t.expiryFn != nil {
-			t.expiryFn()
-		}
-	})
+	t.expiryMu.Lock()
+	defer t.expiryMu.Unlock()
+	if t.expiry != nil {
+		t.expiry.Stop()
+	}
 }
 
+// startExpiryTimer stops t once its token expires and removes the token
+// from the daemon's token list.
 func startExpiryTimer(t *tokenTracker) {
 	if t.ttl <= 0 {
 		return
 	}
-	timer := time.AfterFunc(t.ttl, func() {
+	t.expiryMu.Lock()
+	defer t.expiryMu.Unlock()
+	t.expiry = time.AfterFunc(t.ttl, func() {
 		t.Stop()
-		t.app.addLogEntry("INFO", "Relay token expired: "+t.token)
+		t.app.relayTokenExpired(t)
 	})
-	t.expiryFn = func() { timer.Stop() }
 }
 
 // listenRelayTracked registers with the relay at relayAddr, for at most

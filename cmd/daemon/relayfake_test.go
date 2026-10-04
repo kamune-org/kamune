@@ -23,8 +23,9 @@ import (
 // between the two. A dialer whose token no listener holds has its
 // connection closed.
 type fakeRelay struct {
-	ln  net.Listener
-	ttl uint32
+	ln net.Listener
+	// ttl is the token TTL, in seconds, that the relay reports.
+	ttl atomic.Uint32
 	// wrongToken makes the relay answer a listener registration that
 	// asks for a token with another one.
 	wrongToken atomic.Bool
@@ -53,11 +54,11 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 	a.NoError(err)
 	r := &fakeRelay{
 		ln:      ln,
-		ttl:     600,
 		waiting: make(map[string]*exchange.Channel),
 		conns:   make(map[string][]net.Conn),
 		changed: make(chan struct{}, 1),
 	}
+	r.ttl.Store(600)
 	go r.serve()
 	t.Cleanup(r.close)
 	return r
@@ -150,7 +151,7 @@ func (r *fakeRelay) handle(conn net.Conn) {
 
 func (r *fakeRelay) reply(ch *exchange.Channel, token []byte) {
 	b, _ := proto.Marshal(&pb.Frame{Kind: &pb.Frame_Registered{
-		Registered: &pb.Registered{Token: token, TtlSeconds: r.ttl},
+		Registered: &pb.Registered{Token: token, TtlSeconds: r.ttl.Load()},
 	}})
 	_ = ch.WriteBytes(b)
 }
