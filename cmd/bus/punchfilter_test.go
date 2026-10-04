@@ -9,11 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPunchFilter_Admits checks which sources a punchFilter passes on: a
-// matched peer's IP, from any port, until matchWindow ends, and the exact
-// address of a held session until it is released.
+// TestPunchFilter_Admits checks which sources a punchFilter passes on:
+// the direct peer's IP, and a matched peer's IP until matchWindow ends,
+// from any port, and the exact address of a held session until it is
+// released.
 func TestPunchFilter_Admits(t *testing.T) {
 	peer := netip.MustParseAddr("192.0.2.1")
+	direct := netip.MustParseAddr("203.0.113.1")
 	held := netip.MustParseAddrPort("198.51.100.1:4000")
 	tests := []struct {
 		name   string
@@ -51,6 +53,12 @@ func TestPunchFilter_Admits(t *testing.T) {
 			name: "other port of a held session",
 			src:  netip.AddrPortFrom(held.Addr(), 4001),
 		},
+		{
+			name:   "direct peer",
+			after:  matchWindow * 10,
+			src:    netip.AddrPortFrom(direct, 5),
+			admits: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -58,6 +66,7 @@ func TestPunchFilter_Admits(t *testing.T) {
 			now := time.Unix(1000, 0)
 			f := newPunchFilter(nil)
 			f.now = func() time.Time { return now }
+			f.direct = direct
 			f.expect(peer)
 			f.hold(net.UDPAddrFromAddrPort(held))
 			now = now.Add(tt.after)

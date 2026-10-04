@@ -27,21 +27,25 @@ const (
 // broker NOTIFY, or a datagram from anyone who learns the port, would
 // reach the kamune server as a new connection. punchFilter hands each
 // packet from the broker to onBroker instead, and passes on only the
-// packets of an expected peer: from the IP address of a peer the broker
-// matched within matchWindow, or from the address of a session the
-// listener accepted, until that session closes.
+// packets of an expected peer: from the IP address of the direct P2P
+// peer, from that of a peer the broker matched within matchWindow, or
+// from the address of a session the listener accepted, until that
+// session closes.
 //
-// Only the IP address of a matched peer is checked, not its port, as a
-// NAT may send the peer's packets from a port other than the one the
-// broker saw.
+// Only the IP address of a direct or matched peer is checked, not its
+// port: a NAT may send the peer's packets from a port other than the one
+// the broker saw, and a direct P2P dialer sends from a port of its own.
 //
 // punchFilter lacks the methods of *net.UDPConn that kcp-go uses for
 // batch reads, so kcp-go reads it through ReadFrom.
 type punchFilter struct {
 	conn *net.UDPConn
 	// broker is the broker's address, and onBroker gets its packets.
+	// Both are unset for a direct P2P listener.
 	broker   netip.AddrPort
 	onBroker func(pkt []byte)
+	// direct is the IP address of the direct P2P peer, if any.
+	direct netip.Addr
 
 	mu      sync.Mutex
 	matched map[netip.Addr]time.Time
@@ -120,6 +124,9 @@ func (f *punchFilter) hold(addr net.Addr) (release func()) {
 
 // admits reports whether a packet from src is passed on to kcp-go.
 func (f *punchFilter) admits(src netip.AddrPort) bool {
+	if f.direct.IsValid() && src.Addr() == f.direct {
+		return true
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.live[src] > 0 {

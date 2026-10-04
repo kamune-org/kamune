@@ -17,8 +17,13 @@ import (
 // from a peer whose address is known upfront. It sends a NAT-kick burst to
 // the peer's address to open the local NAT mapping, then waits for the peer's
 // KCP SYN on the same socket. Used for UDP hole punching without a broker.
+// kcp-go reads the socket through a punchFilter that drops every packet
+// from an IP address other than the peer's, so only the peer can open a
+// session. The port is not checked, as the dialer sends from a port of
+// its own.
 type directP2PListener struct {
 	conn      *net.UDPConn
+	filter    *punchFilter
 	kcp       *kcp.Listener
 	peerAddr  *net.UDPAddr
 	ctx       context.Context
@@ -50,13 +55,17 @@ func newDirectP2PListener(listenAddr, peerAddr string) (*directP2PListener, erro
 
 	l := &directP2PListener{
 		conn:     conn,
+		filter:   newPunchFilter(conn),
 		peerAddr: peerUDPAddr,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
+	if ap, ok := addrPortOf(peerUDPAddr); ok {
+		l.filter.direct = ap.Addr()
+	}
 
-	// Start the KCP listener on the punch socket.
-	kcpL, err := kcp.ServeConn(nil, 0, 0, conn)
+	// Start the KCP listener on the punch socket, behind the filter.
+	kcpL, err := kcp.ServeConn(nil, 0, 0, l.filter)
 	if err != nil {
 		conn.Close()
 		cancel()
