@@ -292,9 +292,10 @@ enum Route {
 - Routes `7–8` and `13` are **session routes** and MUST only appear after a session is
   fully established.
   - Route `8` (`ROUTE_CLOSE_TRANSPORT`) signals a **graceful teardown**.
-    Upon receiving this route, the receiver MUST close the session and surface
-    a peer-disconnected condition to the application layer. No further
-    messages should be processed for this session.
+    Upon receiving this route, the receiver MUST close the connection,
+    invalidate the session's resumption tokens (§6.6), and surface a
+    peer-disconnected condition to the application layer. It MUST NOT process
+    any message that follows on the connection.
   - Route `13` (`ROUTE_SESSION_DATA`) carries session-level metadata between
     peers. The payload is a `SessionData` message with arbitrary key-value
     fields. The application layer is responsible for dispatching and handling
@@ -746,10 +747,14 @@ When a peer decides to close a session, it performs a **graceful teardown**:
 
 1. The peer sends a `ROUTE_CLOSE_TRANSPORT` message with an empty payload,
    encrypted as a regular session message.
-2. After the close message is written, the underlying transport connection
-   is closed.
+2. After the close message is written, or once a time limit passes (5 seconds
+   in the reference implementation), the underlying transport connection is
+   closed.
 3. The receiving peer decrypts the message, detects `ROUTE_CLOSE_TRANSPORT`,
-   and surfaces a peer-disconnected condition from its receive operation.
+   closes its connection, and surfaces a peer-disconnected condition from its
+   receive operation. Every later receive returns the same condition, and
+   sends fail with a connection-closed condition. The application does not
+   need to close the transport; closing it again has no effect.
 4. The receiving peer's receive loop exits cleanly, and the application may
    surface a "Peer disconnected" notification.
 
@@ -762,13 +767,23 @@ connection-closed condition instead. This allows applications to distinguish:
 | Peer disconnected | Remote peer closed the session gracefully.         |
 | Connection closed | The connection was dropped (network issue, crash). |
 
-The close message is sent **best-effort** — if the connection is already broken,
-the send is skipped and the transport is closed directly.
+The close message is sent **best-effort**. If the connection is already broken,
+or the frame is not written within the time limit, for example because the
+peer stopped reading, the connection is closed anyway, and the peer sees a
+connection-closed condition instead of a peer-disconnected one.
 
-When a peer sends or receives `ROUTE_CLOSE_TRANSPORT`, the session is considered
-intentionally closed, and all stored resumption tokens for that session MUST be
-invalidated. This prevents an explicitly torn-down session from being resumed
-later. See §6.8.1 for details on token invalidation scope.
+When a peer closes a session, whether or not its close message was sent, or
+receives `ROUTE_CLOSE_TRANSPORT`, the session is considered intentionally
+closed, and all stored resumption tokens for that session MUST be invalidated.
+The same applies when a session ends on a received frame that cannot be
+processed (§14). This prevents an explicitly torn-down session from being
+resumed later. See §6.8.1 for details on token invalidation scope.
+
+To drop a connection but keep its session resumable, for example after a
+connection-closed condition, an implementation closes the connection without
+sending `ROUTE_CLOSE_TRANSPORT` and leaves the tokens in place. The reference
+implementation offers `Transport.CloseAbort` for this; `Transport.Close` ends
+the session.
 
 ### 6.7 Keep-Alive
 
@@ -863,8 +878,13 @@ Initiator                                   Responder
   window is **unresumeable** — the initiator must fall back to a full
   Introduction.
 - **Invalidation on explicit close.** Tokens are cleared when the session is
-  intentionally closed (§6.6). Involuntary disconnections (network failure,
-  crash, relay TTL) do **not** invalidate tokens.
+  intentionally closed (§6.6) or ends on a received frame that cannot be
+  processed (§14). Involuntary disconnections (network failure, crash, relay
+  TTL) do **not** invalidate tokens. A transport clears only the token set it
+  is responsible for: the set it stored or, if it stored none, the tokens left
+  of the session it resumed. Once a resumption on a new connection has stored
+  a fresh set, ending an earlier transport of the same session leaves that set
+  in place.
 
 #### 6.8.2 Wire Messages
 
@@ -1585,6 +1605,7 @@ is one of `frameTargetSize` − 1 bytes, which no user message reaches (§4.1).
 | `keySize`                  | 32 bytes                               | ChaCha20-Poly1305 / HKDF output key size                                                                                |
 | `defaultReadTimeout`       | 5 minutes                              | Default read deadline applied to the underlying transport                                                               |
 | `defaultWriteTimeout`      | 1 minute                               | Default write deadline applied to the underlying transport                                                              |
+| `closeFrameTimeout`        | 5 seconds                              | Longest time a closing peer waits for its close message to be written (§6.6)                                            |
 | `defaultDialTimeout`       | 10 seconds                             | Default connection establishment timeout                                                                                |
 | `defaultPeerExpiry`        | 7 days                                 | Default peer identity expiration                                                                                        |
 | `lengthPrefixSize`         | 2 bytes                                | Size of the big-endian message length header                                                                            |
@@ -1604,24 +1625,33 @@ The following table lists protocol failure conditions. An implementation MAY
 map them to language- or application-specific errors, but the stated connection
 action is normative.
 
-| Condition                                                                                                                 | Action                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| An operation is attempted on a server that has already shut down.                                                         | Surfaced as a server-closed error.                                         |
-| An operation is attempted on a connection that has already been closed.                                                   | Surfaced as a connection-closed error.                                     |
-| The remote peer sends a `ROUTE_CLOSE_TRANSPORT` frame.                                                                    | Surfaced as a peer-disconnected error; the receive loop exits cleanly.     |
-| A read deadline is exceeded.                                                                                              | Surfaced as a receive-timeout error. Non-fatal; the caller may retry.      |
-| A signature on a received message fails verification.                                                                     | Surfaced as a signature error; the connection is terminated.               |
-| A challenge echo does not match the original challenge, or the remote-verifier callback rejects the peer.                 | Surfaced as a verification error; the connection is terminated.            |
-| A user message exceeds the user-message cap (~60 KiB), or its encoded frame would exceed the wire-format maximum.         | Surfaced as a message-too-large error; the message is not sent.            |
-| A received sequence number does not equal the expected value (duplicate or gap).                                          | Surface an out-of-sync error, close the connection, and discard session state. |
-| A received route does not match the route expected for the current protocol phase.                                        | Surfaced as an unexpected-route error; the connection is terminated.       |
-| A received message uses `ROUTE_INVALID` (0) or any unrecognized route value.                                              | Surfaced as an invalid-route error; the message is rejected.               |
-| The remote peer's application version is incompatible with the local version (major mismatch, or pre-1.0 minor mismatch). | Surfaced as a version-mismatch error; the connection is terminated.        |
-| A peer's identity has exceeded the configured expiry duration.                                                            | Surfaced as a peer-expired error; the peer record is removed on lookup.    |
-| A resume request references a session ID not found in storage.                                                            | The request is rejected; the initiator may retry with a cold Introduction. |
-| A resume request signature fails verification against the stored public key.                                              | The request is rejected; the connection is terminated.                     |
-| A resume request references a session whose resumption window has elapsed.                                                | The request is rejected; the initiator may retry with a cold Introduction. |
-| A resume request presents a token not present in the session's unused token set.                                          | The request is rejected; the initiator may retry with a cold Introduction. |
+| Condition                                                                                                                 | Action                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| An operation is attempted on a server that has already shut down.                                                         | Surfaced as a server-closed error.                                                                  |
+| An operation is attempted on a connection that has already been closed.                                                   | Surfaced as a connection-closed error.                                                              |
+| The remote peer sends a `ROUTE_CLOSE_TRANSPORT` frame.                                                                    | Surfaced as a peer-disconnected error; the connection is closed and the receive loop exits cleanly. |
+| A read deadline is exceeded.                                                                                              | Surfaced as a receive-timeout error. Non-fatal; the caller may retry.                               |
+| A signature on a received message fails verification.                                                                     | Surfaced as a signature error; the connection is terminated.                                        |
+| A received session frame fails AEAD decryption.                                                                           | Surfaced as a decryption error; the connection is terminated.                                       |
+| A challenge echo does not match the original challenge, or the remote-verifier callback rejects the peer.                 | Surfaced as a verification error; the connection is terminated.                                     |
+| A user message exceeds the user-message cap (~60 KiB), or its encoded frame would exceed the wire-format maximum.         | Surfaced as a message-too-large error; the message is not sent.                                     |
+| A received sequence number does not equal the expected value (duplicate or gap).                                          | Surface an out-of-sync error, close the connection, and discard session state.                      |
+| A received route does not match the route expected for the current protocol phase.                                        | Surfaced as an unexpected-route error; the connection is terminated.                                |
+| A received message uses `ROUTE_INVALID` (0) or any unrecognized route value.                                              | Surfaced as an invalid-route error; the message is rejected.                                        |
+| The remote peer's application version is incompatible with the local version (major mismatch, or pre-1.0 minor mismatch). | Surfaced as a version-mismatch error; the connection is terminated.                                 |
+| A peer's identity has exceeded the configured expiry duration.                                                            | Surfaced as a peer-expired error; the peer record is removed on lookup.                             |
+| A resume request references a session ID not found in storage.                                                            | The request is rejected; the initiator may retry with a cold Introduction.                          |
+| A resume request signature fails verification against the stored public key.                                              | The request is rejected; the connection is terminated.                                              |
+| A resume request references a session whose resumption window has elapsed.                                                | The request is rejected; the initiator may retry with a cold Introduction.                          |
+| A resume request presents a token not present in the session's unused token set.                                          | The request is rejected; the initiator may retry with a cold Introduction.                          |
+
+When a received session frame ends the session (`ROUTE_CLOSE_TRANSPORT`, a
+decryption or signature failure, a sequence error, or an unexpected route), the
+receiver closes the connection, invalidates the session's resumption tokens
+(§6.6), and returns the same error from every later receive; sends then fail
+with a connection-closed error. Only `ROUTE_CLOSE_TRANSPORT` tells the peer. In
+the other cases the peer sees the connection drop, as a connection-closed
+condition, and an attempt to resume the session fails.
 
 ---
 
