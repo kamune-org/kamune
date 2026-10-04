@@ -89,9 +89,14 @@ func (s *certStore) selfSigned() (tls.Certificate, error) {
 	return cert, nil
 }
 
-// newServerTLSConfig returns the server TLS config for cert.
+// newServerTLSConfig returns the server TLS config for cert. It accepts
+// TLS 1.3 only: an older handshake sends the certificate in the clear, so
+// anyone on the path could read it, and every kamune client speaks 1.3.
 func newServerTLSConfig(cert tls.Certificate) *tls.Config {
-	return &tls.Config{Certificates: []tls.Certificate{cert}}
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS13,
+	}
 }
 
 // loadCert loads the certificate and key an operator configured.
@@ -238,10 +243,13 @@ func createSelfSignedCert() (certPEM, keyPEM []byte, err error) {
 		return nil, nil, fmt.Errorf("generate serial: %w", err)
 	}
 
+	// The subject and names are those of any certificate made for a
+	// local test server. Nothing in it names the relay or kamune, so a
+	// probe that fetches it learns no more than that it is self-signed.
 	template := x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName: "Kamune Relay",
+			CommonName: "localhost",
 		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(10 * 365 * 24 * time.Hour),

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -270,4 +271,75 @@ func writeSelfSignedPEM(t *testing.T, certPath, keyFile string) {
 	r.NoError(os.MkdirAll(filepath.Dir(certPath), 0755))
 	r.NoError(os.WriteFile(certPath, certPEM, 0644))
 	r.NoError(os.WriteFile(keyFile, keyPEM, 0600))
+}
+
+// TestCreateSelfSignedCert_GenericSubject checks that the self-signed
+// certificate, which any client or probe can fetch, does not name the
+// relay or kamune.
+func TestCreateSelfSignedCert_GenericSubject(t *testing.T) {
+	a := require.New(t)
+	certPEM, _, err := createSelfSignedCert()
+	a.NoError(err)
+	block, _ := pem.Decode(certPEM)
+	a.NotNil(block)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	a.NoError(err)
+
+	a.Equal("CN=localhost", cert.Subject.String())
+	a.Equal(cert.Subject.String(), cert.Issuer.String())
+	for _, s := range append(
+		[]string{cert.Subject.String(), cert.Issuer.String()},
+		cert.DNSNames...,
+	) {
+		a.NotContains(strings.ToLower(s), "kamune")
+		a.NotContains(strings.ToLower(s), "relay")
+	}
+}
+
+// TestServerTLSConfig_RequiresTLS13 checks that the tls and wss listeners
+// refuse TLS 1.2, which would send the certificate in the clear.
+func TestServerTLSConfig_RequiresTLS13(t *testing.T) {
+	tests := []struct {
+		name       string
+		maxVersion uint16
+		wantErr    bool
+	}{
+		{name: "tls 1.2", maxVersion: tls.VersionTLS12, wantErr: true},
+		{name: "tls 1.3", maxVersion: tls.VersionTLS13},
+	}
+	serverCfg := testTLSConfig(t)
+	require.New(t).Equal(uint16(tls.VersionTLS13), serverCfg.MinVersion)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			ln, err := tls.Listen("tcp", "127.0.0.1:0", serverCfg)
+			a.NoError(err)
+			t.Cleanup(func() { _ = ln.Close() })
+			go func() {
+				conn, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				_ = conn.(*tls.Conn).Handshake()
+				_ = conn.Close()
+			}()
+
+			dialer := &net.Dialer{Timeout: 10 * time.Second}
+			conn, err := tls.DialWithDialer(
+				dialer, "tcp", ln.Addr().String(), &tls.Config{
+					InsecureSkipVerify: true,
+					MaxVersion:         tc.maxVersion,
+				},
+			)
+			if tc.wantErr {
+				a.Error(err)
+				return
+			}
+			a.NoError(err)
+			defer conn.Close()
+			a.Equal(
+				uint16(tls.VersionTLS13), conn.ConnectionState().Version,
+			)
+		})
+	}
 }
