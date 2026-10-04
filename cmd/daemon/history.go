@@ -238,6 +238,7 @@ func (d *Daemon) handleGetHistoryMessages(cmd Command) {
 			Text:       string(e.Data),
 			DataBase64: base64.StdEncoding.EncodeToString(e.Data),
 			Timestamp:  e.Timestamp,
+			SentAt:     e.SentAt,
 			IsLocal:    e.Sender == storage.SenderLocal,
 		}
 	}

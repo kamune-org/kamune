@@ -162,6 +162,11 @@ func TestGetHistoryMessagesPages(t *testing.T) {
 				_, err := fmt.Sscanf(text, "m%d", &i)
 				a.NoError(err)
 				a.Equal(i%2 == 0, msg["is_local"], "sender of %s", text)
+				sentAt, err := time.Parse(time.RFC3339Nano,
+					msg["sent_at"].(string))
+				a.NoError(err)
+				a.True(start.Add(time.Duration(i)*time.Second).
+					Equal(sentAt), "sent_at of %s: %v", text, sentAt)
 				data, err := base64.StdEncoding.DecodeString(
 					msg["data_base64"].(string),
 				)

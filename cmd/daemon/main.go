@@ -228,11 +228,15 @@ type FingerprintInfo struct {
 	Numeric string `json:"numeric"`
 }
 
-// MessageInfo is a single chat message in a session's history.
+// MessageInfo is a single chat message in a session's history. Timestamp
+// is when the message was stored, by the local clock, and orders the
+// history. SentAt is the time its sender put on it, which the sender can
+// set to anything; it is left out for messages stored without one.
 type MessageInfo struct {
 	Text       string    `json:"text"`
 	DataBase64 string    `json:"data_base64,omitempty"`
 	Timestamp  time.Time `json:"timestamp"`
+	SentAt     time.Time `json:"sent_at,omitzero"`
 	IsLocal    bool      `json:"is_local"`
 }
 

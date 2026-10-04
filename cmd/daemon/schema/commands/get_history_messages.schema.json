@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-get-history-messages",
   "title": "get_history_messages params",
-  "description": "Fetches one page of messages of a history session, oldest first. The session must have been loaded with load_history; otherwise the command fails with history_not_loaded. The response carries messages, total (all messages of the session), and the offset and limit that were used.",
+  "description": "Fetches one page of messages of a history session, oldest first. The session must have been loaded with load_history; otherwise the command fails with history_not_loaded. The response carries messages, total (all messages of the session), and the offset and limit that were used. Each message has text, data_base64, is_local, timestamp, when it was stored by the local clock, which orders the history, and sent_at, the time its sender put on it, which the sender can set to anything and which is left out for messages stored without one.",
   "type": "object",
   "properties": {
     "session_id": { "type": "string" },
