@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net"
 	"os"
@@ -813,6 +814,11 @@ func TestTransportCloseDoesNotRecreateSession(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			a := require.New(t)
+			rec := &logRecorder{}
+			prev := slog.Default()
+			slog.SetDefault(slog.New(rec))
+			t.Cleanup(func() { slog.SetDefault(prev) })
+
 			store := newTransportTestStorage(t)
 			tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
 			tr.storage = store
@@ -822,6 +828,10 @@ func TestTransportCloseDoesNotRecreateSession(t *testing.T) {
 			sessions, err := store.ListSessions()
 			a.NoError(err)
 			a.Empty(sessions)
+			a.Empty(
+				rec.levels("invalidate resumption tokens"),
+				"a missing session has no tokens to invalidate",
+			)
 		})
 	}
 }
