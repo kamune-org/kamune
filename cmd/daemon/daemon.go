@@ -144,8 +144,11 @@ type Daemon struct {
 	relaySessionTTL time.Duration
 	relayTimeout    time.Duration
 	matchTimeout    time.Duration
-	relayTokens     []relayToken
-	relayListeners  *multiListener
+	// relayResumeWindow bounds how long after a relay session drops the
+	// server registers listeners for its peer to resume it on.
+	relayResumeWindow time.Duration
+	relayTokens       []relayToken
+	relayListeners    *multiListener
 
 	p2pTokens    []p2pToken
 	p2pListener  kamune.Listener
@@ -181,21 +184,22 @@ type Daemon struct {
 func NewDaemon() *Daemon {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Daemon{
-		sessions:       make(map[string]*liveSession),
-		histSessions:   make([]*historySession, 0),
-		output:         json.NewEncoder(os.Stdout),
-		ctx:            ctx,
-		cancel:         cancel,
-		verifMode:      VerificationModeQuick,
-		relayTimeout:   defaultRelayTimeout,
-		matchTimeout:   defaultMatchTimeout,
-		status:         StatusDisconnected,
-		statusMsg:      "Not connected",
-		verifRequests:  make(map[int64]*pendingVerification),
-		logBufferSize:  200,
-		logEntries:     make([]LogEntryInfo, 0, 200),
-		logLevel:       "INFO",
-		fingerprintFmt: "hex",
+		sessions:          make(map[string]*liveSession),
+		histSessions:      make([]*historySession, 0),
+		output:            json.NewEncoder(os.Stdout),
+		ctx:               ctx,
+		cancel:            cancel,
+		verifMode:         VerificationModeQuick,
+		relayTimeout:      defaultRelayTimeout,
+		matchTimeout:      defaultMatchTimeout,
+		relayResumeWindow: defaultRelayResumeWindow,
+		status:            StatusDisconnected,
+		statusMsg:         "Not connected",
+		verifRequests:     make(map[int64]*pendingVerification),
+		logBufferSize:     200,
+		logEntries:        make([]LogEntryInfo, 0, 200),
+		logLevel:          "INFO",
+		fingerprintFmt:    "hex",
 	}
 }
 

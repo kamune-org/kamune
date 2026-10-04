@@ -22,6 +22,11 @@ import (
 // reply. It does not limit the connection after that.
 const defaultRelayTimeout = 15 * time.Second
 
+// defaultRelayResumeWindow bounds how long after a relay session drops
+// the server registers listeners for its peer to resume it on. A daemon
+// or bus dialer gives up reconnecting well within it.
+const defaultRelayResumeWindow = 10 * time.Minute
+
 func wrapRelayError(scheme, host string, password bool, err error) error {
 	var hint string
 	if strings.Contains(err.Error(), "received close frame") {
@@ -61,6 +66,9 @@ type tokenTracker struct {
 	consumed atomic.Bool
 	// stopping is set once the daemon stops or closes the listener.
 	stopping atomic.Bool
+	// removed is set, before the listener is closed, when the user
+	// removed the token: no listener is registered again for resumeOf.
+	removed atomic.Bool
 }
 
 type trackingConn struct {
@@ -144,6 +152,17 @@ func stampRelaySession(meta any, sessionID string) {
 	if tt, ok := meta.(*tokenTracker); ok && tt != nil {
 		tt.sessionID = sessionID
 	}
+}
+
+// relayResumable reports whether the session sessionID may still be
+// resumed: it has resumption tokens left. Closing a session, on either
+// side, deletes them.
+func relayResumable(store *storage.Storage, sessionID string) bool {
+	if store == nil {
+		return false
+	}
+	m, err := store.GetMeta(sessionID, storage.ResumptionTokensKey)
+	return err == nil && len(decodeTokenList(m.Value())) > 0
 }
 
 // loadRelayPool returns the relay reconnect tokens stored for sessionID.
@@ -272,9 +291,53 @@ func listenRelay(
 		result, err = relayconn.ListenRelay(ctx, host, opts...)
 	}
 	if err != nil {
-		return nil, "", 0, 0, wrapRelayError(scheme, host, password != "", err)
+		wrapped := wrapRelayError(scheme, host, password != "", err)
+		if registerSent(err) {
+			wrapped = &tokenSentError{err: wrapped}
+		}
+		return nil, "", 0, 0, wrapped
 	}
 	return result.Listener, hex.EncodeToString(result.Token), result.TTL, result.SessionTTL, nil
+}
+
+// tokenSentError is the error of a relay registration that failed after
+// it had sent its token to the relay.
+type tokenSentError struct{ err error }
+
+func (e *tokenSentError) Error() string { return e.err.Error() }
+func (e *tokenSentError) Unwrap() error { return e.err }
+
+// relayTokenSent reports whether err, from listenRelay, is that of a
+// registration that sent its token to the relay before it failed.
+func relayTokenSent(err error) bool {
+	var sent *tokenSentError
+	return errors.As(err, &sent)
+}
+
+// relayDialSteps begin the errors of the relayconn Listen helpers that
+// could not connect to the relay.
+var relayDialSteps = []string{
+	"relay ws dial:", "relay wss dial:", "tcp dial:", "tls dial:",
+}
+
+// registerSent reports whether err, from a relayconn Listen helper,
+// came after the helper sent the relay its Register frame, which holds
+// the token. relayconn has no typed error for that, so it goes by the
+// step that its error names: connecting, the HPKE exchange and the
+// password come before the Register frame, and the steps after it name
+// the frame, or are a wrong token in the relay's answer.
+func registerSent(err error) bool {
+	if errors.Is(err, relayconn.ErrRelayTokenMismatch) ||
+		errors.Is(err, relayconn.ErrInvalidRelayToken) {
+		return true
+	}
+	msg := err.Error()
+	for _, step := range relayDialSteps {
+		if strings.HasPrefix(msg, step) {
+			return false
+		}
+	}
+	return strings.Contains(msg, "register")
 }
 
 func dialRelayFunc(relayAddr, tokenHex, password string, insecureSkipVerify bool) (func(string) (kamune.Conn, error), error) {

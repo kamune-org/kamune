@@ -6,6 +6,7 @@ import (
 	"net"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,11 +25,20 @@ import (
 type fakeRelay struct {
 	ln  net.Listener
 	ttl uint32
+	// wrongToken makes the relay answer a listener registration that
+	// asks for a token with another one.
+	wrongToken atomic.Bool
+	// hangUp makes the relay close a listener registration's connection
+	// without an answer.
+	hangUp atomic.Bool
 
 	mu sync.Mutex
 	// creates holds the hex token of every listener registration, in
 	// the order they arrived.
 	creates []string
+	// asked holds the hex token of every listener registration that
+	// asked for one, answered or not.
+	asked []string
 	// waiting holds the listeners that no dialer has joined yet.
 	waiting map[string]*exchange.Channel
 	// conns holds every connection by the hex token it registered or
@@ -85,6 +95,22 @@ func (r *fakeRelay) handle(conn net.Conn) {
 	token := frame.GetRegister().GetToken()
 	switch frame.GetRegister().GetMode() {
 	case pb.Register_MODE_CREATE:
+		if len(token) > 0 {
+			r.mu.Lock()
+			r.asked = append(r.asked, hex.EncodeToString(token))
+			r.mu.Unlock()
+		}
+		switch {
+		case r.hangUp.Load():
+			_ = conn.Close()
+			return
+		case r.wrongToken.Load() && len(token) > 0:
+			other := make([]byte, len(token))
+			_, _ = rand.Read(other)
+			r.reply(ch, other)
+			_ = conn.Close()
+			return
+		}
 		if len(token) == 0 {
 			token = make([]byte, 16)
 			_, _ = rand.Read(token)
@@ -169,6 +195,14 @@ func (r *fakeRelay) created() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return slices.Clone(r.creates)
+}
+
+// askedFor returns the hex tokens that listener registrations asked for
+// so far.
+func (r *fakeRelay) askedFor() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.asked)
 }
 
 // waitCreated waits until n listeners have registered and returns their

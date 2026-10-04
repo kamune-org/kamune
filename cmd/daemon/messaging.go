@@ -208,6 +208,7 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 			switch {
 			case errors.Is(err, kamune.ErrPeerDisconnected):
 				d.addLogEntry("INFO", "Peer disconnected: "+session.ID)
+				d.dropRelayPool(session.ID)
 			case errors.Is(err, kamune.ErrConnClosed):
 				d.addLogEntry("INFO", "Connection closed: "+session.ID)
 				if d.reconnectSession(session) {

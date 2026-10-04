@@ -866,9 +866,12 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 
 	defer close(session.ReceiveDone)
 	err := d.receiveMessagesBlocking(session)
-	// A session the daemon closed itself is no longer listed.
+	// A session the daemon closed itself is no longer listed. Only a
+	// session whose connection dropped may be resumed.
 	if d.finishSession(session) && errors.Is(err, kamune.ErrConnClosed) {
 		d.resumeRelaySession(t.AcceptedMeta(), sessionID)
+	} else {
+		d.dropRelayPool(sessionID)
 	}
 	return nil
 }
@@ -905,6 +908,7 @@ func (d *Daemon) handleCloseSession(cmd Command) {
 			d.addLogEntry("WARN", "Failed to clear resumption tokens: "+err.Error())
 		}
 	}
+	d.dropRelayPool(params.SessionID)
 
 	if transport != nil {
 		if err := transport.Close(); err != nil {
@@ -1224,20 +1228,33 @@ func (d *Daemon) resumeRelaySession(meta any, sessionID string) {
 // awaitRelayResume keeps a relay listener registered with one of the
 // reconnect tokens of sessionID, a relay session of target's server
 // whose connection dropped, so that its peer can resume the session
-// through the relay. When the listener ends before a session has run on
-// it, it registers another one after a short wait. It returns once a
-// session has run on such a listener, when the server stops, or when no
-// reconnect token is stored for the session or the relay takes none.
+// through the relay. Each token is registered once and then removed
+// from the stored pool, as is a token whose registration failed after
+// the relay had it. When the listener ends before a session has run on
+// it, or the relay takes no token, it tries again after a short wait. It
+// returns once a session has run on such a listener, when the user
+// removed its token, when the server stops, when the session can no
+// longer be resumed or has no reconnect token left, and
+// d.relayResumeWindow after it started.
 func (d *Daemon) awaitRelayResume(target relayTarget, sessionID string) {
 	const (
 		minBackoff = 1 * time.Second
 		maxBackoff = 5 * time.Second
 	)
+	deadline := time.Now().Add(d.relayResumeWindow)
 	for {
-		tokens := loadRelayPool(d.store(), sessionID)
+		store := d.store()
+		if !relayResumable(store, sessionID) {
+			d.dropRelayPool(sessionID)
+			d.addLogEntry("INFO",
+				"Session "+sessionID+" can no longer be resumed; "+
+					"its relay reconnect tokens are dropped")
+			return
+		}
+		tokens := loadRelayPool(store, sessionID)
 		if len(tokens) == 0 {
 			d.addLogEntry("INFO",
-				"No relay reconnect tokens for session "+sessionID+
+				"No relay reconnect tokens left for session "+sessionID+
 					"; it cannot resume through the relay")
 			return
 		}
@@ -1247,6 +1264,12 @@ func (d *Daemon) awaitRelayResume(target relayTarget, sessionID string) {
 			rt, code, err := d.addRelayToken(
 				target, token, "ecdh", "", sessionID,
 			)
+			// Never register a token that the relay has seen again,
+			// whether or not its registration worked.
+			if err == nil || code != "relay_listen_failed" ||
+				relayTokenSent(err) {
+				d.popRelayToken(store, sessionID, token)
+			}
 			if err != nil {
 				if code != "relay_listen_failed" {
 					return
@@ -1261,24 +1284,34 @@ func (d *Daemon) awaitRelayResume(target relayTarget, sessionID string) {
 					sessionID)
 			break
 		}
-		if tt == nil {
-			d.addLogEntry("WARN",
-				"The relay took no reconnect token for session "+
-					sessionID+"; it cannot resume through the relay")
-			return
-		}
 
-		select {
-		case <-tt.Dead():
-		case <-target.listeners.Done():
-			return
-		case <-d.ctx.Done():
-			return
+		if tt != nil {
+			select {
+			case <-tt.Dead():
+			case <-target.listeners.Done():
+				return
+			case <-d.ctx.Done():
+				return
+			}
+			d.mu.RLock()
+			resumed := tt.sessionID != ""
+			d.mu.RUnlock()
+			if resumed {
+				return
+			}
+			if tt.removed.Load() {
+				d.dropRelayPool(sessionID)
+				d.addLogEntry("INFO",
+					"Relay reconnect listener for session "+sessionID+
+						" was removed; it is not resumed through the "+
+						"relay")
+				return
+			}
 		}
-		d.mu.RLock()
-		resumed := tt.sessionID != ""
-		d.mu.RUnlock()
-		if resumed {
+		if !time.Now().Before(deadline) {
+			d.addLogEntry("INFO",
+				"Session "+sessionID+" was not resumed through the "+
+					"relay in time; its relay listener is not renewed")
 			return
 		}
 
@@ -1290,6 +1323,58 @@ func (d *Daemon) awaitRelayResume(target relayTarget, sessionID string) {
 		case <-d.ctx.Done():
 			return
 		}
+	}
+}
+
+// popRelayToken removes token from the relay reconnect tokens stored
+// for sessionID.
+func (d *Daemon) popRelayToken(
+	store *storage.Storage, sessionID string, token []byte,
+) {
+	err := store.RemoveListItem(sessionID, storage.RelayTokensKey, token)
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		d.addLogEntry("WARN",
+			"Failed to drop a used relay reconnect token: "+err.Error())
+	}
+}
+
+// cancelRelayResume removes the relay tokens registered for the peer of
+// sessionID to resume it on, which no peer has used yet, and closes
+// their listeners, so that awaitRelayResume registers none again.
+func (d *Daemon) cancelRelayResume(sessionID string) {
+	var removed []*tokenTracker
+	d.mu.Lock()
+	d.relayTokens = slices.DeleteFunc(d.relayTokens, func(rt relayToken) bool {
+		tt, ok := rt.listener.(*tokenTracker)
+		if !ok || tt.resumeOf != sessionID || tt.consumed.Load() {
+			return false
+		}
+		removed = append(removed, tt)
+		return true
+	})
+	tokens := slices.Clone(d.relayTokens)
+	d.mu.Unlock()
+	if len(removed) == 0 {
+		return
+	}
+
+	for _, tt := range removed {
+		tt.removed.Store(true)
+		_ = tt.Close()
+	}
+	d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})
+}
+
+// dropRelayPool deletes the relay reconnect tokens stored for sessionID,
+// once the session is over and no peer may resume it.
+func (d *Daemon) dropRelayPool(sessionID string) {
+	store := d.store()
+	if store == nil {
+		return
+	}
+	if err := store.DeleteMeta(sessionID, storage.RelayTokensKey); err != nil {
+		d.addLogEntry("DEBUG",
+			"Failed to drop relay reconnect tokens: "+err.Error())
 	}
 }
 
@@ -1438,6 +1523,11 @@ func (d *Daemon) handleRemoveRelayToken(cmd Command) {
 	copy(tokens, d.relayTokens)
 	d.mu.Unlock()
 
+	// A token that a dropped session would resume on is not registered
+	// again once the user removed it.
+	if tt, ok := rt.listener.(*tokenTracker); ok {
+		tt.removed.Store(true)
+	}
 	rt.listener.Close()
 
 	d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})

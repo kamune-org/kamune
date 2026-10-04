@@ -326,6 +326,8 @@ func (d *Daemon) handleDeleteHistorySession(cmd Command) {
 		return
 	}
 
+	// A dropped relay session that is being deleted is not resumed.
+	d.cancelRelayResume(params.SessionID)
 	if err := store.DeleteSession(params.SessionID); err != nil {
 		d.addLogEntry("ERROR", "Failed to delete history session: "+err.Error())
 		d.emitError(cmd.ID, "delete_failed", fmt.Sprintf("failed to delete: %v", err))
