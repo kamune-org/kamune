@@ -277,3 +277,29 @@ func TestValidateIP_Hostname(t *testing.T) {
 	a := require.New(t)
 	a.Equal("", validateIP("example.com"))
 }
+
+// ---------------------------------------------------------------------------
+// rateLimitKey
+// ---------------------------------------------------------------------------
+
+func TestRateLimitKey(t *testing.T) {
+	tests := []struct {
+		ip   string
+		want string
+	}{
+		{ip: "203.0.113.7", want: "203.0.113.7"},
+		{ip: "::ffff:203.0.113.7", want: "203.0.113.7"},
+		{ip: "2001:db8:1:2::1", want: "2001:db8:1:2::/64"},
+		{ip: "2001:db8:1:2:aaaa:bbbb:cccc:dddd", want: "2001:db8:1:2::/64"},
+		{ip: "2001:db8:1:3::1", want: "2001:db8:1:3::/64"},
+		{ip: "fe80::1%eth0", want: "fe80::/64"},
+		{ip: "::1", want: "::/64"},
+		{ip: "pipe", want: "pipe"},
+		{ip: "", want: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.ip, func(t *testing.T) {
+			require.New(t).Equal(tc.want, rateLimitKey(tc.ip))
+		})
+	}
+}

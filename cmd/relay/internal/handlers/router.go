@@ -3,6 +3,7 @@ package handlers
 import (
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 )
 
@@ -89,6 +90,32 @@ func singleHeaderIP(values []string) string {
 		return ""
 	}
 	return validateIP(values[0])
+}
+
+// ipv6KeyBits is the IPv6 prefix length rate-limit keys are cut to. A
+// host or site is normally given a whole /64, so a client can pick from
+// 2^64 source addresses inside it.
+const ipv6KeyBits = 64
+
+// rateLimitKey returns the key ip is rate limited under: an IPv4 address
+// as is, an IPv6 address as its /64. Keying the full IPv6 address would
+// give a client a fresh quota for every address in its /64 and let it
+// flush other clients' history out of the limiter. A string that is not
+// an address is returned unchanged.
+func rateLimitKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	addr = addr.Unmap().WithZone("")
+	if addr.Is4() {
+		return addr.String()
+	}
+	prefix, err := addr.Prefix(ipv6KeyBits)
+	if err != nil {
+		return ip
+	}
+	return prefix.String()
 }
 
 func ipInRanges(ip net.IP, ranges []*net.IPNet) bool {

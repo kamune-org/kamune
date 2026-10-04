@@ -43,7 +43,8 @@ func acceptLoop(ctx context.Context, listener net.Listener, hub *services.Hub) {
 		adapter := newRawTCPAdapter(conn, hub.MaxMessageSize())
 		remoteAddr := conn.RemoteAddr().String()
 
-		if rl := hub.RateLimiter(); rl != nil && !rl.Allow(extractIP(remoteAddr)) {
+		if rl := hub.RateLimiter(); rl != nil &&
+			!rl.Allow(rateLimitKey(extractIP(remoteAddr))) {
 			slog.Warn("rate limit exceeded", slog.String("remote", remoteAddr))
 			conn.Close()
 			continue

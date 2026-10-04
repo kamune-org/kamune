@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -68,5 +70,33 @@ func TestHandler_ClientIPHeaderFromConfig(t *testing.T) {
 			r := newRequest("127.0.0.1:1234", tc.lines...)
 			a.Equal(tc.want, h.clientIP(r))
 		})
+	}
+}
+
+func TestWebSocketHandler_RateLimitsIPv6ByPrefix(t *testing.T) {
+	cfg := testConfig(1)
+	cfg.Server.TrustedProxies = []string{"127.0.0.0/8"}
+	h := newTestHandler(t, cfg)
+
+	tests := []struct {
+		client  string
+		limited bool
+	}{
+		{client: "2001:db8:1:2::1", limited: false},
+		{client: "2001:db8:1:2:ffff:ffff:ffff:2", limited: true},
+		{client: "2001:db8:1:3::1", limited: false},
+	}
+	for _, tc := range tests {
+		a := require.New(t)
+		r := newRequest(
+			"127.0.0.1:1234", headerLine{"X-Forwarded-For", tc.client},
+		)
+		w := httptest.NewRecorder()
+		h.WebSocketHandler(w, r)
+		if tc.limited {
+			a.Equal(http.StatusTooManyRequests, w.Code, tc.client)
+		} else {
+			a.NotEqual(http.StatusTooManyRequests, w.Code, tc.client)
+		}
 	}
 }
