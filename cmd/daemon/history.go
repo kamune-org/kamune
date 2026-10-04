@@ -326,6 +326,17 @@ func (d *Daemon) handleDeleteHistorySession(cmd Command) {
 		return
 	}
 
+	// The next message of a live session would start its history again,
+	// so the deletion would not hold.
+	d.mu.RLock()
+	_, live := d.sessions[params.SessionID]
+	d.mu.RUnlock()
+	if live {
+		d.emitError(cmd.ID, "session_active",
+			"session is still open; close it before deleting its history")
+		return
+	}
+
 	// A dropped relay session that is being deleted is not resumed.
 	d.cancelRelayResume(params.SessionID)
 	if err := store.DeleteSession(params.SessionID); err != nil {

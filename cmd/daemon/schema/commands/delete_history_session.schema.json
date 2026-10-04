@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-delete-history-session",
   "title": "delete_history_session params",
-  "description": "Deletes a history session.",
+  "description": "Deletes a history session. Fails with session_active while the session is open, since its next message would start its history again: close it with close_session first.",
   "type": "object",
   "properties": {
     "session_id": { "type": "string" }
