@@ -1,6 +1,9 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -191,7 +194,7 @@ func TestConfig_Validate_AllowsTLSWithoutCerts(t *testing.T) {
 	cfg.TLS.CertFile = ""
 	cfg.TLS.KeyFile = ""
 	a.NoError(cfg.Validate(),
-		"empty cert/key paths should trigger in-memory cert")
+		"empty cert/key paths should use the self-signed cert")
 }
 
 func TestConfig_Validate_AllowsTLSWithBothCertPaths(t *testing.T) {
@@ -253,7 +256,7 @@ func TestConfig_Validate_AllowsWSSWithBothCertPathsEmpty(t *testing.T) {
 	cfg.WSS.CertFile = ""
 	cfg.WSS.KeyFile = ""
 	a.NoError(cfg.Validate(),
-		"empty cert/key paths should trigger in-memory cert")
+		"empty cert/key paths should use the self-signed cert")
 }
 
 func TestConfig_Validate_RejectsWSSWithOnlyCertFile(t *testing.T) {
@@ -433,4 +436,34 @@ address = "0.0.0.0:19090"
 	cfg, err := New("../../assets/config.toml")
 	a.NoError(err)
 	a.NotEmpty(cfg.WS.Address, "should load from file, not env")
+}
+
+func TestDefaultDataDir(t *testing.T) {
+	a := require.New(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	base, err := os.UserConfigDir()
+	a.NoError(err)
+	dir, err := DefaultDataDir()
+	a.NoError(err)
+	a.Equal(filepath.Join(base, "kamune-relay"), dir)
+
+	if runtime.GOOS != "linux" {
+		return
+	}
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	_, err = DefaultDataDir()
+	a.Error(err)
+	a.Contains(err.Error(), "server.data_dir")
+}
+
+func TestNew_DataDir(t *testing.T) {
+	a := require.New(t)
+	t.Setenv(EnvKey, `
+[server]
+data_dir = "/var/lib/kamune-relay"
+`)
+	cfg, err := New("")
+	a.NoError(err)
+	a.Equal("/var/lib/kamune-relay", cfg.Server.DataDir)
 }

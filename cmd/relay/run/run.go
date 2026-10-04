@@ -2,16 +2,10 @@ package run
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"net"
 	"net/http"
 	"net/netip"
@@ -49,9 +43,12 @@ func Run(cfgPath string) error {
 	// Prepare fallible shared resources before launching any listener. This
 	// keeps startup atomic: a bad later certificate or broker address cannot
 	// leave an earlier HTTP or TCP listener running.
+	certs := &certStore{dataDir: cfg.Server.DataDir}
 	var tlsCfg *tls.Config
 	if cfg.TLS.Enabled {
-		tlsCfg, err = loadTLSConfig(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		tlsCfg, err = certs.serverConfig(
+			"tls", cfg.TLS.CertFile, cfg.TLS.KeyFile,
+		)
 		if err != nil {
 			return fmt.Errorf("load tls config: %w", err)
 		}
@@ -59,7 +56,9 @@ func Run(cfgPath string) error {
 
 	var wssCfg *tls.Config
 	if cfg.WSS.Enabled {
-		wssCfg, err = loadTLSConfig(cfg.WSS.CertFile, cfg.WSS.KeyFile)
+		wssCfg, err = certs.serverConfig(
+			"wss", cfg.WSS.CertFile, cfg.WSS.KeyFile,
+		)
 		if err != nil {
 			return fmt.Errorf("load wss config: %w", err)
 		}
@@ -363,79 +362,4 @@ func newBrokerLimits(rl config.RateLimit) broker.Limits {
 		).Allow
 	}
 	return broker.Limits{Echo: newAllow(), Register: newAllow()}
-}
-
-func loadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
-	if certFile == "" && keyFile == "" {
-		return generateSelfSignedCertInMemory()
-	}
-
-	pair, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"load tls cert from %q and %q: %w "+
-				"(generate one with `openssl req -x509 ...`)",
-			certFile, keyFile, err,
-		)
-	}
-	return &tls.Config{Certificates: []tls.Certificate{pair}}, nil
-}
-
-func generateSelfSignedCertInMemory() (*tls.Config, error) {
-	certPEM, keyPEM, err := createSelfSignedCert()
-	if err != nil {
-		return nil, fmt.Errorf("generate self-signed cert: %w", err)
-	}
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("parse self-signed cert: %w", err)
-	}
-	return &tls.Config{Certificates: []tls.Certificate{cert}}, nil
-}
-
-func createSelfSignedCert() (certPEM, keyPEM []byte, err error) {
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generate key: %w", err)
-	}
-
-	// 128-bit cryptographically random serial, as recommended by
-	// RFC 5280 §4.1.2.2. Avoids collisions when the same process
-	// generates multiple certs within the same nanosecond.
-	serialLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serial, err := rand.Int(rand.Reader, serialLimit)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generate serial: %w", err)
-	}
-
-	template := x509.Certificate{
-		SerialNumber: serial,
-		Subject: pkix.Name{
-			CommonName: "Kamune Relay",
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		DNSNames:              []string{"localhost"},
-		IPAddresses: []net.IP{
-			net.IPv4(127, 0, 0, 1),
-			net.IPv6loopback,
-		},
-	}
-
-	der, err := x509.CreateCertificate(
-		rand.Reader, &template, &template, &priv.PublicKey, priv,
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create cert: %w", err)
-	}
-
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	privBytes := x509.MarshalPKCS1PrivateKey(priv)
-	keyPEM = pem.EncodeToMemory(&pem.Block{
-		Type: "RSA PRIVATE KEY", Bytes: privBytes},
-	)
-	return certPEM, keyPEM, nil
 }

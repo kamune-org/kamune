@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,8 +30,26 @@ type Server struct {
 	// the right, skipping trusted hops. Any other header must hold a single
 	// address that the proxy sets itself. Empty means
 	// DefaultClientIPHeader.
-	ClientIPHeader string   `toml:"client_ip_header"`
+	ClientIPHeader string `toml:"client_ip_header"`
+	// DataDir is where the relay keeps state across restarts: the
+	// self-signed certificate it creates for a [tls] or [wss] listener
+	// with no cert_file and key_file. Keeping it lets clients pin the
+	// certificate. Empty means DefaultDataDir.
+	DataDir        string   `toml:"data_dir"`
 	TrustedProxies []string `toml:"trusted_proxies"`
+}
+
+// DefaultDataDir returns the directory used when server.data_dir is
+// empty: kamune-relay in the user's configuration directory, such as
+// ~/.config/kamune-relay on Linux (see os.UserConfigDir).
+func DefaultDataDir() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf(
+			"no default data dir, set server.data_dir: %w", err,
+		)
+	}
+	return filepath.Join(dir, "kamune-relay"), nil
 }
 
 // DefaultClientIPHeader is the client address header read from a trusted
@@ -164,7 +183,7 @@ func (c Config) Validate() error {
 		}
 	}
 	// Cert file paths must both be set or both be empty. Both-empty with
-	// tls.enabled = true triggers an in-memory self-signed cert at runtime.
+	// tls.enabled = true uses the self-signed cert kept in server.data_dir.
 	if c.TLS.Enabled && (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
 		return fmt.Errorf(
 			"tls.cert_file and tls.key_file must both be set or "+
