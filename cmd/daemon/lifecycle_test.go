@@ -295,7 +295,6 @@ func TestKeychainAccountUsesFullPath(t *testing.T) {
 	a := require.New(t)
 	a.Equal("db-passphrase:/tmp/a.db", keychainAccount("/tmp/a.db"))
 	a.Equal("db-passphrase:default", keychainAccount(""))
-	a.Equal("a.db", keychainAccountLegacy("/tmp/a.db"))
 }
 
 func TestParseLogLevel(t *testing.T) {

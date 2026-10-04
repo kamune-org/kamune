@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,30 +40,17 @@ func keychainAccount(dbPath string) string {
 	return "db-passphrase:" + dbPath
 }
 
-func keychainAccountLegacy(dbPath string) string {
-	if dbPath == "" {
-		return "default"
-	}
-	return filepath.Base(dbPath)
-}
-
+// keychainGet returns the passphrase saved for dbPath. Only the account
+// named by the full path is used. Older versions also used an account named
+// by the file's base name, which databases in different directories share.
 func keychainGet(dbPath string) (string, error) {
-	secret, err := keyring.Get(keychainService, keychainAccount(dbPath))
-	if err == nil {
-		return secret, nil
-	}
-	return keyring.Get(keychainService, keychainAccountLegacy(dbPath))
+	return keyring.Get(keychainService, keychainAccount(dbPath))
 }
 
+// keychainDelete removes the passphrase saved for dbPath. Like keychainGet,
+// it leaves the base-name account of older versions alone.
 func keychainDelete(dbPath string) error {
-	err := keyring.Delete(keychainService, keychainAccount(dbPath))
-	legacyErr := keyring.Delete(
-		keychainService, keychainAccountLegacy(dbPath),
-	)
-	if err == nil || legacyErr == nil {
-		return nil
-	}
-	return err
+	return keyring.Delete(keychainService, keychainAccount(dbPath))
 }
 
 func parseLogLevel(level string) (slog.Level, bool) {
