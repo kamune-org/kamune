@@ -1388,7 +1388,11 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 		PeerPubB64 string `json:"peer_pub_b64,omitempty"`
 	}
 	if cmd.Params != nil {
-		_ = json.Unmarshal(cmd.Params, &params)
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			d.emitError(cmd.ID, "invalid_params",
+				fmt.Sprintf("invalid params: %v", err))
+			return
+		}
 	}
 
 	target, ok := d.currentRelayTarget()
@@ -1397,14 +1401,24 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 		return
 	}
 
+	// A token for one peer that cannot be derived is an error: a random
+	// token in its place would not be the token the peer derives.
 	var staticToken []byte
 	relayMode := "random"
 	if params.PeerPubB64 != "" {
-		tok, err := d.deriveP2PToken(params.PeerPubB64)
-		if err == nil {
-			staticToken = tok
-			relayMode = "static"
+		if _, err := parsePeerPubB64ToRaw(params.PeerPubB64); err != nil {
+			d.emitError(cmd.ID, "invalid_peer_key",
+				fmt.Sprintf("invalid peer_pub_b64: %v", err))
+			return
 		}
+		tok, err := d.deriveP2PToken(params.PeerPubB64)
+		if err != nil {
+			d.emitError(cmd.ID, "relay_token_failed",
+				fmt.Sprintf("derive static token: %v", err))
+			return
+		}
+		staticToken = tok
+		relayMode = "static"
 	}
 
 	d.wg.Go(func() {
@@ -1419,6 +1433,7 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 		d.emit(EvtResponse, cmd.ID, MapA{
 			"token": rt.Token, "ttl_ns": rt.TTL,
 			"session_ttl_ns": rt.SessionTTL, "expires_at": rt.ExpiresAt,
+			"mode": rt.Mode,
 		})
 	})
 }

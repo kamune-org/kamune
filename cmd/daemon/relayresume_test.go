@@ -2,11 +2,14 @@ package main
 
 import (
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 )
 
 // startRelayServer starts a relay server on d at relay and returns the
@@ -527,5 +530,62 @@ func TestExpiredRelayTokenIsRemoved(t *testing.T) {
 		}
 		a.True(time.Now().Before(deadline), "expired listener kept")
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestGenerateRelayTokenParams(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	startRelayServer(t, d, rec, relay)
+	peer := newTestPeerKey(t)
+	static := hex.EncodeToString(p2pTokenFor(t, d, peer))
+
+	tests := []struct {
+		name   string
+		params string
+		code   string
+		mode   string
+		token  string
+	}{
+		{name: "no params", mode: "random"},
+		{name: "empty", params: `{}`, mode: "random"},
+		{
+			name:   "peer key",
+			params: `{"peer_pub_b64":"` + fingerprint.Base64(peer) + `"}`,
+			mode:   "static",
+			token:  static,
+		},
+		{name: "not json", params: `{"peer_pub_b64":`, code: "invalid_params"},
+		{name: "wrong type", params: `{"peer_pub_b64":5}`, code: "invalid_params"},
+		{
+			name:   "bad base64",
+			params: `{"peer_pub_b64":"not a key!"}`,
+			code:   "invalid_peer_key",
+		},
+		{
+			name:   "short key",
+			params: `{"peer_pub_b64":"AAAA"}`,
+			code:   "invalid_peer_key",
+		},
+	}
+	for i, tt := range tests {
+		id := ID(fmt.Sprintf("gen-%d", i))
+		cmd := Command{ID: id}
+		if tt.params != "" {
+			cmd.Params = []byte(tt.params)
+		}
+		d.handleGenerateRelayToken(cmd)
+		evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == id })
+		if tt.code != "" {
+			a.Equal(EvtError, evt.Evt, tt.name)
+			a.Equal(tt.code, evt.Data["code"], tt.name)
+			continue
+		}
+		a.Equal(EvtResponse, evt.Evt, "%s: %v", tt.name, evt.Data)
+		a.Equal(tt.mode, evt.Data["mode"], tt.name)
+		if tt.token != "" {
+			a.Equal(tt.token, evt.Data["token"], tt.name)
+		}
 	}
 }

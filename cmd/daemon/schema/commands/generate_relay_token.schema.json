@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-generate-relay-token",
   "title": "generate_relay_token params",
-  "description": "Generates a new relay token for the running relay server. The token is registered with the relay after the command is read, for at most 15 seconds, and the response follows; other commands are handled meanwhile.",
+  "description": "Generates a new relay token for the running relay server. The token is registered with the relay after the command is read, for at most 15 seconds, and the response follows; other commands are handled meanwhile. The response carries token, ttl_ns, session_ttl_ns, expires_at and mode: \"static\" for a token derived for peer_pub_b64, \"random\" otherwise. Params that do not parse fail with invalid_params, and a peer_pub_b64 that is not a valid Ed25519 public key fails with invalid_peer_key.",
   "type": "object",
   "properties": {
     "peer_pub_b64": { "type": "string", "description": "Base64-encoded public key for static token derivation." }
