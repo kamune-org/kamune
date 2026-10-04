@@ -20,6 +20,38 @@ import (
 	"github.com/xtaci/kcp-go/v5"
 )
 
+// transports are the transports that start_server and dial take. An
+// empty transport is tcp.
+var transports = []string{"tcp", "udp", "relay", "p2p", "direct-p2p"}
+
+// checkTransport returns the transport that a start_server or dial
+// command asks for, with an empty one read as tcp, and emits
+// invalid_transport or addr_required and returns false when the daemon
+// cannot use it. It never falls back to tcp for a transport it does not
+// know: a mistyped "relay" would then listen on every interface. A tcp
+// or udp transport needs an address, since an empty one too would
+// listen on every interface.
+func (d *Daemon) checkTransport(
+	id ID, transport, addr string,
+) (string, bool) {
+	if transport == "" {
+		transport = "tcp"
+	}
+	if !slices.Contains(transports, transport) {
+		d.emitError(id, "invalid_transport", fmt.Sprintf(
+			"invalid transport %q: must be one of %s",
+			transport, strings.Join(transports, ", "),
+		))
+		return "", false
+	}
+	if addr == "" && (transport == "tcp" || transport == "udp") {
+		d.emitError(id, "addr_required",
+			"addr is required for transport "+transport)
+		return "", false
+	}
+	return transport, true
+}
+
 // handleStartServer starts a kamune server. Supports tcp, udp, and relay
 // transports (mirrors cmd/bus/network.go:16-179).
 func (d *Daemon) handleStartServer(cmd Command) {
@@ -28,6 +60,11 @@ func (d *Daemon) handleStartServer(cmd Command) {
 		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
+	transport, ok := d.checkTransport(cmd.ID, params.Transport, params.Addr)
+	if !ok {
+		return
+	}
+	params.Transport = transport
 
 	if !d.requireStorage(cmd.ID) {
 		return
@@ -235,7 +272,7 @@ func (d *Daemon) startServer(
 		d.mu.Lock()
 		d.p2pListener = pl
 		d.mu.Unlock()
-	default:
+	case "tcp", "udp":
 		// Bind here, not in NewServer, to learn the bound address: the
 		// one asked for may have port 0.
 		l, err := listenDirect(params.Transport, params.Addr)
@@ -252,6 +289,12 @@ func (d *Daemon) startServer(
 		direct = l
 		opts = append(opts, kamune.ServeWithListener(l))
 		params.Addr = l.Addr().String()
+	default:
+		// handleStartServer checked the transport.
+		d.setStatus(StatusError, "Failed to create server")
+		d.emitError(cmd.ID, "invalid_transport",
+			"invalid transport "+strconv.Quote(params.Transport))
+		return
 	}
 
 	srv, err := kamune.NewServer(
@@ -458,6 +501,12 @@ func (d *Daemon) handleRestartServer(cmd Command) {
 	peerPubB64 := d.serverPeerPubB64
 	directPeerAddr := d.serverDirectPeerAddr
 	d.mu.RUnlock()
+	// start_server sets the transport once it accepts the command.
+	if transport == "" {
+		d.emitError(cmd.ID, "server_not_started",
+			"no server has been started to restart")
+		return
+	}
 
 	d.addLogEntry("INFO", "Restarting server to apply settings change")
 
@@ -572,6 +621,11 @@ func (d *Daemon) handleDial(cmd Command) {
 		d.emitError(cmd.ID, "invalid_params", fmt.Sprintf("invalid params: %v", err))
 		return
 	}
+	transport, ok := d.checkTransport(cmd.ID, params.Transport, params.Addr)
+	if !ok {
+		return
+	}
+	params.Transport = transport
 
 	if !d.requireStorage(cmd.ID) {
 		return
@@ -716,8 +770,13 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		params.Addr = params.DirectPeerAddr
 	case "udp":
 		opts = append(opts, kamune.DialWithUDP())
-	default:
+	case "tcp":
 		opts = append(opts, kamune.DialWithTCP())
+	default:
+		// handleDial checked the transport.
+		d.emitError(cmd.ID, "invalid_transport",
+			"invalid transport "+strconv.Quote(params.Transport))
+		return
 	}
 
 	dialer, err := kamune.NewDialer(
@@ -1883,6 +1942,9 @@ type boundListener struct {
 
 // listenDirect binds addr for a server of transport tcp or udp.
 func listenDirect(transport, addr string) (*boundListener, error) {
+	if addr == "" {
+		return nil, errors.New("listen address is required")
+	}
 	if transport == "udp" {
 		l, err := kcp.Listen(addr)
 		if err != nil {

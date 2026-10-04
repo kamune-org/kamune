@@ -96,3 +96,66 @@ func TestParseServerAddr(t *testing.T) {
 		})
 	}
 }
+
+// start_server and dial refuse a transport they do not know, and a tcp
+// or udp one without an address, instead of falling back to a tcp
+// listener on every interface.
+func TestUnknownTransportIsRefused(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport string
+		addr      string
+		code      string
+	}{
+		{name: "capitalised", transport: "Relay", code: "invalid_transport"},
+		{name: "upper case", transport: "TCP", addr: "127.0.0.1:0",
+			code: "invalid_transport"},
+		{name: "unknown", transport: "quic", addr: "127.0.0.1:0",
+			code: "invalid_transport"},
+		{name: "default without addr", code: "addr_required"},
+		{name: "tcp without addr", transport: "tcp", code: "addr_required"},
+		{name: "udp without addr", transport: "udp", code: "addr_required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			d, rec := newTestDaemon(t, VerificationModeQuick, false)
+			t.Cleanup(d.stopServer)
+
+			d.handleStartServer(Command{
+				ID: "start",
+				Params: mustJSON(StartServerParams{
+					Addr: tt.addr, Transport: tt.transport,
+				}),
+			})
+			evt := rec.waitFor(t, func(e recordedEvent) bool {
+				return e.ID == "start"
+			})
+			a.Equal(EvtError, evt.Evt, "server started: %v", evt.Data)
+			a.Equal(tt.code, evt.Data["code"], evt.Data["error"])
+			d.mu.RLock()
+			running := d.server != nil || d.startCancel != nil
+			d.mu.RUnlock()
+			a.False(running)
+
+			d.handleDial(Command{
+				ID: "dial",
+				Params: mustJSON(DialParams{
+					Addr: tt.addr, Transport: tt.transport,
+				}),
+			})
+			evt = rec.waitFor(t, func(e recordedEvent) bool {
+				return e.ID == "dial"
+			})
+			a.Equal(EvtError, evt.Evt)
+			a.Equal(tt.code, evt.Data["code"], evt.Data["error"])
+
+			d.handleRestartServer(Command{ID: "restart"})
+			evt = rec.waitFor(t, func(e recordedEvent) bool {
+				return e.ID == "restart"
+			})
+			a.Equal(EvtError, evt.Evt)
+			a.Equal("server_not_started", evt.Data["code"], evt.Data["error"])
+		})
+	}
+}

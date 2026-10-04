@@ -5,8 +5,8 @@
   "description": "Connects to a remote kamune server. Over a relay, connecting to the relay and the relay handshake are limited to 15 seconds.",
   "type": "object",
   "properties": {
-    "addr":              { "type": "string", "description": "Server address (e.g. \"127.0.0.1:9000\")." },
-    "transport":         { "type": "string", "enum": ["tcp", "udp", "relay", "p2p", "direct-p2p"], "description": "Transport protocol. Defaults to \"tcp\"." },
+    "addr":              { "type": "string", "description": "Server address (e.g. \"127.0.0.1:9000\"). Required for tcp and udp, where an empty addr fails with addr_required." },
+    "transport":         { "type": "string", "enum": ["tcp", "udp", "relay", "p2p", "direct-p2p"], "description": "Transport protocol. Defaults to \"tcp\" when empty or absent. Any other value fails with invalid_transport." },
     "relay_addr":        { "type": "string", "description": "Relay server address, host:port with an optional scheme: wss:// (the default), tls://, ws:// or tcp://. A trailing ?insecure=true turns off TLS certificate checks. ws://, tcp:// and ?insecure=true let an on-path attacker read the relay password and tokens, and are logged as a warning. Required when transport is \"relay\"." },
     "token":             { "type": "string", "description": "Hex-encoded relay token." },
     "password":          { "type": "string", "description": "Pre-shared key for relay authentication." },
