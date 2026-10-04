@@ -129,12 +129,36 @@ relay session:
 #### `open_storage`
 
 Opens the single shared storage. Must be called before any command that
-requires storage.
+requires storage. `storage_path` is required (`storage_path_required`); the
+daemon does not read `KAMUNE_DB_PATH`.
 
 Keep the database in a directory of the user's own, not in a shared one such
 as `/tmp`, where another local user can create the file first. The example
 opens an encrypted database with the passphrase from `KAMUNE_DB_PASSPHRASE`;
 `db_no_passphrase: true` opens or creates one without encryption.
+
+- Without `db_no_passphrase`, the passphrase is read from
+  `KAMUNE_DB_PASSPHRASE`. When that is unset, the command fails with
+  `storage_open_failed` and reason `passphrase_required`, and the path is kept
+  for [`submit_passphrase`](#submit_passphrase). The daemon never saves this
+  passphrase to the keychain.
+- A storage that has no identity key yet gets a new Ed25519 identity.
+- While a storage is open, the new one is opened first, and the old one is
+  closed only once that succeeds; when the new open fails, the old storage
+  stays open. Opening the path that is already open closes it and opens it
+  again, and when that fails the previous storage is opened again as it was.
+- Each storage starts from the settings the daemon had before the first
+  storage was opened (the defaults, or what the client set before that), and
+  only that storage's own saved settings are applied on top: verification
+  mode, incognito, fingerprint format and log level. The identity, local name
+  and history list of a storage opened earlier are dropped.
+- It fails with `storage_busy` while a server runs, a server start or a dial is
+  under way, or a session is open, and with `storage_open_failed` when the
+  storage does not open. That error carries a `reason` when the cause is one a
+  client can act on: `wrong_passphrase`, `passphrase_required`,
+  `corrupt_metadata`, `insecure_permissions` (the database file is open to
+  other users and its mode cannot be restricted) or `unsupported_format` (a
+  newer version wrote it).
 
 **Input:**
 
@@ -149,7 +173,13 @@ opens an encrypted database with the passphrase from `KAMUNE_DB_PASSPHRASE`;
 
 **Output:**
 
+The identity, the local name (the fingerprint pseudonym until one is set) and
+the history list of the storage come first:
+
 ```json
+{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱", "b64": "base64key...", "hex": "ab12cd34...", "sum": "ab12cd34", "numeric": "12345 67890 13579 24680 11223 34455 66778 89900" } }
+{ "type": "evt", "evt": "local_name_changed", "data": { "name": "CrimsonOtter" } }
+{ "type": "evt", "evt": "history_updated", "data": {} }
 {
   "type": "evt",
   "evt": "response",
@@ -158,18 +188,18 @@ opens an encrypted database with the passphrase from `KAMUNE_DB_PASSPHRASE`;
 }
 ```
 
-If an identity already exists in the storage, also emits:
-
-```json
-{ "type": "evt", "evt": "fingerprint_changed", "data": { "emoji": "🦊 • 🐱", "b64": "base64key...", "hex": "ab12cd34...", "sum": "ab12cd34" } }
-{ "type": "evt", "evt": "local_name_changed", "data": { "name": "CrimsonOtter" } }
-{ "type": "evt", "evt": "history_updated", "data": {} }
-```
-
 #### `submit_passphrase`
 
-Re-opens the previously-opened storage path with a new passphrase. Requires
-a prior `open_storage` call.
+Opens a storage with the given passphrase: the path of the last
+`open_storage` without `db_no_passphrase` that failed, or else the path of the
+open storage. It fails with `storage_not_opened` when there is neither, and
+with `passphrase_required` for an empty passphrase; an unencrypted database is
+opened with `open_storage` and `db_no_passphrase`. Opening, the settings and
+the other errors work as for [`open_storage`](#open_storage).
+
+`save_to_keychain` (default `false`) saves the passphrase to the system
+keychain once the storage has opened; without it the passphrase is not saved.
+A failure to save is logged as a warning.
 
 **Input:**
 
@@ -178,15 +208,61 @@ a prior `open_storage` call.
   "type": "cmd",
   "cmd": "submit_passphrase",
   "id": "1",
-  "params": { "passphrase": "correct horse battery staple" }
+  "params": { "passphrase": "correct horse battery staple", "save_to_keychain": false }
+}
+```
+
+**Output:** the identity events of `open_storage`, then:
+
+```json
+{ "type": "evt", "evt": "response", "id": "1", "data": { "status": "opened" } }
+```
+
+#### `change_passphrase`
+
+Changes the passphrase of the open storage. The storage is re-encrypted under a
+new data key that only the new passphrase unlocks, and the file is rewritten.
+Copies of the old file made elsewhere, such as backups, still open with the old
+passphrase. `old_passphrase` is empty or absent for a storage opened with
+`db_no_passphrase`, which the command then encrypts; `new_passphrase` must not
+be empty.
+
+A keychain entry for the storage would hold the old passphrase, so it is
+replaced with the new one when `save_to_keychain` is set, and removed
+otherwise.
+
+Like `open_storage` it needs the storage idle. It fails with `storage_busy`
+while a server runs, a server start or a dial is under way, or a session is
+open; `storage_not_opened` without an open storage; `passphrase_required` for
+an empty `new_passphrase`; `wrong_passphrase` when `old_passphrase` does not
+open the storage; and `change_passphrase_failed` otherwise, which leaves the
+passphrase unchanged. In the rare case that the new passphrase is in effect but
+the storage cannot be opened again, it fails with `storage_reopen_failed` and
+no storage is open: open it with `submit_passphrase` and the new passphrase.
+
+**Input:**
+
+```json
+{
+  "type": "cmd",
+  "cmd": "change_passphrase",
+  "id": "1",
+  "params": {
+    "old_passphrase": "correct horse battery staple",
+    "new_passphrase": "a new passphrase",
+    "save_to_keychain": false
+  }
 }
 ```
 
 **Output:**
 
 ```json
-{ "type": "evt", "evt": "response", "id": "1", "data": { "status": "opened" } }
+{ "type": "evt", "evt": "response", "id": "1", "data": { "status": "changed" } }
 ```
+
+When the storage had to be opened again after the change, the identity events
+of `open_storage` come before the response.
 
 ### Server Lifecycle
 
@@ -1409,13 +1485,19 @@ Sets the log level. Persisted to storage. Accepted values: `"DEBUG"`, `"INFO"`,
 
 ### Keychain
 
-The daemon can save and retrieve the storage passphrase from the system keychain
-(macOS Keychain, Linux Secret Service, Windows Credential Manager).
+The daemon saves a storage passphrase to the system keychain (macOS Keychain,
+Linux Secret Service, Windows Credential Manager) only when `submit_passphrase`
+or `change_passphrase` asks for it with `save_to_keychain`, and
+`change_passphrase` removes an entry that the new passphrase makes stale. It
+never reads the saved passphrase to open a storage: `has_keychain_passphrase`
+only reports whether one is saved, for a client that reads the keychain
+itself. Entries use the service `kamune` and the account
+`db-passphrase:<storage_path>`, with the path as `open_storage` was given it.
 
 #### `has_keychain_passphrase`
 
-Returns whether a passphrase is stored in the system keychain for the current
-database path.
+Returns whether a passphrase is stored in the system keychain for the storage
+that was opened last.
 
 **Input:** (no params)
 
@@ -1436,7 +1518,9 @@ database path.
 
 #### `clear_keychain_passphrase`
 
-Removes the stored passphrase from the system keychain.
+Removes the stored passphrase of the storage that was opened last from the
+system keychain. Fails with `keychain_clear_failed` when it cannot, which
+includes when no passphrase is saved.
 
 **Input:** (no params)
 
@@ -1899,28 +1983,39 @@ Emitted when a command fails or an internal error occurs. Correlated by command
 ## Storage Model
 
 The daemon holds a single shared storage instance opened by `open_storage` (or
-re-opened by `submit_passphrase`). The same storage is used for:
+by `submit_passphrase`). The same storage is used for:
 
-- **Local identity** — Ed25519 keypair, loaded on `open_storage` as `pubKey`.
-- **Chat history** — `AddChatEntry` on every send and receive.
-- **Known peers** — `StorePeer` on accept, `FindPeer` on verify.
-- **Settings** — `SetSettings`/`GetSettings` under the `"daemon"` namespace:
-  - `verification_mode` (int: 0/1/2)
+- **Local identity**: the Ed25519 key pair, loaded on `open_storage` and
+  created there when the storage has none.
+- **Chat history**: `AddChatEntry` on every send and receive, except in
+  incognito mode.
+- **Known peers**: `FindPeer` on verify. `StorePeer` stores an unknown peer
+  that the user accepted in Strict or Quick mode once its session is
+  established, except in incognito mode, and `add_peer` stores one by hand.
+- **Settings**: `SetSettings`/`GetSettings` under the `"daemon"` namespace,
+  saved by the commands that change them while a storage is open, and applied
+  when the storage is opened:
+  - `verification_mode` (`"0"`, `"1"` or `"2"`)
   - `local_name` (string)
-  - `incognito` (bool: "true"/"false")
-  - `log_level` (string: "DEBUG"/"INFO"/"WARN"/"ERROR")
+  - `incognito` (`"true"` or `"false"`)
+  - `log_level` (`"DEBUG"`, `"INFO"`, `"WARN"`, `"WARNING"` or `"ERROR"`)
+  - `fingerprint_format` (`"hex"`, `"emoji"`, `"b64"`, `"sum"` or `"numeric"`)
 
-Calling `open_storage` or `submit_passphrase` while a storage is already open
-**closes the previous instance first**.
+Calling `open_storage` or `submit_passphrase` while a storage is open opens the
+new one first and closes the old one once that succeeds. For the path that is
+already open, the open storage is closed first and opened again if the new
+open fails.
 
 ### Passphrase Sources
 
-| Scenario                                                       | Behavior                                                                                                         |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `db_no_passphrase: true`                                       | Opens with `WithNoPassphrase()`.                                                                                 |
-| `db_no_passphrase: false` + `KAMUNE_DB_PASSPHRASE` env var set | Opens with the env var value.                                                                                    |
-| `db_no_passphrase: false` + env var empty                      | Fails with `"KAMUNE_DB_PASSPHRASE not set and db_no_passphrase is false; use submit_passphrase to provide one"`. |
-| `submit_passphrase`                                            | Re-opens the previously-opened path with a new passphrase. Requires a prior `open_storage` call.                 |
+| Scenario                                                       | Behavior                                                                                                                                                                                        |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `db_no_passphrase: true`                                       | Opens with `WithNoPassphrase()`.                                                                                                                                                                |
+| `db_no_passphrase: false` + `KAMUNE_DB_PASSPHRASE` env var set | Opens with the env var value, which is never saved to the keychain.                                                                                                                             |
+| `db_no_passphrase: false` + env var empty                      | Fails with `storage_open_failed`, reason `passphrase_required`. The path is kept for `submit_passphrase`.                                                                                       |
+| `submit_passphrase`                                            | Opens the path of the last failed `open_storage` without `db_no_passphrase`, or else the open storage's path, with the given passphrase; saves it to the keychain only with `save_to_keychain`. |
+| `change_passphrase`                                            | Re-encrypts the open storage under a new passphrase.                                                                                                                                            |
+| System keychain                                                | Never read to open a storage.                                                                                                                                                                   |
 
 ## Verification Flow
 
