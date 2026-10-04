@@ -312,7 +312,7 @@ always used regardless of `name`.
   "params": {
     "transport": "p2p",
     "addr": "0.0.0.0:0",
-    "broker_addr": "wss://broker.example.com",
+    "broker_addr": "broker.example.com:4788",
     "peer_pub_b64": "<optional-base64-public-key>"
   }
 }
@@ -466,6 +466,13 @@ Connects to a remote kamune server. `transport` is `"tcp"` (default), `"udp"`,
 `"relay"`, `"p2p"`, or `"direct-p2p"`. For relay, `token` is the hex-encoded
 token from the server.
 
+For p2p, `broker_addr` is the broker's UDP `host:port` and `p2p_token` the
+server's token in hex: 32 characters for a random token, 64 for a static one
+(anything else fails with `invalid_p2p_token`). The dial waits at most 30
+seconds for the broker to match the token (`p2p_match_failed`), then sends 5
+packets to the server's address over about 400 ms to open the NATs on the way
+before it starts KCP (`hole_punch_failed` when it cannot send any).
+
 **Input (TCP):**
 
 ```json
@@ -502,8 +509,8 @@ token from the server.
   "id": "1",
   "params": {
     "transport": "p2p",
-    "broker_addr": "wss://broker.example.com",
-    "p2p_token": "hex-token-from-server",
+    "broker_addr": "broker.example.com:4788",
+    "p2p_token": "4f1c2a9be07d35a8c6e19b0f72d4a3e5",
     "name": "MyClient"
   }
 }
@@ -797,10 +804,33 @@ For `relay`, generates a fresh token and includes `relay_info`.
 
 ### P2P Tokens
 
+A p2p server (`start_server` with `transport: "p2p"`) binds a UDP punch socket,
+registers its tokens with the broker at `broker_addr` from that socket, and
+refreshes each registration every 30 seconds. `broker_addr` is the broker's UDP
+`host:port` (the relay's shipped config puts its broker on port 4788), not a
+URL. A dialer registers the same token, the broker tells each side the other's
+public address, and both send packets toward the other to open their NATs. The
+server lets KCP packets in only from hosts that the broker matched with one of
+its tokens, for 10 minutes after the match and after each packet.
+
+A token is either random, 16 bytes (32 hex characters), or static, 32 bytes
+(64 hex characters) derived for a `peer_pub_b64`. A P2P token is not used up by
+a match: it stays registered until it is removed or the server stops.
+
 #### `generate_p2p_token`
 
-Generates a new P2P token for broker-based hole-punching. When `peer_pub_b64` is
-set, the token is derived via ECDH so only that peer can match.
+Adds a token to the running p2p server, which registers and refreshes it from
+its punch socket, and returns it. `broker_addr` is required and must be the
+`broker_addr` the server was started with. Without `peer_pub_b64` the server's
+random token is returned, or a random token that the daemon picks is added when
+the server has none. When `peer_pub_b64` is set, the token is derived via ECDH
+so only that peer can match. A token that the server already has for the same
+peer is returned as it is.
+
+It fails with `p2p_server_not_running` when no p2p server runs,
+`broker_addr_mismatch` when `broker_addr` is not the server's broker, and
+`p2p_token_failed` otherwise. A new token is announced with `p2p_tokens` before
+the response.
 
 **Input:**
 
@@ -810,7 +840,7 @@ set, the token is derived via ECDH so only that peer can match.
   "cmd": "generate_p2p_token",
   "id": "1",
   "params": {
-    "broker_addr": "wss://broker.example.com",
+    "broker_addr": "broker.example.com:4788",
     "peer_pub_b64": "base64key..."
   }
 }
@@ -819,13 +849,14 @@ set, the token is derived via ECDH so only that peer can match.
 **Output:**
 
 ```json
+{ "type": "evt", "evt": "p2p_tokens", "data": { "tokens": [{ "token": "hex-token...", "consumed": false, "ttl_ns": 60000000000, "expires_at": "2026-06-21T11:00:00Z", "mode": "static", "peer_pub_b64": "base64key..." }] } }
 {
   "type": "evt",
   "evt": "response",
   "id": "1",
   "data": {
     "token": "hex-token...",
-    "broker_addr": "wss://broker.example.com",
+    "broker_addr": "broker.example.com:4788",
     "peer_pub_b64": "base64key..."
   }
 }
@@ -833,7 +864,11 @@ set, the token is derived via ECDH so only that peer can match.
 
 #### `remove_p2p_token`
 
-Removes an active P2P token.
+Removes a P2P token, the server's own token included, and stops the p2p server
+from registering it again. The broker has no way to drop a registration at
+once, so it forgets the token when its last registration expires, within its
+`registration_ttl` (60 seconds by default). Fails with
+`p2p_token_remove_failed` for a token that is not listed.
 
 **Input:**
 
@@ -849,12 +884,22 @@ Removes an active P2P token.
 **Output:**
 
 ```json
+{ "type": "evt", "evt": "p2p_tokens", "data": { "tokens": [] } }
 { "type": "evt", "evt": "response", "id": "1", "data": { "status": "removed" } }
 ```
 
 #### `list_p2p_tokens`
 
-Returns all active P2P tokens.
+Returns the tokens of the running p2p server.
+
+| Field          | Description                                                                                                                                                       |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `token`        | The token in hex: 32 characters for a random token, 64 for a static one.                                                                                          |
+| `consumed`     | Always `false`: a match does not use a P2P token up.                                                                                                              |
+| `ttl_ns`       | How long the broker keeps a registration after a refresh, as the daemon reckons it: always 60 seconds, the default `registration_ttl` of the relay's broker.      |
+| `expires_at`   | When the broker drops the registration unless the server refreshes it first. Each refresh moves it on, so it stays 30 to 60 seconds ahead while refreshes go out. |
+| `mode`         | `random` or `static`.                                                                                                                                             |
+| `peer_pub_b64` | The public key that a static token was derived for. Omitted for a random token.                                                                                   |
 
 **Input:** (no params)
 
@@ -872,12 +917,11 @@ Returns all active P2P tokens.
   "data": {
     "tokens": [
       {
-        "token": "hex-token...",
-        "nonce": "base64...",
-        "pub": "base64...",
-        "peer": "base64...",
-        "broker_addr": "wss://broker.example.com",
-        "expires_at": "2026-06-21T11:00:00Z"
+        "token": "4f1c2a9be07d35a8c6e19b0f72d4a3e5",
+        "consumed": false,
+        "ttl_ns": 60000000000,
+        "expires_at": "2026-06-21T11:00:00Z",
+        "mode": "random"
       }
     ]
   }
@@ -1928,7 +1972,10 @@ removed).
 
 ### `p2p_tokens`
 
-Emitted when the P2P token list changes (token generated or removed).
+Emitted when a p2p server starts, when a token is added or removed, each time
+the server refreshes its tokens' broker registrations (every 30 seconds), and
+with an empty list when the server stops. The token fields are those of
+[`list_p2p_tokens`](#list_p2p_tokens).
 
 ```json
 {
@@ -1937,12 +1984,11 @@ Emitted when the P2P token list changes (token generated or removed).
   "data": {
     "tokens": [
       {
-        "token": "hex-token...",
-        "nonce": "base64...",
-        "pub": "base64...",
-        "peer": "base64...",
-        "broker_addr": "wss://broker.example.com",
-        "expires_at": "2026-06-21T11:00:00Z"
+        "token": "4f1c2a9be07d35a8c6e19b0f72d4a3e5",
+        "consumed": false,
+        "ttl_ns": 60000000000,
+        "expires_at": "2026-06-21T11:00:00Z",
+        "mode": "random"
       }
     ]
   }
@@ -2056,13 +2102,13 @@ verification is triggered by the protocol, not by a client command. Match
 
 ## Transports
 
-| Transport       | Server-side                                                   | Client-side                                  |
-| --------------- | ------------------------------------------------------------- | -------------------------------------------- |
-| `tcp` (default) | `kamune.ServeWithTCP`                                         | `kamune.DialWithTCP`                         |
-| `udp`           | `kamune.ServeWithUDP`                                         | `kamune.DialWithUDP`                         |
-| `relay`         | `relayconn.ListenRelay*` + `ServeWithListener(multiListener)` | `relayconn.DialRelay*` via `DialWithFunc`    |
-| `p2p`           | `broker.BrokerClient` + `newP2PListener` + `ServeWithUDP`     | `WaitMatch` + `HolePunch` via `DialWithFunc` |
-| `direct-p2p`    | `newDirectP2PListener` + `ServeWithListener`                  | `directP2PDial` via `DialWithFunc`           |
+| Transport       | Server-side                                                                     | Client-side                                               |
+| --------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `tcp` (default) | `net.Listen("tcp")` + `ServeWithListener`                                       | `kamune.DialWithTCP`                                      |
+| `udp`           | `kcp.Listen` + `ServeWithListener`                                              | `kamune.DialWithUDP`                                      |
+| `relay`         | `relayconn.ListenRelay*` + `ServeWithListener(multiListener)`                   | `relayconn.DialRelay*` via `DialWithFunc`                 |
+| `p2p`           | `newP2PListener` (punch socket, broker registration, KCP) + `ServeWithListener` | `BrokerClient.WaitMatch` + `HolePunch` via `DialWithFunc` |
+| `direct-p2p`    | `newDirectP2PListener` + `ServeWithListener`                                    | `directP2PDial` via `DialWithFunc`                        |
 
 For relay mode, the relay address supports `tcp://`, `ws://`, `wss://`, and
 `tls://` schemes. An optional `?insecure=true` query parameter overrides TLS
