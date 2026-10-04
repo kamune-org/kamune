@@ -1,10 +1,13 @@
 package storage
 
 import (
+	"bytes"
+	"cmp"
 	"crypto/subtle"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/kamune-org/kamune/internal/engine"
@@ -51,7 +54,8 @@ var (
 )
 
 // CreateSession creates a new session record under sessions/<id>/meta/ with
-// peer key, peer name, and establishment timestamp.
+// peer key, peer name, and establishment timestamp. Idle sessions with the
+// same peer beyond the limit of [WithIdleSessionLimit] are deleted.
 func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
 		peer, err := s.findPeer(b, peerKey(publicKey))
@@ -85,7 +89,7 @@ func (s *Storage) CreateSession(sessionID string, publicKey []byte) error {
 			}
 		}
 
-		return nil
+		return s.pruneIdleSessions(b, peer.PublicKey, sessionID)
 	})
 	if errors.Is(err, ErrPeerExpired) {
 		s.removeExpiredPeer(peerKey(publicKey))
@@ -143,7 +147,9 @@ func (s *Storage) SetMeta(sessionID string, m Meta) error {
 
 // PutSessionResumption writes resumption metadata, creating the session
 // namespace if needed. When setEstablished is true, established_at is stored
-// only if it is not already present so a resume cannot reset the window.
+// only if it is not already present so a resume cannot reset the window,
+// and, with a peer key, idle sessions with that peer beyond the limit of
+// [WithIdleSessionLimit] are deleted.
 func (s *Storage) PutSessionResumption(
 	sessionID string,
 	peerPublicKey []byte,
@@ -174,12 +180,75 @@ func (s *Storage) PutSessionResumption(
 				}
 			}
 		}
-		return meta.PutEncrypted(
+		err := meta.PutEncrypted(
 			[]byte(ResumptionTokensKey), serializeList(tokens),
 		)
+		if err != nil || !setEstablished || len(peerPublicKey) == 0 {
+			return err
+		}
+		return s.pruneIdleSessions(b, peerPublicKey, sessionID)
 	})
 	if err != nil {
 		return fmt.Errorf("put session resumption %s: %w", sessionID, err)
+	}
+	return nil
+}
+
+// pruneIdleSessions deletes the idle sessions with peer that were
+// established first, until peer has no more than s.idleSessionLimit idle
+// sessions, counting the session keep, which is never deleted. A session
+// is idle when its chat namespace is empty and it has no name, whether or
+// not it is still connected. Sessions without an established_at are
+// deleted first. It reads every stored session, so its cost grows with
+// their number.
+func (s *Storage) pruneIdleSessions(
+	b engine.Namespace, peer []byte, keep string,
+) error {
+	if s.idleSessionLimit <= 0 {
+		return nil
+	}
+	type idle struct {
+		at time.Time
+		id string
+	}
+	var found []idle
+	sessions := b.Sub([]byte(engine.SessionsNamespace))
+	for _, id := range sessions.ListSubNamespaces() {
+		if id == keep {
+			continue
+		}
+		session := sessions.Sub([]byte(id))
+		if session.Sub([]byte("chat")).FirstKey() != nil {
+			continue
+		}
+		meta := session.Sub([]byte("meta"))
+		key, err := meta.GetEncrypted([]byte(PeerKey))
+		if err != nil || !bytes.Equal(key, peer) {
+			continue
+		}
+		if _, err := meta.GetEncrypted(sessionMetaKey); err == nil {
+			continue
+		}
+		var at time.Time
+		ts, err := meta.GetEncrypted([]byte(EstablishedAtKey))
+		if err == nil && len(ts) >= 8 {
+			at = time.Unix(0, int64(binary.BigEndian.Uint64(ts[:8])))
+		}
+		found = append(found, idle{at: at, id: id})
+	}
+
+	excess := len(found) - (s.idleSessionLimit - 1)
+	if excess <= 0 {
+		return nil
+	}
+	slices.SortFunc(found, func(x, y idle) int {
+		return cmp.Or(x.at.Compare(y.at), cmp.Compare(x.id, y.id))
+	})
+	for _, old := range found[:excess] {
+		err := sessions.DeleteNamespace([]byte(old.id))
+		if err != nil {
+			return fmt.Errorf("delete idle session %s: %w", old.id, err)
+		}
 	}
 	return nil
 }

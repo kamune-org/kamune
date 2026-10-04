@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -920,6 +921,101 @@ func TestSetMetaUpdatesExistingSession(t *testing.T) {
 	got, err := store.PopList("sess", RelayTokensKey)
 	a.NoError(err)
 	a.Equal(relay, got)
+}
+
+// TestIdleSessionsAreBoundedPerPeer has a peer connect again and again
+// without sending anything, and checks that the stored sessions for it
+// stay bounded.
+func TestIdleSessionsAreBoundedPerPeer(t *testing.T) {
+	cases := []struct {
+		name string
+		opts []StorageOption
+		want int
+	}{
+		{"default", nil, defaultIdleSessionLimit},
+		{"custom", []StorageOption{WithIdleSessionLimit(3)}, 3},
+		{"disabled", []StorageOption{WithIdleSessionLimit(0)}, 20},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			clk := clock.NewFake(time.Unix(1_700_000_000, 0))
+			opts := append([]StorageOption{
+				WithDBPath(filepath.Join(t.TempDir(), "db")),
+				WithNoPassphrase(),
+				WithClock(clk),
+			}, tc.opts...)
+			s, err := OpenStorage(opts...)
+			a.NoError(err)
+			defer s.Close()
+
+			att, err := attest.New()
+			a.NoError(err)
+			pub := att.MarshalPublicKey()
+			tok := makeToken(0x01, 32)
+			var ids []string
+			for i := range 20 {
+				id := fmt.Sprintf("s%02d", i)
+				ids = append(ids, id)
+				a.NoError(s.PutSessionResumption(
+					id, pub, [][]byte{tok}, true,
+				))
+				clk.Advance(time.Second)
+			}
+
+			sessions, err := s.ListSessions()
+			a.NoError(err)
+			a.ElementsMatch(ids[len(ids)-tc.want:], sessions)
+		})
+	}
+}
+
+func TestPruneIdleSessionsKeepsUsedSessions(t *testing.T) {
+	a := require.New(t)
+	clk := clock.NewFake(time.Unix(1_700_000_000, 0))
+	s, err := OpenStorage(
+		WithDBPath(filepath.Join(t.TempDir(), "db")),
+		WithNoPassphrase(),
+		WithClock(clk),
+		WithIdleSessionLimit(2),
+	)
+	a.NoError(err)
+	defer s.Close()
+
+	alice, err := attest.New()
+	a.NoError(err)
+	bob, err := attest.New()
+	a.NoError(err)
+	alicePK, bobPK := alice.MarshalPublicKey(), bob.MarshalPublicKey()
+	a.NoError(s.StorePeer(&Peer{Name: "alice", PublicKey: alicePK}))
+	establish := func(id string, pub []byte) {
+		a.NoError(s.PutSessionResumption(id, pub, nil, true))
+		clk.Advance(time.Second)
+	}
+
+	establish("bob-old", bobPK)
+	establish("idle-1", alicePK)
+	establish("chat", alicePK)
+	a.NoError(s.CreateSession("chat", alicePK))
+	a.NoError(s.AddChatEntry("chat", []byte("hi"), clk.Now(), SenderPeer))
+	establish("named", alicePK)
+	a.NoError(s.SetSessionName("named", "keep me"))
+	establish("idle-2", alicePK)
+	establish("idle-3", alicePK)
+
+	sessions, err := s.ListSessions()
+	a.NoError(err)
+	a.ElementsMatch(
+		[]string{"bob-old", "chat", "named", "idle-2", "idle-3"}, sessions,
+	)
+
+	// CreateSession prunes as well.
+	a.NoError(s.CreateSession("idle-4", alicePK))
+	sessions, err = s.ListSessions()
+	a.NoError(err)
+	a.ElementsMatch(
+		[]string{"bob-old", "chat", "named", "idle-3", "idle-4"}, sessions,
+	)
 }
 
 func TestPutSessionResumptionDoesNotResetEstablishedAt(t *testing.T) {

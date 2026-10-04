@@ -94,6 +94,10 @@ func defaultPassphraseHandler() ([]byte, error) {
 	return nil, fmt.Errorf("no passphrase provided")
 }
 
+// defaultIdleSessionLimit is the number of idle sessions kept per peer
+// unless [WithIdleSessionLimit] sets another.
+const defaultIdleSessionLimit = 8
+
 type Storage struct {
 	clock             clock.Clock
 	passphraseHandler PassphraseHandler
@@ -101,6 +105,7 @@ type Storage struct {
 	dbPath            string
 	expiryDuration    time.Duration
 	timeout           time.Duration
+	idleSessionLimit  int
 	createDB          bool
 }
 
@@ -109,6 +114,7 @@ func OpenStorage(opts ...StorageOption) (*Storage, error) {
 		passphraseHandler: defaultPassphraseHandler,
 		expiryDuration:    7 * 24 * time.Hour,
 		timeout:           5 * time.Second,
+		idleSessionLimit:  defaultIdleSessionLimit,
 		clock:             clock.Real(),
 		createDB:          true,
 	}
@@ -661,6 +667,29 @@ func WithBackend(b engine.Store) StorageOption {
 // not exist. The default is true.
 func WithCreateDB(v bool) StorageOption {
 	return func(p *Storage) { p.createDB = v }
+}
+
+// WithIdleSessionLimit sets how many idle sessions are kept for each peer.
+// A session is idle when it has no chat entries and no name. Every new
+// session, from [Storage.CreateSession] or [Storage.PutSessionResumption]
+// with setEstablished, counts as idle, and once a peer has more than n idle
+// sessions the ones established first are deleted. This bounds what a peer
+// adds to the database and the session list by connecting and closing over
+// and over, but not what it adds by sending one message in each session:
+// sessions with chat entries are never deleted, and the rate of new
+// sessions is not limited here.
+//
+// Storage does not know which sessions are still connected, so an idle
+// session that is still connected is deleted too once newer sessions with
+// the same peer push it out. [Storage.SetMeta] on it then returns
+// [ErrSessionNotFound], and it can no longer be resumed; a resume that had
+// already checked its token stores it again, without an established_at.
+// Each new session reads every stored session, in the transaction that
+// stores it.
+//
+// n <= 0 keeps every session. The default is 8.
+func WithIdleSessionLimit(n int) StorageOption {
+	return func(p *Storage) { p.idleSessionLimit = n }
 }
 
 // WithTimeout sets the maximum time the backend waits for the database to open
