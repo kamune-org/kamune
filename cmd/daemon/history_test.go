@@ -3,9 +3,12 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/stretchr/testify/require"
 )
@@ -168,4 +171,57 @@ func TestGetHistoryMessagesPages(t *testing.T) {
 			a.Equal(tt.want, got)
 		})
 	}
+}
+
+// delete_history_session and delete_peer report a record that was
+// deleted although compacting the database afterwards failed as deleted,
+// with a warning, rather than as a failure.
+func TestDeleteSurvivesFailedCompaction(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write to a read-only directory")
+	}
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	const id = "doomed-session"
+	a.NoError(d.store().AddChatEntry(
+		id, []byte("hi"), time.Now(), storage.SenderLocal,
+	))
+	d.loadHistorySessions()
+	key := newTestPeerKey(t)
+	a.NoError(d.store().StorePeer(&storage.Peer{
+		Name: "doomed", PublicKey: key, FirstSeen: time.Now(),
+	}))
+
+	// Compacting writes a new file next to the database, which a
+	// read-only directory refuses.
+	dir := filepath.Dir(d.dbPath)
+	a.NoError(os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	run := func(cmdID ID, handle func(Command), params any) recordedEvent {
+		t.Helper()
+		handle(Command{ID: cmdID, Params: mustJSON(params)})
+		return rec.waitFor(t, func(e recordedEvent) bool {
+			return e.ID == cmdID
+		})
+	}
+	evt := run("session", d.handleDeleteHistorySession,
+		DeleteHistorySessionParams{SessionID: id})
+	a.Equal(EvtResponse, evt.Evt, "delete_history_session: %v", evt.Data)
+	a.Equal("deleted", evt.Data["status"])
+	a.Contains(evt.Data["warning"], "compacting")
+	entries, err := d.store().GetChatHistory(id)
+	a.NoError(err)
+	a.Empty(entries)
+	d.mu.RLock()
+	a.Empty(d.histSessions)
+	d.mu.RUnlock()
+
+	evt = run("peer", d.handleDeletePeer,
+		DeletePeerParams{PublicKey: fingerprint.Base64(key)})
+	a.Equal(EvtResponse, evt.Evt, "delete_peer: %v", evt.Data)
+	a.Equal("deleted", evt.Data["status"])
+	a.Contains(evt.Data["warning"], "compacting")
+	_, err = d.store().FindPeer(key)
+	a.Error(err, "the peer is still stored")
 }

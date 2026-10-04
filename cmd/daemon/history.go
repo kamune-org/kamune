@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -340,7 +341,9 @@ func (d *Daemon) handleDeleteHistorySession(cmd Command) {
 
 	// A dropped relay session that is being deleted is not resumed.
 	d.cancelRelayResume(params.SessionID)
-	if err := store.DeleteSession(params.SessionID); err != nil {
+	err := store.DeleteSession(params.SessionID)
+	warning, deleted := d.afterCompact(err)
+	if !deleted {
 		d.addLogEntry("ERROR", "Failed to delete history session: "+err.Error())
 		d.emitError(cmd.ID, "delete_failed", fmt.Sprintf("failed to delete: %v", err))
 		return
@@ -357,7 +360,49 @@ func (d *Daemon) handleDeleteHistorySession(cmd Command) {
 
 	d.emit(EvtHistoryUpdated, "", MapS{})
 	d.addLogEntry("INFO", "Deleted history session: "+params.SessionID)
-	d.emit(EvtResponse, cmd.ID, MapS{"status": "deleted"})
+	d.emit(EvtResponse, cmd.ID, deletedResponse(warning))
+}
+
+// deletedResponse is the response to a delete that went through, with
+// warning, from afterCompact, when it is not empty.
+func deletedResponse(warning string) MapS {
+	resp := MapS{"status": "deleted"}
+	if warning != "" {
+		resp["warning"] = warning
+	}
+	return resp
+}
+
+// afterCompact sorts out err, from a storage delete that compacts the
+// database afterwards: storage.DeleteSession or storage.DeletePeer. It
+// reports the record deleted when err is nil, or when it wraps
+// storage.ErrCompactFailed: then the deleted data may still be in the
+// database file, which warning says. A compaction that left the storage
+// unusable (storage.ErrReopen) gets it opened again.
+func (d *Daemon) afterCompact(err error) (warning string, deleted bool) {
+	if err == nil {
+		return "", true
+	}
+	if !errors.Is(err, storage.ErrCompactFailed) {
+		return "", false
+	}
+	if errors.Is(err, storage.ErrReopen) {
+		d.mu.RLock()
+		path := d.dbPath
+		d.mu.RUnlock()
+		d.storeMu.Lock()
+		unlock := d.dbUnlock
+		d.storeMu.Unlock()
+		if rerr := d.reopenStore(path, unlock); rerr != nil {
+			d.addLogEntry("ERROR",
+				"Could not open the storage again after compacting it: "+
+					rerr.Error())
+		}
+	}
+	warning = "deleted, but compacting the database failed, so the " +
+		"deleted data may still be in its file: " + err.Error()
+	d.addLogEntry("WARN", warning)
+	return warning, true
 }
 
 // handleRefreshHistory re-runs loadHistorySessions.
@@ -415,14 +460,16 @@ func (d *Daemon) handleDeletePeer(cmd Command) {
 		return
 	}
 
-	if err := store.DeletePeer(pubKey); err != nil {
+	err = store.DeletePeer(pubKey)
+	warning, deleted := d.afterCompact(err)
+	if !deleted {
 		d.addLogEntry("ERROR", "Failed to delete peer: "+err.Error())
 		d.emitError(cmd.ID, "peer_delete_failed", fmt.Sprintf("failed to delete peer: %v", err))
 		return
 	}
 
 	d.addLogEntry("INFO", "Deleted peer")
-	d.emit(EvtResponse, cmd.ID, MapS{"status": "deleted"})
+	d.emit(EvtResponse, cmd.ID, deletedResponse(warning))
 }
 
 // handleGetFingerprint returns the current fingerprint in every format,

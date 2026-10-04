@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-delete-peer",
   "title": "delete_peer params",
-  "description": "Removes a known peer by its public key.",
+  "description": "Removes a known peer by its public key. Its sessions are kept. The database is compacted afterwards, so that the deleted data does not stay in its file. When that fails the record is deleted all the same: the response is still {\"status\": \"deleted\"}, with a warning field that says so.",
   "type": "object",
   "properties": {
     "public_key": { "type": "string" }

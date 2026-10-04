@@ -921,12 +921,8 @@ func (d *Daemon) handleChangePassphrase(cmd Command) {
 	case errors.Is(err, storage.ErrReopen):
 		// The new passphrase is in effect, but the store must be
 		// opened again.
-		d.closeStore()
 		d.updateKeychain(path, params)
-		if err := d.replaceStore(path, unlock); err != nil {
-			d.mu.Lock()
-			d.pendingDBPath = path
-			d.mu.Unlock()
+		if err := d.reopenStore(path, unlock); err != nil {
 			d.emitError(cmd.ID, "storage_reopen_failed", fmt.Sprintf(
 				"the new passphrase is in effect, but the storage "+
 					"could not be opened again: %v; open it with "+
@@ -947,6 +943,20 @@ func (d *Daemon) handleChangePassphrase(cmd Command) {
 	d.updateKeychain(path, params)
 	d.addLogEntry("INFO", "Storage passphrase changed")
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "changed"})
+}
+
+// reopenStore closes the open storage, which a rewrite of its file left
+// unusable (storage.ErrReopen), and opens path again with unlock. When
+// that fails no storage is open, and path is kept for submit_passphrase.
+func (d *Daemon) reopenStore(path string, unlock storageUnlock) error {
+	d.closeStore()
+	if err := d.replaceStore(path, unlock); err != nil {
+		d.mu.Lock()
+		d.pendingDBPath = path
+		d.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
 // updateKeychain saves the new passphrase of params to the keychain for
