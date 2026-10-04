@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"slices"
 	"sync"
 	"syscall"
 	"testing"
@@ -187,7 +188,8 @@ func TestReceive_TCPResetIsConnClosed(t *testing.T) {
 
 // TestReceive_FatalFrameTerminatesTransport checks that a frame that fails
 // decryption or verification, or a RouteCloseTransport frame, closes the
-// connection and that no frame queued behind it is processed.
+// connection and that no frame queued behind it is processed. A case's
+// frames in before are received first and must succeed.
 func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 	a := require.New(t)
 	att, err := attest.New()
@@ -207,17 +209,33 @@ func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 		a.NoError(err)
 		return cipher.Encrypt(payload)
 	}
+	tampered := frame(serde, RouteExchangeMessages, 1)
+	tampered[len(tampered)/2] ^= 0x01
+	replayed := frame(serde, RouteExchangeMessages, 1)
 
 	cases := []struct {
-		want  error
-		name  string
-		first []byte
-		next  []byte
+		want   error
+		name   string
+		before [][]byte
+		first  []byte
+		next   []byte
 	}{
 		{
 			name:  "decryption failure",
 			first: bytes.Repeat([]byte{0x5a}, 64),
 			next:  frame(serde, RouteExchangeMessages, 1),
+		},
+		{
+			name:  "tampered ciphertext",
+			first: tampered,
+			next:  frame(serde, RouteExchangeMessages, 1),
+		},
+		{
+			name:   "replayed frame",
+			want:   ErrOutOfSync,
+			before: [][]byte{replayed},
+			first:  replayed,
+			next:   frame(serde, RouteExchangeMessages, 2),
 		},
 		{
 			name:  "invalid signature",
@@ -247,7 +265,9 @@ func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			a := require.New(t)
-			conn := &queuedConn{frames: [][]byte{tc.first, tc.next}}
+			conn := &queuedConn{
+				frames: append(slices.Clone(tc.before), tc.first, tc.next),
+			}
 			tr := newTransport(conn, serde, "test-session", cipher, cipher)
 			tr.established = true
 			store := newTransportTestStorage(t)
@@ -255,6 +275,10 @@ func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 			a.NoError(store.PutSessionResumption(
 				tr.sessionID, nil, [][]byte{bytes.Repeat([]byte{7}, 32)}, false,
 			))
+			for range tc.before {
+				_, err := tr.Receive(Bytes(nil))
+				a.NoError(err)
+			}
 
 			_, err := tr.Receive(Bytes(nil))
 			a.Error(err)
