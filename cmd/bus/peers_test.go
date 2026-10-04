@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -417,4 +419,45 @@ func TestAddPeer_AcceptsPaddedBase64(t *testing.T) {
 	a.Len(list, 1)
 	a.Equal(noPad, list[0].PublicKeyBase64,
 		"stored base64 should be the canonical un-padded form")
+}
+
+// TestAddPeer_RejectsUnusableKeys checks that a key of small order, under
+// which anyone could forge signatures, is refused although it is a
+// well-formed PKIX Ed25519 key.
+func TestAddPeer_RejectsUnusableKeys(t *testing.T) {
+	// The PKIX encoding of an Ed25519 key is this prefix and the 32-byte
+	// point.
+	prefix, err := hex.DecodeString("302a300506032b6570032100")
+	require.New(t).NoError(err)
+	pkix := func(point []byte) string {
+		return fingerprint.Base64(append(slices.Clone(prefix), point...))
+	}
+	identity := make([]byte, 32)
+	identity[0] = 1
+
+	cases := []struct {
+		name string
+		key  string
+		ok   bool
+	}{
+		{"generated key", fingerprint.Base64(newTestPubKey(t)), true},
+		{"identity point", pkix(identity), false},
+		{"point of order four", pkix(make([]byte, 32)), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, cleanup := newTestAppWithStorage(t)
+			defer cleanup()
+
+			err := app.AddPeer(tc.key, "mallory")
+			if tc.ok {
+				a.NoError(err)
+				a.Len(app.ListKnownPeers(), 1)
+				return
+			}
+			a.ErrorIs(err, ErrInvalidPeerKey)
+			a.Empty(app.ListKnownPeers())
+		})
+	}
 }

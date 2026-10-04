@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -58,15 +59,25 @@ func (a *App) GetPeer(publicKeyB64 string) (PeerInfo, error) {
 	return PeerInfo{}, fmt.Errorf("peer not found: %s", publicKeyB64)
 }
 
+// ErrInvalidPeerKey rejects a peer key that is not a usable Ed25519
+// public key: one of small order, under which anyone can forge
+// signatures, or a non-canonical encoding, which gives one key several
+// IDs and fingerprints.
+var ErrInvalidPeerKey = errors.New("not a valid Ed25519 public key")
+
 // AddPeer inserts a peer manually. publicKeyB64 is the raw URL-safe
 // base64 (no padding) of the ed25519 public key bytes — the same
 // form returned by fingerprint.Base64. name is optional; when empty,
 // the bus uses the fingerprint pseudonym. The new peer's FirstSeen
-// and LastSeen are set to now.
+// and LastSeen are set to now. A key that attest.IsValidPublicKey
+// rejects is refused with ErrInvalidPeerKey.
 func (a *App) AddPeer(publicKeyB64, name string) error {
 	pub, err := decodePeerPubKey(publicKeyB64)
 	if err != nil {
 		return err
+	}
+	if !attest.IsValidPublicKey(pub) {
+		return ErrInvalidPeerKey
 	}
 	if strings.TrimSpace(name) != "" {
 		if name, err = validateLabel(name); err != nil {
