@@ -1359,8 +1359,36 @@ scenarios and SHOULD NOT be used where the database file may be exposed.
 | **Session resumption state** | Per session: unused resumption tokens, the remote peer's public key, and the time of the session's cold handshake (`established_at`).      | Encrypted (DEK) |
 | **Settings**                 | Application settings, one value per application name and key.                                                                              | Encrypted (DEK) |
 
-Peer records are identified by a stable hash of their public key
-(SHA3-512 of the PKIX/DER-encoded public key).
+Peers, sessions and settings are stored under keyed names:
+`HMAC-SHA256(nameKey, label || 0x00 || id)`, where `id` is the peer's
+PKIX/DER-encoded public key, the session ID, or the setting's application name
+and key joined by a colon, and `label` is `kamune/storage/peer/v1`,
+`kamune/storage/session/v1` or `kamune/storage/setting/v1`. `nameKey` is 32
+random bytes stored under `name-key` in the default bucket, sealed under the
+DEK. Without the passphrase, the file therefore does not show which public
+keys, session IDs or settings it holds, and a guess cannot be checked against
+it. A passphrase change keeps the name key, so someone who knew an older
+passphrase can still check guesses against later copies of the file. Since a
+session's keyed name does not give its ID back, the ID is also stored in the
+session's metadata.
+
+The encryption hides values, not the shape of the database. The following are
+stored in plaintext:
+
+- The bucket structure: the default bucket (`kamune-store`), `peers`,
+  `sessions` and `settings`, and the `meta` and `chat` buckets of each session.
+- The number of peers, sessions, messages in each session, and settings.
+- The key metadata of §11.2, and the names of the other entries in the default
+  bucket (`attest`, `name-key`, `storage-format`, `compact-pending` and
+  `value-binding`).
+- The names of each session's metadata entries (`session_id`, `peer`,
+  `established_at`, `resumption_tokens`, `relay_tokens`, `name` and
+  `message_count`) and the lengths of their values.
+- The index each message is stored under, which shows only the order of the
+  messages.
+- The length of each sealed value. A message entry is padded to 512 bytes, 1,
+  4, 16, 32 or 64 KiB, or a multiple of 64 KiB, before it is sealed, and a
+  setting value to a multiple of 64 bytes. Other values are not padded.
 
 The library does not store peers itself: the application stores a peer,
 typically once it has verified it. After every cold handshake and resumption
