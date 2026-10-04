@@ -2,7 +2,10 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -40,22 +43,36 @@ func main() {
 		os.Exit(1)
 	}
 
-	pass := os.Getenv("KAMUNE_DB_PASSPHRASE")
-	if pass == "" {
-		fmt.Print("Passphrase: ")
-		passBytes, err := term.ReadPassword(0)
-		fmt.Println()
+	pass := []byte(os.Getenv("KAMUNE_DB_PASSPHRASE"))
+	if len(pass) == 0 {
+		_, statErr := os.Stat(dbPath)
+		p := prompter{
+			out: os.Stdout,
+			readLine: func() (string, error) {
+				if scanner.Scan() {
+					return scanner.Text(), nil
+				}
+				if err := scanner.Err(); err != nil {
+					return "", err
+				}
+				return "", io.EOF
+			},
+			readSecret: func() ([]byte, error) {
+				return term.ReadPassword(0)
+			},
+		}
+		var err error
+		pass, err = p.passphrase(errors.Is(statErr, fs.ErrNotExist))
 		if err != nil {
 			slog.Error("reading passphrase", "error", err)
 			os.Exit(1)
 		}
-		pass = string(passBytes)
 	}
 
 	store, err := storage.OpenStorage(
 		storage.WithDBPath(dbPath),
 		storage.WithPassphraseHandler(func() ([]byte, error) {
-			return []byte(pass), nil
+			return pass, nil
 		}),
 	)
 	if err != nil {
