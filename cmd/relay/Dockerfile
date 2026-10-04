@@ -4,6 +4,9 @@
 # Default config is included; the container runs with no args or env vars.
 # Override it by mounting a config at /etc/relay.toml. To use
 # KAMUNE_RELAY_CONFIG instead, replace the entrypoint so relay runs without -c.
+# The default config serves tls on 8890 and wss on 8891 (publish them with
+# -p 8890:8890 -p 8891:8891). Plain tcp listens on the container's loopback
+# only, and the UDP broker is off.
 #
 # The relay logs to stderr. Docker's default json-file driver keeps that log
 # without limit, so cap it when running the container, for example:

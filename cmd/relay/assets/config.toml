@@ -51,15 +51,20 @@ max_entries = 100_000        # max unique IPs tracked
 enabled = false
 address = "127.0.0.1:9090"
 
-# Plain WebSocket transport (peer-facing).
+# ws and tcp carry the relay protocol without TLS, so a client cannot tell
+# the relay from an impostor on the path. They listen on loopback: ws for a
+# reverse proxy or tunnel on this host, tcp for local use. Expose them only on
+# a network you trust, such as a LAN or VPN, and use tls or wss elsewhere.
+
+# Plain WebSocket transport.
 [ws]
 enabled = false
-address = "0.0.0.0:8888"
+address = "127.0.0.1:8888"
 
 # Raw TCP transport (kamune over TCP).
 [tcp]
 enabled = true
-address = "0.0.0.0:8889"
+address = "127.0.0.1:8889"
 
 # Raw TLS transport (kamune over TLS).
 [tls]
@@ -76,8 +81,11 @@ address   = "0.0.0.0:8891"
 # key_file  = "assets/cert/server.key"
 
 # UDP broker (STUN-like IP echo + signal introduction for P2P hole-punching).
+# Off by default. It answers unauthenticated UDP from any source, cannot sit
+# behind a CDN or tunnel, so it exposes the host's address, and only helps
+# clients that try direct connections. It needs a public address to work.
 [broker]
-enabled = true
+enabled = false
 address = "0.0.0.0:4788"
 # A registration lapses registration_ttl after its last REGISTER. Clients
 # refresh every 30s. A refresh from a new source address moves the entry only

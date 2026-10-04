@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -575,4 +576,23 @@ func TestNew_ShippedConfigHasOnlyKnownKeys(t *testing.T) {
 	cfg, err := New("../../assets/config.toml")
 	a.NoError(err)
 	a.NoError(cfg.Validate())
+}
+
+// TestNew_ShippedConfigDefaults checks that the shipped config, which the
+// docker image uses as is, keeps the broker off and the transports without
+// TLS on loopback.
+func TestNew_ShippedConfigDefaults(t *testing.T) {
+	a := require.New(t)
+	cfg, err := New("../../assets/config.toml")
+	a.NoError(err)
+	a.False(cfg.Broker.Enabled, "broker must be off by default")
+	for name, addr := range map[string]string{
+		"ws": cfg.WS.Address, "tcp": cfg.TCP.Address,
+	} {
+		host, _, err := net.SplitHostPort(addr)
+		a.NoError(err, name)
+		ip := net.ParseIP(host)
+		a.NotNil(ip, name)
+		a.True(ip.IsLoopback(), "%s must listen on loopback", name)
+	}
 }
