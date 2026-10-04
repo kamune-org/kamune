@@ -7,18 +7,23 @@ import (
 	"strings"
 )
 
-// AppVersion is the semantic version of the kamune protocol/library.
-// Sub-modules may override this via ldflags or init() before package init.
+// AppVersion is the semantic version of the kamune protocol/library, in the
+// form major.minor.patch. A [Server] or [Dialer] advertises it in its
+// introduction and checks the peer's version against it.
+//
+// It may be overridden with -ldflags "-X", or by assigning it before the
+// first [NewServer] or [NewDialer] call, for example in an init function.
+// Each server and dialer reads it once, when it is created, and keeps that
+// value; NewServer and NewDialer fail when it is not a valid version.
 var AppVersion = "0.7.0"
 
-var localSemver semver
-
-func init() {
-	var err error
-	localSemver, err = parseSemver(AppVersion)
-	if err != nil {
-		panic(fmt.Sprintf("kamune: invalid AppVersion %q: %v", AppVersion, err))
+// appVersion returns AppVersion after checking that it parses.
+func appVersion() (string, error) {
+	v := AppVersion
+	if _, err := parseSemver(v); err != nil {
+		return "", fmt.Errorf("invalid AppVersion %q: %w", v, err)
 	}
+	return v, nil
 }
 
 type semver struct {
@@ -50,7 +55,13 @@ func parseSemver(v string) (semver, error) {
 	return semver{major: major, minor: minor, patch: patch}, nil
 }
 
-func checkVersion(remote string) error {
+// checkVersion checks the remote peer's version against local, a version
+// that appVersion accepted.
+func checkVersion(local, remote string) error {
+	localSemver, err := parseSemver(local)
+	if err != nil {
+		return fmt.Errorf("parsing local version %q: %w", local, err)
+	}
 	rv, err := parseSemver(remote)
 	if err != nil {
 		return fmt.Errorf(
@@ -72,7 +83,7 @@ func checkVersion(remote string) error {
 	case localSemver.minor != rv.minor:
 		slog.Warn(
 			"minor version mismatch",
-			slog.String("local", AppVersion),
+			slog.String("local", local),
 			slog.String("remote", remote),
 		)
 	}

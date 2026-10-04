@@ -21,6 +21,7 @@ type Dialer struct {
 	storage       *storage.Storage
 	dialFunc      func(addr string) (Conn, error)
 	clientName    string
+	version       string
 	address       string
 	connOpts      []ConnOption
 	handshakeOpts handshakeOpts
@@ -97,7 +98,7 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 	}
 
 	// Step 1: Send our introduction
-	err = sendIntroduction(ec, d.attest, d.clientName, AppVersion)
+	err = sendIntroduction(ec, d.attest, d.clientName, d.version)
 	if err != nil {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
@@ -129,7 +130,7 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 		return nil, fmt.Errorf("receive introduction: %w", err)
 	}
 
-	if err := checkVersion(remoteVersion); err != nil {
+	if err := checkVersion(d.version, remoteVersion); err != nil {
 		return nil, fmt.Errorf("version check: %w", err)
 	}
 
@@ -212,14 +213,20 @@ func (d *Dialer) PublicKey() []byte {
 }
 
 // NewDialer creates a new dialer with the given address, storage, and options.
-// It returns ErrMissingStorage when store is nil.
+// It returns ErrMissingStorage when store is nil, and an error when
+// [AppVersion] is not a valid version.
 func NewDialer(
 	addr string, store *storage.Storage, rv RemoteVerifier, opts ...DialOption,
 ) (*Dialer, error) {
 	if store == nil {
 		return nil, ErrMissingStorage
 	}
+	version, err := appVersion()
+	if err != nil {
+		return nil, err
+	}
 	d := &Dialer{
+		version:     version,
 		address:     addr,
 		storage:     store,
 		dialTimeout: 10 * time.Second,

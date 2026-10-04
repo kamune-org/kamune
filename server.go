@@ -109,6 +109,7 @@ type Server struct {
 	networks      map[string]int
 	pending       map[*pendingConn]struct{}
 	serverName    string
+	version       string
 	addr          string
 	waiting       []*pendingConn
 	connOpts      []ConnOption
@@ -741,7 +742,7 @@ func (s *Server) handleNewConnection(
 		return nil, fmt.Errorf("receiving introduction: %w", err)
 	}
 
-	if err := checkVersion(remoteVersion); err != nil {
+	if err := checkVersion(s.version, remoteVersion); err != nil {
 		return nil, fmt.Errorf("version check: %w", err)
 	}
 
@@ -751,7 +752,7 @@ func (s *Server) handleNewConnection(
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
-	err = sendIntroduction(ec, s.attest, s.serverName, AppVersion)
+	err = sendIntroduction(ec, s.attest, s.serverName, s.version)
 	if err != nil {
 		return nil, fmt.Errorf("sending introduction: %w", err)
 	}
@@ -871,7 +872,8 @@ func (s *Server) PublicKey() []byte {
 // NewServer creates a new server with the given address, handler, and storage.
 // By default the server uses TCP on the given address when [Server.ListenAndServe]
 // is called, unless a different listener or transport is configured via options.
-// It returns ErrMissingStorage when store is nil.
+// It returns ErrMissingStorage when store is nil, and an error when
+// [AppVersion] is not a valid version.
 func NewServer(
 	addr string,
 	handler HandlerFunc,
@@ -882,7 +884,12 @@ func NewServer(
 	if store == nil {
 		return nil, ErrMissingStorage
 	}
+	version, err := appVersion()
+	if err != nil {
+		return nil, err
+	}
 	s := &Server{
+		version:     version,
 		addr:        addr,
 		storage:     store,
 		handlerFunc: handler,

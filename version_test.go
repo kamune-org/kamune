@@ -1,21 +1,14 @@
 package kamune
 
 import (
+	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-)
 
-func testCheckVersion(localVersion, remote string) error {
-	lv, err := parseSemver(localVersion)
-	if err != nil {
-		return err
-	}
-	saved := localSemver
-	localSemver = lv
-	defer func() { localSemver = saved }()
-	return checkVersion(remote)
-}
+	"github.com/kamune-org/kamune/pkg/storage"
+)
 
 func TestCheckVersion(t *testing.T) {
 	tests := []struct {
@@ -36,7 +29,7 @@ func TestCheckVersion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := require.New(t)
-			err := testCheckVersion(tt.local, tt.remote)
+			err := checkVersion(tt.local, tt.remote)
 			if tt.wantErr {
 				a.Error(err)
 				a.ErrorIs(err, ErrVersionMismatch)
@@ -76,4 +69,51 @@ func TestParseSemver(t *testing.T) {
 			a.Equal(tt.patch, v.patch)
 		})
 	}
+}
+
+// appVersionChildEnv marks the child process of TestAppVersionSetAfterInit.
+const appVersionChildEnv = "KAMUNE_TEST_APP_VERSION_CHILD"
+
+// TestAppVersionSetAfterInit checks that a version assigned after package
+// initialization, as an importer's init function would, is the one that a
+// server and a dialer both advertise and check against, and that an
+// invalid one fails at setup. It changes AppVersion, which other tests'
+// handshakes read, so it runs in a child process of its own.
+func TestAppVersionSetAfterInit(t *testing.T) {
+	a := require.New(t)
+	if os.Getenv(appVersionChildEnv) == "" {
+		cmd := exec.Command(
+			os.Args[0], "-test.run=^TestAppVersionSetAfterInit$",
+			"-test.count=1",
+		)
+		cmd.Env = append(os.Environ(), appVersionChildEnv+"=1")
+		out, err := cmd.CombinedOutput()
+		a.NoError(err, "child process output:\n%s", out)
+		return
+	}
+
+	clientStore, cleanupClient := newTestStore(t)
+	defer cleanupClient()
+	serverStore, cleanupServer := newTestStore(t)
+	defer cleanupServer()
+
+	AppVersion = "0.8.0"
+	a.NotEmpty(coldDial(t, clientStore, serverStore))
+
+	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	AppVersion = "dev"
+	_, err := NewDialer("", clientStore, accept)
+	a.ErrorContains(err, "invalid AppVersion")
+	_, err = NewServer(
+		"", nil, serverStore, accept,
+		ServeWithListener(newTestListener(nil)),
+	)
+	a.ErrorContains(err, "invalid AppVersion")
+}
+
+func TestCheckVersionRejectsInvalidLocal(t *testing.T) {
+	a := require.New(t)
+	err := checkVersion("dev", "0.7.0")
+	a.Error(err)
+	a.NotErrorIs(err, ErrVersionMismatch)
 }
