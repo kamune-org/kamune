@@ -333,6 +333,8 @@ type App struct {
 	verifIDCounter atomic.Int64
 	// verifTimeout overrides verificationTimeout when positive.
 	verifTimeout time.Duration
+	// verifPrevStatus is the status from before the open prompts.
+	verifPrevStatus StatusInfo
 
 	verifRadioItems []*application.MenuItem
 
@@ -628,6 +630,23 @@ func waitOrTimeout[T any](ch <-chan T, label string) {
 
 func (a *App) setStatus(status ConnectionStatus, msg string) {
 	a.mu.Lock()
+	a.status = status
+	a.statusMsg = msg
+	a.mu.Unlock()
+
+	a.emitEvent("status-changed", StatusInfo{Status: status, Message: msg})
+}
+
+// replaceStatus sets the status to status and msg only while it is still
+// want, so a stale restore does not overwrite a newer status.
+func (a *App) replaceStatus(
+	want, status ConnectionStatus, msg string,
+) {
+	a.mu.Lock()
+	if a.status != want {
+		a.mu.Unlock()
+		return
+	}
 	a.status = status
 	a.statusMsg = msg
 	a.mu.Unlock()

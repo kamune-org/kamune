@@ -118,11 +118,6 @@ func (a *App) promptVerification(
 	emoji := strings.Join(fingerprint.Emoji(key), " • ")
 	hex := fingerprint.Hex(key)
 
-	a.mu.RLock()
-	prevStatus := a.status
-	prevMsg := a.statusMsg
-	a.mu.RUnlock()
-
 	result := make(chan error, 1)
 
 	a.verifMu.Lock()
@@ -134,6 +129,11 @@ func (a *App) promptVerification(
 		))
 		return ErrTooManyVerifications
 	}
+	if len(a.verifRequests) == 0 {
+		// The first open prompt saves the status to restore once the
+		// last one closes.
+		a.verifPrevStatus = a.GetStatus()
+	}
 	reqID := a.verifIDCounter.Add(1)
 	a.verifRequests[reqID] = &pendingVerification{
 		result: result,
@@ -141,9 +141,9 @@ func (a *App) promptVerification(
 		hex:    hex,
 	}
 	a.verifMu.Unlock()
-	defer a.emitEvent("verify-peer-closed", reqID)
+	defer a.endVerification(reqID)
 
-	a.setStatus(StatusVerifying, "Verifying fingerprint of "+id.Label+"...")
+	a.setStatus(StatusVerifying, verifyingStatus(id.Label))
 	a.addLogEntry("INFO", "Verifying peer: "+id.logName())
 
 	a.emitEvent("verify-peer", map[string]any{
@@ -159,14 +159,38 @@ func (a *App) promptVerification(
 		"mode":         mode,
 	})
 
-	verdict := a.awaitVerification(reqID, result)
+	return a.awaitVerification(reqID, result)
+}
 
-	if verdict != nil {
-		return verdict
+func verifyingStatus(label string) string {
+	return "Verifying fingerprint of " + label + "..."
+}
+
+// endVerification closes request reqID, on every way a prompt ends, and
+// emits verify-peer-closed. While other prompts stay open the status
+// names the oldest of them. When the last one closes, the status from
+// before the first one opened comes back, unless something else, such as
+// a failed dial, has changed the status in the meantime.
+func (a *App) endVerification(reqID int64) {
+	a.verifMu.Lock()
+	delete(a.verifRequests, reqID)
+	var next *pendingVerification
+	var nextID int64
+	for id, p := range a.verifRequests {
+		if next == nil || id < nextID {
+			next, nextID = p, id
+		}
 	}
+	prev := a.verifPrevStatus
+	a.verifMu.Unlock()
 
-	a.setStatus(prevStatus, prevMsg)
-	return nil
+	a.emitEvent("verify-peer-closed", reqID)
+	if next != nil {
+		a.replaceStatus(StatusVerifying, StatusVerifying,
+			verifyingStatus(next.label))
+		return
+	}
+	a.replaceStatus(StatusVerifying, prev.Status, prev.Message)
 }
 
 // createAutoAcceptVerifier admits every peer without asking.
@@ -197,16 +221,11 @@ func (a *App) awaitVerification(reqID int64, result chan error) error {
 
 	select {
 	case verdict := <-result:
-		a.verifMu.Lock()
-		delete(a.verifRequests, reqID)
-		a.verifMu.Unlock()
 		return verdict
 	case <-timer.C:
-		a.verifMu.Lock()
-		delete(a.verifRequests, reqID)
-		a.verifMu.Unlock()
-		a.setStatus(StatusError, "Verification timed out")
-		a.addLogEntry("WARN", "Verification timed out for request: "+fmt.Sprintf("%d", reqID))
+		a.addLogEntry("WARN", fmt.Sprintf(
+			"Verification request %d timed out after %v", reqID, timeout,
+		))
 		return fmt.Errorf("verification timed out after %v", timeout)
 	}
 }

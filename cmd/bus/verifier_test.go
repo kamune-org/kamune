@@ -453,3 +453,93 @@ func TestSetVerificationModeConfirmsAutoAccept(t *testing.T) {
 		})
 	}
 }
+
+// TestPromptRestoresStatus checks that the status shown before a prompt
+// comes back however the prompt ends, and that it does not come back
+// while another prompt is open or after something else changed it.
+func TestPromptRestoresStatus(t *testing.T) {
+	const serverMsg = "Server running on :4000"
+	cases := []struct {
+		name   string
+		answer func(app *App, id int64)
+	}{
+		{"accepted", func(app *App, id int64) {
+			app.VerifyResponse(id, true)
+		}},
+		{"rejected", func(app *App, id int64) {
+			app.VerifyResponse(id, false)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, cleanup := newTestAppWithStorage(t)
+			defer cleanup()
+			app.verifMode = VerificationModeStrict
+			app.setStatus(StatusConnected, serverMsg)
+
+			errCh := runVerifier(app, app.getVerifier(), newTestPeer(t, "x"))
+			ids := waitPending(t, app, 1)
+			a.Equal(StatusVerifying, app.GetStatus().Status)
+
+			tc.answer(app, ids[0])
+			waitVerdict(t, errCh)
+			a.Equal(StatusInfo{StatusConnected, serverMsg}, app.GetStatus())
+		})
+	}
+
+	t.Run("timed out", func(t *testing.T) {
+		a := require.New(t)
+		app, cleanup := newTestAppWithStorage(t)
+		defer cleanup()
+		app.verifMode = VerificationModeStrict
+		app.verifTimeout = 10 * time.Millisecond
+		app.setStatus(StatusConnected, serverMsg)
+
+		a.Error(waitVerdict(t,
+			runVerifier(app, app.getVerifier(), newTestPeer(t, "x"))))
+		a.Equal(StatusInfo{StatusConnected, serverMsg}, app.GetStatus())
+	})
+
+	t.Run("two prompts", func(t *testing.T) {
+		a := require.New(t)
+		app, cleanup := newTestAppWithStorage(t)
+		defer cleanup()
+		app.verifMode = VerificationModeStrict
+		app.setStatus(StatusConnected, serverMsg)
+		rv := app.getVerifier()
+
+		first := newTestPeer(t, "x")
+		second := newTestPeer(t, "y")
+		errFirst := runVerifier(app, rv, first)
+		waitPending(t, app, 1)
+		errSecond := runVerifier(app, rv, second)
+		ids := waitPending(t, app, 2)
+
+		app.VerifyResponse(ids[0], false)
+		waitVerdict(t, errFirst)
+		a.Equal(StatusInfo{
+			StatusVerifying,
+			verifyingStatus(unknownPeerLabel(second.PublicKey)),
+		}, app.GetStatus())
+
+		app.VerifyResponse(ids[1], true)
+		a.NoError(waitVerdict(t, errSecond))
+		a.Equal(StatusInfo{StatusConnected, serverMsg}, app.GetStatus())
+	})
+
+	t.Run("newer status is kept", func(t *testing.T) {
+		a := require.New(t)
+		app, cleanup := newTestAppWithStorage(t)
+		defer cleanup()
+		app.verifMode = VerificationModeStrict
+		app.setStatus(StatusConnecting, "Connecting to peer...")
+
+		errCh := runVerifier(app, app.getVerifier(), newTestPeer(t, "x"))
+		ids := waitPending(t, app, 1)
+		app.setStatus(StatusError, "Connection failed")
+		app.VerifyResponse(ids[0], false)
+		waitVerdict(t, errCh)
+		a.Equal(StatusInfo{StatusError, "Connection failed"}, app.GetStatus())
+	})
+}
