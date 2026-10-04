@@ -134,15 +134,6 @@ func TestSessionManager_Create_Roundtrip(t *testing.T) {
 func TestSessionManager_Create_RespectsMaxConns(t *testing.T) {
 	a := require.New(t)
 	sm := newTestSessionManager(time.Minute, 0, 2)
-	for range 2 {
-		_, _, cleanup := pipeChans(t)
-		// We don't keep the channel around — we only need to fill the map.
-		// But we need to keep the channel alive, so do it differently.
-		cleanup()
-	}
-
-	// Re-do with proper channel retention.
-	sm = newTestSessionManager(time.Minute, 0, 2)
 
 	l1, _, c1 := pipeChans(t)
 	defer c1()
