@@ -213,3 +213,59 @@ func TestLoadChatHistoryKeepsNewest(t *testing.T) {
 	a.Equal("3", session.Messages[0].Text)
 	a.Equal(strconv.Itoa(stored-1), session.Messages[maxLiveMessages-1].Text)
 }
+
+func TestNotifyDue(t *testing.T) {
+	start := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	s := &liveSession{}
+	steps := []struct {
+		after time.Duration
+		want  bool
+	}{
+		{0, true},
+		{time.Second, false},
+		{notificationInterval - time.Millisecond, false},
+		{notificationInterval, true},
+		{notificationInterval + time.Second, false},
+		{3 * notificationInterval, true},
+	}
+	a := require.New(t)
+	for _, st := range steps {
+		a.Equal(st.want, s.notifyDue(start.Add(st.after)),
+			"message %v after the start", st.after)
+	}
+}
+
+// TestFloodRaisesOneNotification has a peer send a burst of messages on
+// a session that is not the active one, and checks that they raise a
+// single notification.
+func TestFloodRaisesOneNotification(t *testing.T) {
+	a := require.New(t)
+	app := newIncognitoApp(t)
+	// The clock stands still, so the whole burst falls within one
+	// notification interval however slowly it arrives.
+	now := time.Now()
+	app.clock = func() time.Time { return now }
+	events := recordEvents(app)
+
+	const sent = 20
+	addr, _ := startTestServer(t, "srv", func(tr *kamune.Transport) error {
+		for i := range sent {
+			if _, err := tr.Send(
+				kamune.Bytes([]byte(strconv.Itoa(i))),
+				kamune.RouteExchangeMessages,
+			); err != nil {
+				return err
+			}
+		}
+		return readUntilEnd(tr)
+	})
+	_, err := app.ConnectToServer(
+		addr, "tcp", "", "", "", "", "", "", "", false, false, "",
+	)
+	a.NoError(err)
+
+	a.Eventually(func() bool {
+		return len(events.named("message-received")) == sent
+	}, testWait, 10*time.Millisecond)
+	a.Len(events.named("notification"), 1)
+}

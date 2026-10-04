@@ -155,7 +155,8 @@ func (a *App) receiveMessages(session *liveSession) (dropped, removed bool) {
 		a.mu.Lock()
 		session.addMessage(msg)
 		session.LastActivity = time.Now()
-		isActive := a.activeSessionID == session.ID
+		notify := a.activeSessionID != session.ID &&
+			session.notifyDue(a.now())
 		a.mu.Unlock()
 
 		incognito := a.sessionIncognito(session)
@@ -168,7 +169,7 @@ func (a *App) receiveMessages(session *liveSession) (dropped, removed bool) {
 			}
 		}
 
-		if !isActive {
+		if notify {
 			a.SendNotification(
 				"New Message", notificationText(msgText, incognito),
 			)
@@ -239,6 +240,26 @@ func (s *liveSession) addMessage(msg MessageInfo) {
 		s.Messages = s.Messages[:n]
 	}
 	s.Messages = append(s.Messages, msg)
+}
+
+// notificationInterval is the least time between two notifications for
+// the messages of one session. A peer can send messages as fast as the
+// connection carries them, and each would otherwise raise a system
+// notification. The messages in between raise none, but the session
+// lists them as usual.
+const notificationInterval = 5 * time.Second
+
+// notifyDue reports whether a message that s received at now raises a
+// notification, which is so unless one was raised within the last
+// notificationInterval, and records the notification. The caller holds
+// a.mu.
+func (s *liveSession) notifyDue(now time.Time) bool {
+	if !s.lastNotified.IsZero() &&
+		now.Sub(s.lastNotified) < notificationInterval {
+		return false
+	}
+	s.lastNotified = now
+	return true
 }
 
 // notificationPreviewRunes caps how much of a message a notification

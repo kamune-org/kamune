@@ -200,6 +200,9 @@ type liveSession struct {
 	// the newest maxLiveMessages of them, oldest first; see addMessage.
 	// a.mu guards both.
 	msgCount int
+	// lastNotified is when a message of the session last raised a
+	// notification; see notifyDue. a.mu guards it.
+	lastNotified time.Time
 
 	reconnectFn     func(sessionID string) (*kamune.Transport, error)
 	reconnectCtx    context.Context
@@ -406,6 +409,16 @@ type App struct {
 	onEvent func(name string, data ...any)
 	// confirmFn, when set, answers confirm in place of a native dialog.
 	confirmFn func(title, message string) bool
+	// clock, when set, replaces time.Now for the notification interval.
+	clock func() time.Time
+}
+
+// now returns the current time, or the test clock's.
+func (a *App) now() time.Time {
+	if a.clock != nil {
+		return a.clock()
+	}
+	return time.Now()
 }
 
 func NewApp() *App {
