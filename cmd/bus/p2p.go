@@ -96,13 +96,13 @@ func (a *App) GenerateP2PToken(brokerAddr, peerPubB64 string) (string, error) {
 		return hexToken, nil
 	}
 
-	if err := l.RegisterToken(token); err != nil {
+	peerKey := staticPeerKey(peerPubB64, staticToken)
+	if err := l.RegisterToken(token, peerKey); err != nil {
 		if errors.Is(err, ErrTooManyP2PTokens) {
 			return "", err
 		}
 		return "", fmt.Errorf("register token on punch socket: %w", err)
 	}
-	l.peers.allow(staticPeerKey(peerPubB64, staticToken))
 
 	a.mu.Lock()
 	if a.p2pListener != l {
@@ -166,8 +166,12 @@ func (a *App) deriveP2PToken(peerPubB64 string) ([]byte, error) {
 	return t, nil
 }
 
-// RemoveP2PToken cancels the broker registration for the given token and
-// removes it from the active list.
+// RemoveP2PToken removes the given token from the active list and has the
+// P2P server's listener stop registering it with the broker. The broker
+// forgets the token once its last registration expires. The listener
+// turns the peer of a removed static token away only while no random
+// token is registered, since a random token admits any peer; see
+// p2pListener.admitsPeer.
 func (a *App) RemoveP2PToken(token string) error {
 	a.mu.Lock()
 	idx := -1
@@ -183,8 +187,14 @@ func (a *App) RemoveP2PToken(token string) error {
 	}
 	a.p2pTokens = append(a.p2pTokens[:idx], a.p2pTokens[idx+1:]...)
 	snapshot := a.p2pTokensSnapshot()
+	l, _ := a.p2pListener.(*p2pListener)
 	a.mu.Unlock()
 
+	// The server's listener must stop registering the token with the
+	// broker, or whoever holds it can still find the server.
+	if raw, err := hex.DecodeString(token); err == nil && l != nil {
+		l.UnregisterToken(raw)
+	}
 	a.emitEvent("p2p-tokens", snapshot)
 	a.addLogEntry("INFO", "Removed p2p token: "+token)
 	return nil

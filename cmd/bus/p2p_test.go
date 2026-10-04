@@ -237,26 +237,33 @@ func nextRegistration(
 }
 
 // startTestP2PServer starts a p2p listener on a fake broker and makes it
-// app's running P2P listener, as StartServer does. It returns the
-// broker's address and the channel of the REGISTERs the broker gets,
-// past the listener's own.
+// app's running P2P listener, as StartServer does, with token, or a
+// random one when token is nil, for the peer whose key is peerKey. It
+// returns the broker's address and the channel of the REGISTERs the
+// broker gets, past the listener's own.
 func startTestP2PServer(
-	t *testing.T, app *App, token []byte,
+	t *testing.T, app *App, token, peerKey []byte,
 ) (*p2pListener, string, <-chan brokerRegistration) {
 	t.Helper()
 	a := require.New(t)
 	fb := newFakeBroker(t)
 	regs := serveFakeBroker(fb)
 	addr := fb.conn.LocalAddr().String()
-	l, err := newP2PListener(app.brokerClient, addr, token, "127.0.0.1:0")
+	l, err := newP2PListener(
+		app.brokerClient, addr, token, peerKey, "127.0.0.1:0",
+	)
 	a.NoError(err)
 	t.Cleanup(func() { _ = l.Close() })
 	own := nextRegistration(t, regs)
 	a.Equal(l.Addr().Port, own.src.Port)
+	mode := "random"
+	if token != nil {
+		mode = "static"
+	}
 	app.mu.Lock()
 	app.p2pListener = l
 	app.p2pTokens = append(app.p2pTokens, p2pToken{
-		Token: l.Token(), Mode: "random",
+		Token: l.Token(), Mode: mode,
 	})
 	app.mu.Unlock()
 	return l, addr, regs
@@ -268,7 +275,7 @@ func TestGenerateP2PToken_RequiresP2PServer(t *testing.T) {
 	_, err := app.GenerateP2PToken("127.0.0.1:1", "")
 	a.ErrorIs(err, ErrNoP2PServer)
 
-	_, addr, _ := startTestP2PServer(t, app, nil)
+	_, addr, _ := startTestP2PServer(t, app, nil, nil)
 	_, err = app.GenerateP2PToken("127.0.0.1:1", "")
 	a.ErrorIs(err, ErrNoP2PServer, "a server on another broker")
 	_, err = app.GenerateP2PToken(addr, "")
@@ -286,7 +293,7 @@ func TestGenerateP2PToken_RegistersOnPunchSocket(t *testing.T) {
 	var err error
 	app.brokerClient, err = NewBrokerClient()
 	a.NoError(err)
-	l, addr, regs := startTestP2PServer(t, app, nil)
+	l, addr, regs := startTestP2PServer(t, app, nil, nil)
 
 	seen := map[string]bool{l.Token(): true}
 	for range 2 {
@@ -318,11 +325,56 @@ func TestGenerateP2PToken_RegistersOnPunchSocket(t *testing.T) {
 	a.Equal(peer, got[3].PeerPubB64)
 }
 
+// TestRemoveP2PToken_StopsRegistering checks that a removed token is no
+// longer registered with the broker, whether it was generated or is the
+// server's own token, and that the peer of a removed static token is
+// turned away while no random token is registered.
+func TestRemoveP2PToken_StopsRegistering(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	var err error
+	app.brokerClient, err = NewBrokerClient()
+	a.NoError(err)
+
+	aliceKey, bobKey := newTestPubKey(t), newTestPubKey(t)
+	own := bytes.Repeat([]byte{3}, 32)
+	l, addr, regs := startTestP2PServer(t, app, own, aliceKey)
+	bob := fingerprint.Base64(bobKey)
+	tok, err := app.GenerateP2PToken(addr, bob)
+	a.NoError(err)
+	nextRegistration(t, regs)
+	a.True(l.admitsPeer(bobKey))
+
+	a.NoError(app.RemoveP2PToken(tok))
+	a.False(l.admitsPeer(bobKey))
+	a.True(l.admitsPeer(aliceKey))
+	a.NoError(l.refreshRegistration())
+	reg := nextRegistration(t, regs)
+	a.Equal(relaybroker.WireToken(own), reg.token)
+	// The next REGISTER is for a new token: the removed one is not sent.
+	fresh, err := app.GenerateP2PToken(addr, "")
+	a.NoError(err)
+	reg = nextRegistration(t, regs)
+	a.Equal(fresh, hex.EncodeToString(reg.token))
+	// The listener cannot tell which token a peer matched on, so a
+	// random token admits any peer, the removed token's included.
+	a.True(l.admitsPeer(bobKey))
+
+	a.NoError(app.RemoveP2PToken(hex.EncodeToString(own)))
+	a.True(l.admitsPeer(aliceKey), "the random token admits any peer")
+	a.NoError(app.RemoveP2PToken(fresh))
+	a.Empty(l.liveTokens())
+	a.False(l.admitsPeer(bobKey))
+	a.False(l.admitsPeer(aliceKey), "no token is left to admit a peer")
+	a.Empty(app.GetP2PTokens())
+}
+
 // TestGenerateP2PToken_RefusesPastCap checks that a P2P server keeps at
 // most maxP2PTokens tokens, its own included, so that its refreshes stay
 // within a broker's default REGISTER quota. A new token past the cap is
-// refused and never sent, and a peer's listed static token is still
-// returned.
+// refused and never sent, a peer's listed static token is still returned,
+// and a removed token makes room for another.
 func TestGenerateP2PToken_RefusesPastCap(t *testing.T) {
 	a := require.New(t)
 	app, cleanup := newTestAppWithStorage(t)
@@ -330,7 +382,7 @@ func TestGenerateP2PToken_RefusesPastCap(t *testing.T) {
 	var err error
 	app.brokerClient, err = NewBrokerClient()
 	a.NoError(err)
-	l, addr, regs := startTestP2PServer(t, app, nil)
+	l, addr, regs := startTestP2PServer(t, app, nil, nil)
 
 	peer := fingerprint.Base64(newTestPubKey(t))
 	static, err := app.GenerateP2PToken(addr, peer)
@@ -350,6 +402,7 @@ func TestGenerateP2PToken_RefusesPastCap(t *testing.T) {
 	a.NoError(err)
 	a.Equal(static, again, "a listed static token is returned")
 	a.Len(app.GetP2PTokens(), maxP2PTokens)
+	a.Len(l.liveTokens(), maxP2PTokens)
 
 	// The listener sent a REGISTER for each generated token and sends one
 	// for each listed token on a refresh, and none for a refused one.
@@ -364,6 +417,12 @@ func TestGenerateP2PToken_RefusesPastCap(t *testing.T) {
 		reg := hex.EncodeToString(nextRegistration(t, regs).token)
 		a.True(listed[reg], "a refused token was registered: %s", reg)
 	}
+
+	a.NoError(app.RemoveP2PToken(static))
+	_, err = app.GenerateP2PToken(addr, "")
+	a.NoError(err, "a removed token makes room for another")
+	a.Len(app.GetP2PTokens(), maxP2PTokens)
+	a.Len(l.liveTokens(), maxP2PTokens)
 }
 
 func TestGenerateP2PToken_EmptyAddress(t *testing.T) {

@@ -178,8 +178,11 @@ func (a *App) StartServer(
 					"Failed to derive p2p token: "+err.Error())
 				return "", "", fmt.Errorf("derive p2p token: %w", err)
 			}
+			// A nil peer key, for a random token, opens the
+			// listener to any peer.
 			listener, err := newP2PListener(
-				a.brokerClient, brokerAddr, token, addr,
+				a.brokerClient, brokerAddr, token,
+				staticPeerKey(peerPubB64, token), addr,
 			)
 			if err != nil {
 				a.setStatus(StatusError, "Failed to start p2p listener")
@@ -187,8 +190,6 @@ func (a *App) StartServer(
 					"p2p listener failed: "+err.Error())
 				return "", "", fmt.Errorf("p2p listener: %w", err)
 			}
-			// nil, for a random token, opens the listener to any peer.
-			listener.peers.allow(staticPeerKey(peerPubB64, token))
 			ml := newMultiListener()
 			if err := ml.Add(listener); err != nil {
 				_ = listener.Close()

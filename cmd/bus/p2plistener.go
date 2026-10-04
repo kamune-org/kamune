@@ -29,15 +29,16 @@ import (
 // packets) — the listener doesn't need to read them; the punch socket is
 // for KCP traffic only.
 type p2pListener struct {
-	bindAddr    string
-	broker      *BrokerClient
-	brokerAddr  string
-	token       []byte // precomputed (static) or broker-assigned (random)
-	extraTokens [][]byte
-	tokenMu     sync.RWMutex
-	// peers holds the keys of the peers this listener's static tokens
-	// were derived for; see peerGate.
-	peers peerKeySet
+	bindAddr   string
+	broker     *BrokerClient
+	brokerAddr string
+	// token is the listener's own token, precomputed (static) or
+	// broker-assigned (random), which it registered first.
+	token []byte
+	// tokens are the tokens the listener registers with the broker and
+	// the peers they admit; see admitsPeer. tokenMu guards it.
+	tokens  []listenerToken
+	tokenMu sync.RWMutex
 
 	conn *net.UDPConn
 	kcp  *kcp.Listener
@@ -48,8 +49,23 @@ type p2pListener struct {
 	closeErr  error
 }
 
+// listenerToken is a token that a p2pListener registers with the broker,
+// with the key of the peer it was derived for, or nil for a random token,
+// which admits any peer.
+type listenerToken struct {
+	token []byte
+	peer  []byte
+}
+
+// newP2PListener starts a listener that registers token with the broker
+// at brokerAddr, or a token the broker assigns when token is empty.
+// peerKey is the key of the peer a static token was derived for, or nil
+// to admit any peer through the token.
 func newP2PListener(
-	broker *BrokerClient, brokerAddr string, token []byte, bindAddr string,
+	broker *BrokerClient,
+	brokerAddr string,
+	token, peerKey []byte,
+	bindAddr string,
 ) (*p2pListener, error) {
 	if broker == nil {
 		return nil, fmt.Errorf("broker is required")
@@ -120,6 +136,7 @@ func newP2PListener(
 		}
 		l.token = assigned
 	}
+	l.tokens = []listenerToken{{token: l.token, peer: peerKey}}
 
 	// Reset the punch socket's deadline before handing it to kcp-go.
 	// echoFrom / readTokenAssigned set a 2s read deadline; if we don't
@@ -155,7 +172,25 @@ func (l *p2pListener) Accept() (kamune.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &gatedConn{Conn: kamune.NewConn(sess), gate: &l.peers}, nil
+	return &gatedConn{Conn: kamune.NewConn(sess), gate: l}, nil
+}
+
+// admitsPeer reports whether a token the listener registers admits the
+// peer whose key is key: a random token, or a static token derived for
+// that peer; see peerGate. A KCP session does not tell which token its
+// peer matched on, so this holds for the listener as a whole: while any
+// random token is registered, every peer is admitted, the peer of a
+// removed static token included. A removed token admits no peer of its
+// own, and a listener whose tokens are all removed admits no peer.
+func (l *p2pListener) admitsPeer(key []byte) bool {
+	l.tokenMu.RLock()
+	defer l.tokenMu.RUnlock()
+	for _, t := range l.tokens {
+		if t.peer == nil || bytes.Equal(t.peer, key) {
+			return true
+		}
+	}
+	return false
 }
 
 // Close releases the punch socket and stops the kcp-go listener. Safe to
@@ -210,25 +245,43 @@ func (l *p2pListener) refreshLoop() {
 	}
 }
 
-// RegisterToken registers an additional token from the punch socket. A
-// token is refused with ErrTooManyP2PTokens, and not sent, while the
-// listener registers maxP2PTokens tokens, its own included.
-func (l *p2pListener) RegisterToken(token []byte) error {
-	l.tokenMu.Lock()
-	if 1+len(l.extraTokens) >= maxP2PTokens {
-		l.tokenMu.Unlock()
-		return ErrTooManyP2PTokens
+// RegisterToken registers an additional token from the punch socket and
+// keeps it registered until UnregisterToken removes it. peer is the key
+// of the peer a static token was derived for, or nil for a random token.
+// A token that is already registered is only sent again. A new token is
+// refused with ErrTooManyP2PTokens, and not sent, while the listener
+// registers maxP2PTokens tokens.
+func (l *p2pListener) RegisterToken(token, peer []byte) error {
+	added, err := l.addToken(token, peer)
+	if err != nil {
+		return err
 	}
-	l.extraTokens = append(l.extraTokens, token)
-	l.tokenMu.Unlock()
 	if err := l.sendRegister(token); err != nil {
-		l.tokenMu.Lock()
-		l.extraTokens = slices.DeleteFunc(l.extraTokens,
-			func(t []byte) bool { return bytes.Equal(t, token) })
-		l.tokenMu.Unlock()
+		if added {
+			l.UnregisterToken(token)
+		}
 		return err
 	}
 	return nil
+}
+
+// addToken adds token, for peer, to the tokens the listener registers and
+// reports whether it was new. It holds the cap of maxP2PTokens.
+func (l *p2pListener) addToken(token, peer []byte) (bool, error) {
+	l.tokenMu.Lock()
+	defer l.tokenMu.Unlock()
+	if slices.ContainsFunc(l.tokens, func(t listenerToken) bool {
+		return bytes.Equal(t.token, token)
+	}) {
+		return false, nil
+	}
+	if len(l.tokens) >= maxP2PTokens {
+		return false, ErrTooManyP2PTokens
+	}
+	l.tokens = append(l.tokens, listenerToken{
+		token: bytes.Clone(token), peer: bytes.Clone(peer),
+	})
+	return true, nil
 }
 
 // sendRegister sends a REGISTER for token from the punch socket.
@@ -254,6 +307,34 @@ func (l *p2pListener) sendRegister(token []byte) error {
 	return nil
 }
 
+// UnregisterToken stops registering token, the listener's own token or
+// one that RegisterToken added, with the broker. The peer of a removed
+// static token is then turned away unless another registered token
+// admits it, as a random token admits any peer; see admitsPeer. It
+// reports whether the token was registered. The broker cannot drop a
+// registration on request; it forgets the token once the last
+// registration expires.
+func (l *p2pListener) UnregisterToken(token []byte) bool {
+	l.tokenMu.Lock()
+	defer l.tokenMu.Unlock()
+	n := len(l.tokens)
+	l.tokens = slices.DeleteFunc(l.tokens, func(t listenerToken) bool {
+		return bytes.Equal(t.token, token)
+	})
+	return len(l.tokens) != n
+}
+
+// liveTokens returns the tokens the listener registers.
+func (l *p2pListener) liveTokens() [][]byte {
+	l.tokenMu.RLock()
+	defer l.tokenMu.RUnlock()
+	out := make([][]byte, 0, len(l.tokens))
+	for _, t := range l.tokens {
+		out = append(out, t.token)
+	}
+	return out
+}
+
 // refreshRegistration re-sends the REGISTER packet from the punch socket,
 // preserving the same claimIP:claimPort. This keeps the broker's
 // registration active.
@@ -273,11 +354,7 @@ func (l *p2pListener) refreshRegistration() error {
 		return fmt.Errorf("broker client: %w", err)
 	}
 
-	l.tokenMu.RLock()
-	allTokens := append([][]byte{l.token}, l.extraTokens...)
-	l.tokenMu.RUnlock()
-
-	for _, tok := range allTokens {
+	for _, tok := range l.liveTokens() {
 		if len(tok) == 0 {
 			continue
 		}
