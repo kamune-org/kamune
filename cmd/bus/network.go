@@ -136,6 +136,9 @@ func (a *App) StartServer(
 			a.addLogEntry("ERROR", "Relay listen failed: "+err.Error())
 			return "", "", fmt.Errorf("relay listen: %w", err)
 		}
+		pinRelayListener(
+			listener, staticPeerKey(peerPubB64, relayStaticToken),
+		)
 		if err := ml.Add(listener); err != nil {
 			return "", "", fmt.Errorf("add listener: %w", err)
 		}
@@ -170,6 +173,8 @@ func (a *App) StartServer(
 					"p2p listener failed: "+err.Error())
 				return "", "", fmt.Errorf("p2p listener: %w", err)
 			}
+			// nil, for a random token, opens the listener to any peer.
+			listener.peers.allow(staticPeerKey(peerPubB64, token))
 			ml := newMultiListener()
 			if err := ml.Add(listener); err != nil {
 				_ = listener.Close()
@@ -447,6 +452,8 @@ func (a *App) GenerateRelayToken(peerPubB64 string) (string, error) {
 	if len(staticToken) > 0 {
 		relayMode = "static"
 	}
+
+	pinRelayListener(listener, staticPeerKey(peerPubB64, staticToken))
 
 	a.mu.Lock()
 	if a.relayListeners == nil {
@@ -816,6 +823,19 @@ func (a *App) ConnectToServer(
 	return ConnectResult{SessionID: sessionID}, nil
 }
 
+// staticPeerKey returns the key of the peer a static relay or broker
+// token was derived for, or nil for a random token.
+func staticPeerKey(peerPubB64 string, staticToken []byte) []byte {
+	if len(staticToken) == 0 {
+		return nil
+	}
+	key, err := decodePeerPubKey(peerPubB64)
+	if err != nil {
+		return nil
+	}
+	return key
+}
+
 // transportTypeFor returns the label used for SessionInfo.TransportType.
 // P2P sessions are labeled "p2p" so the sidebar can render a distinct
 // badge even when the underlying transport is UDP.
@@ -908,10 +928,17 @@ func (a *App) serverHandler(t *kamune.Transport) error {
 	}
 
 	sessionID := t.SessionID()
+	peer := t.RemotePeer()
+	if !admittedBy(t.AcceptedMeta(), peer.PublicKey) {
+		a.addLogEntry("WARN", "Rejected incoming session from "+
+			a.identifyPeer(a.store(), peer).logName()+
+			": the token it used was made for another peer")
+		_ = t.Close()
+		return ErrPeerKeyMismatch
+	}
 	a.mu.Lock()
 	stampRelaySession(a.relayTokens, t.AcceptedMeta(), sessionID)
 	a.mu.Unlock()
-	peer := t.RemotePeer()
 
 	a.mu.RLock()
 	relaySessionTTL := a.relaySessionTTL

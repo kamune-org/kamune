@@ -100,6 +100,7 @@ func (a *App) GenerateP2PToken(brokerAddr, peerPubB64 string) (string, error) {
 		if err := l.RegisterToken(staticToken); err != nil {
 			return "", fmt.Errorf("register token on punch socket: %w", err)
 		}
+		l.peers.allow(staticPeerKey(peerPubB64, staticToken))
 		hexToken := hex.EncodeToString(staticToken)
 		ptCtx, ptCancel := context.WithCancel(context.Background())
 		a.mu.Lock()

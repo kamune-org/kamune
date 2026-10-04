@@ -160,3 +160,133 @@ func TestConnectToServerRejectsBadPeerKey(t *testing.T) {
 	a.Error(err)
 	a.Equal("invalid_peer_key", res.ErrorCode)
 }
+
+// gatedTestListener tags every accepted conn with gate, as the relay and
+// p2p listeners do for a token made for one peer.
+type gatedTestListener struct {
+	net.Listener
+	gate peerGate
+}
+
+func (l gatedTestListener) Accept() (kamune.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &gatedConn{Conn: kamune.NewConn(c), gate: l.gate}, nil
+}
+
+func TestPeerKeySet(t *testing.T) {
+	k1, k2 := []byte("key-one"), []byte("key-two")
+	cases := []struct {
+		name  string
+		allow [][]byte
+		want1 bool
+		want2 bool
+	}{
+		{name: "not pinned", want1: true, want2: true},
+		{name: "one peer", allow: [][]byte{k1}, want1: true},
+		{name: "two peers", allow: [][]byte{k1, k2}, want1: true, want2: true},
+		{name: "open", allow: [][]byte{nil}, want1: true, want2: true},
+		{name: "peer then open", allow: [][]byte{k1, nil},
+			want1: true, want2: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			var s peerKeySet
+			for _, k := range tc.allow {
+				s.allow(k)
+			}
+			a.Equal(tc.want1, s.admitsPeer(k1))
+			a.Equal(tc.want2, s.admitsPeer(k2))
+			a.Equal(tc.want1, admittedBy(&s, k1))
+		})
+	}
+	require.New(t).True(admittedBy(nil, k1))
+}
+
+// TestServerHandlerChecksTokenPeer runs the bus server handler behind a
+// listener whose token was made for Bob. Mallory, introducing herself as
+// Bob, must be dropped; Bob must be admitted.
+func TestServerHandlerChecksTokenPeer(t *testing.T) {
+	cases := []struct {
+		name    string
+		isBob   bool
+		wantRun bool
+	}{
+		{name: "other peer is dropped"},
+		{name: "token's peer is admitted", isBob: true, wantRun: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, cleanup := newTestAppWithStorage(t)
+			defer cleanup()
+			app.serverVerifMode = VerificationModeAutoAccept
+
+			dialStore := openTestStorage(t)
+			dialKey, err := dialStore.PublicKey()
+			a.NoError(err)
+			bobKey := newTestPubKey(t)
+			if tc.isBob {
+				bobKey = dialKey
+			}
+			var gate peerKeySet
+			gate.allow(bobKey)
+
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			a.NoError(err)
+			acceptAll := func(*storage.Storage, *storage.Peer) error {
+				return nil
+			}
+			srv, err := kamune.NewServer(
+				"", app.serverHandler, app.store(), acceptAll,
+				kamune.ServeWithListener(gatedTestListener{ln, &gate}),
+			)
+			a.NoError(err)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				_ = srv.ListenAndServe()
+			}()
+			defer func() {
+				_ = srv.Close()
+				<-done
+			}()
+
+			d, err := kamune.NewDialer(
+				ln.Addr().String(), dialStore, acceptAll,
+				kamune.DialWithTCP(), kamune.DialWithClientName("Bob"),
+			)
+			a.NoError(err)
+			tr, err := d.Dial()
+			a.NoError(err)
+			defer func() { _ = tr.Close() }()
+
+			if tc.wantRun {
+				a.Eventually(func() bool {
+					return len(app.GetSessions()) == 1
+				}, testWait, time.Millisecond)
+				a.NoError(tr.Close())
+				a.Eventually(func() bool {
+					return len(app.GetSessions()) == 0
+				}, testWait, time.Millisecond)
+				return
+			}
+
+			// The handler closes a dropped session; wait for that.
+			a.NoError(tr.SetDeadline(time.Now().Add(testWait)))
+			for {
+				_, _, err := tr.ReceivePayload()
+				if err != nil {
+					a.NotErrorIs(err, kamune.ErrReceiveTimeout)
+					break
+				}
+			}
+			a.Empty(app.GetSessions())
+			_, err = app.store().FindPeer(dialKey)
+			a.Error(err, "a dropped peer must not be saved")
+		})
+	}
+}

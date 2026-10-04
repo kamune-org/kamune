@@ -27,12 +27,15 @@ import (
 // packets) — the listener doesn't need to read them; the punch socket is
 // for KCP traffic only.
 type p2pListener struct {
-	bindAddr   string
-	broker     *BrokerClient
+	bindAddr    string
+	broker      *BrokerClient
 	brokerAddr  string
 	token       []byte // precomputed (static) or broker-assigned (random)
 	extraTokens [][]byte
 	tokenMu     sync.RWMutex
+	// peers holds the keys of the peers this listener's static tokens
+	// were derived for; see peerGate.
+	peers peerKeySet
 
 	conn *net.UDPConn
 	kcp  *kcp.Listener
@@ -150,7 +153,7 @@ func (l *p2pListener) Accept() (kamune.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return kamune.NewConn(sess), nil
+	return &gatedConn{Conn: kamune.NewConn(sess), gate: &l.peers}, nil
 }
 
 // Close releases the punch socket and stops the kcp-go listener. Safe to

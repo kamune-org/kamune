@@ -46,6 +46,8 @@ type tokenTracker struct {
 	deadOnce   sync.Once
 	sessionID  string
 	consumed   atomic.Bool
+	// peers holds the key of the peer a static token was derived for.
+	peers peerKeySet
 }
 
 type trackingConn struct {
@@ -56,6 +58,20 @@ type trackingConn struct {
 }
 
 func (c *trackingConn) AcceptedMeta() any { return c.tracker }
+
+// admitsPeer reports whether a session through this token may be with
+// the peer whose key is key; see peerGate.
+func (t *tokenTracker) admitsPeer(key []byte) bool {
+	return t.peers.admitsPeer(key)
+}
+
+// pinRelayListener ties a relay listener opened with a static token to
+// the key of the peer the token was derived for.
+func pinRelayListener(l kamune.Listener, peerKey []byte) {
+	if tt, ok := l.(*tokenTracker); ok && peerKey != nil {
+		tt.peers.allow(peerKey)
+	}
+}
 
 func (c *trackingConn) Close() error {
 	defer c.once.Do(c.onClose)
