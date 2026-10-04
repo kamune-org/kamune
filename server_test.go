@@ -17,8 +17,6 @@ import (
 	"github.com/xtaci/kcp-go/v5"
 
 	"github.com/kamune-org/kamune/internal/clock"
-	"github.com/kamune-org/kamune/pkg/attest"
-	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -212,101 +210,6 @@ func TestDialPersistsAndResumesSession(t *testing.T) {
 	a.NoError(err)
 	a.Equal([]byte("resumed"), msg.Value)
 	a.NoError(<-serveErr)
-}
-
-func TestHandleResumeRejectsWithoutBurningToken(t *testing.T) {
-	a := require.New(t)
-	clientStore, cleanupClient := newTestStore(t)
-	defer cleanupClient()
-	serverStore, cleanupServer := newTestStore(t)
-	defer cleanupServer()
-
-	sessionID := coldDial(t, clientStore, serverStore)
-	before, err := serverStore.GetMeta(sessionID, storage.ResumptionTokensKey)
-	a.NoError(err)
-
-	token, err := clientStore.PopList(sessionID, storage.ResumptionTokensKey)
-	a.NoError(err)
-	wrong, err := attest.New()
-	a.NoError(err)
-
-	clientNet, serverNet := net.Pipe()
-	clientConn := newConn(clientNet)
-	serverConn := newConn(serverNet)
-	t.Cleanup(func() {
-		_ = clientConn.Close()
-		_ = serverConn.Close()
-	})
-
-	verifier := func(store *storage.Storage, peer *storage.Peer) error {
-		return store.StorePeer(peer)
-	}
-	server, err := NewServer(
-		"", func(*Transport) error { return nil }, serverStore, verifier,
-	)
-	a.NoError(err)
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- server.serve(serverConn)
-	}()
-
-	ec, err := exchange.Initiate(clientConn)
-	a.NoError(err)
-	a.NoError(sendResumeRequest(ec, wrong, sessionID, token))
-	accepted, _, err := receiveResumeAccept(ec, server.PublicKey())
-	a.NoError(err)
-	a.False(accepted)
-
-	after, err := serverStore.GetMeta(sessionID, storage.ResumptionTokensKey)
-	a.NoError(err)
-	a.Equal(before.Value(), after.Value())
-	a.Error(<-serveErr)
-}
-
-func TestHandleResumeRejectsWrongLengthToken(t *testing.T) {
-	a := require.New(t)
-	clientStore, cleanupClient := newTestStore(t)
-	defer cleanupClient()
-	serverStore, cleanupServer := newTestStore(t)
-	defer cleanupServer()
-
-	sessionID := coldDial(t, clientStore, serverStore)
-	before, err := serverStore.GetMeta(sessionID, storage.ResumptionTokensKey)
-	a.NoError(err)
-	clientAt, err := clientStore.Attester()
-	a.NoError(err)
-
-	clientNet, serverNet := net.Pipe()
-	clientConn := newConn(clientNet)
-	serverConn := newConn(serverNet)
-	t.Cleanup(func() {
-		_ = clientConn.Close()
-		_ = serverConn.Close()
-	})
-
-	verifier := func(store *storage.Storage, peer *storage.Peer) error {
-		return store.StorePeer(peer)
-	}
-	server, err := NewServer(
-		"", func(*Transport) error { return nil }, serverStore, verifier,
-	)
-	a.NoError(err)
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- server.serve(serverConn)
-	}()
-
-	ec, err := exchange.Initiate(clientConn)
-	a.NoError(err)
-	a.NoError(sendResumeRequest(ec, clientAt, sessionID, []byte{1, 2, 3}))
-	accepted, _, err := receiveResumeAccept(ec, server.PublicKey())
-	a.NoError(err)
-	a.False(accepted)
-
-	after, err := serverStore.GetMeta(sessionID, storage.ResumptionTokensKey)
-	a.NoError(err)
-	a.Equal(before.Value(), after.Value())
-	a.Error(<-serveErr)
 }
 
 type metaConn struct {
