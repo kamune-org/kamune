@@ -103,18 +103,27 @@ The attacker **cannot**:
 
 For TCP and TLS transports, every frame is a length-prefixed payload: two
 big-endian bytes of length followed by exactly that many bytes of payload. The
-length is a `uint16`, so the maximum frame size is 64 KB. Both ends of a
+length is a `uint16`, so a frame carries at most 65,535 bytes. Both ends of a
 connection MUST agree on the maximum; if they differ, the stricter end will
 reject frames the other would have accepted.
 
 For WebSocket transport, frames are sent as binary WebSocket messages; the
-WebSocket layer's framing replaces the length prefix.
+WebSocket layer's framing replaces the length prefix. The relay reads WebSocket
+messages of up to `max_message_size` bytes (65,536 by default, at most
+131,072), and the Go client reads up to 131,072 bytes. A frame the relay
+forwards to a peer on TCP or TLS must still fit the 65,535-byte limit, or the
+write fails and the relay closes both peers.
+
+These sizes count the whole relay frame: the payload wrapped in a `Message`
+frame and sealed for the HPKE channel. Kamune keeps its own frames to 65,471
+bytes (SPEC 4.1), and the relay's wrapping adds 24 bytes to a frame of that
+size, so every kamune frame fits on every transport.
 
 **Design decision:** length-prefixed framing was chosen over delimiter-based
 framing because it allows zero-byte payloads, avoids escaping problems, and
-makes the byte stream resumable. The 64 KB ceiling is a deliberate small-frame
-choice that limits blast radius from a malicious peer; larger messages are split
-by the application layer above the relay.
+makes the byte stream resumable. The 64 KiB ceiling is a deliberate small-frame
+choice that limits blast radius from a malicious peer. The protocol above the
+relay has to keep its frames under it; kamune does not split frames.
 
 ### Frame Schema
 
