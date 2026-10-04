@@ -63,6 +63,8 @@
     relayTokens,
     p2pTokens,
     peers,
+    setMessages,
+    appendMessage,
   } from './lib/stores';
   import { K, isMac } from './lib/keyboard';
   import { newConnectAttemptId } from './lib/attempts';
@@ -267,19 +269,13 @@
       await loadHistory();
     });
     EventsOn('session-messages', (sessionID, messages) => {
-      sessionMessages.update((m) => ({ ...m, [sessionID]: messages }));
+      setMessages(sessionID, messages);
     });
     EventsOn('message-sent', (sessionID, msg) => {
-      sessionMessages.update((m) => {
-        const msgs = m[sessionID] || [];
-        return { ...m, [sessionID]: [...msgs, msg] };
-      });
+      appendMessage(sessionID, msg);
     });
     EventsOn('message-received', (sessionID, msg) => {
-      sessionMessages.update((m) => {
-        const msgs = m[sessionID] || [];
-        return { ...m, [sessionID]: [...msgs, msg] };
-      });
+      appendMessage(sessionID, msg);
     });
     EventsOn('verify-peer', (data) => {
       verificationQueue.update((q) =>
@@ -510,9 +506,32 @@
     verificationQueue.update((q) => q.filter((r) => r.requestID !== requestID));
   }
 
-  async function loadSessions() {
-    const s = await GetSessions();
-    sessions.set(s);
+  // Every message and session event reloads the session list. While a
+  // reload runs, further requests share one more reload, which starts
+  // once it ends; requests made while that one runs share the next, and
+  // so on. A burst of events thus costs one reload per round trip, and
+  // each caller waits for no more than the reload that runs and the one
+  // after it, which starts after its request, even while events keep
+  // coming.
+  let sessionsRunning = null;
+  let sessionsQueued = null;
+  function loadSessions() {
+    if (sessionsQueued) return sessionsQueued;
+    if (!sessionsRunning) {
+      sessionsRunning = GetSessions()
+        .then((s) => sessions.set(s))
+        .finally(() => {
+          sessionsRunning = null;
+        });
+      return sessionsRunning;
+    }
+    sessionsQueued = sessionsRunning
+      .catch(() => {})
+      .then(() => {
+        sessionsQueued = null;
+        return loadSessions();
+      });
+    return sessionsQueued;
   }
 
   async function loadHistory() {
@@ -774,8 +793,7 @@
   async function handleLoadHistoryMessages(sessionId) {
     const { LoadHistoryMessages, GetHistoryMessages } = await import('./lib/go.js');
     await LoadHistoryMessages(sessionId);
-    const msgs = (await GetHistoryMessages(sessionId)) || [];
-    sessionMessages.update((m) => ({ ...m, [sessionId]: msgs }));
+    setMessages(sessionId, await GetHistoryMessages(sessionId));
   }
 
   async function handleRefreshHistory() {
@@ -790,10 +808,7 @@
       if (!existing || existing.length === 0) {
         const msgs = await getSessionMessages(sessionId);
         if (msgs.length > 0) {
-          sessionMessages.update((m) => ({
-            ...m,
-            [sessionId]: msgs,
-          }));
+          setMessages(sessionId, msgs);
         }
       }
     }

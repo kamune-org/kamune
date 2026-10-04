@@ -102,10 +102,17 @@
       : 'expired'
   );
 
+  // Shown when the live session has more messages than it holds; see
+  // MAX_LIVE_MESSAGES.
+  let olderHidden = $derived(
+    !isHistory && activeSession?.msgCount > activeMsgs.length && activeMsgs.length > 0
+  );
+
   $effect(() => {
     $activeSessionId;
     $showWelcome;
-    activeMsgs.length;
+    // The newest message, as the count stops growing at the cap.
+    activeMsgs[activeMsgs.length - 1]?.key;
     if (messagesEl) {
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
@@ -150,10 +157,10 @@
     messageText = '';
   }
 
-  async function handleCopy(text, index) {
+  async function handleCopy(text, key) {
     try {
       await CopyToClipboard(text);
-      copiedId = index;
+      copiedId = key;
       setTimeout(() => {
         copiedId = null;
       }, 1500);
@@ -437,7 +444,10 @@
         {/if}
       </div>
     {:else}
-      {#each activeMsgs as msg, i}
+      {#if olderHidden}
+        <p class="older-hidden">Only the newest {activeMsgs.length} messages are shown.</p>
+      {/if}
+      {#each activeMsgs as msg (msg.key)}
         <div
           class="msg-row"
           class:local={msg.isLocal}
@@ -455,7 +465,7 @@
                   class="bubble-copy"
                   title="Copy message"
                   aria-label="Copy message"
-                  onclick={() => handleCopy(msg.text, i)}
+                  onclick={() => handleCopy(msg.text, msg.key)}
                 >
                   <svg viewBox="0 0 20 20" fill="currentColor" width="11" height="11">
                     <path d="M8 2a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V4a2 2 0 00-2-2H8z" />
@@ -465,7 +475,7 @@
               </span>
             </div>
             <div class="bubble-text">{msg.text}</div>
-            {#if copiedId === i}
+            {#if copiedId === msg.key}
               <div class="copied-indicator">Copied</div>
             {/if}
           </div>
@@ -877,6 +887,12 @@
   .start-hint {
     font-size: 11px !important;
     color: var(--text-timestamp) !important;
+  }
+  .older-hidden {
+    margin: 0 0 8px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-timestamp);
   }
 
   .input-area {

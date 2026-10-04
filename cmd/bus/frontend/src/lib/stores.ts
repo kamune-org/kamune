@@ -55,7 +55,40 @@ export interface DialogsState {
 
 export const sessions = writable<SessionInfo[]>([]);
 export const historySessions = writable<HistorySessionInfo[]>([]);
-export const sessionMessages = writable<Record<string, MessageInfo[]>>({});
+// KeyedMessage is a message with a key that stays with it, so that the
+// chat list can render each message once however the list shifts.
+export type KeyedMessage = MessageInfo & { key: number };
+
+// MAX_LIVE_MESSAGES is maxLiveMessages of the backend: a live session
+// holds, and shows, only its newest messages.
+export const MAX_LIVE_MESSAGES = 1000;
+
+export const sessionMessages = writable<Record<string, KeyedMessage[]>>({});
+
+let nextMessageKey = 0;
+
+// keyMessages gives each of msgs a new key.
+export function keyMessages(msgs: MessageInfo[] | null | undefined): KeyedMessage[] {
+  return (msgs || []).map((m) => ({ ...m, key: nextMessageKey++ }));
+}
+
+// setMessages replaces the messages shown for sessionID.
+export function setMessages(sessionID: string, msgs: MessageInfo[] | null | undefined) {
+  const keyed = keyMessages(msgs);
+  sessionMessages.update((m) => ({ ...m, [sessionID]: keyed }));
+}
+
+// appendMessage adds msg to the live session sessionID, and drops its
+// oldest message once it holds MAX_LIVE_MESSAGES.
+export function appendMessage(sessionID: string, msg: MessageInfo) {
+  sessionMessages.update((m) => {
+    const msgs = m[sessionID] || [];
+    const next = msgs.slice(Math.max(0, msgs.length + 1 - MAX_LIVE_MESSAGES));
+    next.push({ ...msg, key: nextMessageKey++ });
+    return { ...m, [sessionID]: next };
+  });
+}
+
 export const status = writable<StatusInfo>({
   status: 'disconnected',
   message: 'Not connected',
