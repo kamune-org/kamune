@@ -24,7 +24,8 @@ type peerIdentity struct {
 	ClaimedName string
 	// KeyB64 is the peer's public key, as fingerprint.Base64 gives it.
 	KeyB64 string
-	// Fingerprint is the emoji fingerprint of the peer's key.
+	// Fingerprint is the numeric fingerprint of the peer's key, the one
+	// for people to compare; see fingerprint.Numeric.
 	Fingerprint string
 	// Known reports whether the key is in the peer store.
 	Known bool
@@ -44,7 +45,7 @@ func (a *App) identifyPeer(
 	id := peerIdentity{
 		ClaimedName: sanitizeName(peer.Name),
 		KeyB64:      fingerprint.Base64(peer.PublicKey),
-		Fingerprint: strings.Join(fingerprint.Emoji(peer.PublicKey), " • "),
+		Fingerprint: fingerprint.Numeric(peer.PublicKey),
 	}
 	if store != nil {
 		if stored, err := store.FindPeer(peer.PublicKey); err == nil {

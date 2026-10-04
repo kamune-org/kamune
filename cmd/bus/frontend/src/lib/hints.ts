@@ -8,7 +8,7 @@ export const welcomeTips = [
   { text: 'Toggle the server on/off with', key: 'S' },
   'Use the Share Card to send your connection info to a peer',
   'Choose how you verify peers: Strict asks every time, Quick trusts known ones, Auto-Accept says yes to all',
-  'Your fingerprint emoji is your identity — peers see it when they connect',
+  'Read your numeric fingerprint out to a new peer so they can check your key — the emojis are only a quick check',
   'Database holds your keys and chat history — keep your password safe',
   'Messages are end-to-end encrypted — only you and your peer can read them',
   'Press the keyboard icon in the bottom-right for all shortcuts',

@@ -95,12 +95,18 @@
     const perRow = Math.max(1, Math.floor((maxRowWidth + tileGap) / (tileSize + tileGap)));
     const emojiRows = Math.ceil(emojis.length / perRow);
 
+    // The numeric fingerprint, the one peers compare, goes below the
+    // emojis on one line.
+    const numeric = data.fingerprintNumeric || '';
+    const numericRows = numeric ? 1 : 0;
+
     // Calculate total height
     let contentEnd =
       qrY +
       qrSize +
       emojiGap +
       emojiRows * (tileSize + tileGap) +
+      numericRows * (rowHeight + 4) +
       sectionGap +
       rowHeight +
       rowHeight +
@@ -183,6 +189,15 @@
     }
 
     let nextY = qrY + qrSize + emojiGap + emojiRows * (tileSize + tileGap) + sectionGap;
+
+    if (numeric) {
+      ctx.fillStyle = textColor;
+      ctx.font = '12px Menlo, Monaco, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(numeric, w / 2, nextY);
+      nextY += rowHeight + 4;
+    }
 
     // Transport info
     ctx.fillStyle = mutedColor;
@@ -285,6 +300,11 @@
             <span class="fp-emoji-tile">{emojiChar}</span>
           {/each}
         </div>
+        {#if data.fingerprintNumeric}
+          <div class="fp-numeric" title="Numeric fingerprint: peers compare it to verify your key">
+            {data.fingerprintNumeric}
+          </div>
+        {/if}
       </div>
 
       {#if data.transport === 'relay'}
@@ -442,6 +462,14 @@
     flex-wrap: wrap;
     justify-content: center;
     gap: 4px;
+  }
+  .fp-numeric {
+    margin-top: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    word-spacing: 2px;
+    user-select: all;
   }
   .fp-emoji-tile {
     display: inline-flex;

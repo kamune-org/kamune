@@ -652,3 +652,29 @@ func TestVerifyResponseIgnoresStaleAnswers(t *testing.T) {
 	app.VerifyResponse(ids[0], true)
 	a.Empty(pendingIDs(app))
 }
+
+// TestPromptShowsNumericFingerprint checks that a prompt carries the
+// numeric fingerprint of the peer's key, the one people compare, next to
+// the emoji and hex ones.
+func TestPromptShowsNumericFingerprint(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	app.verifMode = VerificationModeStrict
+	events := recordEvents(app)
+
+	peer := newTestPeer(t, "x")
+	errCh := runVerifier(app, app.getVerifier(), peer)
+	ids := waitPending(t, app, 1)
+	app.VerifyResponse(ids[0], false)
+	waitVerdict(t, errCh)
+
+	prompts := events.named("verify-peer")
+	a.Len(prompts, 1)
+	data := prompts[0][0].(map[string]any)
+	a.Equal(fingerprint.Numeric(peer.PublicKey), data["numeric"])
+	a.Equal(fingerprint.Hex(peer.PublicKey), data["hex"])
+	a.NotEmpty(data["emoji"])
+	a.Equal(fingerprint.Numeric(peer.PublicKey),
+		app.identifyPeer(app.store(), peer).Fingerprint)
+}

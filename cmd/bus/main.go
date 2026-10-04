@@ -98,6 +98,20 @@ func buildMenu(app *App) *application.Menu {
 		})
 
 	idMenu := menu.AddSubmenu("Identity")
+	// The numeric fingerprint is the one peers compare to verify the key.
+	idMenu.Add("Copy Numeric Fingerprint").
+		OnClick(func(_ *application.Context) {
+			fp := app.GetFingerprint()
+			if fp["numeric"] == "" {
+				app.SendNotification(
+					"Identity",
+					"No identity key — start a server first",
+				)
+				return
+			}
+			_ = app.CopyToClipboard(fp["numeric"])
+			app.emitEvent("toast", "Copied! (Numeric)", "info")
+		})
 	idMenu.Add("Copy as Hex").OnClick(func(_ *application.Context) {
 		fp := app.GetFingerprint()
 		if fp["hex"] == "" {

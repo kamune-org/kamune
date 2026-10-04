@@ -223,11 +223,12 @@
     return new Date(t).toLocaleDateString();
   }
 
+  // Copies the numeric fingerprint, the one peers compare to verify this
+  // key.
   async function copyFingerprint() {
-    if (!$fingerprint.emoji) return;
+    if (!$fingerprint.numeric) return;
     try {
-      const text = $fingerprint.emoji.replace(/ • /g, ' ');
-      await CopyToClipboard(text);
+      await CopyToClipboard($fingerprint.numeric);
       copied = true;
       setTimeout(() => (copied = false), 1500);
     } catch (e) {
@@ -818,12 +819,12 @@
   <div class="sidebar-footer">
     <div
       class="fingerprint-card"
-      class:clickable={!!$fingerprint.emoji}
+      class:clickable={!!$fingerprint.numeric}
       role="button"
       tabindex="0"
       onclick={copyFingerprint}
       onkeydown={(e) => handleItemKeydown(e, copyFingerprint)}
-      title={$fingerprint.emoji ? 'Click to copy fingerprint' : ''}
+      title={$fingerprint.numeric ? 'Click to copy your numeric fingerprint' : ''}
     >
       <div class="fp-header">
         <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
@@ -854,6 +855,9 @@
             <span class="fp-emoji-tile">{emojiChar}</span>
           {/each}
         </div>
+        {#if $fingerprint.numeric}
+          <div class="fp-numeric">{$fingerprint.numeric}</div>
+        {/if}
       {:else}
         <div class="fp-empty">
           <span class="fp-empty-text">Start a server to generate your identity fingerprint</span>
@@ -1274,6 +1278,14 @@
     border: 1px solid var(--border-color);
     border-radius: 8px;
     transition: all 0.15s;
+  }
+  .fp-numeric {
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    word-spacing: 2px;
   }
   .fingerprint-card.clickable:hover .fp-emoji-tile {
     border-color: var(--accent-primary);

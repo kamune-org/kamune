@@ -141,6 +141,7 @@ func (a *App) promptVerification(
 		return ErrVerificationCancelled
 	}
 	emoji := strings.Join(fingerprint.Emoji(key), " • ")
+	numeric := fingerprint.Numeric(key)
 	hex := fingerprint.Hex(key)
 
 	result := make(chan error, 1)
@@ -163,7 +164,6 @@ func (a *App) promptVerification(
 	a.verifRequests[reqID] = &pendingVerification{
 		result: result,
 		label:  id.Label,
-		hex:    hex,
 	}
 	a.verifMu.Unlock()
 	defer a.endVerification(reqID)
@@ -176,6 +176,7 @@ func (a *App) promptVerification(
 		"peerID":       id.KeyB64,
 		"peerName":     id.Label,
 		"claimedName":  id.ClaimedName,
+		"numeric":      numeric,
 		"emoji":        emoji,
 		"hex":          hex,
 		"known":        id.Known,

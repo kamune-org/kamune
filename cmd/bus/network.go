@@ -308,6 +308,7 @@ func (a *App) StartServer(
 	b64 := fingerprint.Base64(pubKey)
 	hex := fingerprint.Hex(pubKey)
 	sum := fingerprint.Sum(pubKey)
+	numeric := fingerprint.Numeric(pubKey)
 
 	done := make(chan struct{})
 	a.mu.Lock()
@@ -335,7 +336,7 @@ func (a *App) StartServer(
 	}
 	a.mu.Unlock()
 
-	a.emitEvent("fingerprint-changed", emoji, b64, hex, sum)
+	a.emitEvent("fingerprint-changed", emoji, b64, hex, sum, numeric)
 	serverLabel := transport
 	if transport == "udp" && useP2P {
 		serverLabel = "p2p"
@@ -1486,13 +1487,14 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 	}
 
 	return &ShareInfo{
-		URL:              urlStr,
-		Transport:        transport,
-		Address:          address,
-		Port:             port,
-		FingerprintEmoji: emoji,
-		FingerprintHex:   hexFP,
-		RelayInfo:        relayInfo,
+		URL:                urlStr,
+		Transport:          transport,
+		Address:            address,
+		Port:               port,
+		FingerprintNumeric: fingerprint.Numeric(pubKey),
+		FingerprintEmoji:   emoji,
+		FingerprintHex:     hexFP,
+		RelayInfo:          relayInfo,
 	}, nil
 }
 

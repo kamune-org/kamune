@@ -28,6 +28,9 @@ export interface VerificationRequest {
   known: boolean;
   nameMismatch: boolean;
   nameConflict: boolean;
+  // numeric is the fingerprint to compare; emoji is a quick visual check
+  // and hex is for peers whose app shows no numeric fingerprint.
+  numeric: string;
   emoji: string;
   hex: string;
 }
@@ -37,6 +40,8 @@ export interface FingerprintInfo {
   b64: string;
   hex: string;
   sum: string;
+  // numeric is the fingerprint peers compare to verify this key.
+  numeric: string;
 }
 
 export interface DialogsState {
@@ -98,6 +103,7 @@ export const fingerprint = writable<FingerprintInfo>({
   b64: '',
   hex: '',
   sum: '',
+  numeric: '',
 });
 export const dbPath = writable('');
 // dbNoPassphrase is set while the open database has no passphrase.

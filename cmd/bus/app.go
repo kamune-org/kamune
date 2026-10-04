@@ -245,7 +245,6 @@ type pendingVerification struct {
 	result chan error
 	// label names the peer in log entries; see peerIdentity.Label.
 	label string
-	hex   string
 }
 
 type relayToken struct {
@@ -269,13 +268,16 @@ type relayToken struct {
 }
 
 type ShareInfo struct {
-	URL              string          `json:"url"`
-	Transport        string          `json:"transport"`
-	Address          string          `json:"address"`
-	Port             string          `json:"port"`
-	FingerprintEmoji string          `json:"fingerprintEmoji"`
-	FingerprintHex   string          `json:"fingerprintHex"`
-	RelayInfo        *ShareRelayInfo `json:"relayInfo,omitempty"`
+	URL       string `json:"url"`
+	Transport string `json:"transport"`
+	Address   string `json:"address"`
+	Port      string `json:"port"`
+	// FingerprintNumeric is the fingerprint for peers to compare; see
+	// fingerprint.Numeric.
+	FingerprintNumeric string          `json:"fingerprintNumeric"`
+	FingerprintEmoji   string          `json:"fingerprintEmoji"`
+	FingerprintHex     string          `json:"fingerprintHex"`
+	RelayInfo          *ShareRelayInfo `json:"relayInfo,omitempty"`
 }
 
 type ShareRelayInfo struct {
@@ -903,6 +905,7 @@ func (a *App) initFromStorage() {
 		b64 := fingerprint.Base64(pubKey)
 		hex := fingerprint.Hex(pubKey)
 		sum := fingerprint.Sum(pubKey)
+		numeric := fingerprint.Numeric(pubKey)
 
 		a.mu.Lock()
 		a.pubKey = pubKey
@@ -962,7 +965,7 @@ func (a *App) initFromStorage() {
 		}
 
 		a.emitEvent("storage-ready")
-		a.emitEvent("fingerprint-changed", emoji, b64, hex, sum)
+		a.emitEvent("fingerprint-changed", emoji, b64, hex, sum, numeric)
 		a.addLogEntry("INFO", "Loaded fingerprint from existing identity")
 	} else {
 		a.mu.Lock()
@@ -970,7 +973,7 @@ func (a *App) initFromStorage() {
 		a.storageReady = true
 		a.mu.Unlock()
 		a.emitEvent("storage-ready")
-		a.emitEvent("fingerprint-changed", "", "", "", "")
+		a.emitEvent("fingerprint-changed", "", "", "", "", "")
 		a.addLogEntry("DEBUG", "No identity key found: "+err.Error())
 	}
 
@@ -1053,20 +1056,23 @@ func (a *App) GetStatus() StatusInfo {
 	return StatusInfo{Status: a.status, Message: a.statusMsg}
 }
 
+// GetFingerprint returns the fingerprints of the local identity key, all
+// empty while there is none. "numeric" is the one for people to compare:
+// see fingerprint.Numeric.
 func (a *App) GetFingerprint() map[string]string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	emoji := ""
-	b64 := ""
-	hex := ""
-	sum := ""
-	if len(a.pubKey) > 0 {
-		emoji = strings.Join(fingerprint.Emoji(a.pubKey), " • ")
-		b64 = fingerprint.Base64(a.pubKey)
-		hex = fingerprint.Hex(a.pubKey)
-		sum = fingerprint.Sum(a.pubKey)
+	fp := map[string]string{
+		"emoji": "", "b64": "", "hex": "", "sum": "", "numeric": "",
 	}
-	return map[string]string{"emoji": emoji, "b64": b64, "hex": hex, "sum": sum}
+	if len(a.pubKey) > 0 {
+		fp["emoji"] = strings.Join(fingerprint.Emoji(a.pubKey), " • ")
+		fp["b64"] = fingerprint.Base64(a.pubKey)
+		fp["hex"] = fingerprint.Hex(a.pubKey)
+		fp["sum"] = fingerprint.Sum(a.pubKey)
+		fp["numeric"] = fingerprint.Numeric(a.pubKey)
+	}
+	return fp
 }
 
 func (a *App) GetDBPath() string {

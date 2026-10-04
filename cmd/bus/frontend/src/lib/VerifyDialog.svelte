@@ -1,5 +1,6 @@
 <script>
-  import { VerifyResponse } from './go.js';
+  import { VerifyResponse, CopyToClipboard } from './go.js';
+  import { fingerprint } from './stores';
 
   // data is one verification request; App keys this component by its
   // requestID, so a new request always mounts a fresh dialog. waiting is
@@ -29,6 +30,21 @@
 
   const accept = () => answer(true);
   const reject = () => answer(false);
+
+  // The numeric fingerprint is eight groups of five digits, shown four
+  // to a row so that people can read it out group by group.
+  const groups = $derived((data.numeric || '').split(' ').filter(Boolean));
+
+  let copiedField = $state('');
+  async function copy(text, field) {
+    try {
+      await CopyToClipboard(text);
+      copiedField = field;
+      setTimeout(() => {
+        if (copiedField === field) copiedField = '';
+      }, 1500);
+    } catch (e) {}
+  }
 </script>
 
 <div class="overlay" onclick={reject}>
@@ -100,7 +116,7 @@
         {#if data.nameConflict}
           <div class="verify-warning verify-danger">
             Another saved peer has the name this peer uses, but a different key. This peer may be
-            impersonating them. Compare the fingerprint with them before accepting.
+            impersonating them. Compare the numeric fingerprint with them before accepting.
           </div>
         {:else if data.nameMismatch}
           <div class="verify-warning">
@@ -110,33 +126,46 @@
       </div>
 
       <div class="verify-section">
-        <div class="verify-section-title">Emoji Fingerprint</div>
-        <div class="verify-emoji">{data.emoji}</div>
+        <div class="verify-section-title">Numeric fingerprint</div>
+        <div class="verify-numeric-row">
+          <div class="verify-numeric" aria-label={data.numeric}>
+            {#each groups as group}
+              <span class="verify-numeric-group">{group}</span>
+            {/each}
+          </div>
+          <button class="verify-copy-btn" onclick={() => copy(data.numeric, 'numeric')}>
+            {copiedField === 'numeric' ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+        {#if $fingerprint.numeric}
+          <div class="verify-own">
+            Yours: <span class="verify-own-numeric">{$fingerprint.numeric}</span>
+          </div>
+        {/if}
+        <p class="verify-hint">
+          Over a channel you trust, ask the peer to read out the numeric fingerprint of its own key
+          and check it against the number above. If their app shows no numeric fingerprint, compare
+          the hex fingerprint below instead.
+        </p>
       </div>
 
       <div class="verify-section">
-        <div class="verify-section-title">Hex Fingerprint</div>
+        <div class="verify-section-title">Emoji fingerprint</div>
+        <div class="verify-emoji">{data.emoji}</div>
+        <p class="verify-hint">
+          A quick visual check only: another key can be found with the same emojis.
+        </p>
+      </div>
+
+      <details class="verify-section">
+        <summary class="verify-section-title verify-summary">Hex fingerprint</summary>
         <div class="verify-hex-row">
           <input type="text" readonly value={data.hex} class="verify-hex-input" />
-          <button
-            class="verify-copy-btn"
-            onclick={async () => {
-              try {
-                const { CopyToClipboard } = await import('./go.js');
-                await CopyToClipboard(data.hex);
-              } catch (e) {}
-            }}
-          >
-            <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-              <path d="M8 2a1 1 0 000 2h2a1 1 0 100-2H8z" />
-              <path
-                d="M3 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v6h-4.586l1.293-1.293a1 1 0 00-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L10.414 13H15v3a2 2 0 01-2 2H5a2 2 0 01-2-2V5z"
-              />
-            </svg>
-            Copy
+          <button class="verify-copy-btn" onclick={() => copy(data.hex, 'hex')}>
+            {copiedField === 'hex' ? 'Copied' : 'Copy'}
           </button>
         </div>
-      </div>
+      </details>
 
       {#if !data.known}
         <div class="verify-warning">
@@ -147,8 +176,8 @@
               clip-rule="evenodd"
             />
           </svg>
-          This peer is not in your trusted list. Verify their fingerprint through a secure out-of-band
-          channel before accepting.
+          This peer is not in your trusted list. Compare its numeric fingerprint with the peer over a
+          channel you trust before accepting.
         </div>
       {/if}
     </div>
@@ -330,6 +359,44 @@
     border-radius: var(--border-radius);
     text-align: center;
     color: var(--text-primary);
+  }
+  .verify-numeric-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .verify-numeric {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    justify-content: space-around;
+    gap: 4px 12px;
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--text-primary);
+    user-select: all;
+  }
+  .verify-own {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .verify-own-numeric {
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    user-select: all;
+  }
+  .verify-section .verify-hint {
+    margin-top: 6px;
+  }
+  .verify-summary {
+    cursor: pointer;
   }
   .verify-hex-row {
     display: flex;

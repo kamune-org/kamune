@@ -29,6 +29,7 @@ export interface PeerInfo {
   publicKeyBase64: string;
   firstSeen: string;
   lastSeen: string;
+  fingerprintNumeric: string;
   fingerprintEmoji: string;
 }
 
@@ -75,6 +76,7 @@ export interface ShareInfo {
   transport: string;
   address: string;
   port: string;
+  fingerprintNumeric: string;
   fingerprintEmoji: string;
   fingerprintHex: string;
   relayInfo?: ShareRelayInfo | null;

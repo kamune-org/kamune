@@ -155,12 +155,21 @@
           </button>
         </div>
 
-        <label class="field-label">Fingerprint</label>
+        <label class="field-label">Numeric fingerprint</label>
         <div class="copy-row">
-          <span class="plain-block emoji">{peer.fingerprintEmoji}</span>
-          <button class="copy-btn" type="button" onclick={() => copy(peer.fingerprintEmoji, 'fp')}>
+          <code class="mono-block">{peer.fingerprintNumeric}</code>
+          <button
+            class="copy-btn"
+            type="button"
+            onclick={() => copy(peer.fingerprintNumeric, 'fp')}
+          >
             {copiedField === 'fp' ? 'Copied' : 'Copy'}
           </button>
+        </div>
+
+        <div class="field-label">Emoji fingerprint</div>
+        <div class="copy-row">
+          <span class="plain-block emoji">{peer.fingerprintEmoji}</span>
         </div>
 
         <div class="meta-grid">

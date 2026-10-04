@@ -346,8 +346,8 @@
     EventsOn('request-incognito-confirm', () => {
       dialogs.update((d) => ({ ...d, showIncognitoConfirm: true }));
     });
-    EventsOn('fingerprint-changed', (emoji, b64, hex, sum) => {
-      fingerprint.set({ emoji, b64, hex, sum });
+    EventsOn('fingerprint-changed', (emoji, b64, hex, sum, numeric) => {
+      fingerprint.set({ emoji, b64, hex, sum, numeric: numeric || '' });
     });
     EventsOn('local-name-changed', (name) => {
       myName.set(name);
@@ -480,6 +480,7 @@
         b64: fp.b64,
         hex: fp.hex,
         sum: fp.sum,
+        numeric: fp.numeric || '',
       });
 
       const p = await GetDBPath();

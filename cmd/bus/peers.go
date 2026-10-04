@@ -15,15 +15,16 @@ import (
 )
 
 // PeerInfo is a view-model of a known peer. PublicKeyBase64 is the
-// stable lookup key (and the user-facing form). FingerprintEmoji is
-// the human-friendly derivation, both produced via the fingerprint
-// package.
+// stable lookup key (and the user-facing form). FingerprintNumeric is the
+// fingerprint for people to compare and FingerprintEmoji a short visual
+// one, all produced via the fingerprint package.
 type PeerInfo struct {
-	Name             string    `json:"name"`
-	PublicKeyBase64  string    `json:"publicKeyBase64"`
-	FirstSeen        time.Time `json:"firstSeen"`
-	LastSeen         time.Time `json:"lastSeen"`
-	FingerprintEmoji string    `json:"fingerprintEmoji"`
+	Name               string    `json:"name"`
+	PublicKeyBase64    string    `json:"publicKeyBase64"`
+	FirstSeen          time.Time `json:"firstSeen"`
+	LastSeen           time.Time `json:"lastSeen"`
+	FingerprintNumeric string    `json:"fingerprintNumeric"`
+	FingerprintEmoji   string    `json:"fingerprintEmoji"`
 }
 
 // ListKnownPeers returns all non-expired peers from the storage layer,
@@ -240,11 +241,14 @@ func (a *App) refreshPeersCache() {
 
 func peerToInfo(p *storage.Peer) PeerInfo {
 	return PeerInfo{
-		Name:             sanitizeName(p.Name),
-		PublicKeyBase64:  fingerprint.Base64(p.PublicKey),
-		FirstSeen:        p.FirstSeen,
-		LastSeen:         p.LastSeen,
-		FingerprintEmoji: strings.Join(fingerprint.Emoji(p.PublicKey), " • "),
+		Name:               sanitizeName(p.Name),
+		PublicKeyBase64:    fingerprint.Base64(p.PublicKey),
+		FirstSeen:          p.FirstSeen,
+		LastSeen:           p.LastSeen,
+		FingerprintNumeric: fingerprint.Numeric(p.PublicKey),
+		FingerprintEmoji: strings.Join(
+			fingerprint.Emoji(p.PublicKey), " • ",
+		),
 	}
 }
 
