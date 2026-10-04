@@ -181,12 +181,13 @@ func TestUpdate_ChatMessageIsSanitized(t *testing.T) {
 	a := require.New(t)
 	m := newTestModel()
 	m.state = stateChat
+	m.sess = &chatSession{}
 
-	m.Update(chatMessageMsg{
+	m.Update(sessionMsg{m.sess, chatMessageMsg{
 		sender: storage.SenderPeer,
 		text:   hostile,
 		time:   time.Date(2026, 10, 3, 22, 0, 0, 0, time.UTC),
-	})
+	}})
 	view := m.vp.View()
 	requireNoTerminalControls(a, view)
 	a.Contains(view, "Peer: hiclick")
@@ -197,8 +198,11 @@ func TestReceiveErrorIsSanitized(t *testing.T) {
 	a := require.New(t)
 	m := newTestModel()
 	m.state = stateChat
+	m.sess = &chatSession{}
 
-	m.Update(receiveErrorMsg{err: errString("bad \x1b]0;pwned\x07 frame")})
+	m.Update(sessionMsg{
+		m.sess, receiveErrorMsg{err: errString("bad \x1b]0;pwned\x07 frame")},
+	})
 	requireNoTerminalControls(a, m.vp.View())
 	a.Contains(m.vp.View(), "Error: bad  frame")
 }

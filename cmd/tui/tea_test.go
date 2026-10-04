@@ -216,13 +216,14 @@ func TestUpdate_ChatMessageAppended(t *testing.T) {
 	a := require.New(t)
 	m := newTestModel()
 	m.state = stateChat
+	m.sess = &chatSession{}
 	m.messages = []chatLine{}
 
 	msg := chatMessageMsg{
 		text: "hello from peer",
 		time: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
 	}
-	got, _ := m.Update(msg)
+	got, _ := m.Update(sessionMsg{m.sess, msg})
 	s := got.(*model)
 	a.Len(s.messages, 1)
 	a.Contains(s.messages[0].text, "hello from peer")
@@ -232,8 +233,9 @@ func TestUpdate_PeerDisconnectedShowsMessage(t *testing.T) {
 	a := require.New(t)
 	m := newTestModel()
 	m.state = stateChat
+	m.sess = &chatSession{}
 
-	got, _ := m.Update(peerDisconnectedMsg{})
+	got, _ := m.Update(sessionMsg{m.sess, peerDisconnectedMsg{}})
 	s := got.(*model)
 	a.Len(s.messages, 1)
 	a.Contains(s.messages[0].text, "Peer disconnected")

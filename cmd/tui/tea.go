@@ -266,6 +266,20 @@ func newChatSession(t *kamune.Transport, release chan struct{}) *chatSession {
 	}
 }
 
+// sessionMsg carries msg from a goroutine of the chat session sess. Update
+// applies it only while sess is the chat on screen, so that what a chat
+// sends while it ends does not land on the screen or the session that
+// comes after it.
+type sessionMsg struct {
+	sess *chatSession
+	msg  tea.Msg
+}
+
+// sender returns a function that passes the messages of s to send.
+func (s *chatSession) sender(send func(tea.Msg)) func(tea.Msg) {
+	return func(msg tea.Msg) { send(sessionMsg{sess: s, msg: msg}) }
+}
+
 // end stops the goroutines of the session and closes its transport.
 // Transport.Close waits a few seconds at most for the close frame.
 func (s *chatSession) end() {
@@ -361,25 +375,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.relayToken = msg.token
 		m.relaySessionTTL = msg.sessionTTL
 		return m, nil
-	case chatMessageMsg:
-		return m.handleChatMessage(msg), nil
-	case peerDisconnectedMsg:
-		if m.state != stateChat {
+	case sessionMsg:
+		if msg.sess == nil || msg.sess != m.sess || m.state != stateChat {
+			// The chat that sent it is over.
 			return m, nil
 		}
-		m.messages = append(m.messages, noticeLine(
-			m.s.highlight, "Peer disconnected. Press Esc to return.",
-		))
-		m.refreshChat()
-		return m, nil
-	case receiveErrorMsg:
-		if m.state != stateChat {
-			return m, nil
-		}
-		m.messages = append(m.messages,
-			noticeLine(m.s.err, "Error: "+msg.err.Error()),
-		)
-		m.refreshChat()
+		m.updateSession(msg.msg)
 		return m, nil
 	case historySessionsMsg:
 		if msg.err != nil {
@@ -397,13 +398,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.histVP = viewport.New(m.width-2, m.height-4)
 		m.histVP.MouseWheelEnabled = true
 		m.refreshHistory()
-		return m, nil
-	case historyLoadedMsg:
-		if m.state != stateChat {
-			return m, nil
-		}
-		m.messages = append(msg.messages, m.messages...)
-		m.refreshChat()
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -430,6 +424,28 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateHistory(msg)
 	}
 	return m, nil
+}
+
+// updateSession applies msg, which came from a goroutine of the chat on
+// screen, m.sess.
+func (m *model) updateSession(msg tea.Msg) {
+	switch msg := msg.(type) {
+	case chatMessageMsg:
+		m.handleChatMessage(msg)
+	case peerDisconnectedMsg:
+		m.messages = append(m.messages, noticeLine(
+			m.s.highlight, "Peer disconnected. Press Esc to return.",
+		))
+		m.refreshChat()
+	case receiveErrorMsg:
+		m.messages = append(m.messages,
+			noticeLine(m.s.err, "Error: "+msg.err.Error()),
+		)
+		m.refreshChat()
+	case historyLoadedMsg:
+		m.messages = append(msg.messages, m.messages...)
+		m.refreshChat()
+	}
 }
 
 func (m *model) View() string {
@@ -683,9 +699,12 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 	m.vp = vp
 	m.vp.SetContent("Session ID is " + t.SessionID() + ". Loading history…")
 
-	go receiveLoop(m.sess.t, m.sess.pongCh, m.send)
-	go keepAliveLoop(m.sess, m.send)
-	load := loadChatHistory(m.store, t.SessionID(), m.s)
+	send := m.sess.sender(m.send)
+	go receiveLoop(m.sess.t, m.sess.pongCh, send)
+	go keepAliveLoop(m.sess, send)
+	sess := m.sess
+	history := loadChatHistory(m.store, t.SessionID(), m.s)
+	load := func() tea.Msg { return sessionMsg{sess: sess, msg: history()} }
 	if !m.sessionExpiry.IsZero() {
 		return m, tea.Batch(load, tickCountdown())
 	}
@@ -833,7 +852,7 @@ func tuiSendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duratio
 	}
 }
 
-func (m *model) handleChatMessage(msg chatMessageMsg) *model {
+func (m *model) handleChatMessage(msg chatMessageMsg) {
 	m.messages = append(m.messages,
 		messageLine(storage.SenderPeer, msg.time, msg.text),
 	)
@@ -852,7 +871,6 @@ func (m *model) handleChatMessage(msg chatMessageMsg) *model {
 		}
 	}
 	m.refreshChat()
-	return m
 }
 
 func (m *model) cancelConnect() {

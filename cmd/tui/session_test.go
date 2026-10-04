@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune"
@@ -182,4 +184,54 @@ func TestServe_HandlerKeepsSessionUntilReleased(t *testing.T) {
 	closeSession(msg.transport, msg.release)
 	a.ErrorIs(waitFor(t, received), kamune.ErrPeerDisconnected)
 	a.NoError(srv.Shutdown(context.Background()))
+}
+
+func TestSessionMsg_OnlyForTheChatOnScreen(t *testing.T) {
+	type step struct {
+		name string
+		// next moves the model on from the chat that sends the message.
+		next func(*testing.T, *model)
+	}
+	steps := []step{
+		{"after esc", func(_ *testing.T, m *model) {
+			m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		}},
+		{"in the next chat", func(t *testing.T, m *model) {
+			m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+			m.state = stateConnecting
+			m.att = newAttempt()
+			tr, _ := peerSession(t)
+			m.Update(connectedMsg{att: m.att, transport: tr})
+			require.New(t).Equal(stateChat, m.state)
+		}},
+	}
+	msgs := []tea.Msg{
+		chatMessageMsg{sender: storage.SenderPeer, text: "late"},
+		peerDisconnectedMsg{},
+		receiveErrorMsg{err: errors.New("late")},
+		historyLoadedMsg{messages: []chatLine{noticeLine(
+			lipgloss.NewStyle(), "late",
+		)}},
+	}
+	for _, st := range steps {
+		for _, msg := range msgs {
+			t.Run(fmt.Sprintf("%s %T", st.name, msg), func(t *testing.T) {
+				a := require.New(t)
+				m := chatWith(t, modeDirectServe, func(*kamune.Transport) error {
+					return nil
+				})
+				old := m.sess
+				st.next(t, m)
+				before := len(m.messages)
+
+				a.NotPanics(func() { m.Update(sessionMsg{old, msg}) })
+				a.Len(m.messages, before)
+				if m.sess != nil {
+					history, err := m.store.GetChatHistory(m.sess.t.SessionID())
+					a.NoError(err)
+					a.Empty(history)
+				}
+			})
+		}
+	}
 }

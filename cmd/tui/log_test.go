@@ -95,7 +95,9 @@ func TestHandleChatMessage_ReportsUnsavedMessage(t *testing.T) {
 	m.store = openTestStore(t)
 	a.NoError(m.store.Close())
 
-	m.Update(chatMessageMsg{sender: storage.SenderPeer, text: "hello"})
+	m.Update(sessionMsg{
+		m.sess, chatMessageMsg{sender: storage.SenderPeer, text: "hello"},
+	})
 	a.Len(m.messages, 2)
 	a.Equal("hello", m.messages[0].text)
 	a.Contains(m.messages[1].text, "not saved to history")
