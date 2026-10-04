@@ -78,6 +78,7 @@ type Transport struct {
 	recvSequence   uint64
 	sendSequence   uint64
 	sendMu         sync.Mutex
+	recvMu         sync.Mutex
 	established    bool
 }
 
@@ -116,7 +117,15 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 // It returns ErrReceiveTimeout when the read deadline passes before any byte
 // of the next frame has arrived; the caller may retry. A connection that drops
 // or times out part-way through a frame yields ErrConnClosed.
+//
+// ReceivePayload and Receive are safe for concurrent use. Calls are served one
+// at a time in wire order, and each frame goes to exactly one caller.
 func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
+	// Hold recvMu from the read through the sequence check, so that frames
+	// read by concurrent callers are checked in the order they arrived.
+	t.recvMu.Lock()
+	defer t.recvMu.Unlock()
+
 	if err := t.terminated(); err != nil {
 		return nil, nil, err
 	}

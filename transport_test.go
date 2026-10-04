@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -275,6 +276,97 @@ func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 			a.NoError(tr.Close())
 		})
 	}
+}
+
+// handoffConn hands queued frames to concurrent readers. The reader that
+// takes the first frame does not return it until a second ReadBytes call has
+// taken the next one, so that without receive serialization the second frame
+// reaches the sequence check first.
+type handoffConn struct {
+	taken  chan struct{}
+	second chan struct{}
+	frames [][]byte
+	next   int
+	mu     sync.Mutex
+}
+
+func (c *handoffConn) ReadBytes() ([]byte, error) {
+	c.mu.Lock()
+	if c.next >= len(c.frames) {
+		c.mu.Unlock()
+		return nil, io.EOF
+	}
+	i := c.next
+	c.next++
+	frame := c.frames[i]
+	c.mu.Unlock()
+
+	switch i {
+	case 0:
+		close(c.taken)
+		select {
+		case <-c.second:
+			time.Sleep(50 * time.Millisecond)
+		case <-time.After(200 * time.Millisecond):
+		}
+	case 1:
+		close(c.second)
+	}
+	return frame, nil
+}
+
+func (*handoffConn) WriteBytes([]byte) error     { return nil }
+func (*handoffConn) SetDeadline(time.Time) error { return nil }
+func (*handoffConn) Close() error                { return nil }
+
+func TestReceive_ConcurrentCallersKeepSequence(t *testing.T) {
+	a := require.New(t)
+	att, err := attest.New()
+	a.NoError(err)
+	serde := newSignedSerde(att.MarshalPublicKey(), att)
+	cipher, err := enigma.NewEnigma(
+		[]byte("concurrent secret"),
+		[]byte("concurrent salt"),
+		[]byte("concurrent info"),
+	)
+	a.NoError(err)
+
+	conn := &handoffConn{
+		taken:  make(chan struct{}),
+		second: make(chan struct{}),
+	}
+	for seq := uint64(1); seq <= 2; seq++ {
+		msg := Bytes([]byte{byte(seq)})
+		payload, _, err := serde.serialize(msg, RouteExchangeMessages, seq)
+		a.NoError(err)
+		conn.frames = append(conn.frames, cipher.Encrypt(payload))
+	}
+	tr := newTransport(conn, serde, "test-session", cipher, cipher)
+	tr.established = true
+
+	type result struct {
+		err error
+		seq uint64
+	}
+	receive := func(out chan<- result) {
+		md, err := tr.Receive(Bytes(nil))
+		if err != nil {
+			out <- result{err: err}
+			return
+		}
+		out <- result{seq: md.SequenceNum()}
+	}
+	first := make(chan result, 1)
+	second := make(chan result, 1)
+	go receive(first)
+	<-conn.taken
+	go receive(second)
+
+	r1, r2 := <-first, <-second
+	a.NoError(r1.err)
+	a.NoError(r2.err)
+	a.Equal(uint64(1), r1.seq)
+	a.Equal(uint64(2), r2.seq)
 }
 
 func TestTransportReceiveValidatesSequenceBeforeClose(t *testing.T) {
