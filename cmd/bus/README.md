@@ -524,6 +524,27 @@ still saved. Turning the mode on or off while the server runs restarts the
 server once you confirm, which disconnects all sessions. Bus refuses the
 change while a server is starting or a connect is in progress.
 
+## Logs
+
+The log panel (`Ctrl+L`) shows the newest 200 log lines of Bus and of the
+Kamune library. Its level (DEBUG, INFO, WARN or ERROR; INFO by default) is
+more than a view filter: the backend keeps and exports only lines at that
+level or above, and the lines it prints on stderr follow the same level.
+Bus saves the level in the database.
+
+Relay and P2P tokens appear in log lines only as their first 8 hex
+characters. Line breaks, tabs and other control or format characters, such
+as bidirectional overrides, are escaped, so text that a peer chose cannot
+forge or reorder log lines.
+
+**Export** writes the kept lines to a file, leaving out lines kept before
+the level was raised. On macOS and Linux, only the file's owner can read it
+(mode 0600, also when it replaces an existing file). On Windows the mode
+has no effect: a new file gets the permissions of the folder it is saved
+in, and a file it replaces keeps its own. The lines still name peers,
+session IDs and addresses, so read an export before you share it. **Clear**
+empties the panel and the buffer.
+
 ## Configuration
 
 | Setting | Default | Description |
@@ -531,6 +552,7 @@ change while a server is starting or a connect is in progress.
 | Database path | `~/.config/kamune/db` | Override with `KAMUNE_DB_PATH` env var, or pick another directory in the passphrase dialog |
 | Verification mode | Quick | Connection > Verification Mode; saved in the database |
 | Incognito mode | off | Connection > Incognito Mode; saved in the database |
+| Log level | INFO | Log panel; saved in the database |
 | Passphrase | asked at startup | Entered in the passphrase dialog or read from the system keychain. Bus ignores `KAMUNE_DB_PASSPHRASE`, which the TUI and the daemon read |
 
 ## Security Notes
