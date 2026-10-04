@@ -57,6 +57,7 @@
     - 11.2 [Database Encryption](#112-database-encryption)
     - 11.3 [Stored Entities](#113-stored-entities)
     - 11.4 [Peer Expiration](#114-peer-expiration)
+    - 11.5 [Upgrades and Deleted Data](#115-upgrades-and-deleted-data)
 12. [Security Properties](#12-security-properties)
     - 12.1 [Confidentiality](#121-confidentiality)
     - 12.2 [Integrity](#122-integrity)
@@ -1269,13 +1270,14 @@ Releases up to v0.6.0 do not take this lock, so such a client must not open the
 database while a newer one may rewrite it.
 
 Some operations rewrite the whole database file: the key upgrades described in
-§11.2, a passphrase change, and compaction. The new file is written next to the
-database as `<db>.rewrite-<digits>` and renamed over it, so it is a new file,
-owned by the current user, with mode 0600. Other hard links to the old file,
-and copies such as backups, keep the old contents. A copy left behind by an
-interrupted rewrite is removed on the next open. When the lock file cannot be
-created, for example in a read-only directory, these rewrites fail, and a
-database written by an older release, which needs them, does not open.
+§11.2, a passphrase change, and compaction (§11.5). The new file is written
+next to the database as `<db>.rewrite-<digits>` and renamed over it, so it is
+a new file, owned by the current user, with mode 0600. Other hard links to the
+old file, and copies such as backups, keep the old contents. A copy left
+behind by an interrupted rewrite is removed on the next open. When the lock
+file cannot be created, for example in a read-only directory, these rewrites
+fail, and a database written by an older release, which needs them, does not
+open (§11.5).
 
 ### 11.2 Database Encryption
 
@@ -1424,6 +1426,38 @@ Peer records have a configurable expiration duration (default: 7 days). On
 lookup, if `firstSeen + expiryDuration < now`, the peer is automatically
 deleted and a peer-expired condition is surfaced. Expired peers are also
 pruned during full-iteration listings.
+
+### 11.5 Upgrades and Deleted Data
+
+The default bucket records the version of the database layout under
+`storage-format`; the current version is 2. Version 1 stores messages under
+indexes, with their receive time and sender in the sealed value, and version 2
+stores peers, sessions and settings under keyed names (§11.3). A database
+without the entry was written by v0.6.0 or earlier and is version 0. A
+database in a newer layout than the implementation knows does not open.
+
+Opening a database in an older layout first applies the key upgrades of §11.2,
+which need the lock file. If they fail, for example on a full disk or without
+the lock file, the open fails and the file stays as the older release wrote
+it; every later open tries again. Otherwise the layout is converted and the
+new version recorded, together with a `compact-pending` mark. Every open
+compacts the database while the mark is present and removes the mark once a
+compaction succeeds, so until then the old layout can remain in free pages.
+The first open after an upgrade rewrites the whole file and can take a while.
+v0.6.0 and earlier cannot open an upgraded database. A legacy session value
+that does not decrypt is left under the session's old name, so that session's
+ID stays in the file in plaintext.
+
+The database engine does not overwrite the pages that deletes and updates
+free: their old contents, sealed under the same DEK, stay in the file until
+the engine reuses them. Compaction rewrites the file with only live data
+(§11.1). Deleting a session or a peer compacts the database; if the
+compaction fails, the record is deleted all the same and the failure is
+reported. Deleting a peer keeps its sessions. Other changes, such as popping a
+resumption token, deleting idle sessions or expired peers, or replacing a
+value, leave the old value in a free page until the next compaction. Freed
+disk blocks of the old file, such as blocks an SSD remaps, and copies of the
+file such as backups, are not scrubbed.
 
 ---
 
