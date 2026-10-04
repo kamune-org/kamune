@@ -187,12 +187,12 @@ SignedTransport {
 }
 ```
 
-| Field       | Type  | Role                                                                                                                                                                                                       |
-| ----------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Data`      | bytes | The serialized inner message (for example, an `Introduce` or `Handshake` message, or application data).                                                                                                    |
-| `Signature` | bytes | Ed25519 signature over the domain-separated signing input (see §8.1), produced with the sender's identity private key.                                                                                     |
-| `Metadata`  | bytes | Pre-serialized `Metadata` message (ID, timestamp, sequence, route), carried as opaque bytes. Serialized once by the sender; those same bytes are used both on the wire and as part of the signature input. |
-| `Padding`   | bytes | Random bytes that pad the serialized envelope up to a bucketed target size (see §12.7). Padding is not part of the signature input; encrypted session frames authenticate it with the AEAD tag.                 |
+| Field       | Type  | Role                                                                                                                                                                                                                                                                   |
+| ----------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Data`      | bytes | The serialized inner message (for example, an `Introduce` or `Handshake` message, or application data).                                                                                                                                                                |
+| `Signature` | bytes | Ed25519 signature over the domain-separated signing input (see §8.1), produced with the sender's identity private key.                                                                                                                                                 |
+| `Metadata`  | bytes | Pre-serialized `Metadata` message (ID, timestamp, sequence, route), carried as opaque bytes. Serialized once by the sender; those same bytes are used both on the wire and as part of the signature input.                                                             |
+| `Padding`   | bytes | Random bytes that pad the serialized envelope up to a bucketed target size (see §12.7). The field may appear more than once; the last occurrence is its value. Padding is not part of the signature input; encrypted session frames authenticate it with the AEAD tag. |
 
 All message definitions in this document use Protocol Buffers proto3 binary
 encoding. The `Metadata` field contains the raw proto3 encoding of a
@@ -1552,6 +1552,17 @@ bumps it with the following probability distribution:
 | +3       | 1%          |
 
 The bump is selected independently per message and capped at bucket 6.
+
+**Exact sizes.** The padded envelope MUST have exactly the target size of its
+bucket. No protobuf field encodes to a single byte, so when the selected bucket
+is exactly one byte larger than the envelope, the sender pads to the next
+bucket instead. The sender fills the gap with `Padding` field records. One
+record fills every gap of two or more bytes except a gap at a varint length
+boundary (such as 130 or 16,387 bytes), which takes an empty two-byte record
+followed by one that carries the random bytes. Receivers MUST therefore accept
+a `Padding` field that appears more than once; as for any proto3 field, the
+last occurrence is its value. The only envelope that cannot be padded exactly
+is one of `frameTargetSize` − 1 bytes, which no user message reaches (§4.1).
 
 ---
 
