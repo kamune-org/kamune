@@ -540,6 +540,50 @@ func TestWebSocketAdapterWriteDeadline(t *testing.T) {
 	a.ErrorIs(err, os.ErrDeadlineExceeded)
 }
 
+func TestRelayConnWriteAfterCloseStaysOffChannel(t *testing.T) {
+	a := require.New(t)
+	c, s := net.Pipe()
+	defer c.Close()
+	defer s.Close()
+
+	var (
+		serverCh *exchange.Channel
+		serverOK = make(chan error, 1)
+	)
+	go func() {
+		ch, err := exchange.Accept(newTCPAdapter(s))
+		serverCh = ch
+		serverOK <- err
+	}()
+	clientCh, err := exchange.Initiate(newTCPAdapter(c))
+	a.NoError(err)
+	defer clientCh.Close()
+	a.NoError(<-serverOK)
+	defer serverCh.Close()
+
+	serverGot := make(chan []byte, 1)
+	go func() {
+		data, err := serverCh.ReadBytes()
+		if err == nil {
+			serverGot <- data
+		}
+	}()
+
+	// Like a listener's conn, rc shares the channel and does not close it.
+	var mu sync.Mutex
+	rc := newRelayConn(t.Context(), clientCh, &mu)
+	a.NoError(rc.Close())
+	a.ErrorIs(rc.WriteBytes([]byte("late")), net.ErrClosed)
+
+	// A write to a net.Pipe returns only once it has been read, so a frame
+	// that went out would be waiting here already.
+	select {
+	case got := <-serverGot:
+		a.FailNow("write after Close reached the channel", "%q", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestRelayConnCloseIdempotent(t *testing.T) {
 	rc := newRelayConn(t.Context(), nil, &sync.Mutex{})
 	rc.Close()
