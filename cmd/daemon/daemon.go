@@ -267,6 +267,19 @@ func (d *Daemon) addLogEntry(level, msg string) {
 	d.emit(EvtLogEntry, "", entry)
 }
 
+// shortToken returns the first 8 characters of the hex token token, to
+// name it in a log without giving it away: an unused relay token lets
+// whoever reads it join the session it was made for, and a static p2p
+// token links the two peers it was derived for. get_logs, log_entry
+// events, export_logs and stderr all carry log messages.
+func shortToken(token string) string {
+	const shown = 8
+	if len(token) <= shown {
+		return token
+	}
+	return token[:shown] + "..."
+}
+
 // setStatus updates the daemon's connection status and emits status_changed.
 func (d *Daemon) setStatus(status ConnectionStatus, msg string) {
 	d.mu.Lock()

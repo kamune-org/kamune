@@ -383,7 +383,7 @@ func (d *Daemon) announceRelayToken(first relayToken) {
 			"session_ttl_ns": first.SessionTTL,
 			"expires_at":     first.ExpiresAt,
 		})
-		d.addLogEntry("INFO", "Relay token: "+first.Token)
+		d.addLogEntry("INFO", "Relay token: "+shortToken(first.Token))
 	}
 	d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})
 }
@@ -1390,7 +1390,7 @@ func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 			d.emitError(cmd.ID, code, err.Error())
 			return
 		}
-		d.addLogEntry("INFO", "Generated relay token: "+rt.Token)
+		d.addLogEntry("INFO", "Generated relay token: "+shortToken(rt.Token))
 		d.emit(EvtResponse, cmd.ID, MapA{
 			"token": rt.Token, "ttl_ns": rt.TTL,
 			"session_ttl_ns": rt.SessionTTL, "expires_at": rt.ExpiresAt,
@@ -1507,7 +1507,7 @@ func (d *Daemon) handleRemoveRelayToken(cmd Command) {
 	rt.listener.Close()
 
 	d.emit(EvtRelayTokens, "", MapA{"tokens": tokens})
-	d.addLogEntry("INFO", "Removed relay token: "+params.Token)
+	d.addLogEntry("INFO", "Removed relay token: "+shortToken(params.Token))
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "removed"})
 }
 
@@ -1624,7 +1624,8 @@ func (d *Daemon) shareRelayInfo(
 			d.shareListener = rt.listener
 		}
 		d.mu.Unlock()
-		d.addLogEntry("INFO", "Share card: generated relay token: "+rt.Token)
+		d.addLogEntry("INFO",
+			"Share card: generated relay token: "+shortToken(rt.Token))
 	}
 
 	scheme, host, _ := parseRelayAddr(target.addr)
@@ -1778,17 +1779,16 @@ func (d *Daemon) relayLinkLost(t *tokenTracker) {
 				" lost its relay connection")
 		return
 	}
-	msg := "relay token " + t.token + " lost its relay connection; " +
-		"generate a new relay token"
-	d.addLogEntry("WARN", msg)
-	d.emitError("", "relay_link_lost", msg)
+	const lost = " lost its relay connection; generate a new relay token"
+	d.addLogEntry("WARN", "relay token "+shortToken(t.token)+lost)
+	d.emitError("", "relay_link_lost", "relay token "+t.token+lost)
 }
 
 // relayTokenExpired removes the relay token of t, which expired before a
 // peer used it.
 func (d *Daemon) relayTokenExpired(t *tokenTracker) {
 	if d.dropRelayToken(t) {
-		d.addLogEntry("INFO", "Relay token expired: "+t.token)
+		d.addLogEntry("INFO", "Relay token expired: "+shortToken(t.token))
 	}
 }
 

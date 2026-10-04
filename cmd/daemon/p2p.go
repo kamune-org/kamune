@@ -173,7 +173,7 @@ func (d *Daemon) GenerateP2PToken(
 	d.mu.Unlock()
 
 	d.emit(EvtP2PTokens, "", MapA{"tokens": snapshot})
-	d.addLogEntry("INFO", "Generated p2p token: "+hexToken)
+	d.addLogEntry("INFO", "Generated p2p token: "+shortToken(hexToken))
 	return hexToken, nil
 }
 
@@ -243,7 +243,7 @@ func (d *Daemon) RemoveP2PToken(token string) error {
 
 	unregisterP2PToken(listener, pt.Token)
 	d.emit(EvtP2PTokens, "", MapA{"tokens": snapshot})
-	d.addLogEntry("INFO", "Removed p2p token: "+token)
+	d.addLogEntry("INFO", "Removed p2p token: "+shortToken(token))
 	return nil
 }
 
