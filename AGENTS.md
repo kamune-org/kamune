@@ -20,8 +20,12 @@ Each module builds and tests from its own directory. There is no `go.work`,
 so a root command such as `go build ./cmd/daemon` fails.
 
 - **Test any module**: `go test -race ./...` in root, `cmd/relay/`, `cmd/tui/`
-  or `cmd/daemon/` (for `cmd/bus/`, see the bus notes below). `make test`
-  runs it with `-v` in root (root module only) and in `cmd/relay/`
+  or `cmd/daemon/`. `make test` runs it with `-v` in root (root module only)
+  and in `cmd/relay/`
+- **Test bus**: `go test -race ./...` in `cmd/bus/` where the native Wails
+  build works. On Linux without the GTK 4 and WebKitGTK 6.0 development
+  packages, run `CGO_ENABLED=0 go test -tags server ./...` there instead
+  (see the bus notes below)
 - **Test single package**: `go test -v ./pkg/storage` (any sub-package)
 - **Benchmarks**: `go test ./... -bench .`
 - **Fuzz** (root only): `make fuzz` runs each fuzz target for `FUZZ_TIME`
@@ -59,7 +63,12 @@ or `npm run build` in `cmd/bus/frontend/`, run `npm install` there and
 `wails3 task common:build:frontend` in `cmd/bus/` makes both without building
 the app. `go test` and `go vet` in `cmd/bus/` need `frontend/dist`, which the
 app embeds, and on Linux the GTK 4 and WebKitGTK 6.0 development packages that
-Wails v3.0.0-beta.23 builds against.
+Wails v3.0.0-beta.23 builds against. Without those packages,
+`CGO_ENABLED=0 go vet -tags server ./...` and
+`CGO_ENABLED=0 go test -tags server ./...` build the bus against the Wails
+server mode, which needs no cgo or GTK; a placeholder
+`frontend/dist/index.html` is enough for them. `-race` needs cgo, so these
+runs have no race detector.
 
 ## Commits
 
