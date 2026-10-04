@@ -482,3 +482,59 @@ func TestSendPing(t *testing.T) {
 		})
 	}
 }
+
+func TestChat_OnlyPageKeysScroll(t *testing.T) {
+	m := chatWith(t, modeDirectDial, func(t *kamune.Transport) error {
+		_, _, err := t.ReceivePayload()
+		return err
+	})
+	for i := range 50 {
+		m.addLines(noticeLine(m.s.muted, fmt.Sprint("line ", i)))
+	}
+	const mid = 20
+	runes := func(s string) tea.KeyMsg {
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+	}
+	tests := []struct {
+		name string
+		key  tea.KeyMsg
+		// scroll is -1 for a key that scrolls up, 1 for one that scrolls
+		// down, and 0 for one that leaves the view alone.
+		scroll int
+	}{
+		{"space", tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}, 0},
+		{"f", runes("f"), 0},
+		{"b", runes("b"), 0},
+		{"u", runes("u"), 0},
+		{"d", runes("d"), 0},
+		{"j", runes("j"), 0},
+		{"k", runes("k"), 0},
+		{"h", runes("h"), 0},
+		{"l", runes("l"), 0},
+		{"up", tea.KeyMsg{Type: tea.KeyUp}, 0},
+		{"down", tea.KeyMsg{Type: tea.KeyDown}, 0},
+		{"ctrl+u", tea.KeyMsg{Type: tea.KeyCtrlU}, 0},
+		{"ctrl+d", tea.KeyMsg{Type: tea.KeyCtrlD}, 0},
+		{"pgup", tea.KeyMsg{Type: tea.KeyPgUp}, -1},
+		{"pgdown", tea.KeyMsg{Type: tea.KeyPgDown}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			m.ta.Reset()
+			m.vp.SetYOffset(mid)
+			m.Update(tt.key)
+			switch tt.scroll {
+			case -1:
+				a.Less(m.vp.YOffset, mid)
+			case 1:
+				a.Greater(m.vp.YOffset, mid)
+			default:
+				a.Equal(mid, m.vp.YOffset)
+			}
+			if tt.key.Type == tea.KeyRunes || tt.key.Type == tea.KeySpace {
+				a.Equal(string(tt.key.Runes), m.ta.Value())
+			}
+		})
+	}
+}

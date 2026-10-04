@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -908,6 +909,7 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	vp := viewport.New(30, 5)
+	vp.KeyMap = chatScrollKeys()
 	vp.MouseWheelEnabled = true
 	vp.Style = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -947,6 +949,17 @@ func (m *model) enterChat(msg connectedMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(load, tickCountdown())
 	}
 	return m, load
+}
+
+// chatScrollKeys returns the keys that scroll the chat view: PgUp and
+// PgDn. The message box gets every key too, so the view must not take a
+// key that types or edits the message, as the viewport's default keys
+// (space, f, b, u, d, j, k, the arrows, Ctrl+U and Ctrl+D) do.
+func chatScrollKeys() viewport.KeyMap {
+	return viewport.KeyMap{
+		PageUp:   key.NewBinding(key.WithKeys("pgup")),
+		PageDown: key.NewBinding(key.WithKeys("pgdown")),
+	}
 }
 
 // peerNotice returns the notice that names peer, the peer of the chat
