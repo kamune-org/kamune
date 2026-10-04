@@ -365,17 +365,56 @@ over `wss` or `tls` with a certificate the client verifies or pins (see
 
 ### Rate Limiting
 
-Rate limiting applies per source IP, before the key exchange, so abusive clients
+Rate limiting applies per client address before the key exchange, and for a
+client that connects directly also before any TLS handshake, so abusive clients
 are rejected without burning the relay's CPU on asymmetric crypto.
 
-| Aspect      | Behavior                                                     |
-| ----------- | ------------------------------------------------------------ |
-| Algorithm   | Sliding window log                                           |
-| Window      | Configurable (default 1 minute)                              |
-| Quota       | Configurable (default 20 registrations per window)           |
-| Keying      | Source IP (proxy-aware for WebSocket)                        |
-| Boundedness | Bounded; defaults to `max_concurrent_sessions`               |
-| TTL         | Per-IP state forgotten after `2 × time_window` of inactivity |
+| Aspect      | Behavior                                                                 |
+| ----------- | ------------------------------------------------------------------------ |
+| Algorithm   | Sliding window log                                                       |
+| Window      | `time_window` (default 1 minute)                                         |
+| Quota       | `quota` (default 20 per window)                                          |
+| Keying      | IPv4 address, or the /64 of an IPv6 address                              |
+| Boundedness | `max_entries` addresses per limiter (default 100,000; `0` = no cap)      |
+| Eviction    | Least recently used address when a limiter is full                       |
+| TTL         | Dropped by a sweep, once per window, after its requests leave the window |
+
+What counts against the quota:
+
+- **TCP and TLS**: every accepted connection, keyed by the TCP peer's address.
+  A TLS connection is charged before its TLS handshake.
+- **WebSocket** (`ws` and `wss`): every request to `/ws`, keyed by the client
+  address. A connection from a peer outside `trusted_proxies` also spends a
+  separate connection quota, with the same settings, as it is accepted and
+  before TLS. A peer over the connection quota has its connection closed
+  without a response; one over the request quota gets HTTP 429. TCP health
+  checks against these ports count as well, so point a load balancer's checks
+  at the `[diagnose]` listener instead.
+
+TCP and TLS connections and WebSocket requests share one limiter. The UDP
+broker has limiters of its own (see
+[Broker](#broker-stun-echo-and-signal-introduction)). `disabled = true` in
+`[rate_limit]` turns every limiter off.
+
+**Client address behind a proxy.** The relay reads a forwarded client address
+only for a WebSocket request whose TCP peer is in `server.trusted_proxies`, and
+only from the one header named by `server.client_ip_header` (default
+`X-Forwarded-For`). `X-Forwarded-For` is read from the right, across all its
+header lines, skipping trusted hops and stopping at an entry that does not
+parse. Any other header must hold a single address on a single line, as a proxy
+that sets it writes it. No other header is read, so behind a proxy that sets
+only `X-Real-IP` or `CF-Connecting-IP`, set `client_ip_header` to that name.
+Without a usable address in the header, the request is keyed by the proxy's
+address, and the relay logs a warning the first time this happens. A trusted
+proxy's connections are not charged at accept; its requests are limited by
+client address.
+
+With `trusted_proxies` empty, every client of a proxy or tunnel in front of the
+relay shares the proxy's quota. The relay warns at startup for each enabled
+`ws` or `wss` listener on a loopback, private or link-local address while the
+limiter is on and `trusted_proxies` is empty, and once at run time when it
+refuses a `ws` or `wss` peer on such an address. See
+[CDN-Backed Deployments](#cdn-backed-deployments).
 
 **Design decision: rate-limit by IP, not by token.** Tokens are opaque to the
 rate limiter (a client may not have a token yet — that's the listener case). IP
@@ -388,8 +427,9 @@ check is a simple, fast lookup that costs the relay nothing to reject.
 
 **Design decision: sliding window log, not token bucket.** A sliding window log
 gives exact "N events in the last T seconds" semantics with no edge cases at
-window boundaries. The cost is O(N) memory per IP where N is the quota. Since
-the quota is small (default 20), this is fine.
+window boundaries. The cost is up to N timestamps per address, where N is the
+quota, and an address starts with none. Since the quota is small (default 20),
+this is fine.
 
 ## Transports
 
@@ -1119,8 +1159,8 @@ known limits, not bugs:
 - **Token exhaustion** — an attacker can open many connections and send
   `Register{mode: MODE_CREATE}` to fill the relay's session table until tokens
   expire. Defenses: `max_concurrent_sessions` cap, automatic cleanup of expired
-  tokens, and the per-IP rate limiter (which runs before HPKE, so attackers do
-  not burn asymmetric crypto).
+  tokens, and the per-address rate limiter (which runs before HPKE, so attackers
+  do not burn asymmetric crypto).
 - **Session hoarding** — an attacker controlling both ends of a session can hold
   it open for the full `session_ttl`. `session_ttl` bounds the cost of a hoarded
   session independently of `token_ttl`.
