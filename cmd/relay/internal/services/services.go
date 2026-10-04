@@ -50,6 +50,9 @@ func New(ctx context.Context, cfg config.Config) (*Service, error) {
 			cfg.RateLimit.TimeWindow,
 			cfg.RateLimit.MaxEntries,
 		)
+		// Like the session cleanup loop, the limiter lives until ctx
+		// ends.
+		context.AfterFunc(ctx, rl.Close)
 		slog.Info(
 			"rate limiting enabled",
 			slog.Int("quota", int(cfg.RateLimit.Quota)),

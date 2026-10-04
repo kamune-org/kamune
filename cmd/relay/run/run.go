@@ -43,7 +43,7 @@ func Run(cfgPath string) error {
 	}
 	warnSharedRateLimit(cfg)
 
-	h := handlers.New(srvc, cfg)
+	h := handlers.New(ctx, srvc, cfg)
 
 	// Prepare fallible shared resources before launching any listener. This
 	// keeps startup atomic: a bad later certificate or broker address cannot
@@ -71,7 +71,7 @@ func Run(cfgPath string) error {
 
 	var br *broker.Broker
 	if cfg.Broker.Enabled {
-		br, err = newBroker(cfg)
+		br, err = newBroker(ctx, cfg)
 		if err != nil {
 			return fmt.Errorf("new broker: %w", err)
 		}
@@ -347,24 +347,32 @@ func serveWS(srv *http.Server, ln net.Listener, h *handlers.Handler) error {
 	return srv.Serve(ln)
 }
 
-// newBroker binds the UDP broker with its own rate limiters.
-func newBroker(cfg config.Config) (*broker.Broker, error) {
-	return broker.New(cfg.Broker, newBrokerLimits(cfg.RateLimit))
+// newBroker binds the UDP broker with its own rate limiters, which are
+// closed when ctx ends.
+func newBroker(
+	ctx context.Context, cfg config.Config,
+) (*broker.Broker, error) {
+	return broker.New(cfg.Broker, newBrokerLimits(ctx, cfg.RateLimit))
 }
 
 // newBrokerLimits builds one limiter for echo and one for REGISTER from the
-// [rate_limit] settings. Neither shares the hub's limiter: UDP source
-// addresses are unverified, so spoofed packets would otherwise lock the named
-// address out of TCP, TLS and WS. Echo and REGISTER do not share one either,
-// so a spray of spoofed echoes cannot evict REGISTER histories.
-func newBrokerLimits(rl config.RateLimit) broker.Limits {
+// [rate_limit] settings and closes them when ctx ends. Neither shares the
+// hub's limiter: UDP source addresses are unverified, so spoofed packets
+// would otherwise lock the named address out of TCP, TLS and WS. Echo and
+// REGISTER do not share one either, so a spray of spoofed echoes cannot
+// evict REGISTER histories.
+func newBrokerLimits(
+	ctx context.Context, rl config.RateLimit,
+) broker.Limits {
 	if !rl.IsEnabled() {
 		return broker.Limits{}
 	}
 	newAllow := func() broker.AllowFunc {
-		return ratelimit.New(
+		limiter := ratelimit.New(
 			int(rl.Quota), rl.TimeWindow, rl.MaxEntries,
-		).Allow
+		)
+		context.AfterFunc(ctx, limiter.Close)
+		return limiter.Allow
 	}
 	return broker.Limits{Echo: newAllow(), Register: newAllow()}
 }

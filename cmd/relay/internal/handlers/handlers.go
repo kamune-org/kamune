@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net"
@@ -32,7 +33,11 @@ type Handler struct {
 	sharedLimitOnce sync.Once
 }
 
-func New(service *services.Service, cfg config.Config) *Handler {
+// New returns the handler of the ws and wss listeners. The rate limiter
+// it keeps for them is closed when ctx ends.
+func New(
+	ctx context.Context, service *services.Service, cfg config.Config,
+) *Handler {
 	trustedProxies := make([]*net.IPNet, 0, len(cfg.Server.TrustedProxies))
 	for _, cidr := range cfg.Server.TrustedProxies {
 		_, block, _ := net.ParseCIDR(cidr)
@@ -50,6 +55,7 @@ func New(service *services.Service, cfg config.Config) *Handler {
 		connLimiter = ratelimit.New(
 			int(rl.Quota), rl.TimeWindow, rl.MaxEntries,
 		)
+		context.AfterFunc(ctx, connLimiter.Close)
 	}
 	return &Handler{
 		service:        service,

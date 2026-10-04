@@ -44,7 +44,7 @@ func newTestHandler(t *testing.T, cfg config.Config) *Handler {
 	t.Cleanup(cancel)
 	srvc, err := services.New(ctx, cfg)
 	require.New(t).NoError(err)
-	return New(srvc, cfg)
+	return New(ctx, srvc, cfg)
 }
 
 func TestHandler_ClientIPHeaderFromConfig(t *testing.T) {

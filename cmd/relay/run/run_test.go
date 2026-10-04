@@ -85,7 +85,7 @@ func TestNewBroker_DoesNotShareHubLimiter(t *testing.T) {
 	t.Cleanup(cancel)
 	srvc, err := services.New(ctx, cfg)
 	a.NoError(err)
-	br, err := newBroker(cfg)
+	br, err := newBroker(ctx, cfg)
 	a.NoError(err)
 	go br.Run(ctx)
 	t.Cleanup(func() { _ = br.Close() })
@@ -120,13 +120,15 @@ func TestNewBroker_DoesNotShareHubLimiter(t *testing.T) {
 func TestNewBrokerLimits(t *testing.T) {
 	t.Run("disabled", func(t *testing.T) {
 		a := require.New(t)
-		limits := newBrokerLimits(config.RateLimit{Disabled: true})
+		limits := newBrokerLimits(
+			t.Context(), config.RateLimit{Disabled: true},
+		)
 		a.Nil(limits.Echo)
 		a.Nil(limits.Register)
 	})
 	t.Run("echo spray cannot evict register history", func(t *testing.T) {
 		a := require.New(t)
-		limits := newBrokerLimits(config.RateLimit{
+		limits := newBrokerLimits(t.Context(), config.RateLimit{
 			TimeWindow: time.Minute,
 			Quota:      1,
 			MaxEntries: 2,
@@ -253,7 +255,9 @@ func TestNewWSServer_Upgrades(t *testing.T) {
 			srvc, err := services.New(ctx, cfg)
 			a.NoError(err)
 			mux := http.NewServeMux()
-			mux.HandleFunc("/ws", handlers.New(srvc, cfg).WebSocketHandler)
+			mux.HandleFunc(
+				"/ws", handlers.New(ctx, srvc, cfg).WebSocketHandler,
+			)
 
 			var tlsCfg *tls.Config
 			if useTLS {
@@ -265,7 +269,7 @@ func TestNewWSServer_Upgrades(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				_ = serveWS(srv, ln, handlers.New(srvc, cfg))
+				_ = serveWS(srv, ln, handlers.New(ctx, srvc, cfg))
 			}()
 			t.Cleanup(func() {
 				_ = srv.Close()
@@ -321,7 +325,7 @@ func TestServeWS_RateLimitsBeforeTLS(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = serveWS(srv, ln, handlers.New(srvc, cfg))
+		_ = serveWS(srv, ln, handlers.New(ctx, srvc, cfg))
 	}()
 	t.Cleanup(func() {
 		_ = srv.Close()
