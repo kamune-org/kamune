@@ -131,6 +131,11 @@ relay session:
 Opens the single shared storage. Must be called before any command that
 requires storage.
 
+Keep the database in a directory of the user's own, not in a shared one such
+as `/tmp`, where another local user can create the file first. The example
+opens an encrypted database with the passphrase from `KAMUNE_DB_PASSPHRASE`;
+`db_no_passphrase: true` opens or creates one without encryption.
+
 **Input:**
 
 ```json
@@ -138,7 +143,7 @@ requires storage.
   "type": "cmd",
   "cmd": "open_storage",
   "id": "1",
-  "params": { "storage_path": "/tmp/kamune.db", "db_no_passphrase": true }
+  "params": { "storage_path": "/home/alice/.config/kamune/daemon.db" }
 }
 ```
 
@@ -149,7 +154,7 @@ requires storage.
   "type": "evt",
   "evt": "response",
   "id": "1",
-  "data": { "status": "opened", "storage_path": "/tmp/kamune.db" }
+  "data": { "status": "opened", "storage_path": "/home/alice/.config/kamune/daemon.db" }
 }
 ```
 
