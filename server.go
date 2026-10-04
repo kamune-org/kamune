@@ -677,7 +677,9 @@ func (s *Server) handleNewConnection(
 		return nil, fmt.Errorf("version check: %w", err)
 	}
 
-	if err := s.handshakeOpts.remoteVerifier(s.storage, peer); err != nil {
+	// The dialer runs its own verifier once it has our introduction.
+	err = verifyPeer(cn, s.handshakeOpts, s.storage, peer, true)
+	if err != nil {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 
@@ -820,7 +822,8 @@ func NewServer(
 		handlerFunc: handler,
 		handshakeOpts: handshakeOpts{
 			remoteVerifier: rv,
-			timeout:        30 * time.Second,
+			timeout:        defaultHandshakeTimeout,
+			verifyTimeout:  defaultVerifyTimeout,
 		},
 		clock:         clock.Real(),
 		done:          make(chan struct{}),
@@ -906,6 +909,22 @@ func ServeWithListener(l Listener) ServerOptions {
 func ServeWithResumeEnabled(enabled bool) ServerOptions {
 	return func(s *Server) error {
 		s.resumeEnabled = enabled
+		return nil
+	}
+}
+
+// ServeWithVerifyTimeout sets how long the [RemoteVerifier] may take to
+// decide on a peer. The handshake deadline does not run while the verifier
+// does, so a user has this long to compare fingerprints; a verifier that
+// accepts later is treated as a rejection. The server also allows this long
+// for the dialer's verifier when it waits for the dialer to go on. The
+// default is 150 seconds; d must be positive.
+func ServeWithVerifyTimeout(d time.Duration) ServerOptions {
+	return func(s *Server) error {
+		if d <= 0 {
+			return fmt.Errorf("verify timeout is not positive: %v", d)
+		}
+		s.handshakeOpts.verifyTimeout = d
 		return nil
 	}
 }

@@ -1721,3 +1721,175 @@ func TestIntroTimeoutOptionRejectsNonPositive(t *testing.T) {
 		a.Error(err)
 	}
 }
+
+// verifierRun is the outcome of one handshake run by runVerifierHandshake.
+type verifierRun struct {
+	dialErr    error
+	serveErr   error
+	handlerRan bool
+}
+
+// runVerifierHandshake runs one handshake over net.Pipe with the given
+// verifiers. configure may adjust the server and dialer before it starts.
+func runVerifierHandshake(
+	t *testing.T,
+	serverVerifier, dialVerifier RemoteVerifier,
+	configure func(*Server, *Dialer),
+) verifierRun {
+	t.Helper()
+	a := require.New(t)
+	clientStore, cleanupClient := newTestStore(t)
+	t.Cleanup(cleanupClient)
+	serverStore, cleanupServer := newTestStore(t)
+	t.Cleanup(cleanupServer)
+
+	clientNet, serverNet := net.Pipe()
+	clientConn := newConn(clientNet)
+	serverConn := newConn(serverNet)
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+	})
+
+	handled := make(chan struct{}, 1)
+	server, err := NewServer(
+		"",
+		func(*Transport) error {
+			handled <- struct{}{}
+			return nil
+		},
+		serverStore,
+		serverVerifier,
+	)
+	a.NoError(err)
+	dialer, err := NewDialer(
+		"",
+		clientStore,
+		dialVerifier,
+		DialWithFunc(func(string) (Conn, error) { return clientConn, nil }),
+	)
+	a.NoError(err)
+	configure(server, dialer)
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- server.serve(serverConn)
+	}()
+	tr, dialErr := dialer.Dial()
+	if dialErr != nil {
+		// Unblock a server still waiting for the dialer.
+		_ = clientConn.Close()
+	}
+
+	var run verifierRun
+	run.dialErr = dialErr
+	// Close the dialer's side only once the server is done: a net.Pipe
+	// whose other end is closed fails the server's SetDeadline.
+	run.serveErr = <-serveErr
+	if dialErr == nil {
+		_ = tr.CloseAbort()
+	}
+	select {
+	case <-handled:
+		run.handlerRan = true
+	default:
+	}
+	return run
+}
+
+func TestSlowVerifierOutlastsHandshakeDeadline(t *testing.T) {
+	const timeout = time.Second
+	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	// slow accepts only after the handshake deadline set before the
+	// verifier started has certainly passed.
+	slow := func(*storage.Storage, *storage.Peer) error {
+		time.Sleep(timeout + 500*time.Millisecond)
+		return nil
+	}
+	cases := []struct {
+		server RemoteVerifier
+		dialer RemoteVerifier
+		name   string
+	}{
+		{name: "slow server verifier", server: slow, dialer: accept},
+		{name: "slow dialer verifier", server: accept, dialer: slow},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			run := runVerifierHandshake(
+				t, tc.server, tc.dialer, func(s *Server, d *Dialer) {
+					s.handshakeOpts.timeout = timeout
+					d.handshakeOpts.timeout = timeout
+				},
+			)
+			a.NoError(run.dialErr)
+			a.NoError(run.serveErr)
+			a.True(run.handlerRan)
+		})
+	}
+}
+
+func TestLateVerifierAcceptIsRejected(t *testing.T) {
+	const limit = 100 * time.Millisecond
+	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	late := func(*storage.Storage, *storage.Peer) error {
+		time.Sleep(3 * limit)
+		return nil
+	}
+	cases := []struct {
+		server    RemoteVerifier
+		dialer    RemoteVerifier
+		configure func(*Server, *Dialer)
+		name      string
+		dialSide  bool
+	}{
+		{
+			name:   "server verifier",
+			server: late,
+			dialer: accept,
+			configure: func(s *Server, _ *Dialer) {
+				s.handshakeOpts.verifyTimeout = limit
+			},
+		},
+		{
+			name:   "dialer verifier",
+			server: accept,
+			dialer: late,
+			configure: func(_ *Server, d *Dialer) {
+				d.handshakeOpts.verifyTimeout = limit
+			},
+			dialSide: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			run := runVerifierHandshake(t, tc.server, tc.dialer, tc.configure)
+			a.Error(run.dialErr)
+			a.Error(run.serveErr)
+			a.False(run.handlerRan)
+			if tc.dialSide {
+				a.ErrorIs(run.dialErr, ErrVerificationFailed)
+			} else {
+				a.ErrorIs(run.serveErr, ErrVerificationFailed)
+			}
+		})
+	}
+}
+
+func TestVerifyTimeoutOptionsRejectNonPositive(t *testing.T) {
+	a := require.New(t)
+	store, cleanup := newTestStore(t)
+	defer cleanup()
+	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	for _, d := range []time.Duration{0, -time.Second} {
+		_, err := NewServer(
+			"", func(*Transport) error { return nil }, store, verifier,
+			ServeWithVerifyTimeout(d),
+		)
+		a.Error(err)
+		_, err = NewDialer("", store, verifier, DialWithVerifyTimeout(d))
+		a.Error(err)
+	}
+}

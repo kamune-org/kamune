@@ -28,6 +28,14 @@ type Dialer struct {
 }
 
 // Dial establishes a connection and performs the handshake.
+//
+// After sending its introduction, Dial waits for the server's introduction
+// for up to the handshake timeout of 30 seconds plus the verify limit (see
+// [DialWithVerifyTimeout]), because the server's user may be comparing
+// fingerprints. Dial cannot tell such a server from one that has stalled,
+// or from an older server whose own 30-second limit runs out while its user
+// verifies, so against those Dial can take up to 3 minutes by default to
+// fail.
 func (d *Dialer) Dial() (*Transport, error) {
 	cn, err := d.dial(d.address)
 	if err != nil {
@@ -94,6 +102,11 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 		return nil, fmt.Errorf("send introduction: %w", err)
 	}
 
+	// The server runs its verifier before it answers; allow for it.
+	_ = cn.SetDeadline(time.Now().Add(
+		d.handshakeOpts.timeout + d.handshakeOpts.verifyTimeout,
+	))
+
 	// Step 2: Receive peer's introduction
 	st, err := readSignedTransport(ec)
 	if err != nil {
@@ -120,7 +133,8 @@ func (d *Dialer) handshake(cn Conn) (t *Transport, err error) {
 		return nil, fmt.Errorf("version check: %w", err)
 	}
 
-	if err := d.handshakeOpts.remoteVerifier(d.storage, peer); err != nil {
+	err = verifyPeer(cn, d.handshakeOpts, d.storage, peer, false)
+	if err != nil {
 		return nil, fmt.Errorf("verify remote: %w", err)
 	}
 	serde := newSignedSerde(peer.PublicKey, d.attest)
@@ -211,7 +225,8 @@ func NewDialer(
 		dialTimeout: 10 * time.Second,
 		handshakeOpts: handshakeOpts{
 			remoteVerifier: rv,
-			timeout:        30 * time.Second,
+			timeout:        defaultHandshakeTimeout,
+			verifyTimeout:  defaultVerifyTimeout,
 		},
 	}
 
@@ -299,6 +314,23 @@ func DialWithClientName(name string) DialOption {
 func DialWithResume(sessionID string) DialOption {
 	return func(d *Dialer) error {
 		d.handshakeOpts.sessionID = sessionID
+		return nil
+	}
+}
+
+// DialWithVerifyTimeout sets how long the [RemoteVerifier] may take to decide
+// on a peer. The handshake deadline does not run while the verifier does, so
+// a user has this long to compare fingerprints; a verifier that accepts later
+// is treated as a rejection. The dialer also allows this long for the
+// server's verifier when it waits for the server's introduction, so a lower
+// d also makes [Dialer.Dial] give up sooner on a server that does not
+// answer. The default is 150 seconds; d must be positive.
+func DialWithVerifyTimeout(d time.Duration) DialOption {
+	return func(dl *Dialer) error {
+		if d <= 0 {
+			return fmt.Errorf("verify timeout is not positive: %v", d)
+		}
+		dl.handshakeOpts.verifyTimeout = d
 		return nil
 	}
 }

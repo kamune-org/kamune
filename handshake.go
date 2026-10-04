@@ -15,13 +15,66 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
+const (
+	// defaultHandshakeTimeout bounds the network steps of a handshake.
+	defaultHandshakeTimeout = 30 * time.Second
+
+	// defaultVerifyTimeout bounds how long a RemoteVerifier may take. It is
+	// longer than the two-minute fingerprint prompt of the bundled clients,
+	// so their own timeout fires first.
+	defaultVerifyTimeout = 150 * time.Second
+)
+
 type handshakeOpts struct {
 	remoteVerifier RemoteVerifier
 	sessionID      string
 	timeout        time.Duration
+	// verifyTimeout bounds the local verifier, and is the time allowed for
+	// the remote peer's verifier while waiting for its answer.
+	verifyTimeout time.Duration
 	// noPersistence keeps session state out of storage. See
 	// [ServeWithoutPersistence] and [DialWithoutPersistence].
 	noPersistence bool
+}
+
+// verifyPeer runs the remote verifier on peer. The handshake deadline on cn
+// is lifted while the verifier runs, for at most opts.verifyTimeout, so a
+// user has that long to compare fingerprints. A verifier that accepts later
+// than that is treated as a rejection.
+//
+// Afterwards the deadline is set to opts.timeout from now for the rest of the
+// handshake, plus opts.verifyTimeout when the remote peer runs its own
+// verifier before it answers next.
+func verifyPeer(
+	cn Conn,
+	opts handshakeOpts,
+	store *storage.Storage,
+	peer *storage.Peer,
+	remoteVerifies bool,
+) error {
+	start := time.Now()
+	if err := cn.SetDeadline(start.Add(opts.verifyTimeout)); err != nil {
+		return fmt.Errorf("setting verification deadline: %w", err)
+	}
+	if err := opts.remoteVerifier(store, peer); err != nil {
+		return err
+	}
+	if took := time.Since(start); took > opts.verifyTimeout {
+		return fmt.Errorf(
+			"%w: verifier answered after %v, the limit is %v",
+			ErrVerificationFailed, took.Round(time.Millisecond),
+			opts.verifyTimeout,
+		)
+	}
+
+	rest := opts.timeout
+	if remoteVerifies {
+		rest += opts.verifyTimeout
+	}
+	if err := cn.SetDeadline(time.Now().Add(rest)); err != nil {
+		return fmt.Errorf("setting handshake deadline: %w", err)
+	}
+	return nil
 }
 
 // recordSession writes the session state of t to store once a handshake has

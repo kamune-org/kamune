@@ -85,8 +85,27 @@ var paddingBuckets = []int{
 var bumpProbabilities = []int{80, 15, 4, 1}
 
 type (
+	// RemoteVerifier decides whether to accept a peer. It runs during the
+	// handshake, after the peer's introduction has arrived and before the
+	// session is established; an error rejects the peer. It may wait for a
+	// user's decision for up to the verify timeout (see
+	// [ServeWithVerifyTimeout] and [DialWithVerifyTimeout]), and an accept
+	// that comes later counts as a rejection.
+	//
+	// The handshake can still fail after the verifier accepts, for example
+	// when the peer gives up. A verifier should therefore not store the peer
+	// itself; store it once the session is established, in the [HandlerFunc]
+	// or after [Dialer.Dial] returns, from [Transport.RemotePeer].
+	//
+	// A [Server] runs the verifier for each introduction it receives and
+	// does not limit how many runs are in progress at once, apart from the
+	// per-source cap of [ServeWithMaxPendingPerSource]. A verifier that
+	// prompts a user should limit its open prompts itself, for example by
+	// rejecting an unknown peer while a prompt is open.
 	RemoteVerifier func(store *storage.Storage, peer *storage.Peer) error
-	HandlerFunc    func(t *Transport) error
+
+	// HandlerFunc receives each session a [Server] establishes.
+	HandlerFunc func(t *Transport) error
 )
 
 // Transferable is the interface for messages that can be sent over a transport.
