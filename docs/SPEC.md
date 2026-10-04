@@ -108,7 +108,7 @@ disconnect from a network failure.
 | **Enigma**               | The symmetric encryption/decryption engine wrapping XChaCha20-Poly1305 with keys derived via HKDF-SHA512.                                                                                                                          |
 | **Route**                | A typed tag on each message's Metadata identifying its purpose and protocol phase.                                                                                                                                                 |
 | **Fingerprint**          | A human-readable representation of a public key for people to compare: numeric, emoji, hex or base64 (see §6.2.1).                                                                                                                 |
-| **Transcript Hash**      | A SHA-256 hash over the inner handshake field values, bound into challenge derivation to prevent replay and downgrade attacks.                                                                                                     |
+| **Transcript Hash**      | A SHA-256 hash over the inner handshake field values, mixed into the derivation of each side's challenge. The receiver of a challenge does not check it (§6.4).                                                                    |
 | **Resumption Token**     | A single-use, 32-byte cryptographic value derived from the session's shared secret, presented by the initiator to authorize session resumption without repeating the Introduction phase.                                           |
 | **Resumption Window**    | The 24-hour period after a session's cold handshake during which its resumption tokens remain valid. Resuming the session does not extend it.                                                                                      |
 | **Resumption Root**      | A secret derived once at session establishment from the shared secret and session ID, used solely to derive the resumption token set. Never exposed to the application.                                                            |
@@ -702,13 +702,15 @@ Initiator                                     Responder
      0x7c || transcriptHash, 32)`.
      The `secret` is the shared secret from the Handshake phase and
      `handshakeC2SInfo` is `"kamune/handshake/client-to-server/v1/"`.
-   - The transcript hash binds the challenge to the specific handshake
-     payloads, preventing replay and downgrade attacks.
+   - The transcript hash changes only the value of the challenge. The
+     receiver does not derive the challenge itself (step 2), so neither side
+     checks that its peer computed the same transcript hash.
    - Encrypts and sends the token (route: `ROUTE_SEND_CHALLENGE`). This is
      the first message encrypted with the session's symmetric keys.
 
 2. **Responder receives, decrypts, and echoes**:
-   - Receives and decrypts the challenge.
+   - Receives and decrypts the challenge. It does not derive or check the
+     challenge value.
    - Re-encrypts the same challenge bytes with its outbound cipher.
    - Sends the echo back (route: `ROUTE_VERIFY_CHALLENGE`).
 
@@ -738,6 +740,10 @@ The challenge exchange proves that:
   versa).
 - Both parties derived the same shared secret and exported identical keys.
 - The session ID is agreed upon.
+
+This is key confirmation. The transcript hash adds no check beyond it: every
+field the hash covers already feeds the session keys or the session ID, and
+the handshake messages that carry those fields are signed (§8.1).
 
 ### 6.5 Communication
 
@@ -1069,8 +1075,9 @@ challenge = HKDF-SHA512(
 )
 ```
 
-The transcript hash binds the challenge to the specific session's handshake
-payloads, preventing replay and downgrade attacks.
+The transcript hash changes only the value of the challenge. The receiver
+echoes a challenge without deriving it (§6.4), so the transcript hash is not
+checked.
 
 ### 7.4 Session AEAD Construction
 
