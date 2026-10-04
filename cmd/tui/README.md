@@ -25,15 +25,17 @@ On every launch you'll be prompted for:
 The passphrase is typed without echo. For a database that does not exist
 yet, the TUI asks for it twice, since a typo would lock you out of the new
 identity. Without a passphrase, anyone who can copy the database file can
-read your identity key and chat history, so the TUI takes an empty one only
-after you answer `y` to a warning that says so. A wrong passphrase, an empty
-one you do not confirm and a new one that does not match its repeat each
-use up one of three tries; after the third, the TUI exits.
+read your identity key and chat history, so when you press Enter at the
+prompt, the TUI warns you of that, and takes the empty passphrase only if
+you answer `y` or `yes`; it does not ask for an empty one a second time. A
+wrong passphrase, an empty one you do not confirm and a new one that does
+not match its repeat each use up one of three tries; after the third, the
+TUI exits.
 
-| Flag                 | Effect                                                                                                                                                                                           |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `-no-passphrase`     | Open or create the database without a passphrase, without asking. The TUI exits if the database has a passphrase, or if `KAMUNE_DB_PASSPHRASE` is set as well.                                   |
-| `-change-passphrase` | Open the database as usual, ask twice for a new passphrase (an empty one needs the same `y`), set it and exit. Together with `-no-passphrase`, it sets a passphrase on a database that has none. |
+| Flag                 | Effect                                                                                                                                                                                                                           |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-no-passphrase`     | Open or create the database without a passphrase, without asking. The TUI exits if the database has a passphrase, or if `KAMUNE_DB_PASSPHRASE` is set as well.                                                                   |
+| `-change-passphrase` | Open the database as usual, ask twice for a new passphrase (an empty one is asked for once, and needs the same `y` or `yes`), set it and exit. Together with `-no-passphrase`, it sets a passphrase on a database that has none. |
 
 ## Menu
 
