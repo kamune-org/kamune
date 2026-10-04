@@ -447,11 +447,11 @@ Introduce {
 }
 ```
 
-| Field        | Type   | Role                                                                                           |
-| ------------ | ------ | ---------------------------------------------------------------------------------------------- |
-| `Name`       | string | Human-readable peer name. Defaults to a SHA-256 fingerprint of the public key, encoded as unpadded base64url. |
-| `PublicKey`  | bytes  | The peer's identity public key (Ed25519), serialized in PKIX/DER format.                       |
-| `AppVersion` | string | The peer's application semver (for example, `"0.5.0"`).                                        |
+| Field        | Type   | Role                                                                                                                                              |
+| ------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Name`       | string | Human-readable peer name. Defaults to a SHA-256 fingerprint of the public key, encoded as unpadded base64url. Limited as described below.         |
+| `PublicKey`  | bytes  | The peer's identity public key (Ed25519), serialized in PKIX/DER format. It must be the canonical encoding of a point that is not of small order. |
+| `AppVersion` | string | The peer's application semver (for example, `"0.5.0"`).                                                                                           |
 
 ```
 Initiator (Client)                          Responder (Server)
@@ -478,6 +478,22 @@ Initiator (Client)                          Responder (Server)
    - Verifies the signature over the domain-separated signing input (metadata
      bytes || data) using the parsed public key.
    - If signature verification fails, the connection MUST be terminated.
+   - A public key that is not the canonical encoding of an Ed25519 point, or
+     that encodes a point of small order, MUST be rejected. Under a key of
+     small order one signature can verify for every message, and a
+     non-canonical encoding would give one key several encodings, and so
+     several fingerprints. The reference implementation fails the signature
+     check for such a key.
+   - Checks `Name`. It MUST be valid UTF-8 of at most 64 bytes, and MUST NOT
+     contain control characters (C0, DEL and C1), format characters (Unicode
+     category Cf, which includes the bidirectional controls and zero-width
+     characters) or line and paragraph separators, except the zero-width
+     non-joiner and joiner (U+200C and U+200D). An empty name is valid. An
+     introduction whose name breaks these rules MUST be rejected before the
+     Remote Verifier runs. The reference implementation exports the check as
+     `ValidatePeerName` and also applies it to the local name a server or
+     dialer is configured with. A name is the peer's own claim and proves
+     nothing about its identity.
    - Checks `AppVersion` against its own version using semver comparison.
      Version matching follows a three-tier policy:
 
