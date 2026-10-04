@@ -553,6 +553,36 @@ client to finish HPKE + auth). A client that opens a connection and stalls is a
 different problem from a client that registers successfully but never gets a
 peer to join.
 
+### Go Client
+
+The Go client in `pkg/relayconn` (`ListenRelay*` and `DialRelay*`, one pair per
+transport) adds these limits on its side:
+
+- **Handshake bound.** Connecting, TLS, the HPKE exchange, PSK auth and the
+  relay's `Registered` reply share one deadline: `WithHandshakeTimeout`, 30
+  seconds by default (`DefaultHandshakeTimeout`), or the context's deadline if
+  that comes first. The context bounds only the handshake; cancelling it later
+  does not close the connection.
+- **Token check.** The token in `Registered` must equal the token the client
+  sent (`ErrRelayTokenMismatch`), or, when the relay generated it, be 16 or 32
+  bytes long (`ErrInvalidRelayToken`).
+- **One connection per listener.** The relay pairs a listener with one dialer,
+  so a `RelayListener` yields one connection, when the peer's first frame
+  arrives. Closing that connection ends the relay session, and `Accept` then
+  returns `net.ErrClosed`; listen again for a new session. `Stop` releases the
+  session at once when no connection is active.
+- **Frame sizes.** The client reads WebSocket messages of up to 131,072 bytes.
+  `RelayConn.MaxFrameSize` reports the largest payload a write may carry,
+  65,511 bytes (a 65,535-byte relay frame less its wrapping); a larger write
+  fails with `exchange.ErrFrameTooLarge` and the session stays usable.
+- **Receive buffer.** A `RelayConn` holds at most 1,024 frames or 4 MiB that
+  have not been read yet. While it is full the client stops reading from the
+  relay, so a fast sender is held back through the relay instead of growing
+  the client's memory.
+- **Close and deadlines.** `RelayConn.Close` may be called more than once, and
+  `WriteBytes` returns `net.ErrClosed` after it. A new deadline set with
+  `SetDeadline` also applies to a read that is already waiting.
+
 ## Static Tokens
 
 By default the listener receives a random 16-byte token from the relay and
