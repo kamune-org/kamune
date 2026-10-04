@@ -71,6 +71,7 @@
   import { K, isMac } from './lib/keyboard';
   import { newConnectAttemptId } from './lib/attempts';
   import { importedRelayScheme, insecureIgnored, relaySchemes } from './lib/importurl';
+  import { insecureWarning, isTLSRelayScheme, pinPlaceholder, relayAddress } from './lib/relayaddr';
 
   import Sidebar from './lib/Sidebar.svelte';
   import ChatPanel from './lib/ChatPanel.svelte';
@@ -180,12 +181,14 @@
   let serverRelayScheme = $state('tcp');
   let serverRelayPassword = $state('');
   let serverRelayInsecure = $state(false);
+  let serverRelayPin = $state('');
   let connectRelayAddr = $state('');
   let connectRelayScheme = $state('tcp');
   let connectRelayPassword = $state('');
   let connectPeerKey = $state('');
   let connectRelayToken = $state('');
   let connectRelayInsecure = $state(false);
+  let connectRelayPin = $state('');
   let serverUseP2P = $state(false);
   let serverUseBroker = $state(false);
   let serverBrokerAddr = $state('');
@@ -438,8 +441,10 @@
           const peerParam = url.searchParams.get('peer') || '';
           connectRelayToken = tokenParam;
           connectPeerKey = peerParam;
-          // An imported URL never turns off TLS verification.
+          // An imported URL never turns off TLS verification, and
+          // carries no pin; one typed for another relay would not match.
           connectRelayInsecure = false;
+          connectRelayPin = '';
           if (url.searchParams.get('insecure') === 'true') {
             warnInsecureIgnored();
           }
@@ -645,7 +650,7 @@
           : connectServerAddr.trim();
       const relayAddr =
         serverTransport === 'relay'
-          ? `${serverRelayScheme}://${serverRelayAddr.trim()}${serverRelayInsecure ? '?insecure=true' : ''}`
+          ? relayAddress(serverRelayScheme, serverRelayAddr, serverRelayInsecure, serverRelayPin)
           : '';
       const relayPw = serverTransport === 'relay' ? serverRelayPassword : '';
       const [fp, token] = await StartServer(
@@ -755,7 +760,12 @@
           : connectServerAddr2.trim();
       const relayAddr =
         connectTransport === 'relay'
-          ? `${connectRelayScheme}://${connectRelayAddr.trim()}${connectRelayInsecure ? '?insecure=true' : ''}`
+          ? relayAddress(
+              connectRelayScheme,
+              connectRelayAddr,
+              connectRelayInsecure,
+              connectRelayPin
+            )
           : '';
       // With a peer selected, the token is derived from its key: the
       // token field is hidden and may still hold an earlier value.
@@ -1128,11 +1138,24 @@
                 and probe the relay for a session.
               </p>
             {/if}
-            {#if serverRelayScheme === 'wss' || serverRelayScheme === 'tls'}
+            {#if isTLSRelayScheme(serverRelayScheme)}
+              <input
+                bind:value={serverRelayPin}
+                placeholder={pinPlaceholder}
+                class="dialog-input mono"
+                spellcheck="false"
+              />
               <label class="insecure-option">
-                <input type="checkbox" bind:checked={serverRelayInsecure} />
+                <input
+                  type="checkbox"
+                  bind:checked={serverRelayInsecure}
+                  disabled={!!serverRelayPin.trim()}
+                />
                 Skip TLS verification
               </label>
+              {#if serverRelayInsecure && !serverRelayPin.trim()}
+                <p class="dialog-hint insecure-warning">{insecureWarning}</p>
+              {/if}
             {/if}
           {/if}
           {#if serverError}
@@ -1316,11 +1339,24 @@
               placeholder="Relay password (if required)"
               class="dialog-input"
             />
-            {#if connectRelayScheme === 'wss' || connectRelayScheme === 'tls'}
+            {#if isTLSRelayScheme(connectRelayScheme)}
+              <input
+                bind:value={connectRelayPin}
+                placeholder={pinPlaceholder}
+                class="dialog-input mono"
+                spellcheck="false"
+              />
               <label class="insecure-option">
-                <input type="checkbox" bind:checked={connectRelayInsecure} />
+                <input
+                  type="checkbox"
+                  bind:checked={connectRelayInsecure}
+                  disabled={!!connectRelayPin.trim()}
+                />
                 Skip TLS verification
               </label>
+              {#if connectRelayInsecure && !connectRelayPin.trim()}
+                <p class="dialog-hint insecure-warning">{insecureWarning}</p>
+              {/if}
             {/if}
           {/if}
           {#if connectError}
@@ -1553,8 +1589,10 @@
           connectRelayScheme = scheme;
           connectRelayToken = token || '';
           connectPeerKey = '';
-          // An imported URL never turns off TLS verification.
+          // An imported URL never turns off TLS verification, and
+          // carries no pin; one typed for another relay would not match.
           connectRelayInsecure = false;
+          connectRelayPin = '';
           if (asksInsecure) warnInsecureIgnored();
         } else {
           connectServerAddr2 = host;
@@ -1836,6 +1874,9 @@
     margin-top: 8px;
     font-size: 11px;
     color: var(--text-timestamp);
+  }
+  .dialog-hint.insecure-warning {
+    color: var(--warning);
   }
   .dialog-error {
     margin-top: 10px;

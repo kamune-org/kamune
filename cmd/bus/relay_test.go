@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/relayconn"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -108,12 +110,24 @@ func TestDecodeTokenList(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestParseRelayAddr(t *testing.T) {
+	const pinHex = "00112233445566778899aabbccddeeff" +
+		"00112233445566778899aabbccddeeff"
+	pin, err := hex.DecodeString(pinHex)
+	require.New(t).NoError(err)
+	colonPin := strings.ToUpper(pinHex[:2])
+	for i := 2; i < len(pinHex); i += 2 {
+		colonPin += ":" + strings.ToUpper(pinHex[i:i+2])
+	}
+
 	tests := []struct {
 		name     string
 		addr     string
 		scheme   string
 		host     string
 		insecure *bool
+		pin      []byte
+		wantErr  error
+		bad      bool
 	}{
 		{
 			name:   "bare_host",
@@ -173,20 +187,123 @@ func TestParseRelayAddr(t *testing.T) {
 			host:     "192.168.1.1:9000",
 			insecure: new(true),
 		},
+		{
+			name:   "wss_pin",
+			addr:   "wss://relay.example.com:443?pin=" + pinHex,
+			scheme: "wss",
+			host:   "relay.example.com:443",
+			pin:    pin,
+		},
+		{
+			name:   "tls_pin_with_colons",
+			addr:   "tls://relay.example.com:443?pin=" + colonPin,
+			scheme: "tls",
+			host:   "relay.example.com:443",
+			pin:    pin,
+		},
+		{
+			name:     "pin_and_insecure",
+			addr:     "wss://relay.example.com:443?insecure=true&pin=" + pinHex,
+			scheme:   "wss",
+			host:     "relay.example.com:443",
+			insecure: new(true),
+			pin:      pin,
+		},
+		{
+			name:    "pin_on_tcp",
+			addr:    "tcp://relay.example.com:443?pin=" + pinHex,
+			wantErr: ErrRelayPinScheme,
+		},
+		{
+			name:    "pin_on_ws",
+			addr:    "ws://relay.example.com:443?pin=" + pinHex,
+			wantErr: ErrRelayPinScheme,
+		},
+		{
+			name:    "short_pin",
+			addr:    "wss://relay.example.com:443?pin=0011",
+			wantErr: relayconn.ErrInvalidCertFingerprint,
+		},
+		{
+			name: "insecure_not_a_bool",
+			addr: "wss://relay.example.com:443?insecure=yes",
+			bad:  true,
+		},
+		{
+			name: "unknown_parameter",
+			addr: "wss://relay.example.com:443?token=abc",
+			bad:  true,
+		},
+		{
+			name: "repeated_pin",
+			addr: "wss://relay.example.com:443?pin=" + pinHex + "&pin=" + pinHex,
+			bad:  true,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			a := require.New(t)
-			scheme, host, insecure := parseRelayAddr(tc.addr)
-			a.Equal(tc.scheme, scheme)
-			a.Equal(tc.host, host)
-			if tc.insecure == nil {
-				a.Nil(insecure)
-			} else {
-				a.NotNil(insecure)
-				a.Equal(*tc.insecure, *insecure)
+			ra, err := parseRelayAddr(tc.addr)
+			if tc.wantErr != nil || tc.bad {
+				a.Error(err)
+				if tc.wantErr != nil {
+					a.ErrorIs(err, tc.wantErr)
+				}
+				return
 			}
+			a.NoError(err)
+			a.Equal(tc.scheme, ra.scheme)
+			a.Equal(tc.host, ra.host)
+			if tc.insecure == nil {
+				a.Nil(ra.insecure)
+			} else {
+				a.NotNil(ra.insecure)
+				a.Equal(*tc.insecure, *ra.insecure)
+			}
+			a.Equal(tc.pin, ra.pin)
+		})
+	}
+}
+
+// TestRelayTLSConfig checks which certificates a relay address trusts: a
+// pin wins over a request to skip verification, and without a pin the
+// address's insecure flag overrides the caller's choice.
+func TestRelayTLSConfig(t *testing.T) {
+	cases := []struct {
+		name       string
+		addr       string
+		skip       bool
+		wantPinned bool
+		wantSkip   bool
+	}{
+		{name: "default checks", addr: "wss://r:443"},
+		{name: "caller skips", addr: "wss://r:443", skip: true,
+			wantSkip: true},
+		{name: "address skips", addr: "wss://r:443?insecure=true",
+			wantSkip: true},
+		{name: "address keeps checks", addr: "wss://r:443?insecure=false",
+			skip: true},
+		{name: "pin", addr: "tls://r:443?pin=" + strings.Repeat("ab", 32),
+			skip: true, wantPinned: true},
+		{name: "pin and insecure",
+			addr:       "wss://r:443?insecure=true&pin=" + strings.Repeat("ab", 32),
+			wantPinned: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			ra, err := parseRelayAddr(tc.addr)
+			a.NoError(err)
+			cfg, err := ra.tlsConfig(tc.skip)
+			a.NoError(err)
+			if tc.wantPinned {
+				a.NotNil(cfg.VerifyConnection,
+					"a pinned config checks the certificate itself")
+				return
+			}
+			a.Nil(cfg.VerifyConnection)
+			a.Equal(tc.wantSkip, cfg.InsecureSkipVerify)
 		})
 	}
 }
@@ -588,4 +705,49 @@ func TestRelayTokenHexRoundTrip(t *testing.T) {
 	a.NoError(err)
 	a.Equal(raw, decoded)
 	a.Len(hexStr, 64)
+}
+
+// TestRelayCertificatePin starts a relay listener on a TLS relay with a
+// self-signed certificate, and checks that a pin of that certificate is
+// trusted in place of the chain check, that a pin of another one is not,
+// and that without a pin the certificate is still checked.
+func TestRelayCertificatePin(t *testing.T) {
+	relay, fp := newFakeTLSRelay(t)
+	host := strings.TrimPrefix(relay.addr(), "tcp://")
+	other := strings.Repeat("ab", 32)
+	cases := []struct {
+		name    string
+		addr    string
+		skip    bool
+		wantErr error
+		fail    bool
+	}{
+		{name: "pinned", addr: "tls://" + host + "?pin=" + fp},
+		{name: "pinned while skipping",
+			addr: "tls://" + host + "?pin=" + fp, skip: true},
+		{name: "other pin", addr: "tls://" + host + "?pin=" + other,
+			wantErr: relayconn.ErrCertPinMismatch},
+		{name: "other pin while skipping", skip: true,
+			addr:    "tls://" + host + "?insecure=true&pin=" + other,
+			wantErr: relayconn.ErrCertPinMismatch},
+		{name: "no pin", addr: "tls://" + host, fail: true},
+		{name: "verification skipped", addr: "tls://" + host, skip: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			ln, _, _, _, err := listenRelay(
+				t.Context(), tc.addr, "", tc.skip, nil,
+			)
+			if tc.wantErr != nil || tc.fail {
+				a.Error(err)
+				if tc.wantErr != nil {
+					a.ErrorIs(err, tc.wantErr)
+				}
+				return
+			}
+			a.NoError(err)
+			a.NoError(ln.Close())
+		})
+	}
 }

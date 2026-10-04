@@ -3,6 +3,7 @@
   // (svelte-check then reports names this script uses but never declares)
   import { CancelConnect, ConnectToServer, DisconnectSession } from './go.js';
   import { newConnectAttemptId } from './attempts';
+  import { insecureWarning, isTLSRelayScheme, pinPlaceholder, relayAddress } from './relayaddr';
 
   /**
    * @typedef {Object} Props
@@ -22,6 +23,7 @@
   let useRelayScheme = $state('wss');
   const relaySchemes = ['tcp', 'tls', 'ws', 'wss'];
   let useRelayInsecure = $state(false);
+  let useRelayPin = $state('');
   let loading = $state(false);
   // attempt is the attempt ID of the connect in progress, which Cancel
   // cancels.
@@ -129,9 +131,7 @@
       useRelayScheme = scheme;
       host = host.slice(typed[0].length);
     }
-    const tlsScheme = useRelayScheme === 'wss' || useRelayScheme === 'tls';
-    const insecure = tlsScheme && useRelayInsecure && !host.includes('?insecure=');
-    const relayAddr = `${useRelayScheme}://${host}` + (insecure ? '?insecure=true' : '');
+    const relayAddr = relayAddress(useRelayScheme, host, useRelayInsecure, useRelayPin);
     const token = useRelayToken.trim();
     const name = context.name || '';
     const password = useRelayPassword;
@@ -169,6 +169,7 @@
     useRelayToken = '';
     useRelayPassword = '';
     useRelayInsecure = false;
+    useRelayPin = '';
     onClose();
   }
 </script>
@@ -217,11 +218,25 @@
               bind:value={useRelayPassword}
               disabled={loading}
             />
-            {#if useRelayScheme === 'wss' || useRelayScheme === 'tls'}
+            {#if isTLSRelayScheme(useRelayScheme)}
+              <input
+                type="text"
+                placeholder={pinPlaceholder}
+                bind:value={useRelayPin}
+                disabled={loading}
+                spellcheck="false"
+              />
               <label class="insecure-option">
-                <input type="checkbox" bind:checked={useRelayInsecure} disabled={loading} />
+                <input
+                  type="checkbox"
+                  bind:checked={useRelayInsecure}
+                  disabled={loading || !!useRelayPin.trim()}
+                />
                 Skip TLS verification
               </label>
+              {#if useRelayInsecure && !useRelayPin.trim()}
+                <p class="insecure-warning">{insecureWarning}</p>
+              {/if}
             {/if}
           </div>
           <button onclick={useRelay} disabled={loading || !useRelayAddr.trim()}> Use relay </button>
@@ -310,6 +325,11 @@
   }
   .relay-fields .insecure-option input {
     width: auto;
+  }
+  .insecure-warning {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--warning);
   }
   button {
     padding: 0.4rem 0.8rem;

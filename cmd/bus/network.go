@@ -1468,7 +1468,14 @@ func (a *App) GetShareInfo() (*ShareInfo, error) {
 			return nil, err
 		}
 
-		scheme, host, _ := parseRelayAddr(relayAddr)
+		// The server started with this address, so it parses. The card
+		// leaves out its pin and insecure flag: a peer chooses those for
+		// itself.
+		ra, err := parseRelayAddr(relayAddr)
+		if err != nil {
+			return nil, err
+		}
+		scheme, host := ra.scheme, ra.host
 		relayInfo = &ShareRelayInfo{
 			Address:  host,
 			Scheme:   scheme,

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -217,39 +218,107 @@ func listenRelayTracked(ctx context.Context, a *App, relayAddr, password string,
 	return tracker, tokenHex, ttl, sessionTTL, nil
 }
 
-// parseRelayAddr splits a relay address into its scheme, host and
-// ?insecure= override. An address without a scheme is taken as wss, so
-// that the relay's certificate is checked unless asked otherwise.
-func parseRelayAddr(addr string) (scheme, host string, insecureOverride *bool) {
-	addr = strings.TrimSpace(addr)
-	for _, s := range []string{"tcp://", "ws://", "wss://", "tls://"} {
-		if strings.HasPrefix(addr, s) {
-			rest := addr[len(s):]
-			scheme = strings.TrimSuffix(s, "://")
-			host, insecureOverride = parseInsecureFlag(rest)
-			return
-		}
-	}
-	host, insecureOverride = parseInsecureFlag(addr)
-	return "wss", host, insecureOverride
+// ErrRelayPinScheme rejects a relay address with a certificate pin whose
+// scheme does not use TLS, where there is no certificate to pin.
+var ErrRelayPinScheme = errors.New(
+	"a relay certificate pin needs a wss:// or tls:// relay address",
+)
+
+// relayAddress is a relay address as the user gives it:
+//
+//	[scheme://]host:port[?insecure=true|false][&pin=<sha256>]
+//
+// An address without a scheme is taken as wss, so that the relay's
+// certificate is checked unless asked otherwise.
+type relayAddress struct {
+	scheme string
+	host   string
+	// insecure is the ?insecure= override of the caller's choice to skip
+	// TLS verification, or nil.
+	insecure *bool
+	// pin is the SHA-256 fingerprint of the relay's certificate from
+	// ?pin=, or nil. The relay logs it at startup; see
+	// relayconn.ParseCertFingerprint for the forms it may take.
+	pin []byte
 }
 
-func parseInsecureFlag(s string) (host string, override *bool) {
-	idx := strings.LastIndex(s, "?insecure=")
-	if idx < 0 {
-		return s, nil
+// parseRelayAddr parses a relay address; see relayAddress. A query with
+// a key other than insecure and pin, or a bad value for one of them, is
+// an error, and so is a pin on a scheme other than wss and tls.
+func parseRelayAddr(addr string) (relayAddress, error) {
+	addr = strings.TrimSpace(addr)
+	ra := relayAddress{scheme: "wss"}
+	for _, s := range []string{"tcp://", "ws://", "wss://", "tls://"} {
+		if strings.HasPrefix(addr, s) {
+			ra.scheme = strings.TrimSuffix(s, "://")
+			addr = addr[len(s):]
+			break
+		}
 	}
-	val := s[idx+len("?insecure="):]
-	host = s[:idx]
-	switch val {
-	case "true":
-		v := true
-		return host, &v
-	case "false":
-		v := false
-		return host, &v
+	host, query, hasQuery := strings.Cut(addr, "?")
+	ra.host = host
+	if !hasQuery {
+		return ra, nil
 	}
-	return s, nil
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return relayAddress{}, fmt.Errorf("relay address query: %w", err)
+	}
+	for key, vals := range values {
+		if len(vals) != 1 {
+			return relayAddress{}, fmt.Errorf(
+				"relay address: %s is given %d times", key, len(vals),
+			)
+		}
+		switch val := vals[0]; key {
+		case "insecure":
+			switch val {
+			case "true", "false":
+				v := val == "true"
+				ra.insecure = &v
+			default:
+				return relayAddress{}, fmt.Errorf(
+					"relay address: insecure must be true or false, not %q",
+					val,
+				)
+			}
+		case "pin":
+			pin, err := relayconn.ParseCertFingerprint(val)
+			if err != nil {
+				return relayAddress{}, fmt.Errorf("relay address: %w", err)
+			}
+			ra.pin = pin
+		default:
+			return relayAddress{}, fmt.Errorf(
+				"relay address: unknown parameter %q", key,
+			)
+		}
+	}
+	if ra.pin != nil && ra.scheme != "wss" && ra.scheme != "tls" {
+		return relayAddress{}, ErrRelayPinScheme
+	}
+	return ra, nil
+}
+
+// tlsConfig returns the TLS config for a wss or tls relay at ra. With a
+// pin, it trusts exactly the pinned certificate, whatever
+// insecureSkipVerify says. Without one, it checks the certificate chain
+// and host name unless verification is skipped, by insecureSkipVerify or
+// the address's ?insecure= override; that lets anyone on the path pose
+// as the relay and read the relay password and token.
+func (ra relayAddress) tlsConfig(
+	insecureSkipVerify bool,
+) (*tls.Config, error) {
+	if ra.pin != nil {
+		return relayconn.PinnedTLSConfig(ra.pin)
+	}
+	if ra.insecure != nil {
+		insecureSkipVerify = *ra.insecure
+	}
+	return &tls.Config{
+		InsecureSkipVerify: insecureSkipVerify,
+		MinVersion:         tls.VersionTLS12,
+	}, nil
 }
 
 func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVerify bool, staticToken []byte) (kamune.Listener, string, time.Duration, time.Duration, error) {
@@ -265,20 +334,24 @@ func listenRelay(ctx context.Context, relayAddr, password string, insecureSkipVe
 		opts = append(opts, relayconn.WithToken(staticToken))
 	}
 
-	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
-	if insecureOverride != nil {
-		insecureSkipVerify = *insecureOverride
+	ra, err := parseRelayAddr(relayAddr)
+	if err != nil {
+		return nil, "", 0, 0, err
+	}
+	scheme, host := ra.scheme, ra.host
+	tlsCfg, err := ra.tlsConfig(insecureSkipVerify)
+	if err != nil {
+		return nil, "", 0, 0, err
 	}
 
 	var result *relayconn.ListenResult
-	var err error
 	switch scheme {
 	case "tcp":
 		result, err = relayconn.ListenRelayTCP(ctx, host, opts...)
 	case "wss":
-		result, err = relayconn.ListenRelayWSS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+		result, err = relayconn.ListenRelayWSS(ctx, host, tlsCfg, opts...)
 	case "tls":
-		result, err = relayconn.ListenRelayTLS(ctx, host, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+		result, err = relayconn.ListenRelayTLS(ctx, host, tlsCfg, opts...)
 	default:
 		result, err = relayconn.ListenRelay(ctx, host, opts...)
 	}
@@ -319,9 +392,14 @@ func dialRelayFuncMultiToken(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
-	if insecureOverride != nil {
-		insecureSkipVerify = *insecureOverride
+	ra, err := parseRelayAddr(relayAddr)
+	if err != nil {
+		return nil, err
+	}
+	scheme, host := ra.scheme, ra.host
+	tlsCfg, err := ra.tlsConfig(insecureSkipVerify)
+	if err != nil {
+		return nil, err
 	}
 
 	return func(addr string) (kamune.Conn, error) {
@@ -342,9 +420,13 @@ func dialRelayFuncMultiToken(
 			case "tcp":
 				conn, err = relayconn.DialRelayTCP(ctx, host, rawToken, opts...)
 			case "wss":
-				conn, err = relayconn.DialRelayWSS(ctx, host, rawToken, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+				conn, err = relayconn.DialRelayWSS(
+					ctx, host, rawToken, tlsCfg, opts...,
+				)
 			case "tls":
-				conn, err = relayconn.DialRelayTLS(ctx, host, rawToken, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+				conn, err = relayconn.DialRelayTLS(
+					ctx, host, rawToken, tlsCfg, opts...,
+				)
 			default:
 				conn, err = relayconn.DialRelay(ctx, host, rawToken, opts...)
 			}
@@ -376,9 +458,14 @@ func dialRelayFuncWithSessionTTL(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	scheme, host, insecureOverride := parseRelayAddr(relayAddr)
-	if insecureOverride != nil {
-		insecureSkipVerify = *insecureOverride
+	ra, err := parseRelayAddr(relayAddr)
+	if err != nil {
+		return nil, err
+	}
+	scheme, host := ra.scheme, ra.host
+	tlsCfg, err := ra.tlsConfig(insecureSkipVerify)
+	if err != nil {
+		return nil, err
 	}
 
 	return func(addr string) (kamune.Conn, error) {
@@ -397,9 +484,13 @@ func dialRelayFuncWithSessionTTL(
 		case "tcp":
 			conn, err = relayconn.DialRelayTCP(ctx, host, token, opts...)
 		case "wss":
-			conn, err = relayconn.DialRelayWSS(ctx, host, token, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+			conn, err = relayconn.DialRelayWSS(
+				ctx, host, token, tlsCfg, opts...,
+			)
 		case "tls":
-			conn, err = relayconn.DialRelayTLS(ctx, host, token, &tls.Config{InsecureSkipVerify: insecureSkipVerify}, opts...)
+			conn, err = relayconn.DialRelayTLS(
+				ctx, host, token, tlsCfg, opts...,
+			)
 		default:
 			conn, err = relayconn.DialRelay(ctx, host, token, opts...)
 		}

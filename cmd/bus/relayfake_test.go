@@ -1,8 +1,14 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
+	"math/big"
 	"net"
 	"slices"
 	"sync"
@@ -49,6 +55,11 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 	a := require.New(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	a.NoError(err)
+	return startFakeRelay(t, ln)
+}
+
+// startFakeRelay runs a fakeRelay on ln.
+func startFakeRelay(t *testing.T, ln net.Listener) *fakeRelay {
 	r := &fakeRelay{
 		ln:      ln,
 		waiting: make(map[string]*exchange.Channel),
@@ -59,6 +70,33 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 	go r.serve()
 	t.Cleanup(r.close)
 	return r
+}
+
+// newFakeTLSRelay returns a fakeRelay behind TLS with a new self-signed
+// certificate, and that certificate's SHA-256 fingerprint as 64 hex
+// digits. Its addr is a tcp:// address; the caller puts tls:// in its
+// place.
+func newFakeTLSRelay(t *testing.T) (*fakeRelay, string) {
+	a := require.New(t)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	a.NoError(err)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "fake relay"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	a.NoError(err)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	ln = tls.NewListener(ln, &tls.Config{
+		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
+		MinVersion:   tls.VersionTLS12,
+	})
+	return startFakeRelay(t, ln), relayconn.CertFingerprint(der)
 }
 
 func (r *fakeRelay) addr() string { return "tcp://" + r.ln.Addr().String() }
