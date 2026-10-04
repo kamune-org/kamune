@@ -979,10 +979,28 @@ The same static-token mechanism that the relay's transports support (see
 
 **Design decision: peer identity = `PEER_EPH_PUB`, not source address.** The
 broker identifies the same peer by the X25519 public key it sends in REGISTER,
-not by the source UDP address. This handles NAT rebinding (the peer's source
-port changes but the key stays the same) and treats two distinct processes from
-the same IP as different peers (their keys differ). The peer must use a stable
-key across re-registrations; the client library holds one key for its lifetime.
+not by the source UDP address, and treats two distinct processes from the same
+IP as different peers (their keys differ). The peer must use a stable key across
+re-registrations; the client library holds one key for its lifetime.
+
+The key travels in clear, so repeating it proves nothing about the sender. Every
+REGISTER with the held token and key, from any address, pushes the entry's
+expiry a full `registration_ttl` ahead, but it moves the entry to its source
+address only in two cases:
+
+- **Same IP, another port** (a client restart, a dial retry from a new socket,
+  most NAT port changes): the entry moves at once.
+- **Another IP**: the entry moves only once the held address has gone 35
+  seconds without sending a REGISTER for it (a 30-second client refresh
+  interval plus slack), whatever `registration_ttl` is.
+
+While the owner refreshes on schedule, a replayed REGISTER from another IP
+therefore cannot move its entry. The cost falls on a peer whose IP really
+changes: its first refresh from the new IP only keeps the entry alive, and its
+second, about two refresh intervals after the change, moves it. A peer that
+matches in between is sent the old address. That match consumes the entry: the
+matched peer's hole punch fails, and the owner, whose NOTIFY went to the old
+address, holds a new entry only from its next REGISTER.
 
 **Design decision: hybrid token model.** Static tokens (above) and
 broker-assigned random tokens share the same wire format. A peer registering
@@ -1008,9 +1026,9 @@ address:
 | `TOKEN`   | Registry state                                               | Action                                                                                                           |
 | --------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
 | empty     | n/a                                                          | Generate a random 16-byte token. Store `T → peer` (TTL). Send `NOTIFY(TOKEN_ASSIGNED)` to peer.                  |
-| non-empty | empty                                                        | Store `TOKEN → peer` (TTL). No NOTIFY — the peer already knows the token.                                        |
+| non-empty | empty, or held entry expired                                 | Store `TOKEN → peer` (TTL). No NOTIFY: the peer already knows the token.                                         |
 | non-empty | held by a different peer (different `PEER_EPH_PUB`)          | Match. Send `NOTIFY(PEER_MATCHED)` to BOTH peers, each with its own fresh broker ephemeral key. Clear the entry. |
-| non-empty | held by the same peer (same `PEER_EPH_PUB`, re-registration) | Refresh TTL. No NOTIFY.                                                                                          |
+| non-empty | held by the same peer (same `PEER_EPH_PUB`, re-registration) | Refresh TTL. Move the entry to the source address under the rules above. No NOTIFY.                              |
 
 The broker generates a **fresh** X25519 key pair for **every** NOTIFY it sends.
 A match produces two NOTIFYs, each with its own broker ephemeral public key in
@@ -1059,30 +1077,53 @@ The broker is **lower-trust** than the relay's transports:
 
 **Design decision: no long-term broker identity.** This removes the operational
 burden of key distribution and gives forward secrecy automatically. Peers do not
-need to pin anything.
+need to pin anything. The cost is that a peer cannot tell a NOTIFY from the
+broker from one that someone else sealed (see
+[Replay Considerations](#replay-considerations)).
 
 ### Replay Considerations
 
-The v1 broker does not implement anti-replay. The shared secret prevents
-forgery; only valid packets can be replayed. The threat model:
+The v1 broker does not implement anti-replay, and nothing in a REGISTER or a
+NOTIFY proves who sent it. REGISTER is plaintext. NOTIFY is sealed to the
+peer's X25519 public key under a broker key made for that NOTIFY alone, so the
+AEAD hides the payload but does not show that the broker sealed it. The threat
+model:
 
-- **Replayed `REGISTER`**: an attacker can disrupt legitimate registrations or
-  refresh a held entry's TTL. Mitigation: per-IP rate limiter (shared with the
-  relay).
-- **Replayed `NOTIFY`**: the peer receives a duplicate. AEAD verification still
-  applies; if the broker's ephemeral key has changed (which it does on every
-  re-registration, since the broker generates a fresh key per NOTIFY), the
-  replayed ciphertext fails verification. Captured NOTIFYs are mostly
-  self-healing.
+- **Replayed `REGISTER`**: anyone who has seen a peer's REGISTER has its token
+  and public key and can send the same packet from elsewhere. The rebind rules
+  above stop a replay from another IP from moving the entry while its owner
+  refreshes on schedule. A replay can still:
+  - come from the owner's IP with another source port, by sharing the owner's
+    NAT or forging its source address, and move the entry to that port until
+    the owner's next refresh moves it back;
+  - keep the entry alive after its owner has stopped refreshing, or take it
+    once the owner misses a refresh;
+  - match the other peer of a static token while that peer holds the entry,
+    which is then sent the replayer's address as the key owner's;
+  - evict the entry by matching it with a key of its own, which sends the owner
+    a spurious NOTIFY, and then hold the token from its own address for as long
+    as it refreshes within 35 seconds. The owner's refreshes from another IP
+    only keep the squat alive.
+
+  Closing these needs proof of possession of the private key in REGISTER, a
+  wire format change.
+- **Forged or replayed `NOTIFY`**: a peer derives the AEAD key from the
+  `BROKER_EPH_PUB` in the packet itself, so anyone who knows the peer's X25519
+  public key (from any of its REGISTERs, or from a match) can seal a NOTIFY the
+  peer accepts, with any address in it, and a captured NOTIFY decrypts again
+  when replayed. A peer should accept NOTIFYs only from the broker's address, as
+  the Go client's `ReadNotify` does, but an on-path attacker, or one that can
+  forge the broker's source address, passes that check. The AEAD gives
+  confidentiality, not origin authentication. The kamune handshake that follows
+  the hole punch still authenticates the peer.
 - **Replayed `STUN_ECHO`**: a known STUN protocol property; v1's response does
   not include a request nonce. Peers should cross-check STUN_ECHO responses
   against a parallel connection attempt, or use a different STUN source. The
   broker is not the only STUN source a peer should trust.
 
-Adding full anti-replay (sequence numbers, nonce tracking, per-peer
-session-expiry state) would significantly complicate the implementation for
-limited benefit at v1's threat model. The shared AEAD already prevents forgery;
-the per-IP rate limiter caps the most relevant attack (replayed REGISTER).
+Authenticating NOTIFY would need a long-term broker key that clients pin, and
+binding REGISTER to its sender a proof of possession; both change the wire
+format, and v1 has neither.
 
 ## Configuration Reference
 
