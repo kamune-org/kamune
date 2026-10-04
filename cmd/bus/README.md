@@ -155,6 +155,57 @@ Docker, the Linux build is skipped.
 
 ## Usage
 
+### Unlocking the Database
+
+Bus opens its database only once you unlock it, and creates none before
+that. At startup it looks in the system keychain (Keychain on macOS,
+Credential Manager on Windows, a Secret Service provider on Linux) for a
+passphrase saved for the database path. If one is saved, Bus opens the
+existing database with it. Otherwise the passphrase dialog appears:
+
+- **Unlock** opens the database at the path shown with the passphrase you
+  enter, or creates it with that passphrase if there is none. The folder
+  button picks a directory; the database is the file `db` in it.
+- **Remember in system keychain** saves the passphrase under the service
+  `kamune` and the account `db-passphrase:<path>`.
+- **Use without passphrase…** opens or creates the database with an empty
+  passphrase, once you confirm a warning: the key that encrypts such a
+  database can be derived from the file alone, so anyone with a copy of the
+  file can read your identity key, saved peers and chat history. With
+  **Remember** ticked, the empty passphrase is saved and the database opens
+  without asking at the next start. The database card in the sidebar then
+  reads "No passphrase".
+
+A saved passphrase is never removed automatically, not even when it does
+not open the database. The dialog says why the database did not open (a
+wrong passphrase, damaged key data, no database at the path, or the database
+being in use by the TUI, the daemon or another Bus window) and offers
+**Retry saved passphrase** and **Forget it…**. Forgetting it, there or under
+**Identity > Forget Saved Passphrase…**, asks first, since the saved copy
+may be the only one.
+
+Until a database is unlocked, a theme or log level change takes effect at
+once and is saved when the database opens, while the verification mode,
+incognito mode and your name cannot be changed.
+
+### Changing the Passphrase or the Database
+
+**Identity > Change Passphrase…**, or **Change passphrase…** on the database
+card (**Set a passphrase…** for a database without one), asks for the
+current passphrase, if there is one, and the new one twice. An empty new
+passphrase removes it, after the same warning as above. The database is
+encrypted again under a new data key and its file rewritten, so the old
+passphrase no longer opens it; copies made before, such as backups, still
+open with the old one. With **Remember the new passphrase in the system
+keychain** ticked, the keychain holds the new passphrase; unticked, any
+saved passphrase is removed.
+
+Clicking the database card opens the passphrase dialog for another
+database. Bus opens the new database first and keeps the old one open if
+that fails. It refuses to switch databases or change the passphrase while
+the server is starting, running or stopping, a connect is in progress, or a
+session is live or still closing.
+
 ### Starting a Server
 
 1. Click **Start Server** in the sidebar or press `Ctrl+S`
@@ -221,15 +272,17 @@ When connecting to peers, verification dialogs ensure secure communication:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Database path | `~/.config/kamune/db` | Override with `KAMUNE_DB_PATH` env var |
+| Database path | `~/.config/kamune/db` | Override with `KAMUNE_DB_PATH` env var, or pick another directory in the passphrase dialog |
 | Verification mode | Quick | Change via Settings menu |
-| Passphrase | none | Set via `KAMUNE_DB_PASSPHRASE` env var |
+| Passphrase | asked at startup | Entered in the passphrase dialog or read from the system keychain. Bus ignores `KAMUNE_DB_PASSPHRASE`, which the TUI and the daemon read |
 
 ## Security Notes
 
 - All messages are end-to-end encrypted using the Kamune protocol
 - Verify peer identity using emoji fingerprints through a separate secure channel
-- Database is encrypted at rest
+- The database is encrypted at rest under a key derived from its passphrase
+  with Argon2id. A database without a passphrase is not protected: anyone
+  who can read its file can read your identity key, peers and history
 - Use **Strict** mode for sensitive communications
 - Never use **Auto-Accept** mode in production or untrusted networks
 
