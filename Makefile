@@ -8,7 +8,11 @@ FUZZ_TIME ?= 10s
 fuzz:
 	go test . -run '^$$' -fuzz '^FuzzTransportReceiveEnvelope$$' \
 		-fuzztime $(FUZZ_TIME)
+	go test . -run '^$$' -fuzz '^FuzzTransportReceiveRaw$$' \
+		-fuzztime $(FUZZ_TIME)
 	go test . -run '^$$' -fuzz '^FuzzPreAuthEnvelopeValidation$$' \
+		-fuzztime $(FUZZ_TIME)
+	go test . -run '^$$' -fuzz '^FuzzServerServe$$' \
 		-fuzztime $(FUZZ_TIME)
 	go test ./pkg/exchange -run '^$$' -fuzz '^FuzzParseMergedExchange$$' \
 		-fuzztime $(FUZZ_TIME)

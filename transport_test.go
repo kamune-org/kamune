@@ -2,6 +2,7 @@ package kamune
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -494,6 +495,68 @@ func FuzzTransportReceiveEnvelope(f *testing.F) {
 			a.Equal(uint64(1), transport.recvSequence)
 			a.True(bytes.Equal(data, dst.GetValue()))
 		}
+	})
+}
+
+// FuzzTransportReceiveRaw feeds arbitrary bytes to ReceivePayload: as they
+// came off the wire, and sealed with the session key, as a peer holding it
+// could send them. No input may panic. An input that fails, other than for
+// an unknown route, must close the transport for good.
+func FuzzTransportReceiveRaw(f *testing.F) {
+	att, err := attest.New()
+	if err != nil {
+		f.Fatal(err)
+	}
+	serde := newSignedSerde(att.MarshalPublicKey(), att)
+	cipher, err := enigma.NewEnigma(
+		[]byte("transport raw fuzz secret"),
+		[]byte("transport raw fuzz salt"),
+		[]byte("transport raw fuzz info"),
+	)
+	if err != nil {
+		f.Fatal(err)
+	}
+	valid, _, err := serde.serialize(
+		Bytes([]byte("seed")), RouteExchangeMessages, 1,
+	)
+	if err != nil {
+		f.Fatal(err)
+	}
+
+	f.Add(false, []byte{})
+	f.Add(false, bytes.Repeat([]byte{0x5a}, 64))
+	f.Add(false, cipher.Encrypt(valid))
+	f.Add(true, []byte{})
+	f.Add(true, []byte{0x0a, 0x01, 0x00, 0x1a, 0x02, 0x08, 0x01})
+	f.Add(true, valid)
+
+	f.Fuzz(func(t *testing.T, sealed bool, data []byte) {
+		if len(data) > 64*1024 {
+			t.Skip()
+		}
+		a := require.New(t)
+		frame := data
+		if sealed {
+			frame = cipher.Encrypt(data)
+		}
+		conn := &queuedConn{frames: [][]byte{frame}}
+		tr := newTransport(conn, serde, "fuzz-session", cipher, cipher)
+		tr.established = true
+
+		md, _, err := tr.ReceivePayload()
+		if err == nil {
+			a.Equal(uint64(1), md.SequenceNum())
+			a.True(md.Route().isSessionRoute())
+			a.False(conn.closed)
+			return
+		}
+		a.Nil(md)
+		if errors.Is(err, ErrInvalidRoute) {
+			return
+		}
+		a.True(conn.closed)
+		_, _, again := tr.ReceivePayload()
+		a.Equal(err, again)
 	})
 }
 

@@ -22,7 +22,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func newTestStore(
-	t *testing.T, opts ...storage.StorageOption,
+	t testing.TB, opts ...storage.StorageOption,
 ) (*storage.Storage, func()) {
 	t.Helper()
 	a := require.New(t)
