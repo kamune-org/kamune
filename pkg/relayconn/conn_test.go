@@ -226,3 +226,77 @@ func TestRelayConnPushAfterClose(t *testing.T) {
 	a.Zero(frames)
 	a.Zero(size)
 }
+
+// gatedRW is a client transport whose writes, once armed, stop until
+// release is closed, as a write that has passed RelayConn's closed
+// check but not reached the socket yet. Closing it does not end them.
+type gatedRW struct {
+	*tcpAdapter
+	entered chan struct{}
+	release chan struct{}
+	armed   atomic.Bool
+}
+
+func (g *gatedRW) WriteBytes(d []byte) error {
+	if g.armed.Load() {
+		close(g.entered)
+		<-g.release
+		return net.ErrClosed
+	}
+	return g.tcpAdapter.WriteBytes(d)
+}
+
+// TestRelayConnCloseWaitsForWrite closes a RelayConn while a write is
+// in flight and checks that Close returns only after that write has,
+// so that no write is in progress once Close returns.
+func TestRelayConnCloseWaitsForWrite(t *testing.T) {
+	a := require.New(t)
+	c, s := net.Pipe()
+	t.Cleanup(func() { c.Close(); s.Close() })
+	gate := &gatedRW{
+		tcpAdapter: newTCPAdapter(c),
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	accepted := make(chan error, 1)
+	go func() {
+		_, err := exchange.Accept(newTCPAdapter(s))
+		accepted <- err
+	}()
+	ch, err := exchange.Initiate(gate)
+	a.NoError(err)
+	a.NoError(<-accepted)
+
+	var mu sync.Mutex
+	rc := newRelayConn(t.Context(), ch, &mu)
+	rc.closeFn = func() { ch.Close() }
+	gate.armed.Store(true)
+
+	writeErr := make(chan error, 1)
+	go func() { writeErr <- rc.WriteBytes([]byte("racing")) }()
+	select {
+	case <-gate.entered:
+	case <-time.After(2 * time.Second):
+		a.FailNow("write did not start")
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		rc.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		close(gate.release)
+		a.FailNow("Close returned while a write was in progress")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(gate.release)
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		a.FailNow("Close did not return after the write ended")
+	}
+	a.ErrorIs(<-writeErr, net.ErrClosed)
+	a.ErrorIs(rc.WriteBytes([]byte("late")), net.ErrClosed)
+}

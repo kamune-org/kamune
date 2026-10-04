@@ -540,7 +540,7 @@ func TestWebSocketAdapterWriteDeadline(t *testing.T) {
 }
 
 func TestRelayConnCloseIdempotent(t *testing.T) {
-	rc := newRelayConn(t.Context(), nil, nil)
+	rc := newRelayConn(t.Context(), nil, &sync.Mutex{})
 	rc.Close()
 	rc.Close()
 }

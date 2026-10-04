@@ -52,8 +52,10 @@ type RelayConn struct {
 	bufMu       sync.Mutex
 	deadlineMu  sync.Mutex
 	closeOnce   sync.Once
-	ttl         time.Duration
-	sessionTTL  time.Duration
+	// closed is set under channelMu once Close has closed the channel.
+	closed     bool
+	ttl        time.Duration
+	sessionTTL time.Duration
 }
 
 func (c *RelayConn) TTL() time.Duration        { return c.ttl }
@@ -131,8 +133,7 @@ func (rc *RelayConn) ReadBytes() ([]byte, error) {
 }
 
 // WriteBytes sends data to the peer. It returns net.ErrClosed once the
-// connection is closed: on the listener side the relay channel outlives
-// the connection and may already carry a newer one.
+// connection is closed or its relay session has ended.
 func (rc *RelayConn) WriteBytes(data []byte) error {
 	frame := &pb.Frame{Kind: &pb.Frame_Msg{Msg: &pb.Message{Data: data}}}
 	b, err := proto.Marshal(frame)
@@ -141,7 +142,7 @@ func (rc *RelayConn) WriteBytes(data []byte) error {
 	}
 	rc.channelMu.Lock()
 	defer rc.channelMu.Unlock()
-	if rc.ctx.Err() != nil {
+	if rc.closed || rc.ctx.Err() != nil {
 		return net.ErrClosed
 	}
 	return rc.channel.WriteBytes(b)
@@ -164,13 +165,20 @@ func (rc *RelayConn) SetDeadline(t time.Time) error {
 }
 
 // Close closes the connection. It is safe to call more than once; only
-// the first call has an effect.
+// the first call has an effect. No write is in progress once Close
+// returns, and later writes return net.ErrClosed.
 func (rc *RelayConn) Close() error {
 	rc.closeOnce.Do(func() {
 		rc.cancel()
 		if rc.closeFn != nil {
 			rc.closeFn()
 		}
+		// closeFn has closed the channel, so a WriteBytes that passed
+		// its check before cancel fails or finishes now. Taking
+		// channelMu waits for it.
+		rc.channelMu.Lock()
+		rc.closed = true
+		rc.channelMu.Unlock()
 	})
 	return nil
 }
