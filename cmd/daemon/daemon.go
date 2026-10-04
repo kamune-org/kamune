@@ -130,7 +130,11 @@ type Daemon struct {
 	verifPrevStatus ConnectionStatus
 	verifPrevMsg    string
 
+	// serverAddr is the address start_server asked for, which
+	// restart_server asks for again. serverBoundAddr is the address the
+	// running server is bound to, which may have another port.
 	serverAddr           string
+	serverBoundAddr      string
 	serverTransport      string
 	serverRelayAddr      string
 	serverName           string

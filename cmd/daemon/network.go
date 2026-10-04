@@ -17,6 +17,7 @@ import (
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/relayconn"
 	"github.com/kamune-org/kamune/pkg/storage"
+	"github.com/xtaci/kcp-go/v5"
 )
 
 // handleStartServer starts a kamune server. Supports tcp, udp, and relay
@@ -115,6 +116,8 @@ func (d *Daemon) startServer(
 
 	// firstToken is the relay token registered at start, if any.
 	var firstToken relayToken
+	// direct is the tcp or udp listener, if any, until NewServer owns it.
+	var direct *boundListener
 	var opts []kamune.ServerOptions
 	opts = append(opts, kamune.ServeWithServerName(name))
 	if incognito {
@@ -231,16 +234,32 @@ func (d *Daemon) startServer(
 		d.mu.Lock()
 		d.p2pListener = pl
 		d.mu.Unlock()
-	case "udp":
-		opts = append(opts, kamune.ServeWithUDP())
 	default:
-		opts = append(opts, kamune.ServeWithTCP())
+		// Bind here, not in NewServer, to learn the bound address: the
+		// one asked for may have port 0.
+		l, err := listenDirect(params.Transport, params.Addr)
+		if err != nil {
+			d.setStatus(StatusError, "Failed to create server")
+			d.addLogEntry("ERROR", "Failed to create server: "+err.Error())
+			d.emitError(
+				cmd.ID,
+				"create_server_failed",
+				fmt.Sprintf("create server: %v", err),
+			)
+			return
+		}
+		direct = l
+		opts = append(opts, kamune.ServeWithListener(l))
+		params.Addr = l.Addr().String()
 	}
 
 	srv, err := kamune.NewServer(
 		params.Addr, d.serverHandler, store, d.inboundVerifier(), opts...,
 	)
 	if err != nil {
+		if direct != nil {
+			_ = direct.Close()
+		}
 		d.stopP2PResources()
 		d.stopRelayResources()
 		d.setStatus(StatusError, "Failed to create server")
@@ -273,6 +292,7 @@ func (d *Daemon) startServer(
 	d.pubKey = pubKey
 	d.server = srv
 	d.serverDone = done
+	d.serverBoundAddr = params.Addr
 	serverTransport := params.Transport
 	d.mu.Unlock()
 
@@ -310,6 +330,7 @@ func (d *Daemon) startServer(
 		d.serverBrokerAddr = ""
 		d.serverPeerPubB64 = ""
 		d.serverDirectPeerAddr = ""
+		d.serverBoundAddr = ""
 		d.server = nil
 		d.mu.Unlock()
 		d.emit(EvtServerRunning, "", MapA{
@@ -502,6 +523,9 @@ func (d *Daemon) handleGetServerStatus(cmd Command) {
 	running := d.server != nil
 	transport := d.serverTransport
 	addr := d.serverAddr
+	if running {
+		addr = d.serverBoundAddr
+	}
 	relayAddr := d.serverRelayAddr
 	name := d.serverName
 	var startedAt time.Time
@@ -1507,7 +1531,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 		return
 	}
 	transport := d.serverTransport
-	serverAddr := d.serverAddr
+	serverAddr := d.serverBoundAddr
 	pubKey := d.pubKey
 	brokerAddr := d.serverBrokerAddr
 	p2pTokens := d.p2pTokensSnapshot()
@@ -1524,7 +1548,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 	)
 
 	switch transport {
-	case "tcp", "udp", "":
+	case "tcp", "udp", "", "direct-p2p":
 		host, p, autoDetect := parseServerAddr(serverAddr)
 		port = p
 		if autoDetect {
@@ -1541,7 +1565,7 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 		if scheme == "" {
 			scheme = "tcp"
 		}
-		urlStr = fmt.Sprintf("%s://%s:%s", scheme, address, port)
+		urlStr = scheme + "://" + net.JoinHostPort(address, port)
 	case "relay":
 		target, ok := d.currentRelayTarget()
 		if !ok {
@@ -1557,9 +1581,6 @@ func (d *Daemon) handleGetShareInfo(cmd Command) {
 		}
 		address = brokerAddr
 		urlStr = fmt.Sprintf("p2p://%s?token=%s", brokerAddr, token)
-	case "direct-p2p":
-		address = serverAddr
-		urlStr = "direct-p2p://" + serverAddr
 	default:
 		d.emitError(cmd.ID, "unknown_transport", fmt.Sprintf("unknown transport: %s", transport))
 		return
@@ -1839,15 +1860,48 @@ func (d *Daemon) markRelayTokenConsumed(token string) {
 	}()
 }
 
+// parseServerAddr splits the bound address addr. autoDetect reports
+// that it is bound to every interface, so a local IP must be found to
+// share.
 func parseServerAddr(addr string) (host, port string, autoDetect bool) {
 	h, p, err := net.SplitHostPort(addr)
 	if err != nil {
 		return "", "", false
 	}
-	if h == "" || h == "0.0.0.0" {
+	if ip := net.ParseIP(h); h == "" || ip != nil && ip.IsUnspecified() {
 		return "", p, true
 	}
 	return h, p, false
+}
+
+// boundListener is a tcp or udp server's listener, which the daemon
+// binds itself to learn the address it is bound to.
+type boundListener struct {
+	net.Listener
+}
+
+// listenDirect binds addr for a server of transport tcp or udp.
+func listenDirect(transport, addr string) (*boundListener, error) {
+	if transport == "udp" {
+		l, err := kcp.Listen(addr)
+		if err != nil {
+			return nil, fmt.Errorf("listening udp: %w", err)
+		}
+		return &boundListener{Listener: l}, nil
+	}
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listening tcp: %w", err)
+	}
+	return &boundListener{Listener: l}, nil
+}
+
+func (l *boundListener) Accept() (kamune.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return kamune.NewConn(c), nil
 }
 
 func detectLocalIP() (string, error) {

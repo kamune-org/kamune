@@ -5,7 +5,7 @@
   "description": "Emitted after a successful server start. Correlated with the start_server command id.",
   "type": "object",
   "properties": {
-    "addr":            { "type": "string", "description": "Server listen address." },
+    "addr":            { "type": "string", "description": "Address the server is bound to, with the port the system picked when start_server asked for port 0. Empty for a relay server." },
     "transport":       { "type": "string", "description": "\"tcp\", \"udp\", \"relay\", \"p2p\", or \"direct-p2p\"." },
     "name":            { "type": "string", "description": "Server display name." },
     "public_key":      { "type": "string", "description": "Server public key (base64)." },
