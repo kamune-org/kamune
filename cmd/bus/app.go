@@ -295,6 +295,15 @@ type App struct {
 	relaySessionTTL time.Duration
 	relayTokens     []relayToken
 	relayListeners  *multiListener
+	// relayResumes counts the awaitRelayResume calls for the sessions of
+	// the relay server that relayListeners serves. They write to the
+	// database, so StopServer waits for them.
+	relayResumes *sync.WaitGroup
+	// relayResumeWindow overrides defaultRelayResumeWindow when positive.
+	relayResumeWindow time.Duration
+	// relayResumeWait, when set, replaces the wait between the relay
+	// resume registrations of awaitRelayResume; see App.waitResume.
+	relayResumeWait func(ctx context.Context, d time.Duration) bool
 
 	brokerClient *BrokerClient
 	p2pListener  p2pListenerI

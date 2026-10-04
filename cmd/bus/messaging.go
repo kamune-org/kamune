@@ -175,6 +175,12 @@ func (a *App) receiveMessages(session *liveSession) (dropped bool) {
 	if !removed {
 		return false
 	}
+	// A dialed session is over once it stops reconnecting, so its relay
+	// reconnect tokens are of no more use. serverHandler sees to those of
+	// a server session.
+	if !session.IsServer && !session.incognito {
+		a.dropRelayPool(session.ID)
+	}
 
 	if store := a.store(); store != nil {
 		a.loadHistorySessions(store)

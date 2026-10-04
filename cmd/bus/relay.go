@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -52,6 +53,9 @@ type tokenTracker struct {
 	// and not changed after.
 	resumeOf string
 	consumed atomic.Bool
+	// removed is set once the user removes the token from the list; see
+	// App.RemoveRelayToken.
+	removed atomic.Bool
 	// peers holds the key of the peer a static token was derived for.
 	peers peerKeySet
 }
@@ -141,6 +145,17 @@ func stampRelaySession(meta any, sessionID string) {
 	if tt, ok := meta.(*tokenTracker); ok && tt != nil {
 		tt.sessionID = sessionID
 	}
+}
+
+// relayResumable reports whether the session sessionID may still be
+// resumed: it has resumption tokens left. Closing a session, on either
+// side, deletes them.
+func relayResumable(store *storage.Storage, sessionID string) bool {
+	if store == nil || sessionID == "" {
+		return false
+	}
+	m, err := store.GetMeta(sessionID, storage.ResumptionTokensKey)
+	return err == nil && len(decodeTokenList(m.Value())) > 0
 }
 
 // loadRelayPool returns the relay reconnect tokens stored for sessionID.
@@ -463,34 +478,70 @@ func (a *App) addRelayToken(
 	return rt, nil
 }
 
+// defaultRelayResumeWindow bounds how long after a relay session drops
+// the server registers listeners for its peer to resume it on. A bus or
+// daemon dialer gives up reconnecting well within it.
+const defaultRelayResumeWindow = 10 * time.Minute
+
+// resumeWindow returns how long after a relay session drops the server
+// registers listeners for its peer to resume it on.
+func (a *App) resumeWindow() time.Duration {
+	if a.relayResumeWindow > 0 {
+		return a.relayResumeWindow
+	}
+	return defaultRelayResumeWindow
+}
+
 // resumeRelaySession starts keeping a relay listener registered for
 // session, a server session that came in through the relay listener meta
 // and whose connection dropped, so that its peer can resume it; see
-// awaitRelayResume. It does nothing for a session that did not come
-// through the relay or that cannot be resumed.
-func (a *App) resumeRelaySession(meta any, session *liveSession) {
-	if _, ok := meta.(*tokenTracker); !ok || a.sessionIncognito(session) {
-		return
+// awaitRelayResume. It reports false, and starts nothing, for a session
+// that did not come through the relay or that cannot be resumed.
+func (a *App) resumeRelaySession(meta any, session *liveSession) bool {
+	if _, ok := meta.(*tokenTracker); !ok || session.incognito ||
+		a.lifeCtx().Err() != nil {
+		return false
 	}
-	target, ok := a.currentRelayTarget()
-	if !ok || a.lifeCtx().Err() != nil {
-		return
+	// Counted under a.mu, so that StopServer, which takes the count
+	// away under it, waits for every resume of its server.
+	a.mu.RLock()
+	resumes := a.relayResumes
+	target := relayTarget{
+		addr:      a.relayAddr,
+		password:  a.relayPassword,
+		listeners: a.relayListeners,
 	}
-	go a.awaitRelayResume(target, session.ID)
+	if resumes == nil || target.listeners == nil {
+		a.mu.RUnlock()
+		return false
+	}
+	resumes.Add(1)
+	a.mu.RUnlock()
+	go func() {
+		defer resumes.Done()
+		a.awaitRelayResume(target, session.ID)
+	}()
+	return true
 }
 
 // awaitRelayResume keeps a relay listener registered with one of the
 // reconnect tokens of sessionID, a relay session of target's server whose
 // connection dropped, so that its peer can resume the session through the
-// relay. When the listener ends before a session has run on it, it
-// registers another one after a short wait. It returns once a session has
-// run on such a listener, when the server stops, or when no reconnect
-// token is stored for the session or the relay takes none.
+// relay. It registers one token at a time. A token that the relay
+// registered a listener with is removed from the stored pool, so it is
+// never registered twice; see registerResumeToken. When the listener ends
+// before the session resumed on it, it registers the next token after a
+// short wait. When the relay turns a registration away, as a full relay
+// does, it registers the same token again after a wait that grows while
+// registrations keep failing. It returns once the session resumed on
+// such a listener, when the server stops, when the user removes the
+// listener's token, when the session can no longer be resumed or has no
+// reconnect token left, and once the resume window has passed. When the
+// window ends it stops the live listener, so that the relay drops its
+// token, and a session already on it carries on. Unless the session
+// resumed or the app is shutting down, it then drops the session's
+// remaining reconnect tokens.
 func (a *App) awaitRelayResume(target relayTarget, sessionID string) {
-	const (
-		minBackoff = 1 * time.Second
-		maxBackoff = 5 * time.Second
-	)
 	// Registering stops with the server, or when the app shuts down.
 	ctx, cancel := context.WithCancel(a.lifeCtx())
 	defer cancel()
@@ -501,59 +552,216 @@ func (a *App) awaitRelayResume(target relayTarget, sessionID string) {
 		case <-ctx.Done():
 		}
 	}()
+	window, endWindow := context.WithTimeout(ctx, a.resumeWindow())
+	defer endWindow()
 
+	resumed := false
+	defer func() {
+		if !resumed && a.lifeCtx().Err() == nil {
+			a.dropRelayPool(sessionID)
+		}
+	}()
+	failures := 0
 	for {
-		tokens := loadRelayPool(a.store(), sessionID)
+		store := a.store()
+		if !relayResumable(store, sessionID) {
+			a.addLogEntry("INFO",
+				"Session "+sessionID+" can no longer be resumed; "+
+					"its relay reconnect tokens are dropped")
+			return
+		}
+		tokens := loadRelayPool(store, sessionID)
 		if len(tokens) == 0 {
 			a.addLogEntry("INFO",
-				"No relay reconnect tokens for session "+sessionID+
+				"No relay reconnect tokens left for session "+sessionID+
 					"; it cannot resume through the relay")
 			return
 		}
 
-		var tt *tokenTracker
-		for _, token := range tokens {
-			rt, err := a.addRelayToken(
-				ctx, target, token, relayToken{Mode: "ecdh"}, sessionID,
-			)
-			if errors.Is(err, errServerStopped) || ctx.Err() != nil {
+		tt, err := a.registerResumeToken(ctx, target, sessionID, tokens[0])
+		if errors.Is(err, errServerStopped) || ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			failures++
+		} else {
+			failures = 0
+			var removed bool
+			resumed, removed = a.watchResumeListener(ctx, window, tt)
+			switch {
+			case ctx.Err() != nil, resumed:
+				return
+			case removed:
+				a.addLogEntry("INFO",
+					"The relay reconnect token of session "+sessionID+
+						" was removed; it cannot resume through the relay")
 				return
 			}
-			if err != nil {
-				a.addLogEntry("WARN",
-					"Relay reconnect registration failed: "+err.Error())
-				continue
+		}
+		if window.Err() != nil ||
+			!a.waitResume(window, resumeBackoff(failures)) {
+			if ctx.Err() == nil {
+				a.addLogEntry("INFO",
+					"Session "+sessionID+" was not resumed through the "+
+						"relay in time; its relay reconnect tokens are "+
+						"dropped")
 			}
-			tt, _ = rt.listener.(*tokenTracker)
-			a.addLogEntry("INFO",
-				"Relay reconnect listener registered for session "+
-					sessionID)
-			break
-		}
-		if tt == nil {
-			a.addLogEntry("WARN",
-				"The relay took no reconnect token for session "+
-					sessionID+"; it cannot resume through the relay")
-			return
-		}
-
-		select {
-		case <-tt.Dead():
-		case <-ctx.Done():
-			return
-		}
-		a.mu.RLock()
-		resumed := tt.sessionID != ""
-		a.mu.RUnlock()
-		if resumed {
-			return
-		}
-
-		jitter := time.Duration(rand.Int63n(int64(maxBackoff - minBackoff)))
-		select {
-		case <-time.After(minBackoff + jitter):
-		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+// resumeBackoff returns how long awaitRelayResume waits before it
+// registers again: one to five seconds after a listener that ended
+// unused, and after failures registrations in a row failed, one second
+// doubling up to 30 seconds, as a bus dialer spaces its reconnect
+// attempts.
+func resumeBackoff(failures int) time.Duration {
+	const (
+		minWait = 1 * time.Second
+		maxWait = 30 * time.Second
+	)
+	if failures <= 0 {
+		jitter := rand.Int63n(int64(4 * time.Second))
+		return minWait + time.Duration(jitter)
+	}
+	return min(minWait<<min(failures-1, 5), maxWait)
+}
+
+// waitResume waits d, or less when ctx ends first, and reports whether
+// the whole wait passed. App.relayResumeWait replaces it when set.
+func (a *App) waitResume(ctx context.Context, d time.Duration) bool {
+	if a.relayResumeWait != nil {
+		return a.relayResumeWait(ctx, d)
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// registerResumeToken registers a listener for sessionID with token and
+// returns its tracker. Once the relay has registered a listener with the
+// token, the token is removed from the stored pool, so that it is never
+// registered twice. So is a token that the relay answers with another
+// one, which shows that it will not take the token. A token that the
+// relay turned away without registering it, as a full relay does by
+// closing the connection, stays in the pool for the next attempt: the
+// relay learns nothing new from a token it has already seen, and the
+// dialer sends it on each of its reconnect attempts anyway. It returns
+// errServerStopped when the server stopped meanwhile.
+func (a *App) registerResumeToken(
+	ctx context.Context,
+	target relayTarget,
+	sessionID string,
+	token []byte,
+) (*tokenTracker, error) {
+	rt, err := a.addRelayToken(
+		ctx, target, token, relayToken{Mode: "ecdh"}, sessionID,
+	)
+	if errors.Is(err, errServerStopped) {
+		return nil, err
+	}
+	if err == nil || relayTokenRefused(err) {
+		a.removePoolToken(sessionID, token)
+	}
+	if err != nil {
+		a.addLogEntry("WARN",
+			"Relay reconnect registration failed: "+err.Error())
+		return nil, err
+	}
+	a.addLogEntry("INFO",
+		"Relay reconnect listener registered for session "+sessionID)
+	tt, _ := rt.listener.(*tokenTracker)
+	return tt, nil
+}
+
+// watchResumeListener waits for tt, a resume listener's tracker, to end,
+// and reports whether the session resumed on it and whether the user
+// removed its token. When window ends first, it stops tt, which ends it
+// unless a peer is already on it, and waits on. It reports neither when
+// ctx ends first.
+func (a *App) watchResumeListener(
+	ctx, window context.Context, tt *tokenTracker,
+) (resumed, removed bool) {
+	select {
+	case <-tt.Dead():
+	case <-window.Done():
+		if ctx.Err() != nil {
+			return false, false
+		}
+		tt.Stop()
+		select {
+		case <-tt.Dead():
+		case <-ctx.Done():
+			return false, false
+		}
+	}
+	return a.endResumeListener(tt)
+}
+
+// endResumeListener handles the end of tt, a resume listener's tracker.
+// It reports whether the session resumed on it, and whether the user
+// removed its token. A listed token that no session used is taken off the
+// list. The list does not tell whether the user removed a token: one that
+// a peer used leaves it a few seconds later in any case (see
+// App.markRelayTokenConsumed), even when no session came of it.
+func (a *App) endResumeListener(tt *tokenTracker) (resumed, removed bool) {
+	a.mu.Lock()
+	resumed = tt.sessionID != ""
+	idx := slices.IndexFunc(a.relayTokens, func(rt relayToken) bool {
+		return rt.listener == tt
+	})
+	unlist := idx >= 0 && !resumed
+	if unlist {
+		a.relayTokens = slices.Delete(a.relayTokens, idx, idx+1)
+	}
+	tokens := a.relayTokensSnapshotLocked()
+	a.mu.Unlock()
+	if unlist {
+		a.emitEvent("relay-tokens", tokens)
+	}
+	return resumed, tt.removed.Load()
+}
+
+// removePoolToken removes token from the relay reconnect tokens stored
+// for sessionID.
+func (a *App) removePoolToken(sessionID string, token []byte) {
+	store := a.store()
+	if store == nil {
+		return
+	}
+	err := store.RemoveListItem(sessionID, storage.RelayTokensKey, token)
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		a.addLogEntry("WARN",
+			"Failed to drop a used relay reconnect token: "+err.Error())
+	}
+}
+
+// dropRelayPool deletes the relay reconnect tokens stored for sessionID,
+// once the session is over and no peer may resume it.
+func (a *App) dropRelayPool(sessionID string) {
+	store := a.store()
+	if store == nil {
+		return
+	}
+	if err := store.DeleteMeta(sessionID, storage.RelayTokensKey); err != nil {
+		a.addLogEntry("DEBUG",
+			"Failed to drop relay reconnect tokens: "+err.Error())
+	}
+}
+
+// relayTokenRefused reports whether err, from the registration of a
+// listener with a token of our own, shows that the relay will not take
+// that token: it answered with another token, or an invalid one. After
+// any other failure, such as a relay that closes the connection because
+// it is full, no listener holds the token, which may be registered
+// again. It goes by relayconn's typed errors, not by error text.
+func relayTokenRefused(err error) bool {
+	return errors.Is(err, relayconn.ErrRelayTokenMismatch) ||
+		errors.Is(err, relayconn.ErrInvalidRelayToken)
 }

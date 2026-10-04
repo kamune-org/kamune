@@ -26,11 +26,17 @@ type fakeRelay struct {
 	ln net.Listener
 	// ttl is the token TTL, in seconds, that the relay reports.
 	ttl atomic.Uint32
+	// full makes the relay turn away listener registrations once it has
+	// read their token, as a relay at capacity does.
+	full atomic.Bool
 
 	mu sync.Mutex
 	// creates holds the hex token of every listener registration, in
 	// the order they arrived.
 	creates []string
+	// rejects holds the hex token of every listener registration that
+	// the relay turned away.
+	rejects []string
 	// waiting holds the listeners that no dialer has joined yet.
 	waiting map[string]*exchange.Channel
 	// conns holds every connection by the hex token it registered or
@@ -87,6 +93,13 @@ func (r *fakeRelay) handle(conn net.Conn) {
 	token := frame.GetRegister().GetToken()
 	switch frame.GetRegister().GetMode() {
 	case pb.Register_MODE_CREATE:
+		if r.full.Load() {
+			r.mu.Lock()
+			r.rejects = append(r.rejects, hex.EncodeToString(token))
+			r.mu.Unlock()
+			_ = conn.Close()
+			return
+		}
 		if len(token) == 0 {
 			token = make([]byte, 16)
 			_, _ = rand.Read(token)
@@ -171,6 +184,14 @@ func (r *fakeRelay) created() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return slices.Clone(r.creates)
+}
+
+// rejected returns the hex tokens of the listener registrations that the
+// relay turned away so far.
+func (r *fakeRelay) rejected() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.rejects)
 }
 
 // waitCreated waits until n listeners have registered and returns their

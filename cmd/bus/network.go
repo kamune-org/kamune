@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kamune-org/kamune"
@@ -170,6 +171,7 @@ func (a *App) StartServer(
 		a.relayPassword = password
 		a.relaySessionTTL = sessionTTL
 		a.relayListeners = ml
+		a.relayResumes = new(sync.WaitGroup)
 		a.relayTokens = []relayToken{{Token: token, TTL: ttl, SessionTTL: sessionTTL, ExpiresAt: time.Now().Add(ttl), Mode: relayMode, PeerPubB64: peerPubB64, listener: listener}}
 		a.mu.Unlock()
 	case "udp":
@@ -316,6 +318,7 @@ func (a *App) StartServer(
 		a.relayAddr = ""
 		a.relayPassword = ""
 		a.relayListeners = nil
+		a.relayResumes = nil
 		p2pL := a.p2pListener
 		a.p2pListener = nil
 		a.server = nil
@@ -370,6 +373,7 @@ func (a *App) dropStartListeners() {
 	p2pL := a.p2pListener
 	hadP2PTokens := len(a.p2pTokens) > 0
 	a.relayListeners = nil
+	a.relayResumes = nil
 	a.relayTokens = nil
 	a.relayAddr = ""
 	a.relayPassword = ""
@@ -415,9 +419,12 @@ func (a *App) StopServer() error {
 
 	a.mu.Lock()
 	if a.relayListeners != nil {
+		// This also ends the relay resumes; see awaitRelayResume.
 		a.relayListeners.Close()
 		a.relayListeners = nil
 	}
+	resumes := a.relayResumes
+	a.relayResumes = nil
 	svr := a.server
 	if svr != nil {
 		svr.Close()
@@ -445,6 +452,9 @@ func (a *App) StopServer() error {
 		t := s.Transport
 		s.mu.Unlock()
 		t.Close()
+		if !s.incognito {
+			a.dropRelayPool(s.ID)
+		}
 	}
 	for _, s := range sessions {
 		waitOrTimeout(s.ReceiveDone, "session receive: "+s.ID)
@@ -462,6 +472,16 @@ func (a *App) StopServer() error {
 				"handshakes and handlers to end")
 		}
 		cancel()
+	}
+	if resumes != nil {
+		// The relay resumes drop the reconnect tokens of their sessions
+		// as they end. No handler starts another one now.
+		resumesDone := make(chan struct{})
+		go func() {
+			resumes.Wait()
+			close(resumesDone)
+		}()
+		waitOrTimeout(resumesDone, "relay resumes")
 	}
 	if serverDone != nil {
 		waitOrTimeout(serverDone, "ListenAndServe")
@@ -551,6 +571,10 @@ func (a *App) RemoveRelayToken(token string) error {
 
 	rt := a.relayTokens[idx]
 	a.relayTokens = append(a.relayTokens[:idx], a.relayTokens[idx+1:]...)
+	if tt, ok := rt.listener.(*tokenTracker); ok {
+		// A resume listener must not be registered again.
+		tt.removed.Store(true)
+	}
 	a.mu.Unlock()
 
 	rt.listener.Close()
@@ -994,6 +1018,10 @@ func (a *App) DisconnectSession(sessionID string) error {
 			a.addLogEntry("WARN", "Failed to clear resumption tokens: "+err.Error())
 		}
 	}
+	// Nor through the relay.
+	if !session.incognito {
+		a.dropRelayPool(sessionID)
+	}
 
 	// Cancel any active reconnect loop.
 	if session.reconnectCancel != nil {
@@ -1106,10 +1134,12 @@ func (a *App) serverHandler(svr *kamune.Server, t *kamune.Transport) error {
 	a.addLogEntry("INFO", "New incoming connection: "+sessionID)
 
 	go a.keepAliveLoop(session, session.keepAliveDone)
-	if a.receiveMessages(session) {
-		// The connection dropped: the peer may resume the session
-		// through the relay.
-		a.resumeRelaySession(t.AcceptedMeta(), session)
+	// Only a session whose connection dropped may be resumed, here
+	// through the relay. Any other has no use for its reconnect tokens.
+	dropped := a.receiveMessages(session)
+	resuming := dropped && a.resumeRelaySession(t.AcceptedMeta(), session)
+	if !resuming && !session.incognito {
+		a.dropRelayPool(sessionID)
 	}
 	return nil
 }

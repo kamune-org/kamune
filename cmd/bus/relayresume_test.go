@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kamune-org/kamune/pkg/exchange"
+	"github.com/kamune-org/kamune/pkg/relayconn"
 )
 
 // newRelayTestApp returns an app with an open database that accepts
@@ -135,4 +140,303 @@ func TestRelaySessionOnGeneratedTokenResumes(t *testing.T) {
 	a.Eventually(func() bool {
 		return len(events.named("session-reconnected")) > 0
 	}, testWait, 10*time.Millisecond)
+}
+
+// hexTokens returns tokens in hex.
+func hexTokens(tokens [][]byte) []string {
+	out := make([]string, len(tokens))
+	for i, token := range tokens {
+		out[i] = hex.EncodeToString(token)
+	}
+	return out
+}
+
+// waitPoolLen waits until app stores n relay reconnect tokens for
+// session id.
+func waitPoolLen(t *testing.T, app *App, id string, n int) {
+	t.Helper()
+	require.New(t).Eventually(func() bool {
+		return len(loadRelayPool(app.store(), id)) == n
+	}, testWait, 10*time.Millisecond)
+}
+
+// TestRelayResumeTokensAreSingleUse checks that a resume listener uses
+// each reconnect token once: when it ends before the peer comes back,
+// the next one has another token, and the used tokens are no longer
+// stored.
+func TestRelayResumeTokensAreSingleUse(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	server, client := newRelayTestApp(t), newRelayTestApp(t)
+	id, token := relayPair(t, server, client, relay)
+	pool := hexTokens(waitRelayPool(t, server, id))
+	stopReconnect(t, client, id)
+	registered := len(relay.created())
+
+	relay.drop(token)
+	first := relay.waitCreated(t, registered+1)[registered]
+	a.Contains(pool, first)
+	relay.drop(first)
+	second := relay.waitCreated(t, registered+2)[registered+1]
+	a.Contains(pool, second)
+	a.NotEqual(first, second)
+
+	waitPoolLen(t, server, id, len(pool)-2)
+	left := hexTokens(loadRelayPool(server.store(), id))
+	a.NotContains(left, first)
+	a.NotContains(left, second)
+}
+
+// TestRelayResumeStopsAfterWindow checks that once the resume window has
+// passed, the server stops the live resume listener, registers no other
+// and drops the session's reconnect tokens.
+func TestRelayResumeStopsAfterWindow(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	server, client := newRelayTestApp(t), newRelayTestApp(t)
+	server.relayResumeWindow = time.Nanosecond
+	id, token := relayPair(t, server, client, relay)
+	stopReconnect(t, client, id)
+	registered := len(relay.created())
+
+	relay.drop(token)
+	resume := relay.waitCreated(t, registered+1)[registered]
+
+	// The resume ends once it has dropped the pool.
+	waitPoolLen(t, server, id, 0)
+	a.Eventually(func() bool {
+		return !relayTokenListed(server, resume)
+	}, testWait, 10*time.Millisecond, "the resume listener still runs")
+	a.Len(relay.created(), registered+1)
+}
+
+// relayTokenListed reports whether app lists the relay token tok.
+func relayTokenListed(app *App, tok string) bool {
+	return slices.ContainsFunc(app.GetRelayTokens(),
+		func(rt relayToken) bool { return rt.Token == tok })
+}
+
+// gateResumeWaits makes app's relay resumes report each wait between
+// registrations on the returned channel, and wait until the test sends
+// on proceed.
+func gateResumeWaits(
+	app *App,
+) (waits <-chan time.Duration, proceed chan<- struct{}) {
+	w := make(chan time.Duration)
+	p := make(chan struct{})
+	app.relayResumeWait = func(ctx context.Context, d time.Duration) bool {
+		select {
+		case w <- d:
+		case <-ctx.Done():
+			return false
+		}
+		select {
+		case <-p:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return w, p
+}
+
+// TestRelayResumeKeepsTokenOnFullRelay checks that while the relay turns
+// away resume registrations, as a full relay does, the server keeps the
+// reconnect tokens and registers the same one again after a wait that
+// grows, however often it is turned away, and that the session resumes
+// on that token once the relay takes registrations again.
+func TestRelayResumeKeepsTokenOnFullRelay(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	server, client := newRelayTestApp(t), newRelayTestApp(t)
+	events := recordEvents(client)
+	waits, proceed := gateResumeWaits(server)
+	id, token := relayPair(t, server, client, relay)
+	pool := len(waitRelayPool(t, server, id))
+	registered := len(relay.created())
+	relay.full.Store(true)
+
+	relay.drop(token)
+	var last time.Duration
+	// Turned away more often than the pool has tokens.
+	for turned := 1; turned <= pool+1; turned++ {
+		var d time.Duration
+		select {
+		case d = <-waits:
+		case <-time.After(testWait):
+			t.Fatalf("no wait after %d turned away registrations", turned)
+		}
+		rejected := relay.rejected()
+		a.Len(rejected, turned)
+		a.Equal(rejected[0], rejected[turned-1], "a token was spent")
+		a.Len(loadRelayPool(server.store(), id), pool)
+		a.Greater(d, last)
+		last = d
+		if turned == pool+1 {
+			relay.full.Store(false)
+		}
+		proceed <- struct{}{}
+	}
+
+	created := relay.waitCreated(t, registered+1)
+	a.Equal(relay.rejected()[0], created[registered])
+	a.Eventually(func() bool {
+		return len(events.named("session-reconnected")) > 0
+	}, testWait, 10*time.Millisecond)
+}
+
+// TestRelayResumeRenewsAfterLateFailedJoin checks that when a peer joins
+// a resume listener but no session comes about, the server registers
+// another one, even when the joined token has already left the token list
+// as a used one.
+func TestRelayResumeRenewsAfterLateFailedJoin(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	server, client := newRelayTestApp(t), newRelayTestApp(t)
+	id, token := relayPair(t, server, client, relay)
+	stopReconnect(t, client, id)
+	registered := len(relay.created())
+
+	relay.drop(token)
+	resume := relay.waitCreated(t, registered+1)[registered]
+	a.Eventually(func() bool {
+		return relayTokenListed(server, resume)
+	}, testWait, 10*time.Millisecond)
+	raw, err := hex.DecodeString(resume)
+	a.NoError(err)
+	conn, err := relayconn.DialRelayTCP(
+		context.Background(), relay.ln.Addr().String(), raw,
+	)
+	a.NoError(err)
+	// Open the handshake, so that the server accepts the conn, and then
+	// stall it.
+	_, err = exchange.Initiate(conn)
+	a.NoError(err)
+	// A used token leaves the list a few seconds after the join.
+	a.Eventually(func() bool {
+		return !relayTokenListed(server, resume)
+	}, testWait, 50*time.Millisecond)
+
+	// Only now does the handshake on the joined conn fail.
+	a.NoError(conn.Close())
+	relay.waitCreated(t, registered+2)
+}
+
+// TestRelayResumeEndsWithServer checks that stopping the server ends a
+// resume and drops the session's reconnect tokens.
+func TestRelayResumeEndsWithServer(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	server, client := newRelayTestApp(t), newRelayTestApp(t)
+	id, token := relayPair(t, server, client, relay)
+	stopReconnect(t, client, id)
+	registered := len(relay.created())
+
+	relay.drop(token)
+	relay.waitCreated(t, registered+1)
+	a.NoError(server.StopServer())
+
+	waitPoolLen(t, server, id, 0)
+}
+
+// TestStopServerWaitsForRelayResume checks that StopServer returns only
+// once the relay resumes of its server have ended and dropped their
+// sessions' reconnect tokens, so that nothing writes to the database
+// after it returns, when it may be locked or switched.
+func TestStopServerWaitsForRelayResume(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	server, client := newRelayTestApp(t), newRelayTestApp(t)
+	waiting := make(chan struct{}, 1)
+	release := make(chan struct{})
+	server.relayResumeWait = func(ctx context.Context, _ time.Duration) bool {
+		select {
+		case waiting <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		<-release
+		return false
+	}
+	id, token := relayPair(t, server, client, relay)
+	stopReconnect(t, client, id)
+	relay.full.Store(true)
+	relay.drop(token)
+	select {
+	case <-waiting:
+	case <-time.After(testWait):
+		t.Fatal("the relay resume did not start")
+	}
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- server.StopServer() }()
+	select {
+	case <-stopped:
+		close(release)
+		t.Fatal("StopServer returned while a relay resume still ran")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-stopped:
+		a.NoError(err)
+	case <-time.After(testWait):
+		t.Fatal("StopServer did not return")
+	}
+	a.Empty(loadRelayPool(server.store(), id))
+}
+
+// TestRemovedRelayResumeListenerIsNotRenewed checks that a resume
+// listener whose token the user removes is not registered again, and
+// that the session's reconnect tokens are dropped.
+func TestRemovedRelayResumeListenerIsNotRenewed(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	server, client := newRelayTestApp(t), newRelayTestApp(t)
+	id, token := relayPair(t, server, client, relay)
+	stopReconnect(t, client, id)
+	registered := len(relay.created())
+
+	relay.drop(token)
+	resume := relay.waitCreated(t, registered+1)[registered]
+	a.Eventually(func() bool {
+		return slices.ContainsFunc(server.GetRelayTokens(),
+			func(rt relayToken) bool { return rt.Token == resume })
+	}, testWait, 10*time.Millisecond)
+	a.NoError(server.RemoveRelayToken(resume))
+
+	waitPoolLen(t, server, id, 0)
+	a.Len(relay.created(), registered+1)
+}
+
+// TestClosedRelaySessionDropsReconnectTokens checks that a relay session
+// that either side closes leaves no reconnect tokens on either side, and
+// that the server registers no resume listener for it.
+func TestClosedRelaySessionDropsReconnectTokens(t *testing.T) {
+	for _, closer := range []string{"client", "server"} {
+		t.Run(closer, func(t *testing.T) {
+			a := require.New(t)
+			relay := newFakeRelay(t)
+			server, client := newRelayTestApp(t), newRelayTestApp(t)
+			id, _ := relayPair(t, server, client, relay)
+			registered := len(relay.created())
+
+			app := client
+			if closer == "server" {
+				app = server
+				a.Eventually(func() bool {
+					return len(server.GetSessions()) == 1
+				}, testWait, 10*time.Millisecond)
+			}
+			a.NoError(app.DisconnectSession(id))
+
+			waitPoolLen(t, server, id, 0)
+			waitPoolLen(t, client, id, 0)
+			a.Eventually(func() bool {
+				return len(server.GetSessions()) == 0 &&
+					len(client.GetSessions()) == 0
+			}, testWait, 10*time.Millisecond)
+			a.Len(relay.created(), registered)
+		})
+	}
 }
