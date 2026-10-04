@@ -156,16 +156,21 @@ connection contract that any transport must satisfy:
 - **Wire format maximum**: 65,535 bytes (uint16 max). The length prefix is a
   2-byte unsigned integer, so payloads larger than 65,535 bytes cannot be
   expressed on the wire.
+- **Sender frame limit (`maxFrameSize`)**: 65,471 bytes, the wire format
+  maximum less a 64-byte `transportReserve`. The reserve lets a transport wrap
+  each frame again before it writes its own 2-byte length prefix; the relay
+  transport (§9.3) adds 24 bytes to a frame of that size.
 - **Protocol limit (`maxTransportSize`)**: A separate, smaller value that bounds
-  the user-message size. Defined as 65,535 minus `reservedProtocolOverhead`.
-  See §13 for current values.
+  the user-message size. Defined as `maxFrameSize` minus
+  `reservedProtocolOverhead`. See §13 for current values.
 
-Senders MUST NOT emit a payload larger than 65,535 bytes and MUST reject a user
-message whose encoded form would exceed `maxTransportSize`. Receivers MUST read
-exactly `Length` bytes before processing a frame. A truncated frame is invalid.
-Implementations over byte streams MUST serialize complete frame writes; partial
-underlying writes are an I/O concern and MUST be completed or treated as an
-error before another frame is written.
+Senders MUST NOT emit a payload larger than `maxFrameSize` and MUST reject a
+user message whose encoded form would exceed `maxTransportSize`. Receivers MUST
+accept any payload up to 65,535 bytes, and MUST read exactly `Length` bytes
+before processing a frame. A truncated frame is invalid. Implementations over
+byte streams MUST serialize complete frame writes; partial underlying writes
+are an I/O concern and MUST be completed or treated as an error before another
+frame is written.
 
 ### 4.2 Envelope Fields
 
@@ -1170,6 +1175,11 @@ order is the same as their sequence-number order. It MUST deliver inbound
 frames reliably and in that wire order, without duplicates. Sending and
 receiving may otherwise proceed concurrently.
 
+Kamune hands a `Conn` frames of at most `maxFrameSize` (65,471 bytes, §4.1),
+and a `Conn` MUST carry every frame up to that size. A transport that wraps
+each frame, such as the relay, may add up to `transportReserve` (64 bytes) and
+still fit the 2-byte length prefix.
+
 An implementation may additionally expose the underlying connection object (for
 example, a `net.Conn` in environments that provide one) for callers that need
 transport-specific metadata.
@@ -1522,14 +1532,14 @@ before encryption. Padding is applied uniformly across all routes.
 **Buckets.** The sender pads the envelope to the smallest bucket that fits
 the serialized size, then probabilistically bumps it up one or more levels.
 
-| Bucket | Target size (pre-encryption)                                                                     |
-| ------ | ------------------------------------------------------------------------------------------------ |
-| 1      | 512 B                                                                                            |
-| 2      | 1 KB                                                                                             |
-| 3      | 4 KB                                                                                             |
-| 4      | 16 KB                                                                                            |
-| 5      | 32 KB                                                                                            |
-| 6      | 65,495 B (the maximum that, after AEAD expansion, fits in a single 2-byte length-prefixed frame) |
+| Bucket | Target size (pre-encryption)                                                                                           |
+| ------ | ---------------------------------------------------------------------------------------------------------------------- |
+| 1      | 512 B                                                                                                                  |
+| 2      | 1 KB                                                                                                                   |
+| 3      | 4 KB                                                                                                                   |
+| 4      | 16 KB                                                                                                                  |
+| 5      | 32 KB                                                                                                                  |
+| 6      | 65,431 B (`frameTargetSize`: after the 40-byte AEAD expansion the frame is exactly `maxFrameSize`, 65,471 B; see §4.1) |
 
 **Cross-bucket randomness.** After selecting the natural bucket, the sender
 bumps it with the following probability distribution:
@@ -1549,10 +1559,12 @@ The bump is selected independently per message and capped at bucket 6.
 
 | Constant                   | Value                                  | Description                                                                                                             |
 | -------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `maxTransportSize`         | 61,439 bytes (~60 KiB)                 | Maximum user-message size. The user-message cap is the wire-format maximum (65,535) minus a reserved protocol overhead. |
+| `maxTransportSize`         | 61,375 bytes (~60 KiB)                 | Maximum user-message size: `maxFrameSize` minus a reserved protocol overhead.                                           |
 | `reservedProtocolOverhead` | 4,096 bytes (4 KiB)                    | Reserved bytes per message for signature + metadata + padding + AEAD tag.                                               |
-| `wireFormatMax`            | 65,535 bytes                           | Wire format's hard upper bound (uint16 max).                                                                            |
-| `paddingBuckets`           | {512, 1024, 4096, 16384, 32768, 65495} | Bucketed padding target sizes (pre-encryption). See §12.7.                                                              |
+| `wireFormatMax`            | 65,535 bytes                           | Wire format's hard upper bound (uint16 max); receivers accept frames up to this size                                    |
+| `maxFrameSize`             | 65,471 bytes                           | Largest frame a sender emits: `wireFormatMax` minus `transportReserve`                                                  |
+| `transportReserve`         | 64 bytes                               | Headroom below `wireFormatMax` for a transport that wraps each frame, such as the relay                                 |
+| `paddingBuckets`           | {512, 1024, 4096, 16384, 32768, 65431} | Bucketed padding target sizes (pre-encryption). See §12.7.                                                              |
 | `bumpProbabilities`        | {80%, 15%, 4%, 1%}                     | Cross-bucket bump distribution (stay, +1, +2, +3). See §12.7.                                                           |
 | `handshakeSaltSize`        | 16 bytes                               | Size of random salts for handshake key derivation                                                                       |
 | `handshakeChallengeSize`   | 32 bytes                               | Size of handshake challenge tokens                                                                                      |
