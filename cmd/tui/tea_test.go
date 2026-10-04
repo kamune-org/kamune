@@ -187,6 +187,46 @@ func TestInput_RelayDialRequiresBothFields(t *testing.T) {
 	a.Equal(stateInput, got.(*model).state)
 }
 
+func TestInput_TabMovesFocus(t *testing.T) {
+	tab := tea.KeyMsg{Type: tea.KeyTab}
+	shiftTab := tea.KeyMsg{Type: tea.KeyShiftTab}
+	tests := []struct {
+		name string
+		keys []tea.KeyMsg
+		// field is the input that should get the typed text.
+		field int
+	}{
+		{"no tab", nil, 0},
+		{"tab", []tea.KeyMsg{tab}, 1},
+		{"tab wraps", []tea.KeyMsg{tab, tab}, 0},
+		{"shift+tab", []tea.KeyMsg{tab, shiftTab}, 0},
+		{"shift+tab wraps", []tea.KeyMsg{shiftTab}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			m := newTestModel()
+			m.state = stateWelcome
+			m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+			a.Equal(modeRelayDial, m.mode)
+			want := make([]string, len(m.inputs))
+			for i := range m.inputs {
+				want[i] = m.inputs[i].Value()
+			}
+
+			for _, k := range tt.keys {
+				m.Update(k)
+			}
+			m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("abcd")})
+			want[tt.field] += "abcd"
+			for i := range m.inputs {
+				a.Equal(want[i], m.inputs[i].Value(), "field %d", i)
+				a.Equal(i == tt.field, m.inputs[i].Focused(), "field %d", i)
+			}
+		})
+	}
+}
+
 func TestInput_EscapeReturnsToWelcome(t *testing.T) {
 	a := require.New(t)
 	m := newTestModel()

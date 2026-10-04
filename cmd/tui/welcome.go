@@ -65,7 +65,7 @@ func (m *model) selectMode(idx int) (tea.Model, tea.Cmd) {
 	m.state = stateInput
 	m.connectErr = nil
 	if len(m.inputs) > 0 {
-		m.inputs[0].Focus()
+		return m, m.focusInput(0)
 	}
 	return m, nil
 }
@@ -123,16 +123,23 @@ func (m *model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = stateConnecting
 			return m, m.startConnect()
 		case tea.KeyTab:
-			m.inputs[nextInput(m.inputs)].Focus()
-			return m, nil
+			return m, m.focusInput(nextInput(m.inputs))
 		case tea.KeyShiftTab:
-			m.inputs[prevInput(m.inputs)].Focus()
-			return m, nil
+			return m, m.focusInput(prevInput(m.inputs))
 		}
 	}
 
 	cmd := m.updateInputs(msg)
 	return m, cmd
+}
+
+// focusInput focuses the input at i and blurs every other one. An input
+// takes keys while it is focused, so only one may be.
+func (m *model) focusInput(i int) tea.Cmd {
+	for j := range m.inputs {
+		m.inputs[j].Blur()
+	}
+	return m.inputs[i].Focus()
 }
 
 func nextInput(inputs []textinput.Model) int {
