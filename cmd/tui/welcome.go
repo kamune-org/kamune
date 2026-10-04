@@ -51,11 +51,13 @@ func (m *model) selectMode(idx int) (tea.Model, tea.Cmd) {
 		m.inputs = []textinput.Model{
 			mkInput(relayAddrLabel, defaultRelayAddr),
 			mkInput("Token (hex)", ""),
+			mkPasswordInput(relayPasswordLabel),
 		}
 	case 3:
 		m.mode = modeRelayServe
 		m.inputs = []textinput.Model{
 			mkInput(relayAddrLabel, defaultRelayAddr),
+			mkPasswordInput(relayPasswordLabel),
 		}
 	case 4:
 		return m, loadSessions(m.store)
@@ -75,8 +77,26 @@ const (
 		"host:port; wss if none)"
 	// defaultRelayAddr is the wss listener of a relay that runs with its
 	// default settings on this host.
-	defaultRelayAddr = "wss://localhost:8891"
+	defaultRelayAddr   = "wss://localhost:8891"
+	relayPasswordLabel = "Relay password (only for a relay that has one)"
 )
+
+// relayPasswordInput returns the index of the relay password input in
+// the relay mode mode.
+func relayPasswordInput(mode inputMode) int {
+	if mode == modeRelayDial {
+		return 2
+	}
+	return 1
+}
+
+// mkPasswordInput returns an input that hides what is typed into it.
+func mkPasswordInput(placeholder string) textinput.Model {
+	ti := mkInput(placeholder, "")
+	ti.EchoMode = textinput.EchoPassword
+	ti.EchoCharacter = '•'
+	return ti
+}
 
 func mkInput(placeholder, defaultVal string) textinput.Model {
 	ti := textinput.New()

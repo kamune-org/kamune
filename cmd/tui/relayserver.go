@@ -31,7 +31,9 @@ func relayServe(
 
 	result, err := r.listen(ctx, relayOpts...)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("relay listen: %w", err)
+		return nil, nil, 0, fmt.Errorf(
+			"relay listen: %w", hungUp(err, "the relay password"),
+		)
 	}
 
 	srv, err := serve("", store, verifyFn, deliver, stopped,

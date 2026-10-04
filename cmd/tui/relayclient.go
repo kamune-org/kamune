@@ -33,7 +33,7 @@ func relayDial(
 		func(ctx context.Context, _ string) (kamune.Conn, error) {
 			conn, err := r.dial(ctx, token, opts...)
 			if err != nil {
-				return nil, err
+				return nil, hungUp(err, "the relay password and the token")
 			}
 			sessionTTL = conn.SessionTTL()
 			return conn, nil

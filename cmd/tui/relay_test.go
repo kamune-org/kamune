@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
@@ -34,6 +35,8 @@ type fakeRelay struct {
 	// cert is the relay's certificate when it speaks tls.
 	cert       *x509.Certificate
 	sessionTTL time.Duration
+	// password is the relay's PSK, if it has one.
+	password string
 
 	// closed is closed when the test ends.
 	closed chan struct{}
@@ -78,14 +81,16 @@ func (p *relayPeer) read() (*pb.Frame, error) {
 }
 
 // startFakeRelay starts a relay that serves tls when useTLS is set and tcp
-// otherwise. Its paired sessions last sessionTTL.
+// otherwise. Its paired sessions last sessionTTL, and it takes clients
+// that give password, or none if password is empty.
 func startFakeRelay(
-	t *testing.T, useTLS bool, sessionTTL time.Duration,
+	t *testing.T, useTLS bool, sessionTTL time.Duration, password string,
 ) *fakeRelay {
 	t.Helper()
 	a := require.New(t)
 	r := &fakeRelay{
 		sessionTTL: sessionTTL,
+		password:   password,
 		closed:     make(chan struct{}),
 		waiting:    make(map[string]*relaySession),
 	}
@@ -138,6 +143,21 @@ func (r *fakeRelay) serve(c net.Conn) {
 	f, err := p.read()
 	if err != nil {
 		return
+	}
+	// Like the relay, refuse a client that gives no password, a wrong
+	// one, or one that the relay does not have.
+	if auth := f.GetAuth(); auth != nil || r.password != "" {
+		if auth == nil || r.password == "" ||
+			string(auth.GetPsk()) != r.password {
+			return
+		}
+		err := p.write(&pb.Frame{Kind: &pb.Frame_Auth{Auth: &pb.Auth{}}})
+		if err != nil {
+			return
+		}
+		if f, err = p.read(); err != nil {
+			return
+		}
 	}
 	reg := f.GetRegister()
 	if reg == nil {
@@ -326,7 +346,7 @@ func TestParseRelayAddr(t *testing.T) {
 
 func TestRelay_SessionOverTCP(t *testing.T) {
 	a := require.New(t)
-	relay := startFakeRelay(t, false, time.Hour)
+	relay := startFakeRelay(t, false, time.Hour, "")
 	r, err := parseRelayAddr("tcp://" + relay.addr)
 	a.NoError(err)
 
@@ -353,7 +373,7 @@ func TestRelay_SessionOverTCP(t *testing.T) {
 
 func TestRelay_TLSChecksTheCertificate(t *testing.T) {
 	a := require.New(t)
-	relay := startFakeRelay(t, true, time.Hour)
+	relay := startFakeRelay(t, true, time.Hour, "")
 	r, err := parseRelayAddr("tls://" + relay.addr)
 	a.NoError(err)
 
@@ -370,4 +390,120 @@ func TestRelay_TLSChecksTheCertificate(t *testing.T) {
 		openTestStore(t), accept,
 	)
 	a.True(errors.As(err, &unknown), "error: %v", err)
+}
+
+func TestRelay_Password(t *testing.T) {
+	tests := []struct {
+		name       string
+		relay      string
+		server     string
+		dial       string
+		serverFail bool
+		dialFail   bool
+	}{
+		{name: "none"},
+		{name: "right", relay: "s3cret", server: "s3cret", dial: "s3cret"},
+		{
+			name: "server gives none", relay: "s3cret",
+			serverFail: true,
+		},
+		{
+			name: "dialer gives a wrong one", relay: "s3cret",
+			server: "s3cret", dial: "secret", dialFail: true,
+		},
+		{
+			name: "relay has none", server: "s3cret",
+			serverFail: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			relay := startFakeRelay(t, false, time.Hour, tt.relay)
+			r, err := parseRelayAddr("tcp://" + relay.addr)
+			a.NoError(err)
+
+			server, dialer := relayPair(t, r, tt.server, tt.dial)
+			if tt.serverFail {
+				a.ErrorContains(server.err, "check the relay password")
+				return
+			}
+			a.NoError(server.err)
+			if tt.dialFail {
+				a.ErrorContains(dialer.err, "check the relay password")
+				return
+			}
+			a.NoError(dialer.err)
+			a.Equal(server.t.SessionID(), dialer.t.SessionID())
+		})
+	}
+}
+
+// relayModel returns a model on the input screen of the relay mode that
+// key selects on the welcome screen, and the channel that gets what its
+// goroutines send.
+func relayModel(t *testing.T, key rune) (*model, chan tea.Msg) {
+	t.Helper()
+	msgs := make(chan tea.Msg, 64)
+	m := newTestModel()
+	m.store = openTestStore(t)
+	m.send = func(msg tea.Msg) { msgs <- msg }
+	m.state = stateWelcome
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+	require.New(t).Equal(stateInput, m.state)
+	t.Cleanup(func() { m.shutdown(time.Minute) })
+	return m, msgs
+}
+
+// relayChat starts a relay server and a relay dial to it, with the relay
+// address addr and the given password typed into their input screens,
+// and accepts the peer on both sides. It returns the models in their
+// chats.
+func relayChat(t *testing.T, addr, password string) (server, dialer *model) {
+	t.Helper()
+	a := require.New(t)
+	enter := tea.KeyMsg{Type: tea.KeyEnter}
+	server, serverMsgs := relayModel(t, '4')
+	server.inputs[0].SetValue(addr)
+	server.inputs[relayPasswordInput(server.mode)].SetValue(password)
+	server.Update(enter)
+	a.Equal(stateConnecting, server.state)
+	server.Update(waitFor(t, serverMsgs))
+	a.NotEmpty(server.relayToken, "error: %v", server.connectErr)
+
+	dialer, dialerMsgs := relayModel(t, '3')
+	dialer.inputs[0].SetValue(addr)
+	dialer.inputs[1].SetValue(hex.EncodeToString(server.relayToken))
+	dialer.inputs[relayPasswordInput(dialer.mode)].SetValue(password)
+	dialer.Update(enter)
+	a.Equal(stateConnecting, dialer.state)
+
+	accept := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}
+	timeout := time.After(10 * time.Second)
+	for server.state != stateChat || dialer.state != stateChat {
+		var m *model
+		var msg tea.Msg
+		select {
+		case msg = <-serverMsgs:
+			m = server
+		case msg = <-dialerMsgs:
+			m = dialer
+		case <-timeout:
+			a.FailNow("no chat", "server: %v, dialer: %v",
+				server.connectErr, dialer.connectErr)
+		}
+		m.Update(msg)
+		if m.state == stateVerify {
+			m.Update(accept)
+		}
+		a.NotEqual(stateWelcome, m.state, "error: %v", m.connectErr)
+	}
+	return server, dialer
+}
+
+func TestRelay_ChatThroughTheUI(t *testing.T) {
+	a := require.New(t)
+	relay := startFakeRelay(t, false, time.Hour, "s3cret")
+	server, dialer := relayChat(t, "tcp://"+relay.addr, "s3cret")
+	a.Equal(server.sess.t.SessionID(), dialer.sess.t.SessionID())
 }

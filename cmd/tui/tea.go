@@ -732,11 +732,13 @@ func (m *model) startConnect() tea.Cmd {
 		return func() tea.Msg { return connectFailedMsg{att, err} }
 	}
 	var relay relayTarget
+	var password string
 	if m.mode == modeRelayDial || m.mode == modeRelayServe {
 		var err error
 		if relay, err = parseRelayAddr(addr); err != nil {
 			return failed(err)
 		}
+		password = m.inputs[relayPasswordInput(m.mode)].Value()
 	}
 
 	switch m.mode {
@@ -763,7 +765,7 @@ func (m *model) startConnect() tea.Cmd {
 		token := m.inputs[1].Value()
 		go func() {
 			t, sessionTTL, err := relayDial(
-				att.ctx, relay, token, "", store, vfn,
+				att.ctx, relay, token, password, store, vfn,
 			)
 			if err != nil {
 				send(connectFailedMsg{att, err})
@@ -777,7 +779,7 @@ func (m *model) startConnect() tea.Cmd {
 	case modeRelayServe:
 		go func() {
 			srv, token, sessionTTL, err := relayServe(
-				att.ctx, relay, "", store, vfn, deliver, stopped,
+				att.ctx, relay, password, store, vfn, deliver, stopped,
 			)
 			if err != nil {
 				send(connectFailedMsg{att, err})

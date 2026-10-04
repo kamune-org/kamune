@@ -214,9 +214,10 @@ func TestInput_TabMovesFocus(t *testing.T) {
 	}{
 		{"no tab", nil, 0},
 		{"tab", []tea.KeyMsg{tab}, 1},
-		{"tab wraps", []tea.KeyMsg{tab, tab}, 0},
+		{"tab twice", []tea.KeyMsg{tab, tab}, 2},
+		{"tab wraps", []tea.KeyMsg{tab, tab, tab}, 0},
 		{"shift+tab", []tea.KeyMsg{tab, shiftTab}, 0},
-		{"shift+tab wraps", []tea.KeyMsg{shiftTab}, 1},
+		{"shift+tab wraps", []tea.KeyMsg{shiftTab}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

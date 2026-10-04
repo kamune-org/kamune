@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 
@@ -108,4 +109,16 @@ func (r relayTarget) listen(
 		return relayconn.ListenRelayTCP(ctx, r.host, opts...)
 	}
 	return nil, fmt.Errorf("%w: unknown scheme %q", errRelayAddress, r.scheme)
+}
+
+// hungUp adds a hint to err, the error of a relay handshake, when the
+// relay hung up in the middle of it. A relay hangs up on a client that
+// gives a wrong password, none when the relay has one, or one when it
+// has none, and on a dialer whose token it does not know. check names
+// what the user should check.
+func hungUp(err error, check string) error {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return fmt.Errorf("%w (the relay hung up; check %s)", err, check)
+	}
+	return err
 }
