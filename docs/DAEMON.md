@@ -2056,8 +2056,16 @@ Returns the kamune library version.
 
 #### `shutdown`
 
-Gracefully shuts down the daemon. Closes storage, server, and all sessions
-before exiting.
+Gracefully shuts down the daemon. Stops the server and any server start,
+closes every session, each reported with `session_closed` before the response,
+and closes the storage; the process then exits. A dial that completes during
+the shutdown is closed and never reported, and a line that arrives after the
+shutdown is dropped.
+
+The daemon shuts down the same way when stdin ends, and when the process gets
+SIGTERM or SIGINT, which it handles between commands without waiting for stdin
+to deliver a line or end; the response then carries no `id`. A second signal
+ends the process at once.
 
 **Input:** (no params)
 
@@ -2082,6 +2090,11 @@ These events are emitted by the daemon **without** the client sending a
 command. They are triggered by peer activity, internal state changes, or
 verification flows.
 
+The other events answer commands and are documented with them: `response`,
+`server_started`, `server_stopped` and `server_start_cancelled` (server
+lifecycle), `relay_token` ([`start_server`](#start_server)), `message_sent`
+(`send_message`) and `history_loaded` (`load_history`).
+
 ### `ready`
 
 Emitted once on daemon startup.
@@ -2090,14 +2103,16 @@ Emitted once on daemon startup.
 {
   "type": "evt",
   "evt": "ready",
-  "data": { "version": "1.0.0", "pid": "12345" }
+  "data": { "version": "1.0.0", "pid": "12345", "protocol_version": "1" }
 }
 ```
 
 ### `status_changed`
 
 Emitted when the connection status changes (`disconnected`, `connecting`,
-`connected`, `verifying`, `error`).
+`connected`, `verifying`, `error`). The status is `verifying` while
+`verify_peer` prompts are open; a verification that times out does not set
+`error`.
 
 ```json
 {
@@ -2124,24 +2139,29 @@ Emitted when the server starts or stops.
 
 ### `fingerprint_changed`
 
-Emitted when the identity fingerprint is loaded or changes.
+Emitted when the identity fingerprint is loaded: when a storage is opened and
+when a server starts. The fields are those of
+[`get_fingerprint`](#get_fingerprint) without `format` and `display`; compare
+`numeric` to verify a key.
 
 ```json
 {
   "type": "evt",
   "evt": "fingerprint_changed",
   "data": {
-    "emoji": "🦊 • 🐱",
-    "b64": "base64key...",
-    "hex": "ab12cd34...",
-    "sum": "ab12cd34"
+    "emoji": "🦊 • 🐱 • 🌵 • 🔑 • 🚀 • 🍀 • 🎲 • 🐙",
+    "b64": "MCowBQYDK2VwAyEA...",
+    "hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...",
+    "sum": "q3Vx0Zl8...",
+    "numeric": "12345 67890 13579 24680 11223 34455 66778 89900"
   }
 }
 ```
 
 ### `local_name_changed`
 
-Emitted when the local display name changes.
+Emitted when the local display name is loaded by `open_storage` or
+`submit_passphrase`, or set by `set_my_name`.
 
 ```json
 {
@@ -2176,10 +2196,12 @@ in [Commands](#connections).
 }
 ```
 
-### `session_closed` (peer disconnect)
+### `session_closed`
 
-Emitted when a session ends (not from `close_session`). The `session_closed`
-from `close_session` is documented in [Commands](#connections).
+Emitted whenever a session ends: the peer closed it, its connection dropped
+and was not resumed, or `close_session`, `stop_server`, `restart_server` or
+`shutdown` closed it. The data is the session's `SessionInfo`, as for
+[`close_session`](#close_session).
 
 ```json
 {
@@ -2216,6 +2238,9 @@ Emitted when a message is sent, received, or a live session is renamed.
 ### `message_received`
 
 Emitted when a message is received from a peer. Also emits `session_updated`.
+`timestamp` is the time the sender put on the message, which the sender can
+set to anything. A message that could not be saved to history is reported
+with `history_save_failed` first.
 
 ```json
 {
@@ -2231,6 +2256,65 @@ Emitted when a message is received from a peer. Also emits `session_updated`.
   "type": "evt",
   "evt": "session_updated",
   "data": { "session_id": "abc123..." }
+}
+```
+
+### `session_reconnecting`
+
+Emitted before each attempt to resume a dialed session whose connection
+dropped. The daemon makes up to 10 attempts, waiting 1 second before the
+second and twice as long before each next one, at most 30 seconds. p2p and
+incognito sessions are never resumed, and get no such event. A resume needs
+the session's peer to be a stored peer and its resumption state to be in the
+storage, so a session with a peer accepted in Auto-Accept mode gets one
+attempt that fails. A resume that the server rejects, missing storage or
+resumption state, or a panic ends the attempts at once; other errors are
+retried. Through a relay, each attempt tries the session's stored reconnect
+tokens in turn, all within 15 seconds. When the attempts end without success,
+`session_closed` follows.
+
+```json
+{
+  "type": "evt",
+  "evt": "session_reconnecting",
+  "data": { "session_id": "abc123...", "attempt": 1, "max_attempts": 10 }
+}
+```
+
+### `session_reconnected`
+
+Emitted when a dialed session has been resumed. The session keeps its ID and
+carries on.
+
+```json
+{
+  "type": "evt",
+  "evt": "session_reconnected",
+  "data": { "session_id": "abc123..." }
+}
+```
+
+### `history_updated`
+
+Emitted when the history list has been read again or changed: when a storage
+is opened, a server starts or a session ends, and on `refresh_history`,
+`rename_history_session` and `delete_history_session`. Call
+`get_history_sessions` for the list.
+
+```json
+{ "type": "evt", "evt": "history_updated", "data": {} }
+```
+
+### `history_save_failed`
+
+Emitted when a message that was sent or received could not be saved to
+history. `message_sent` or `message_received` still follows for it.
+
+```json
+{
+  "type": "evt",
+  "evt": "history_save_failed",
+  "data": { "session_id": "abc123...", "error": "..." }
 }
 ```
 
