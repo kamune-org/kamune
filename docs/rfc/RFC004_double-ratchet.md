@@ -302,13 +302,13 @@ message Metadata {
 ```
 
 `ID`, `Timestamp`, and `Sequence` are removed. Field numbers 1/2/3 are reused;
-nothing else reads them. **This is a wire-incompatible hard cut**: any v0.4.x
-client will reject these messages (signature verification on the new envelope
-shape will fail) and v0.5.0 clients will reject v0.4.x envelopes (the new
-`Metadata` shape will not proto-marshal in the old layout). Pre-1.0 kamune's
-`checkVersion` (`version.go:67-71`) already treats minor-version differences on
-a `0.x.y` line as a hard reject, so the cut is consistent with the existing
-version policy.
+nothing else reads them. **This is a wire-incompatible hard cut**: a client
+without the ratchet (v0.7.x today) will reject these messages (signature
+verification on the new envelope shape will fail) and clients with the ratchet
+will reject v0.7.x envelopes (the new `Metadata` shape will not proto-marshal
+in the old layout). Pre-1.0 kamune's `checkVersion` (`version.go:78-82`)
+already treats minor-version differences on a `0.x.y` line as a hard reject, so
+the cut is consistent with the existing version policy.
 
 `internal/box/model.proto` — `Handshake` gets two new fields:
 
@@ -680,7 +680,7 @@ All tests use real implementations (no mocks) per AGENTS.md.
 - **Header encryption (X3DH-style).** The static envelope key already protects
   metadata at the AEAD layer.
 - **Multiple concurrent sessions sharing a root key (out-of-band re-keying).**
-  v0.5.0 keeps one ratchet per `Transport`.
+  The first release with the ratchet keeps one ratchet per `Transport`.
 - **Per-message DH step (every Send).** Tested and rejected: it replaces the
   receiving chain on every message, defeating the skipped cache and the chain
   abstraction. The DH step runs on the first Send after the peer rotates, which
@@ -762,7 +762,8 @@ specification, plus the SPEC sections it implements.
 | `routes_test.go`           | No new routes; existing tests cover all routes.                                                                                                                                                                                                                                                                                                                                                                                      |
 | `transport_test.go` (new)  | End-to-end Send/Receive with ratchet over a `net.Pipe`; out-of-order delivery; dropped message; double-send rejection; close/ping/pong still work; verify `RatchetIndex` / `RatchetDH` round-trip on the wire; verify a `staticKey` mismatch aborts the session.                                                                                                                                                                     |
 
-No changes to `version.go`. `AppVersion` stays `"0.5.0"`.
+No changes to `version.go`. `AppVersion` keeps its current value (`"0.7.0"`
+today).
 
 ## Appendix B: Documentation Updates (`docs/SPEC.md`)
 
