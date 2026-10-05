@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
@@ -56,9 +55,15 @@ func identifyPeer(store *storage.Storage, peer *storage.Peer) peerIdentity {
 		KeyB64:      fingerprint.Base64(peer.PublicKey),
 		Numeric:     fingerprint.Numeric(peer.PublicKey),
 	}
+	// storedName is the name as stored. Names are compared as they are,
+	// not sanitized: sanitizing turns a code point that shows nothing
+	// into a visible U+FFFD, and sameName could then no longer tell that
+	// "Bob" with a hidden suffix reads as "Bob".
+	var storedName string
 	if store != nil {
 		if stored, err := store.FindPeer(peer.PublicKey); err == nil {
 			id.Known = true
+			storedName = stored.Name
 			id.Label = sanitizeName(stored.Name)
 		}
 	}
@@ -68,11 +73,12 @@ func identifyPeer(store *storage.Storage, peer *storage.Peer) peerIdentity {
 		} else {
 			id.Label = unknownPeerLabel(peer.PublicKey)
 		}
+		storedName = id.Label
 	}
-	id.NameMismatch = id.Known && !sameName(id.Label, id.ClaimedName)
+	id.NameMismatch = id.Known && !sameName(storedName, peer.Name)
 	others := otherPeersNames(store, peer.PublicKey)
-	id.NameConflict = hasName(others, id.ClaimedName) ||
-		id.Known && hasName(others, id.Label)
+	id.NameConflict = hasName(others, peer.Name) ||
+		id.Known && hasName(others, storedName)
 	return id
 }
 
@@ -168,48 +174,14 @@ func invisibleRune(r rune) bool {
 	)
 }
 
-// nameRuneAllowed reports whether kamune.ValidatePeerName allows r.
-func nameRuneAllowed(r rune) bool {
-	switch {
-	case r == '\u200c', r == '\u200d':
-		return true
-	case unicode.IsControl(r):
-		return false
-	default:
-		return !unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp)
-	}
-}
-
 // sanitizeName makes a stored name safe to show, for names stored before
-// the protocol limited them. Every code point that
-// kamune.ValidatePeerName rejects, and every invalid UTF-8 sequence,
-// becomes U+FFFD, and a name longer than kamune.MaxPeerNameLength bytes
-// is cut on a rune boundary and ends with an ellipsis. The result always
-// passes kamune.ValidatePeerName.
+// the protocol limited them. It is kamune.SanitizePeerName: every code
+// point that kamune.ValidatePeerName rejects, and every invalid UTF-8
+// sequence, becomes U+FFFD, and a name longer than
+// kamune.MaxPeerNameLength bytes is cut on a rune boundary and ends with
+// an ellipsis. The result always passes kamune.ValidatePeerName.
 func sanitizeName(name string) string {
-	const ellipsis = "…"
-	var b strings.Builder
-	limit := kamune.MaxPeerNameLength
-	for i, r := range name {
-		if r == utf8.RuneError {
-			if _, size := utf8.DecodeRuneInString(name[i:]); size == 1 {
-				r = unicode.ReplacementChar
-			}
-		}
-		if !nameRuneAllowed(r) {
-			r = unicode.ReplacementChar
-		}
-		if b.Len()+utf8.RuneLen(r) > limit {
-			out := b.String()
-			for len(out)+len(ellipsis) > limit {
-				_, size := utf8.DecodeLastRuneInString(out)
-				out = out[:len(out)-size]
-			}
-			return out + ellipsis
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
+	return kamune.SanitizePeerName(name)
 }
 
 // pinPeer returns a verifier that rejects a peer whose key is not want

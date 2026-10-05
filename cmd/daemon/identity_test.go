@@ -95,7 +95,10 @@ func TestIdentifyPeer(t *testing.T) {
 				a.NotContains(want, tt.claimed)
 			}
 			a.Equal(want, id.Label)
-			a.Equal(tt.claimed, id.ClaimedName)
+			// The handshake rejects such claims now; a stored name may
+			// still hold them, and it is shown sanitized.
+			a.Equal(kamune.SanitizePeerName(tt.claimed), id.ClaimedName)
+			a.NoError(kamune.ValidatePeerName(id.ClaimedName))
 			a.Equal(tt.wantKnown, id.Known)
 			a.Equal(tt.wantMismatch, id.NameMismatch)
 			a.Equal(tt.wantConflict, id.NameConflict)
@@ -123,7 +126,12 @@ func TestSanitizeName(t *testing.T) {
 		want string
 	}{
 		{name: "clean", in: "Bob", want: "Bob"},
-		{name: "joiner kept", in: "a\u200db", want: "a\u200db"},
+		{name: "joiner between latin letters", in: "a\u200db", want: "a\ufffdb"},
+		{
+			name: "joiner after a virama kept",
+			in:   "\u0915\u094d\u200d\u0937",
+			want: "\u0915\u094d\u200d\u0937",
+		},
 		{name: "bidi override", in: "Bob\u202egnp", want: "Bob\ufffdgnp"},
 		{name: "line break", in: "a\nb", want: "a\ufffdb"},
 		{name: "invalid utf-8", in: "a\xffb", want: "a\ufffdb"},
