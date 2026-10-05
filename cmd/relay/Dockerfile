@@ -22,7 +22,7 @@
 #   docker run --read-only --cap-drop=ALL \
 #     -v kamune-relay:/var/lib/kamune-relay kamune-relay
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /src
 

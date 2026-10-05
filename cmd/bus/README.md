@@ -74,7 +74,7 @@ cmd/bus/
 
 ## Prerequisites
 
-- Go 1.26 or later
+- Go 1.27 or later
 - Node.js 20 (20.19 or later), 22 (22.12 or later) or 24 and later, with
   npm: the versions Vite 8 and its Svelte plugin support
 - Wails v3 CLI, at the version in `go.mod`:

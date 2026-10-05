@@ -1,6 +1,6 @@
 module github.com/kamune-org/kamune/cmd/relay
 
-go 1.26.0
+go 1.27.0
 
 replace github.com/kamune-org/kamune => ../../
 
@@ -8,7 +8,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/coder/websocket v1.8.15
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/kamune-org/kamune v0.7.0
+	github.com/kamune-org/kamune v0.8.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/protobuf v1.36.11
 )

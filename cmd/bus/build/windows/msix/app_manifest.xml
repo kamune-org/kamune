@@ -10,7 +10,7 @@
   <Identity 
     Name="com.kamune.bus"
     Publisher="CN=Kamune Org"
-    Version="2.3.0.0" 
+    Version="2.4.0.0" 
     ProcessorArchitecture="x64" />
   
   <Properties>

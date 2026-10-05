@@ -1,6 +1,6 @@
 module github.com/kamune-org/kamune/cmd/tui
 
-go 1.26.0
+go 1.27.0
 
 replace github.com/kamune-org/kamune => ../../
 
@@ -9,7 +9,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.7
-	github.com/kamune-org/kamune v0.7.0
+	github.com/kamune-org/kamune v0.8.0
 	github.com/stretchr/testify v1.11.1
 	go.etcd.io/bbolt v1.5.0
 	golang.org/x/term v0.46.0

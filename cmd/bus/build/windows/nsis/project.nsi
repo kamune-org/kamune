@@ -22,7 +22,7 @@ Unicode true
 ## !define INFO_PROJECTNAME    "my-project" # Default "bus"
 ## !define INFO_COMPANYNAME    "My Company" # Default "Kamune Org"
 ## !define INFO_PRODUCTNAME    "My Product Name" # Default "Bus"
-## !define INFO_PRODUCTVERSION "1.0.0"     # Default "2.3.0"
+## !define INFO_PRODUCTVERSION "1.0.0"     # Default "2.4.0"
 ## !define INFO_COPYRIGHT      "(c) Now, My Company" # Default "(c) Kamune Org"
 ###
 ## !define PRODUCT_EXECUTABLE  "Application.exe"      # Default "${INFO_PROJECTNAME}.exe"

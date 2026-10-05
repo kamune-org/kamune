@@ -2,7 +2,7 @@
 
 ## Project structure
 
-Monorepo with 5 Go 1.26 modules:
+Monorepo with 5 Go 1.27 modules:
 
 | Directory     | Module                                    | Purpose                                           |
 | ------------- | ----------------------------------------- | ------------------------------------------------- |
@@ -115,7 +115,7 @@ runs have no race detector.
   generated files, markdown tables, and test files.
 - CHANGELOG.md is immutable, and entries should only be added or updated when
   **explicitly** stated.
-- Go 1.26 style (no `//go:build` tags needed for tool directives)
+- Go 1.27 style (no `//go:build` tags needed for tool directives)
 - Error sentinels use `Err` prefix, defined in the package they belong to
   (e.g. `errors.go` for the root package, `pkg/storage/storage.go`,
   `pkg/attest/attest.go`)

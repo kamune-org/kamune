@@ -13,7 +13,7 @@ info:
   description: "Kamune Chat"
   copyright: "(c) Kamune Org"
   comments: "Kamune Chat"
-  version: "2.3.0"
+  version: "2.4.0"
 
 # iOS build configuration (uncomment to customise iOS project generation)
 # Note: Keys under `ios` OVERRIDE values under `info` when set.

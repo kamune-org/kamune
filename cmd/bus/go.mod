@@ -1,11 +1,11 @@
 module github.com/kamune-org/kamune/cmd/bus
 
-go 1.26.0
+go 1.27.0
 
 replace github.com/kamune-org/kamune => ../../
 
 require (
-	github.com/kamune-org/kamune v0.7.0
+	github.com/kamune-org/kamune v0.8.0
 	github.com/stretchr/testify v1.11.1
 	github.com/wailsapp/wails/v3 v3.0.0-beta.23
 	github.com/xtaci/kcp-go/v5 v5.6.72

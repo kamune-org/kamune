@@ -4,7 +4,7 @@
 # built with the gtk3 tag, and build/linux/nfpm/nfpm.yaml declares those
 # libraries as the package's runtime dependencies. Debian 13 (trixie) is
 # the first Debian release that ships both.
-FROM golang:1.26-trixie
+FROM golang:1.27-trixie
 
 ARG TARGETARCH
 

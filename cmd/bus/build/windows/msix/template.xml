@@ -17,7 +17,7 @@
         PackageDisplayName="Bus"
         PublisherName="CN=Kamune Org"
         PublisherDisplayName="Kamune Org"
-        Version="2.3.0.0"
+        Version="2.4.0.0"
         PackageDescription="Kamune Chat">
         <Capabilities>
             <Capability Name="runFullTrust" />
