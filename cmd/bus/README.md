@@ -260,10 +260,17 @@ the camera scans; `Ctrl+Shift+I` imports the URL on the clipboard. See
 3. Press **Enter** or click the send button
 
 Each live session keeps its own draft. A message that did not go out
-because the connection was lost goes back into the input box, unless you
-have typed something else since, and can be sent again once the session
-reconnects. The copy button on a message bubble copies its text; a click on
-the bubble only selects text.
+because the connection was lost, on any transport, a relay included, goes
+back into the input box, unless you have typed something else since, and
+can be sent again once the session reconnects. The copy button on a message
+bubble copies its text; a click on the bubble only selects text.
+
+A chat lists its messages in the order they were sent and received, as the
+history does, and each shows the local time. A message you send is listed
+once it has gone out, so a reply that comes back before that, which only an
+automated peer can manage, is listed above it. The time that a peer put on
+a message comes from the peer's clock, which the peer controls, so Bus only
+shows it, in the tooltip of the message's time, and orders nothing by it.
 
 ### Live Sessions
 
@@ -284,9 +291,8 @@ the bubble only selects text.
   at once, and closes the session, when the peer rejects the resumption,
   as it does past the 24-hour window or after it deleted the session, or
   when no resumption token is left. A session that the peer closed, or
-  whose traffic failed to decrypt, is not resumed.
-  When a peer resumes a session with your server, the session takes the
-  place of its old entry.
+  whose traffic failed to decrypt, is not resumed. When a peer resumes a
+  session with your server, the session takes the place of its old entry.
 
 ### Viewing Session History
 
