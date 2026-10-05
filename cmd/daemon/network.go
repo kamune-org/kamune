@@ -1185,6 +1185,8 @@ func (d *Daemon) handleGenerateP2PToken(cmd Command) {
 			code = "p2p_server_not_running"
 		case errors.Is(err, errBrokerMismatch):
 			code = "broker_addr_mismatch"
+		case errors.Is(err, errTooManyP2PTokens):
+			code = "p2p_token_limit"
 		}
 		d.emitError(cmd.ID, code, fmt.Sprintf("generate p2p token: %v", err))
 		return

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
@@ -762,4 +763,75 @@ func TestGenerateP2PTokenRandomIsNewEachTime(t *testing.T) {
 	static := generate(peer)
 	a.Equal(static, generate(peer))
 	a.Len(d.GetP2PTokens(), 4)
+}
+
+// A p2p server registers at most maxP2PTokens tokens, its own included:
+// the broker drops REGISTERs past its quota for one address, and the
+// tokens past it would lapse while listed as live. Removing a token
+// makes room for another.
+func TestP2PTokensAreCapped(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	broker := newFakeBroker(t, false)
+	d.handleStartServer(Command{
+		ID: "start",
+		Params: mustJSON(StartServerParams{
+			Addr: "127.0.0.1:0", Transport: "p2p", BrokerAddr: broker.addr(),
+			PeerPubB64: fingerprint.Base64(newTestPeerKey(t)),
+		}),
+	})
+	evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == "start" })
+	a.Equal(EvtServerStarted, evt.Evt, "start failed: %v", evt.Data)
+
+	n := 0
+	generate := func() recordedEvent {
+		t.Helper()
+		n++
+		id := ID(fmt.Sprintf("gen-%d", n))
+		d.handleGenerateP2PToken(Command{
+			ID: id, Params: mustJSON(MapS{"broker_addr": broker.addr()}),
+		})
+		return rec.waitFor(t, func(e recordedEvent) bool { return e.ID == id })
+	}
+	var last string
+	for range maxP2PTokens - 1 {
+		evt := generate()
+		a.Equal(EvtResponse, evt.Evt, "generate failed: %v", evt.Data)
+		last, _ = evt.Data["token"].(string)
+	}
+	a.Len(d.GetP2PTokens(), maxP2PTokens)
+	// distinct counts the tokens the broker got a REGISTER for; a
+	// refresh only sends those again.
+	distinct := func() int {
+		var seen []string
+		for _, r := range broker.registrations() {
+			if k := hex.EncodeToString(r); !slices.Contains(seen, k) {
+				seen = append(seen, k)
+			}
+		}
+		return len(seen)
+	}
+	registered := distinct()
+
+	evt = generate()
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("p2p_token_limit", evt.Data["code"], evt.Data["error"])
+	a.Len(d.GetP2PTokens(), maxP2PTokens)
+	// The broker reads the punch socket's packets in order, so a
+	// REGISTER of the refused token would arrive before this one.
+	probe := []byte(strings.Repeat("p", 32))
+	d.mu.RLock()
+	l, ok := d.p2pListener.(*p2pListener)
+	d.mu.RUnlock()
+	a.True(ok)
+	_, err := l.conn.WriteToUDP(relaybroker.BuildRegister(
+		probe, bytes.Repeat([]byte{1}, 32), l.claimIP, l.claimPort,
+	), l.brokerUDP)
+	a.NoError(err)
+	broker.waitRegistered(t, probe)
+	a.Equal(registered+1, distinct(), "a token past the cap was sent")
+
+	a.NoError(d.RemoveP2PToken(last))
+	evt = generate()
+	a.Equal(EvtResponse, evt.Evt, "generate failed: %v", evt.Data)
 }

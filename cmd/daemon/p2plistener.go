@@ -272,32 +272,38 @@ func (l *p2pListener) releaseToken(t listenerToken) {
 }
 
 // RegisterToken registers an additional token from the punch socket,
-// under the broker identity that BrokerClient keeps for it. peer is the
-// key of the peer that a static token was derived for, or nil for a
-// random token.
+// under the broker identity that BrokerClient keeps for it, and keeps it
+// registered until UnregisterToken removes it. peer is the key of the
+// peer that a static token was derived for, or nil for a random token.
+// While the listener registers maxP2PTokens tokens, its own included, a
+// new token is refused with errTooManyP2PTokens, and not sent.
 func (l *p2pListener) RegisterToken(token, peer []byte) error {
+	l.tokenMu.Lock()
+	if l.ctx.Err() != nil {
+		l.tokenMu.Unlock()
+		return net.ErrClosed
+	}
+	if len(l.tokens) >= maxP2PTokens {
+		l.tokenMu.Unlock()
+		return errTooManyP2PTokens
+	}
 	id, err := l.broker.identity(l.brokerAddr, token)
 	if err != nil {
+		l.tokenMu.Unlock()
 		return fmt.Errorf("broker client: %w", err)
 	}
-	t := listenerToken{
+	l.tokens = append(l.tokens, listenerToken{
 		token: token, id: id, held: true, peer: bytes.Clone(peer),
-	}
+	})
+	l.tokenMu.Unlock()
+
 	pkt := relaybroker.BuildRegister(
 		token, id.PublicKey(), l.claimIP, l.claimPort,
 	)
 	if _, err := l.conn.WriteToUDP(pkt, l.brokerUDP); err != nil {
-		l.releaseToken(t)
+		l.UnregisterToken(token)
 		return fmt.Errorf("send register: %w", err)
 	}
-	l.tokenMu.Lock()
-	defer l.tokenMu.Unlock()
-	if l.ctx.Err() != nil {
-		// Closed meanwhile: Close released the tokens it held.
-		l.releaseToken(t)
-		return net.ErrClosed
-	}
-	l.tokens = append(l.tokens, t)
 	return nil
 }
 

@@ -35,6 +35,22 @@ const (
 	defaultMatchTimeout = 30 * time.Second
 )
 
+// maxP2PTokens caps the tokens that a p2p server registers, its own
+// included. The listener sends a REGISTER for each of its tokens every
+// p2pTokenRefreshInterval from one address, and the broker drops,
+// without a word, the REGISTERs of a source address past its quota,
+// which is 20 a minute by default: past about 10 tokens, some would
+// lapse while p2p_tokens lists them as live. 8 leaves room for the
+// REGISTERs of dials and of a new token.
+const maxP2PTokens = 8
+
+// errTooManyP2PTokens is returned by GenerateP2PToken while the p2p
+// server registers maxP2PTokens tokens.
+var errTooManyP2PTokens = fmt.Errorf(
+	"a p2p server registers at most %d tokens; remove one first",
+	maxP2PTokens,
+)
+
 // errInvalidP2PToken is returned by parseP2PToken.
 var errInvalidP2PToken = errors.New(
 	"p2p_token must be 32 or 64 hex characters",
