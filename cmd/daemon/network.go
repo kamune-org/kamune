@@ -368,6 +368,7 @@ func (d *Daemon) startServer(
 	d.pubKey = pubKey
 	d.server = srv
 	d.serverIncognito = incognito
+	d.serverStartedAt = time.Now()
 	d.serverDone = done
 	d.serverBoundAddr = params.Addr
 	serverTransport := params.Transport
@@ -629,7 +630,8 @@ func (d *Daemon) handleCancelStartServer(cmd Command) {
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "cancelled"})
 }
 
-// handleGetServerStatus returns the current server state.
+// handleGetServerStatus returns the current server state. started_at is
+// when the running server started, and empty while none runs.
 func (d *Daemon) handleGetServerStatus(cmd Command) {
 	d.mu.RLock()
 	running := d.server != nil
@@ -642,11 +644,7 @@ func (d *Daemon) handleGetServerStatus(cmd Command) {
 	name := d.serverName
 	var startedAt time.Time
 	if running {
-		for _, s := range d.sessions {
-			if s.IsServer && !startedAt.After(s.SessionStartedAt) {
-				startedAt = s.SessionStartedAt
-			}
-		}
+		startedAt = d.serverStartedAt
 	}
 	d.mu.RUnlock()
 

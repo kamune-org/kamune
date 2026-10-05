@@ -160,6 +160,8 @@ type Daemon struct {
 	// serverIncognito records that the running server was started in
 	// incognito mode, so that it stores no session records.
 	serverIncognito bool
+	// serverStartedAt is when the running server started.
+	serverStartedAt time.Time
 
 	relayAddr     string
 	relayPassword string

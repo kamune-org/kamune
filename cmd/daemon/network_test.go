@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -158,4 +160,31 @@ func TestUnknownTransportIsRefused(t *testing.T) {
 			a.Equal("server_not_started", evt.Data["code"], evt.Data["error"])
 		})
 	}
+}
+
+// get_server_status reports when the running server started, whether or
+// not a peer has connected to it, and no start time while none runs.
+func TestServerStatusStartedAt(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	status := func(id ID) recordedEvent {
+		t.Helper()
+		d.handleGetServerStatus(Command{ID: id})
+		return rec.waitFor(t, func(e recordedEvent) bool { return e.ID == id })
+	}
+
+	a.Equal("", status("before").Data["started_at"])
+	before := time.Now().Truncate(time.Second)
+	startTestServer(t, d, rec)
+	after := time.Now()
+
+	evt := status("running")
+	a.Equal(true, evt.Data["running"])
+	startedAt, err := time.Parse(time.RFC3339, fmt.Sprint(evt.Data["started_at"]))
+	a.NoError(err, "started_at %v", evt.Data["started_at"])
+	a.False(startedAt.Before(before), "%v", startedAt)
+	a.False(startedAt.After(after), "%v", startedAt)
+
+	d.stopServer()
+	a.Equal("", status("stopped").Data["started_at"])
 }
