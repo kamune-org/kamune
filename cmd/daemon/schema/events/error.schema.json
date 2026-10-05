@@ -7,7 +7,7 @@
   "properties": {
     "error": { "type": "string", "description": "Human-readable error message." },
     "code":  { "type": "string", "description": "Stable machine-readable error code." },
-    "reason": { "type": "string", "description": "Present on some errors to tell apart failures that share a code. storage_open_failed from open_storage and submit_passphrase carries wrong_passphrase, passphrase_required (no passphrase was given), corrupt_metadata, insecure_permissions (the database file is open to other users and its mode cannot be restricted) or unsupported_format (the database was written by a newer version), and none for other failures. send_message_failed carries connection_lost or message_too_large; see send_message." }
+    "reason": { "type": "string", "description": "Present on some errors to tell apart failures that share a code. storage_open_failed from open_storage and submit_passphrase carries wrong_passphrase, passphrase_required (no passphrase was given), corrupt_metadata, insecure_permissions (the database file is open to other users and its mode cannot be restricted), unsupported_format (the database was written by a newer version), in_use (another program, such as another daemon, the TUI or Bus, holds the database, and the open gave up after waiting 5 seconds), upgrade_failed or compact_failed (the database was written by an older version and could not be upgraded, or compacted after its upgrade, for example on a full disk or in a directory the daemon cannot write to; every open tries again), and none for other failures. send_message_failed carries connection_lost or message_too_large; see send_message." }
   },
   "required": ["error", "code"]
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/zalando/go-keyring"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 const keychainService = "kamune"
@@ -283,6 +284,14 @@ func (d *Daemon) emitErrorReason(
 
 // storageErrorReasons name the storage errors that a client can act on,
 // for the reason field of a storage_open_failed error.
+//
+// in_use: another program, such as another daemon, the TUI or Bus,
+// holds the database, and the open gave up waiting for it after five
+// seconds. upgrade_failed and compact_failed: the database was written
+// by an older version and could not be upgraded, or compacted after its
+// upgrade, for example on a full disk or in a directory the daemon
+// cannot write to, where the lock file next to the database cannot be
+// created. Every open tries again.
 var storageErrorReasons = []struct {
 	err    error
 	reason string
@@ -291,6 +300,9 @@ var storageErrorReasons = []struct {
 	{storage.ErrCorruptMetadata, "corrupt_metadata"},
 	{storage.ErrInsecurePermissions, "insecure_permissions"},
 	{storage.ErrUnsupportedFormat, "unsupported_format"},
+	{storage.ErrUpgradeFailed, "upgrade_failed"},
+	{storage.ErrCompactFailed, "compact_failed"},
+	{bolterrors.ErrTimeout, "in_use"},
 	{errPassphraseRequired, "passphrase_required"},
 }
 

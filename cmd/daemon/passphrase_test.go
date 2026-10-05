@@ -10,6 +10,7 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 func TestStorageErrorReason(t *testing.T) {
@@ -21,6 +22,19 @@ func TestStorageErrorReason(t *testing.T) {
 		{storage.ErrCorruptMetadata, "corrupt_metadata"},
 		{storage.ErrInsecurePermissions, "insecure_permissions"},
 		{storage.ErrUnsupportedFormat, "unsupported_format"},
+		{
+			fmt.Errorf("%w: rewrite store file: lock file is not held",
+				storage.ErrUpgradeFailed),
+			"upgrade_failed",
+		},
+		{
+			fmt.Errorf("%w: %w", storage.ErrCompactFailed, storage.ErrReopen),
+			"compact_failed",
+		},
+		{
+			fmt.Errorf("opening kamune db: open db: %w", bolterrors.ErrTimeout),
+			"in_use",
+		},
 		{errPassphraseRequired, "passphrase_required"},
 		{errors.New("disk full"), ""},
 	}
@@ -202,4 +216,29 @@ func TestChangePassphraseNeedsIdleStorage(t *testing.T) {
 	d.closeStore()
 	evt = run("closed")
 	a.Equal("storage_not_opened", evt.Data["code"])
+}
+
+// A storage that another program holds fails to open with reason
+// in_use, once the open has waited for it, not with a bare timeout.
+func TestStorageInUseReason(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits 5 seconds for the database's lock")
+	}
+	a := require.New(t)
+	holder, _ := newTestDaemon(t, VerificationModeQuick, false)
+	holder.mu.RLock()
+	path := holder.dbPath
+	holder.mu.RUnlock()
+
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	d.handleOpenStorage(Command{
+		ID: "open",
+		Params: mustJSON(OpenStorageParams{
+			StoragePath: path, DBNoPassphrase: true,
+		}),
+	})
+	evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == "open" })
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("storage_open_failed", evt.Data["code"])
+	a.Equal("in_use", evt.Data["reason"], evt.Data["error"])
 }
