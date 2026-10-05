@@ -1,3 +1,67 @@
+## v0.7.0
+
+> [!NOTE]
+> This release has no binary release artifacts, as v0.8.0 aims to fully address
+> the findings in the Red Team Review report (`docs/RED_TEAM_REVIEW.md`).
+
+### Core Library
+
+- Signed transport metadata (RFC002): serialized `Metadata` is signed alongside the payload using domain-separated signing input (`"kamune/transport-sign/v1" || varint(len(metadata)) || metadata || data`), protecting message ID, timestamp, sequence number, and route from tampering.
+- Require explicit `RemoteVerifier`: `RemoteVerifier` is now a mandatory parameter for `NewDialer` and `NewServer` (previously optional); removed default interactive verifier and interactive storage passphrase prompts.
+- Strict sequence enforcement: duplicate sequence numbers or sequence gaps in `Transport.Receive` violate the connection contract and immediately close the connection with `ErrOutOfSync` (withdrawing sliding-window RFC003).
+- Atomic `Transport.Send`: protected sequence number allocation, serialization, and write under a dedicated `sendMu` mutex to ensure strictly ordered frames.
+- Session resumption security: signed and verified `ResumeAccept` messages against the server's public key; added session ID check in resumed handshakes; reordered token consumption to occur only after session verification; enforced 32-byte resumption token size; automatically invalidate remaining tokens on graceful transport close (`Close` or `RouteCloseTransport`).
+- Storage engine refactor: replaced `internal/store` with interface-based `internal/engine` package (`Store` and `Namespace` interfaces); introduced `nilNamespace` for safe chaining and split read-only `Sub` from write-only `Ensure`; mutex protection for `BoltStore`.
+- Robust session storage: added `PutSessionResumption` atomic helper; purge expired peer records on `ErrPeerExpired`; use constant-time comparison (`subtle.ConstantTimeCompare`) when removing list items; handle malformed/legacy chat entries gracefully.
+- Transport enhancements: added `AcceptedMeta` interface and `Transport.AcceptedMeta()` to pass connection metadata through the handshake; added `Transport.ReceivePayload()` to receive verified protobuf bytes without unmarshaling; added `Transport.CloseAbort()` to close dropped connections without invalidating resumption tokens; added `Transport.SetDeadline()`; mapped `net.ErrClosed` and `io.ErrClosedPipe` to `ErrConnClosed`.
+- Phase-specific route validation: `Transport.Receive` and `Transport.Send` enforce challenge routes prior to establishment and session routes thereafter, returning `ErrUnexpectedRoute` on violations.
+- Connection deadlines: coordinated read/write deadlines in `Conn` so `SetDeadline` interrupts active I/O; added `SetWriteDeadline` to `exchange.Channel`; server applies handshake deadline and resets it before handler invocation.
+- `pkg/relayconn`: split relay token exchange into non-blocking `BeginRelayTokenExchange` and `Complete`/`CompleteRelayTokenPayload` phases; added context cancellation support in `DialRelayContext`; enforced 5-second timeout in `DeriveRelayTokens`; fixed partial write handling and uint16 overflow in `WriteBytes`; added write deadlines to framing and adapters.
+- Fuzzing: added fuzz test suites for transport receive envelope, pre-auth envelope validation, exchange parsing, framing (`FuzzFramingReadBytes`), chat entry decoding, and packed list serialization.
+
+### Relay (v1.3.0)
+
+- Trusted proxies: added `[trusted_proxies]` configuration for client IP extraction from reverse proxies via `X-Forwarded-For`.
+- Rate limiting: return HTTP 429 (Too Many Requests) with `Retry-After` on WebSocket rate limit violations instead of abruptly dropping TCP connections.
+- UDP hole-punch broker: capped registration registry at 100,000 entries; use observed UDP address for match notifications; update rebound addresses on self-match re-registration; periodic background purge loop for expired registrations.
+- Write timeouts & keepalives: implemented `SetWriteDeadline` across adapters; hub uses `WriteBytesWithin` with a 15-second write limit; enabled TCP keepalive on accepted connections; added `ReadHeaderTimeout` to HTTP servers; close channels on pong write failure.
+- Concurrency & security: atomic handshake state transitions; atomic startup preflight validation; fixed session manager lock ordering; verify session ownership on removal (`RemoveIfOwner`); close peer channel before unregistering in panic recovery; added localhost/loopback SANs to self-signed TLS certificates; support `handshake_timeout = 0` to disable handshake timeout.
+- Drop unused `golang.org/x/term` dependency.
+
+### Bus (v2.3.0)
+
+- Desktop framework: migrated from Wails v2 to Wails v3 (beta); revised application lifecycle, window management, event emission, native menus, and Taskfile build pipelines for macOS, Linux, and Windows.
+- Frontend overhaul: migrated frontend components to Svelte 5 (runes syntax) and TypeScript (`.ts` files, typed stores and event payloads); added Prettier tooling and `svelte-check` scripts.
+- Theming: added light/dark theme toggle with CSS variable styling, persisting selection in the backend `settings` storage bucket.
+- Relay & P2P enhancements: wrapped accepted relay connections in `trackingConn` for deterministic close handling; stamped relay tokens with session IDs; processed `RouteSessionData` asynchronously via `ReceivePayload` without blocking chat streams; direct P2P listener registration for static tokens; broker source address validation; periodic broker registration refresh ticker during `WaitMatch`; direct P2P transparent session reconnection.
+- Session lifecycle & API: guarded `liveSession` with a mutex; exposed `GetServerStatus`; adapted to mandatory `RemoteVerifier` API; propagate client name to outbound dials; teardown via `CloseAbort()` on keepalive failure to preserve resumption tokens.
+
+### Daemon (v1.1.0)
+
+- Schemas & metadata: added 82 JSON schema specifications in `cmd/daemon/schema/` covering all commands and events; standardized machine-readable protocol error codes and session metadata fields; added `session_reconnecting` and `session_reconnected` events.
+- History & pagination: added `limit` and `offset` pagination parameters and `data_base64` field to `get_history_messages`; switched stdin reading from `bufio.Scanner` to `bufio.Reader` to handle arbitrarily large commands without buffer overflow.
+- Dynamic logging & keychain: added `set_log_level` command for runtime slog level adjustments; improved keychain integration; formatted fingerprints as `b64`, `hex`, `sum`, and `emoji`; generate `p2p://` and `direct-p2p://` URLs in `get_share_info`.
+- Networking & lifecycle: added broker registration refresh ticker and source address validation during `WaitMatch`; supported extra tokens on `p2plistener`; added session stamping on relay tokens; non-blocking message sends; protected `liveSession` with mutex; context cancellation during P2P/relay dials; timeout guards on server start/cancel; preserved parameters on `restart_server`; teardown via `CloseAbort()` on keepalive failure; fixed `multiListener` race condition.
+
+### TUI
+
+- Pass `RemoteVerifier` directly as a required parameter during client, server, and relay dialer initialization.
+- Refactor test assertions to use testify `require` instance pattern.
+- Update core library dependency to v0.7.0.
+
+### Documentation & Specifications
+
+- Red Team Review: published comprehensive security evaluation report (`docs/RED_TEAM_REVIEW.md`) detailing 218 findings across cryptographic primitives, verification workflows, relay isolation, and storage.
+- Protocol specification (`docs/SPEC.md`): defined X-Wing HPKE suite (§6.1.1); codified `Conn` contract interface; lengthened session ID halves from 10 to 12 base32 characters (24 total); merged RFC002 signed metadata; documented challenge phase derivation, Enigma session AEAD, and v1 resumption token formulas; specified fatal connection closure on sequence errors; marked storage section as non-normative.
+- RFCs: added and revised RFC005, rewriting message fragmentation into consent-based file transfer; formally withdrew RFC003 (sequence replay window); bumped RFC and specification target versions to v0.7.0.
+- Developer guide: updated architecture notes, BoltDB storage details, and test conventions in `AGENTS.md`.
+
+### Miscellaneous & Tooling
+
+- Add `make fuzz` target in Makefile running Go fuzz tests across transport, exchange, relayconn, and storage packages.
+- Update `.dockerignore` to exclude `cmd/relay`.
+- Unified test suites across all 5 modules (kamune, relay, bus, daemon, tui) to use testify's `require.New(t)` instance pattern.
+
 ## v0.6.0
 
 ### Core Library
