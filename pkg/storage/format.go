@@ -38,15 +38,28 @@ const storageFormat = 2
 // upgradeFormat brings the database from version, its recorded layout,
 // up to [storageFormat] and records it. Each step can be run again on data
 // it already converted, so a step that is interrupted, by a crash or an
-// error, is completed on the next open. When a step changed anything, the
-// database is compacted afterwards, so that the old layout does not stay
-// in free pages. A compaction that is interrupted or fails is tried
-// again on every later open until it succeeds.
+// error, is completed on the next open. A database that holds peers,
+// sessions or settings is marked for compaction before the first step and
+// compacted once the version is recorded, so that the old layout does not
+// stay in free pages. The steps commit on their own, so the mark comes
+// first: after a crash between the last step and the record, the next
+// open finds nothing left to convert, but still compacts. A compaction
+// that is interrupted or fails is tried again on every later open until
+// it succeeds.
 func (s *Storage) upgradeFormat(version byte) error {
 	if version >= storageFormat {
 		return s.compactIfPending()
 	}
 
+	err := s.engine.Command(func(b engine.Namespace) error {
+		if !holdsData(b) {
+			return nil
+		}
+		return markCompactPending(b)
+	})
+	if err != nil {
+		return err
+	}
 	var changed int
 	if version < 1 {
 		n, err := s.convertLegacyChats()
@@ -62,14 +75,9 @@ func (s *Storage) upgradeFormat(version byte) error {
 		}
 		changed += n
 	}
-	err := s.engine.Command(func(b engine.Namespace) error {
-		def := b.Ensure([]byte(engine.DefaultNamespace))
-		if changed > 0 {
-			if err := markCompactPending(b); err != nil {
-				return err
-			}
-		}
-		return def.PutEncrypted([]byte(formatKey), []byte{storageFormat})
+	err = s.engine.Command(func(b engine.Namespace) error {
+		return b.Ensure([]byte(engine.DefaultNamespace)).
+			PutEncrypted([]byte(formatKey), []byte{storageFormat})
 	})
 	if err != nil {
 		return fmt.Errorf("record format version: %w", err)
@@ -82,6 +90,21 @@ func (s *Storage) upgradeFormat(version byte) error {
 		)
 	}
 	return s.compactIfPending()
+}
+
+// holdsData reports whether b holds any peer, session or setting, the data
+// that [Storage.upgradeFormat] converts.
+func holdsData(b engine.Namespace) bool {
+	for _, ns := range []string{
+		engine.PeersNamespace,
+		engine.SessionsNamespace,
+		engine.SettingsNamespace,
+	} {
+		if b.Sub([]byte(ns)).FirstKey() != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // markCompactPending records [compactPendingKey] in b, under a new random

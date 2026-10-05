@@ -380,3 +380,57 @@ func TestCompactKeepsNewerMark(t *testing.T) {
 	a.NoError(s.Compact())
 	a.False(compactPending(t, s), "compaction still pending")
 }
+
+// TestOpenStorageCompactsAfterInterruptedUpgrade runs the steps of an
+// upgrade but stops before the format version is recorded, as a crash
+// there would, and checks that the next open, which finds nothing left
+// to convert, still compacts the old names out of the file.
+func TestOpenStorageCompactsAfterInterruptedUpgrade(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	open := func() *Storage {
+		s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
+		a.NoError(err)
+		return s
+	}
+	keys := map[string][]byte{}
+	for _, name := range []string{"alice", "mallory"} {
+		att, err := attest.New()
+		a.NoError(err)
+		keys[name] = att.MarshalPublicKey()
+	}
+	const sessionID = "QWERTYUIOPASDFGHJKLZXCVB"
+	s := open()
+	a.False(compactPending(t, s), "an empty database marked")
+	writeLegacyLayout(
+		t, s, sessionID, map[string][]byte{"alice": keys["alice"]},
+		keys["alice"], keys["mallory"], [][]byte{makeToken(1, 32)},
+	)
+	a.NoError(s.loadNameKey())
+	_, err := s.convertLegacyChats()
+	a.NoError(err)
+	_, err = s.keyNames()
+	a.NoError(err)
+	version, err := s.formatVersion()
+	a.NoError(err)
+	a.Zero(version)
+	a.NoError(s.Close())
+
+	s = open()
+	version, err = s.formatVersion()
+	a.NoError(err)
+	a.Equal(byte(storageFormat), version)
+	a.False(compactPending(t, s), "compaction still pending")
+	sessions, err := s.ListSessions()
+	a.NoError(err)
+	a.Equal([]string{sessionID}, sessions)
+	a.NoError(s.Close())
+
+	raw, err := os.ReadFile(path)
+	a.NoError(err)
+	a.False(bytes.Contains(raw, []byte(sessionID)), "session ID in file")
+	a.False(
+		bytes.Contains(raw, []byte("daemon:incognito")),
+		"setting name in file",
+	)
+}
