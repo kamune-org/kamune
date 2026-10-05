@@ -163,15 +163,9 @@ func TestPendingVerificationsAreCappedAndDeduped(t *testing.T) {
 	a.Equal(StatusVerifying, d.status)
 	d.mu.RUnlock()
 
-	// A second connection with a pending key is rejected without a prompt.
-	err := d.inboundVerifier()(d.store(), &storage.Peer{
-		Name: "again", PublicKey: peers[0].PublicKey,
-	})
-	a.ErrorIs(err, errVerificationPending)
-	a.ErrorIs(err, kamune.ErrVerificationFailed)
-
-	// So is any connection once the cap is reached.
-	err = d.inboundVerifier()(d.store(), peers[maxPendingVerifications])
+	// A connection with a new key is rejected without a prompt once the
+	// cap is reached.
+	err := d.inboundVerifier()(d.store(), peers[maxPendingVerifications])
 	a.ErrorIs(err, errTooManyVerifications)
 	a.ErrorIs(err, kamune.ErrVerificationFailed)
 	a.Equal(maxPendingVerifications, countPrompts())
@@ -248,12 +242,13 @@ func TestFullVerificationSlotsLeaveKnownAndDialedPeers(t *testing.T) {
 	})
 	a.ErrorIs(err, errTooManyVerifications)
 
-	// A known peer that connects is still asked about, once per key.
-	ids = append(ids, prompt(d.inboundVerifier(), friend))
-	err = d.inboundVerifier()(d.store(), &storage.Peer{
+	// A known peer that connects is still asked about, once per key: a
+	// new connection with its key replaces its prompt.
+	prompt(d.inboundVerifier(), friend)
+	ids = append(ids, prompt(d.inboundVerifier(), &storage.Peer{
 		Name: "friend again", PublicKey: friend.PublicKey,
-	})
-	a.ErrorIs(err, errVerificationPending)
+	}))
+	a.ErrorIs(<-verdicts, errVerificationReplaced)
 
 	// So is every peer the user dials, known or not, even one whose key
 	// is pending on an inbound connection.
@@ -674,4 +669,62 @@ func TestStopServerEndsPendingVerifications(t *testing.T) {
 			(e.Evt == EvtSessionStarted || e.Evt == EvtError)
 	})
 	a.Equal(EvtError, evt.Evt, "the dial got a session")
+}
+
+// A peer that connects to the server again while its prompt is open, as
+// after it gave up or its connection dropped, is asked about again: the
+// new prompt replaces the old one, which can no longer be answered.
+func TestInboundPromptIsReplacedByTheSameKey(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeStrict, false)
+	key := newTestPeerKey(t)
+	promptOf := func(name string) int64 {
+		t.Helper()
+		evt := rec.waitFor(t, func(e recordedEvent) bool {
+			return e.Evt == EvtVerifyPeer && e.Data["claimed_name"] == name
+		})
+		id, ok := evt.Data["request_id"].(float64)
+		a.True(ok)
+		return int64(id)
+	}
+
+	first := make(chan error, 1)
+	go func() {
+		first <- d.inboundVerifier()(d.store(), &storage.Peer{
+			Name: "first try", PublicKey: key,
+		})
+	}()
+	firstID := promptOf("first try")
+
+	second := make(chan error, 1)
+	go func() {
+		second <- d.inboundVerifier()(d.store(), &storage.Peer{
+			Name: "second try", PublicKey: key,
+		})
+	}()
+	secondID := promptOf("second try")
+	a.NotEqual(firstID, secondID)
+	err := <-first
+	a.ErrorIs(err, errVerificationReplaced)
+	a.ErrorIs(err, kamune.ErrVerificationFailed)
+
+	d.handleVerifyResponse(Command{
+		ID: "old",
+		Params: mustJSON(VerifyResponseParams{
+			RequestID: firstID, Accepted: true,
+		}),
+	})
+	evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == "old" })
+	a.Equal(EvtError, evt.Evt)
+	a.Equal("verification_not_found", evt.Data["code"])
+	d.mu.RLock()
+	a.Equal(StatusVerifying, d.status)
+	d.mu.RUnlock()
+
+	d.handleVerifyResponse(Command{
+		Params: mustJSON(VerifyResponseParams{
+			RequestID: secondID, Accepted: true,
+		}),
+	})
+	a.NoError(<-second)
 }

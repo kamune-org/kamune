@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-verify-response",
   "title": "verify_response params",
-  "description": "Answers a pending verify_peer event. A request that is not pending, because it was answered, timed out or never existed, fails with verification_not_found. An unknown peer that is accepted is stored as a known peer once its session is established, unless incognito mode is on; a peer whose handshake fails after it was accepted is not stored.",
+  "description": "Answers a pending verify_peer event. A request that is not pending, because it was answered, timed out, was replaced by a newer prompt for the same peer or never existed, fails with verification_not_found. An unknown peer that is accepted is stored as a known peer once its session is established, unless incognito mode is on; a peer whose handshake fails after it was accepted is not stored.",
   "type": "object",
   "properties": {
     "request_id": { "type": "integer" },

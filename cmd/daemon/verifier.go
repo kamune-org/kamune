@@ -22,12 +22,14 @@ const (
 )
 
 var (
-	// errVerificationPending rejects a peer that connects to the server,
-	// without asking the user, while a verification of the same key from
-	// another inbound connection is pending.
-	errVerificationPending = fmt.Errorf(
-		"%w: a verification of this peer is already pending",
-		kamune.ErrVerificationFailed,
+	// errVerificationReplaced ends the pending verification of a peer
+	// that connected to the server when the same key connects again: the
+	// newer connection is asked about instead. The kamune library does
+	// not tell a verifier that its connection went away, so the older
+	// one may be dead, and the peer would otherwise be locked out until
+	// its prompt timed out.
+	errVerificationReplaced = fmt.Errorf(
+		"%w: the peer connected again", kamune.ErrVerificationFailed,
 	)
 	// errTooManyVerifications rejects an unknown peer that connects to
 	// the server, without asking the user, while maxPendingVerifications
@@ -267,13 +269,14 @@ func (d *Daemon) askUser(
 // other status that was current when one of them began.
 //
 // Only a peer that connected to the server (inbound) can be rejected,
-// because anyone who reaches the server can open these prompts: it gets
-// errVerificationPending while another inbound connection with its key is
-// pending, and, when it is unknown, errTooManyVerifications while
-// maxPendingVerifications unknown inbound peers are pending. Nothing is
-// recorded then. A known peer is not capped, so a flood of unknown keys
-// cannot lock it out, and the per-key check allows each stored key one
-// prompt. A peer the user dials is never rejected here.
+// because anyone who reaches the server can open these prompts: when it
+// is unknown, it gets errTooManyVerifications while
+// maxPendingVerifications other unknown inbound peers are pending, and
+// nothing is recorded. A known peer is not capped, so a flood of unknown
+// keys cannot lock it out. Each key has at most one inbound prompt: a
+// verification of the same key from an earlier inbound connection ends
+// with errVerificationReplaced, and the new connection is asked about.
+// A peer the user dials is never rejected here, and replaces no prompt.
 func (d *Daemon) beginVerification(
 	peer *storage.Peer, id peerIdentity, hexFP string, inbound bool,
 ) (int64, chan error, error) {
@@ -284,12 +287,14 @@ func (d *Daemon) beginVerification(
 	defer d.verifMu.Unlock()
 	if inbound {
 		unknown := 0
-		for _, p := range d.verifRequests {
+		var earlier []int64
+		for reqID, p := range d.verifRequests {
 			if !p.inbound {
 				continue
 			}
 			if p.key == key {
-				return 0, nil, errVerificationPending
+				earlier = append(earlier, reqID)
+				continue
 			}
 			if !p.known {
 				unknown++
@@ -297,6 +302,9 @@ func (d *Daemon) beginVerification(
 		}
 		if !known && unknown >= maxPendingVerifications {
 			return 0, nil, errTooManyVerifications
+		}
+		for _, reqID := range earlier {
+			d.replaceVerificationLocked(reqID)
 		}
 	}
 	d.mu.RLock()
@@ -318,6 +326,26 @@ func (d *Daemon) beginVerification(
 	}
 	d.setStatus(StatusVerifying, "Verifying fingerprint of "+id.Label+"...")
 	return reqID, result, nil
+}
+
+// replaceVerificationLocked ends the pending verification reqID with
+// errVerificationReplaced and removes it, so that verify_response no
+// longer finds it. The caller holds d.verifMu and records the
+// verification that replaces it, so the status stays verifying.
+func (d *Daemon) replaceVerificationLocked(reqID int64) {
+	p, ok := d.verifRequests[reqID]
+	if !ok {
+		return
+	}
+	delete(d.verifRequests, reqID)
+	select {
+	case p.result <- errVerificationReplaced:
+	default:
+	}
+	d.addLogEntry("INFO", fmt.Sprintf(
+		"Verification request %d of %s replaced: the peer connected again",
+		reqID, p.peerID,
+	))
 }
 
 // endVerification removes the pending verification reqID. When no other

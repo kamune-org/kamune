@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-evt-verify-peer",
   "title": "verify_peer data",
-  "description": "Emitted when a new peer needs verification (Strict or Quick mode). Client must respond with verify_response within 2 minutes. A peer that connects to the server is rejected without this event while another connection with its key is pending, or, if it is unknown, while 8 unknown peers that connected are pending. Known peers do not count toward the 8, and a peer the user dials (dial or a reconnect) is never rejected this way. stop_server and restart_server reject the pending prompts of peers that connected to the server; verify_response then fails with verification_not_found.",
+  "description": "Emitted when a new peer needs verification (Strict or Quick mode). Client must respond with verify_response within 2 minutes. A peer that connects to the server again while a prompt for its key from an earlier connection is pending gets a new prompt, which replaces the earlier one: that request_id then fails with verification_not_found, and its handshake ends. An unknown peer that connects is rejected without this event while 8 other unknown peers that connected are pending. Known peers do not count toward the 8, and a peer the user dials (dial or a reconnect) is never rejected this way. stop_server and restart_server reject the pending prompts of peers that connected to the server; verify_response then fails with verification_not_found.",
   "type": "object",
   "properties": {
     "request_id": { "type": "integer" },
