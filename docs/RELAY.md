@@ -1094,6 +1094,14 @@ matches in between is sent the old address. That match consumes the entry: the
 matched peer's hole punch fails, and the owner, whose NOTIFY went to the old
 address, holds a new entry only from its next REGISTER.
 
+The broker, and anyone who watches its traffic, can link registrations that
+carry the same key. The bus registers every token under one key, made when it
+starts. The daemon makes a key for each token and broker, and keeps it while
+the token is registered and for 2 minutes after, so that a retried dial reuses
+it. Its tokens do not share a key, but the tokens of one P2P listener are
+registered and refreshed together from the same socket, so the broker can
+still link them by source address.
+
 **Design decision: hybrid token model.** Static tokens (above) and
 broker-assigned random tokens share the same wire format. A peer registering
 with an empty `TOKEN` field gets a 16-byte random token via
