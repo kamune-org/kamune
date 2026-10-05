@@ -302,6 +302,7 @@ On macOS, use Cmd in place of Ctrl.
 | `Ctrl+N` | Open the Connect dialog |
 | `Ctrl+S` | Open the Start Server dialog, or stop the running server (asks first while sessions are live) |
 | `Ctrl+W` | On macOS, disconnect the open session, without asking. On Windows and Linux, close the window (Close in the Window menu that Wails adds), which quits Bus and closes every session and the server |
+| `Ctrl+Shift+W` | Disconnect every session, without asking |
 | `Ctrl+H` | Show the History tab |
 | `Ctrl+R` | Refresh the history |
 | `Ctrl+L` | Toggle the log panel |
@@ -345,9 +346,9 @@ The Start Server and Connect dialogs take a scheme (`tcp`, `tls`, `ws` or
 `wss`) and the relay's `host:port`. Only `tls` and `wss` authenticate the
 relay. Over `tcp` or `ws`, or with TLS verification skipped, anyone on the
 path can pose as the relay and learn its password and your token. Both
-dialogs start on `tcp`. An imported URL selects `wss` unless it names
-another scheme, and the backend takes a relay address without a scheme as
-`wss`.
+dialogs, and the P2P fallback dialog, start on `wss`. An imported URL
+selects `wss` unless it names another scheme, and the backend takes a relay
+address without a scheme as `wss`.
 
 For a relay with a self-signed certificate, enter its certificate's SHA-256
 fingerprint in the pin field instead of skipping verification. The relay
@@ -445,6 +446,23 @@ the same time. The server accepts sessions only from the IP address of the
 peer address it was given, on any port, so other hosts that reach the port
 get neither a handshake nor a verification dialog. A dropped direct P2P
 session that Bus dialed is resumed with a new punch.
+
+### When the Punch Fails
+
+When a P2P connect fails to punch, so that nothing comes back from the peer over
+the punched socket, the **P2P hole-punch failed** dialog opens. **Retry P2P**
+connects again with the same settings, and the dialog stays open while the punch
+keeps failing. **Use relay** connects through a relay instead: choose the scheme
+(`wss` by default), and enter the relay's `host:port`, its password if it has
+one, and a certificate pin or **Skip TLS verification** as in [Relay
+Addresses](#relay-addresses). With a peer selected for the P2P connect, Bus
+derives the static relay token from both keys, or dials a token you enter, and
+in both cases pins that peer's key; without one, enter the relay token from the
+peer's card. **Cancel** cancels a connect in progress and closes the dialog. A
+connect that fails for another reason shows an error instead: a broker that does
+not match the token within 30 seconds, a handshake that fails after the peer
+answered, or a peer that you rejected in the verification dialog, that went
+unanswered there, or that rejected you.
 
 ## Peer Verification
 
