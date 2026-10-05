@@ -374,10 +374,32 @@ func sendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duration) 
 	}
 }
 
-// reconnectSession attempts to re-establish a session after an involuntary
-// disconnect using resumption tokens. It retries with exponential backoff up to
-// maxAttempts times. Returns true if reconnection succeeded (caller should
-// restart the receive loop).
+// reconnectRetryable reports whether a failed reconnect may succeed on a
+// later attempt. A resumption that the peer rejected
+// (kamune.ErrResumptionRejected), as it does once the session is past its
+// resumption window or the peer has deleted it, and missing storage or
+// resumption state do not change between attempts, so retrying them would
+// only keep a dead session listed.
+func reconnectRetryable(err error) bool {
+	for _, target := range []error{
+		kamune.ErrResumptionRejected,
+		kamune.ErrMissingStorage,
+		storage.ErrNotFound,
+		storage.ErrSessionNotFound,
+		storage.ErrPeerExpired,
+	} {
+		if errors.Is(err, target) {
+			return false
+		}
+	}
+	return true
+}
+
+// reconnectSession attempts to re-establish a session after an
+// involuntary disconnect using resumption tokens. It retries with
+// exponential backoff up to maxAttempts times, and gives up at once on an
+// error that a retry cannot fix (see reconnectRetryable). Returns true if
+// reconnection succeeded (caller should restart the receive loop).
 //
 // DisconnectSession, StopServer and ServiceShutdown cancel reconnectCtx
 // before they read the session's transport under session.mu and close it,
@@ -412,6 +434,11 @@ func (a *App) reconnectSession(session *liveSession) bool {
 		t, err := session.reconnectFn(session.ID)
 		if err != nil {
 			a.addLogEntry("WARN", "Reconnect failed: "+err.Error())
+			if !reconnectRetryable(err) {
+				a.addLogEntry("WARN", "Reconnect stopped, the session "+
+					"cannot be resumed: "+session.ID)
+				return false
+			}
 			continue
 		}
 

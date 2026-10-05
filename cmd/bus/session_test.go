@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"sync"
@@ -341,6 +342,61 @@ func TestLostConnectionReconnects(t *testing.T) {
 			case <-session.ReceiveDone:
 			case <-time.After(testWait):
 				t.Fatal("the receive loop did not end")
+			}
+		})
+	}
+}
+
+// TestReconnectStopsOnPermanentError checks that a reconnect gives up at
+// once on an error that a retry cannot fix, such as a resumption the peer
+// rejected, and keeps trying after one that may pass, such as a network
+// error.
+func TestReconnectStopsOnPermanentError(t *testing.T) {
+	cases := []struct {
+		name      string
+		err       error
+		wantRetry bool
+	}{
+		{"resumption rejected", fmt.Errorf("handshake: attempt resume: %w: %s",
+			kamune.ErrResumptionRejected, "resumption not available"), false},
+		{"no resumption token", fmt.Errorf("getting resumption token: %w",
+			storage.ErrNotFound), false},
+		{"session gone", fmt.Errorf("getting session peer: %w",
+			storage.ErrSessionNotFound), false},
+		{"peer expired", storage.ErrPeerExpired, false},
+		{"no storage", kamune.ErrMissingStorage, false},
+		{"network error", &net.OpError{
+			Op: "dial", Net: "tcp",
+			Err: os.NewSyscallError("connect", syscall.ECONNREFUSED),
+		}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, cleanup := newTestAppWithStorage(t)
+			defer cleanup()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var calls atomic.Int32
+			session := &liveSession{
+				ID:           "s",
+				reconnectCtx: ctx,
+				reconnectFn: func(string) (*kamune.Transport, error) {
+					if calls.Add(1) > 1 {
+						// A second attempt is all this test needs.
+						cancel()
+					}
+					return nil, tc.err
+				},
+				reconnectCancel: cancel,
+			}
+
+			a.False(app.reconnectSession(session))
+			if tc.wantRetry {
+				a.Equal(int32(2), calls.Load())
+			} else {
+				a.Equal(int32(1), calls.Load())
+				a.NoError(ctx.Err(), "the reconnect gave up on its own")
 			}
 		})
 	}
