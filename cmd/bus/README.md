@@ -207,9 +207,14 @@ saved passphrase is removed.
 Clicking the database card opens the passphrase dialog for another
 database. Bus opens the new database first and keeps the old one open if
 that fails. A path to the open database, also through a symbolic link or a
-relative path, is refused as already unlocked. It refuses to switch databases or change the passphrase while
-the server is starting, running or stopping, a connect is in progress, or a
-session is live or still closing.
+relative path, is refused as already unlocked. The verification mode,
+incognito mode, log level and theme then come from the new database, and
+each one it does not keep goes back to its default (Quick, incognito off,
+`INFO` and the system's light or dark theme), so none carries over from the
+database open before. A stored verification mode that Bus does not know
+gives Strict. Bus refuses to switch databases or change the passphrase
+while the server is starting, running or stopping, a connect is in
+progress, or a session is live or still closing.
 
 ### Starting a Server
 
