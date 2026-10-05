@@ -89,10 +89,13 @@ var bumpProbabilities = []int{80, 15, 4, 1}
 type (
 	// RemoteVerifier decides whether to accept a peer. It runs during the
 	// handshake, after the peer's introduction has arrived and before the
-	// session is established; an error rejects the peer. It may wait for a
-	// user's decision for up to the verify timeout (see
-	// [ServeWithVerifyTimeout] and [DialWithVerifyTimeout]), and an accept
-	// that comes later counts as a rejection.
+	// session is established; an error rejects the peer. It is required:
+	// [NewServer] and [NewDialer] return [ErrMissingVerifier] for a nil
+	// one, so an application that accepts every peer says so with a
+	// verifier that returns nil. It may wait for a user's decision for up
+	// to the verify timeout (see [ServeWithVerifyTimeout] and
+	// [DialWithVerifyTimeout]), and an accept that comes later counts as a
+	// rejection.
 	//
 	// The handshake can still fail after the verifier accepts, for example
 	// when the peer gives up. A verifier should therefore not store the peer

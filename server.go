@@ -875,8 +875,8 @@ func (s *Server) PublicKey() []byte {
 // NewServer creates a new server with the given address, handler, and storage.
 // By default the server uses TCP on the given address when [Server.ListenAndServe]
 // is called, unless a different listener or transport is configured via options.
-// It returns ErrMissingStorage when store is nil, and an error when
-// [AppVersion] is not a valid version.
+// It returns ErrMissingStorage when store is nil, ErrMissingVerifier when rv
+// is nil, and an error when [AppVersion] is not a valid version.
 func NewServer(
 	addr string,
 	handler HandlerFunc,
@@ -886,6 +886,9 @@ func NewServer(
 ) (*Server, error) {
 	if store == nil {
 		return nil, ErrMissingStorage
+	}
+	if rv == nil {
+		return nil, ErrMissingVerifier
 	}
 	version, err := appVersion()
 	if err != nil {

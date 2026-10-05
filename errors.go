@@ -47,4 +47,7 @@ var (
 	// ErrMissingStorage is returned by NewServer and NewDialer when they are
 	// given a nil storage.
 	ErrMissingStorage = errors.New("storage is required")
+	// ErrMissingVerifier is returned by NewServer and NewDialer when they
+	// are given a nil [RemoteVerifier].
+	ErrMissingVerifier = errors.New("remote verifier is required")
 )

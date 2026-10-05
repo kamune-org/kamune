@@ -215,13 +215,16 @@ func (d *Dialer) PublicKey() []byte {
 }
 
 // NewDialer creates a new dialer with the given address, storage, and options.
-// It returns ErrMissingStorage when store is nil, and an error when
-// [AppVersion] is not a valid version.
+// It returns ErrMissingStorage when store is nil, ErrMissingVerifier when rv
+// is nil, and an error when [AppVersion] is not a valid version.
 func NewDialer(
 	addr string, store *storage.Storage, rv RemoteVerifier, opts ...DialOption,
 ) (*Dialer, error) {
 	if store == nil {
 		return nil, ErrMissingStorage
+	}
+	if rv == nil {
+		return nil, ErrMissingVerifier
 	}
 	version, err := appVersion()
 	if err != nil {

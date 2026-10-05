@@ -666,6 +666,46 @@ func TestNilStorageIsAnError(t *testing.T) {
 	}
 }
 
+// TestNilVerifierIsAnError checks that NewServer and NewDialer refuse a
+// nil RemoteVerifier rather than panicking at the first handshake.
+func TestNilVerifierIsAnError(t *testing.T) {
+	store, cleanup := newTestStore(t)
+	defer cleanup()
+	cases := []struct {
+		build func() error
+		name  string
+	}{
+		{
+			name: "server",
+			build: func() error {
+				_, err := NewServer(
+					"127.0.0.1:0",
+					func(*Transport) error { return nil },
+					store,
+					nil,
+					ServeWithTCP(),
+				)
+				return err
+			},
+		},
+		{
+			name: "dialer",
+			build: func() error {
+				_, err := NewDialer("127.0.0.1:0", store, nil)
+				return err
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			var err error
+			a.NotPanics(func() { err = tc.build() })
+			a.ErrorIs(err, ErrMissingVerifier)
+		})
+	}
+}
+
 // testListener is a Listener driven by the test. Accept first returns errs
 // in order, then hands out the conns sent on conns until Close, after which
 // it returns closeErr. Each Accept call is reported on calls.
