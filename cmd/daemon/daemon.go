@@ -508,17 +508,24 @@ func (d *Daemon) installStore(
 // store with it. When the new storage fails to open, the current store is
 // kept; see replaceStore. A passphrase from KAMUNE_DB_PASSPHRASE is never
 // saved to the keychain.
+//
+// Every attempt that is not refused as busy keeps its path as the one
+// that submit_passphrase opens, db_no_passphrase or not, until a storage
+// opens: a failed open_storage of an encrypted storage without a
+// passphrase reports wrong_passphrase, and the passphrase the client
+// then submits is for that storage, not for the open one or for the path
+// of an earlier failed attempt.
 func (d *Daemon) openStorage(params OpenStorageParams) error {
 	if d.storageBusy() {
 		return errStorageBusy
 	}
 
+	d.mu.Lock()
+	d.pendingDBPath = params.StoragePath
+	d.mu.Unlock()
+
 	unlock := storageUnlock{noPassphrase: params.DBNoPassphrase}
 	if !params.DBNoPassphrase {
-		d.mu.Lock()
-		d.pendingDBPath = params.StoragePath
-		d.mu.Unlock()
-
 		pass := os.Getenv("KAMUNE_DB_PASSPHRASE")
 		if pass == "" {
 			return errPassphraseRequired
@@ -811,11 +818,13 @@ func (d *Daemon) handleOpenStorage(cmd Command) {
 	})
 }
 
-// handleSubmitPassphrase re-opens storage with a new passphrase. Requires a
-// prior open_storage call (so d.dbPath is set). The passphrase is saved to
-// the system keychain only when the command asks for it. An empty
-// passphrase is refused: an unencrypted database must be opened with
-// open_storage and db_no_passphrase.
+// handleSubmitPassphrase opens, with the passphrase it is given, the
+// storage of the last open_storage that failed, or else the open
+// storage again. Requires a prior open_storage call. The response names
+// the path it opened. The passphrase is saved to the system keychain
+// only when the command asks for it. An empty passphrase is refused: an
+// unencrypted database must be opened with open_storage and
+// db_no_passphrase.
 func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 	var params SubmitPassphraseParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
@@ -864,7 +873,9 @@ func (d *Daemon) handleSubmitPassphrase(cmd Command) {
 
 	d.loadIdentityAndHistory()
 
-	d.emit(EvtResponse, cmd.ID, MapS{"status": "opened"})
+	d.emit(EvtResponse, cmd.ID, MapS{
+		"status": "opened", "storage_path": dbPath,
+	})
 }
 
 // handleChangePassphrase changes the passphrase of the open storage with

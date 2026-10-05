@@ -720,3 +720,84 @@ func TestDialedSessionClosesItsConnWhenItEnds(t *testing.T) {
 	// finalizer closes its socket for it.
 	a.NotNil(session.snapshotTransport())
 }
+
+// submit_passphrase opens the storage of the last open_storage that
+// failed, also one with db_no_passphrase: that fails with
+// wrong_passphrase on an encrypted storage, which asks the client for
+// its passphrase. It must open neither the open storage nor the path of
+// an earlier failed attempt.
+func TestSubmitPassphraseOpensTheLastFailedPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, d *Daemon, dir string)
+	}{
+		{
+			name: "another storage is open",
+			setup: func(t *testing.T, d *Daemon, dir string) {
+				t.Setenv("KAMUNE_DB_PASSPHRASE", "a-pass")
+				require.New(t).NoError(d.openStorage(OpenStorageParams{
+					StoragePath: filepath.Join(dir, "a.db"),
+				}))
+				t.Setenv("KAMUNE_DB_PASSPHRASE", "")
+			},
+		},
+		{
+			name: "an earlier attempt failed",
+			setup: func(t *testing.T, d *Daemon, dir string) {
+				err := d.openStorage(OpenStorageParams{
+					StoragePath: filepath.Join(dir, "typo.db"),
+				})
+				require.New(t).ErrorIs(err, errPassphraseRequired)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			dir := t.TempDir()
+			bPath := filepath.Join(dir, "b.db")
+			b, err := storage.OpenStorage(
+				storage.WithDBPath(bPath),
+				storage.WithPassphraseHandler(func() ([]byte, error) {
+					return []byte("b-pass"), nil
+				}),
+			)
+			a.NoError(err)
+			bKey, err := b.PublicKey()
+			a.NoError(err)
+			a.NoError(b.Close())
+			t.Setenv("KAMUNE_DB_PASSPHRASE", "")
+
+			d := NewDaemon()
+			rec := newEventRecorder()
+			d.output = json.NewEncoder(rec)
+			t.Cleanup(func() {
+				d.cancel()
+				d.closeStore()
+			})
+			tt.setup(t, d, dir)
+
+			err = d.openStorage(OpenStorageParams{
+				StoragePath: bPath, DBNoPassphrase: true,
+			})
+			a.ErrorIs(err, storage.ErrWrongPassphrase)
+
+			d.handleSubmitPassphrase(Command{
+				ID: "submit",
+				Params: mustJSON(SubmitPassphraseParams{
+					Passphrase: "b-pass",
+				}),
+			})
+			evt := rec.waitFor(t, func(e recordedEvent) bool {
+				return e.ID == "submit"
+			})
+			a.Equal(EvtResponse, evt.Evt, "submit failed: %v", evt.Data)
+			a.Equal("opened", evt.Data["status"])
+			a.Equal(bPath, evt.Data["storage_path"])
+			got, err := d.store().PublicKey()
+			a.NoError(err)
+			a.Equal(bKey, got)
+			a.NoFileExists(filepath.Join(dir, "typo.db"))
+		})
+	}
+}
