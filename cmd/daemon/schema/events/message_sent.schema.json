@@ -6,7 +6,8 @@
   "type": "object",
   "properties": {
     "session_id": { "type": "string" },
-    "timestamp":  { "type": "string", "format": "date-time", "description": "RFC3339Nano timestamp." }
+    "timestamp":  { "type": "string", "format": "date-time", "description": "RFC3339Nano timestamp: when the message went out, by the local clock, as get_history_messages gives the time a message was stored. Order and merge messages by it." },
+    "sent_at":    { "type": "string", "format": "date-time", "description": "RFC3339Nano timestamp: the time the daemon put on the message, which the peer sees as its sent_at." }
   },
-  "required": ["session_id", "timestamp"]
+  "required": ["session_id", "timestamp", "sent_at"]
 }

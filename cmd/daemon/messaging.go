@@ -167,7 +167,9 @@ func (d *Daemon) sendQueued(session *liveSession, job queuedSend) {
 
 // sendMessage sends data on session's transport and reports the result
 // on cmd. A failed send is not tried again; its error says why, see
-// sendErrorReason.
+// sendErrorReason. message_sent carries, as timestamp, the local time the
+// send went out, as get_history_messages gives the time a message was
+// stored, and as sent_at the time the daemon put on the message.
 func (d *Daemon) sendMessage(
 	cmd Command, session *liveSession, sessionID string, data []byte,
 ) {
@@ -185,13 +187,15 @@ func (d *Daemon) sendMessage(
 
 	session.countMessage()
 
+	sentAt := time.Now()
 	d.saveChatEntry(
 		session, data, metadata.Timestamp(), storage.SenderLocal,
 	)
 
 	d.emit(EvtMessageSent, cmd.ID, MapA{
 		"session_id": sessionID,
-		"timestamp":  metadata.Timestamp().Format(time.RFC3339Nano),
+		"timestamp":  sentAt.Format(time.RFC3339Nano),
+		"sent_at":    metadata.Timestamp().Format(time.RFC3339Nano),
 	})
 	d.emit(EvtSessionUpdated, "", MapS{"session_id": sessionID})
 	d.addLogEntry("DEBUG", "Sent message to "+sessionID)
@@ -312,19 +316,7 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 			continue
 		}
 
-		session.countMessage()
-
-		d.saveChatEntry(
-			session, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
-		)
-
-		d.emit(EvtMessageReceived, "", MapA{
-			"session_id":  session.ID,
-			"data_base64": base64.StdEncoding.EncodeToString(b.GetValue()),
-			"timestamp":   metadata.Timestamp().Format(time.RFC3339Nano),
-		})
-		d.emit(EvtSessionUpdated, "", MapS{"session_id": session.ID})
-		d.addLogEntry("DEBUG", "Received message from "+session.ID)
+		d.messageReceived(session, b.GetValue(), metadata.Timestamp())
 	}
 }
 
@@ -398,20 +390,31 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) error {
 			continue
 		}
 
-		session.countMessage()
-
-		d.saveChatEntry(
-			session, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
-		)
-
-		d.emit(EvtMessageReceived, "", MapA{
-			"session_id":  session.ID,
-			"data_base64": base64.StdEncoding.EncodeToString(b.GetValue()),
-			"timestamp":   metadata.Timestamp().Format(time.RFC3339Nano),
-		})
-		d.emit(EvtSessionUpdated, "", MapS{"session_id": session.ID})
-		d.addLogEntry("DEBUG", "Received message from "+session.ID)
+		d.messageReceived(session, b.GetValue(), metadata.Timestamp())
 	}
+}
+
+// messageReceived counts and stores data, a message received on session
+// that its sender stamped with sentAt, and reports it with
+// message_received. The event's timestamp is the local time the message
+// arrived, as get_history_messages gives the local time a message was
+// stored, and its sent_at is sentAt, which the sender can set to
+// anything.
+func (d *Daemon) messageReceived(
+	session *liveSession, data []byte, sentAt time.Time,
+) {
+	session.countMessage()
+	receivedAt := time.Now()
+	d.saveChatEntry(session, data, sentAt, storage.SenderPeer)
+
+	d.emit(EvtMessageReceived, "", MapA{
+		"session_id":  session.ID,
+		"data_base64": base64.StdEncoding.EncodeToString(data),
+		"timestamp":   receivedAt.Format(time.RFC3339Nano),
+		"sent_at":     sentAt.Format(time.RFC3339Nano),
+	})
+	d.emit(EvtSessionUpdated, "", MapS{"session_id": session.ID})
+	d.addLogEntry("DEBUG", "Received message from "+session.ID)
 }
 
 // saveChatEntry adds a message of session to its history, unless

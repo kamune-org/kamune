@@ -7,7 +7,8 @@
   "properties": {
     "session_id":  { "type": "string" },
     "data_base64": { "type": "string", "description": "Base64-encoded message data." },
-    "timestamp":   { "type": "string", "format": "date-time", "description": "RFC3339Nano timestamp." }
+    "timestamp":   { "type": "string", "format": "date-time", "description": "RFC3339Nano timestamp: when the message arrived, by the local clock, as get_history_messages gives the time a message was stored. Order and merge messages by it." },
+    "sent_at":     { "type": "string", "format": "date-time", "description": "RFC3339Nano timestamp: the time the sender put on the message, by the sender's clock, which the sender can set to anything. Show it only as the sender's claim, as get_history_messages gives sent_at." }
   },
-  "required": ["session_id", "data_base64", "timestamp"]
+  "required": ["session_id", "data_base64", "timestamp", "sent_at"]
 }

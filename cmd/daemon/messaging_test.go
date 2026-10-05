@@ -275,3 +275,34 @@ func TestSendFailureReasons(t *testing.T) {
 	a.Equal(EvtError, evt.Evt)
 	a.Equal("connection_lost", evt.Data["reason"], evt.Data["error"])
 }
+
+// message_received carries the local time a message arrived as its
+// timestamp, the clock that get_history_messages orders the history by,
+// and the time the sender put on it apart, as sent_at: a peer whose
+// clock is behind, or set back on purpose, cannot move its reply before
+// the question it answers.
+func TestMessageReceivedUsesTheLocalClock(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	session := &liveSession{ID: "SESSION"}
+	sentAt := time.Now().Add(-10 * time.Minute).UTC()
+
+	before := time.Now()
+	d.messageReceived(session, []byte("NO"), sentAt)
+	after := time.Now()
+
+	evt := rec.waitFor(t, isEvent(EvtMessageReceived))
+	ts, err := time.Parse(time.RFC3339Nano, fmt.Sprint(evt.Data["timestamp"]))
+	a.NoError(err)
+	a.False(ts.Before(before.Truncate(time.Microsecond)), "%v", ts)
+	a.False(ts.After(after), "%v", ts)
+	got, err := time.Parse(time.RFC3339Nano, fmt.Sprint(evt.Data["sent_at"]))
+	a.NoError(err)
+	a.True(sentAt.Equal(got), "sent_at %v, want %v", got, sentAt)
+
+	entries, err := d.store().GetChatHistory(session.ID)
+	a.NoError(err)
+	a.Len(entries, 1)
+	a.False(entries[0].Timestamp.Before(before.Truncate(time.Microsecond)))
+	a.True(sentAt.Equal(entries[0].SentAt))
+}
