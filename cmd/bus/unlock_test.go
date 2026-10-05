@@ -46,7 +46,7 @@ func TestSettingsBeforeUnlockDoNotOpenDB(t *testing.T) {
 	a.ErrorIs(err, os.ErrNotExist,
 		"nothing may create the database before it is unlocked")
 
-	a.NoError(app.SubmitPassphrase(path, "secret", false))
+	a.NoError(app.CreateDatabase(path, "secret", "secret", false))
 	store := app.store()
 	a.NotNil(store)
 	a.True(app.GetStorageReady())
@@ -92,7 +92,9 @@ func TestStartupWithSavedPassphraseDoesNotCreateDB(t *testing.T) {
 func newUnlockedApp(t *testing.T, passphrase string) (*App, string) {
 	t.Helper()
 	app, path := newLockedApp(t)
-	require.New(t).NoError(app.SubmitPassphrase(path, passphrase, false))
+	require.New(t).NoError(
+		app.CreateDatabase(path, passphrase, passphrase, false),
+	)
 	return app, path
 }
 
@@ -403,6 +405,72 @@ func TestFailedServerStartLeavesStorageFree(t *testing.T) {
 	a.Nil(listener)
 	a.False(busy)
 	a.NoError(app.SubmitPassphrase(other, "other", false))
+}
+
+// TestSubmitPassphraseNeverCreates checks that SubmitPassphrase opens
+// only a database that exists, so that a typo in the path cannot create
+// a new one with a passphrase entered once.
+func TestSubmitPassphraseNeverCreates(t *testing.T) {
+	a := require.New(t)
+	app, path := newLockedApp(t)
+
+	err := app.SubmitPassphrase(path, "secret", false)
+	a.ErrorIs(err, os.ErrNotExist)
+	a.Equal("There is no database at this path", err.Error())
+	a.Nil(app.store())
+	_, err = os.Stat(path)
+	a.ErrorIs(err, os.ErrNotExist)
+}
+
+// TestCreateDatabaseNeedsRepeatedPassphrase checks that a new database is
+// created only when its passphrase was entered twice alike, and that the
+// passphrase then opens it.
+func TestCreateDatabaseNeedsRepeatedPassphrase(t *testing.T) {
+	cases := []struct {
+		name               string
+		passphrase, repeat string
+		wantErr            error
+	}{
+		{"repeated", "secret", "secret", nil},
+		{"typo", "secret", "secrte", ErrPassphraseMismatch},
+		{"not repeated", "secret", "", ErrPassphraseMismatch},
+		{"empty", "", "", ErrPassphraseRequired},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, path := newLockedApp(t)
+
+			err := app.CreateDatabase(path, tc.passphrase, tc.repeat, true)
+			if tc.wantErr != nil {
+				a.ErrorIs(err, tc.wantErr)
+				a.Nil(app.store())
+				_, err = os.Stat(path)
+				a.ErrorIs(err, os.ErrNotExist)
+				_, err = keyring.Get(keychainService, keychainAccount(path))
+				a.ErrorIs(err, keyring.ErrNotFound)
+				return
+			}
+			a.NoError(err)
+			a.NotNil(app.store())
+			a.True(app.DatabaseExists(path))
+			saved, err := keyring.Get(keychainService, keychainAccount(path))
+			a.NoError(err)
+			a.Equal(tc.passphrase, saved)
+
+			a.NoError(app.ServiceShutdown())
+			reopened, _ := newLockedApp(t)
+			a.NoError(reopened.SubmitPassphrase(path, tc.passphrase, false))
+		})
+	}
+}
+
+func TestDatabaseExists(t *testing.T) {
+	a := require.New(t)
+	app, path := newUnlockedApp(t, "secret")
+	a.True(app.DatabaseExists(path))
+	a.False(app.DatabaseExists(filepath.Join(t.TempDir(), "db")))
+	a.False(app.DatabaseExists(""))
 }
 
 func TestSubmitEmptyPassphraseRefused(t *testing.T) {

@@ -67,7 +67,9 @@ func TestChangePassphrase(t *testing.T) {
 			if tc.current == "" {
 				openWithout(t, app, path)
 			} else {
-				a.NoError(app.SubmitPassphrase(path, tc.current, false))
+				a.NoError(app.CreateDatabase(
+					path, tc.current, tc.current, false,
+				))
 			}
 			account := keychainAccount(path)
 			if tc.keychain {

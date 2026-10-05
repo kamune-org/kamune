@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import {
     SubmitPassphrase,
+    CreateDatabase,
+    DatabaseExists,
     OpenWithoutPassphrase,
     UnlockWithSavedPassphrase,
     ForgetSavedPassphrase,
@@ -21,6 +23,12 @@
   let { dismissable = false, onClose } = $props();
 
   let passphrase = $state('');
+  // repeat is the passphrase entered a second time, which a new database
+  // needs, so that a typo cannot lock the user out of it.
+  let repeat = $state('');
+  // isNew is set while no database exists at dbPath, so unlocking creates
+  // one.
+  let isNew = $state(false);
   let showPass = $state(false);
   let saveToKeychain = $state(false);
   let loading = $state(false);
@@ -35,15 +43,49 @@
     error = (await GetStorageError()) || '';
   });
 
+  // checkRun counts the existence checks, so that the answer for a path
+  // the user has since changed is dropped.
+  let checkRun = 0;
+  async function checkNew(path) {
+    const run = ++checkRun;
+    if (!path) {
+      // No path yet, as before GetDBPath answers.
+      isNew = false;
+      return;
+    }
+    let exists = true;
+    try {
+      exists = await DatabaseExists(path);
+    } catch (e) {
+      console.error('Failed to check the database path:', e);
+    }
+    if (run === checkRun) isNew = !exists;
+  }
+
+  $effect(() => {
+    checkNew(dbPath);
+  });
+
   async function submit() {
-    loading = true;
+    if (loading) return;
     error = '';
+    if (isNew && passphrase !== repeat) {
+      error = 'The passphrases do not match.';
+      return;
+    }
+    loading = true;
     try {
       // The database open before stays open unless this one opens.
-      await SubmitPassphrase(dbPath, passphrase, saveToKeychain);
+      if (isNew) {
+        await CreateDatabase(dbPath, passphrase, repeat, saveToKeychain);
+      } else {
+        await SubmitPassphrase(dbPath, passphrase, saveToKeychain);
+      }
     } catch (e) {
       error = e.message || e || 'Wrong passphrase or corrupted database';
       loading = false;
+      // The file may have appeared or gone since the last check.
+      await checkNew(dbPath);
     }
   }
 
@@ -135,11 +177,18 @@
     </div>
 
     <div class="dialog-body">
-      <p class="dialog-desc">
-        Enter the passphrase of this database. Your identity key, saved peers and chat history are
-        encrypted with a key derived from it. For a new database, the passphrase you enter here
-        becomes its passphrase.
-      </p>
+      {#if isNew}
+        <p class="dialog-desc">
+          There is no database at this path yet. Bus will create one, and the passphrase you enter
+          here becomes its passphrase: your identity key, saved peers and chat history are encrypted
+          with a key derived from it. Enter it twice.
+        </p>
+      {:else}
+        <p class="dialog-desc">
+          Enter the passphrase of this database. Your identity key, saved peers and chat history are
+          encrypted with a key derived from it.
+        </p>
+      {/if}
 
       <div class="path-field">
         <input
@@ -200,6 +249,19 @@
         </button>
       </div>
 
+      {#if isNew}
+        <div class="pass-field pass-repeat">
+          <input
+            type={showPass ? 'text' : 'password'}
+            value={repeat}
+            oninput={(e) => (repeat = e.target.value)}
+            placeholder="Repeat passphrase"
+            class="pass-input"
+            disabled={loading}
+          />
+        </div>
+      {/if}
+
       <label class="checkbox-row">
         <input type="checkbox" bind:checked={saveToKeychain} disabled={loading || hasKeychain} />
         <span>Remember in system keychain</span>
@@ -241,7 +303,11 @@
         Use without passphrase…
       </button>
       <button class="dialog-btn dialog-btn-primary" onclick={submit} disabled={loading}>
-        {loading ? 'Unlocking…' : 'Unlock'}
+        {#if isNew}
+          {loading ? 'Creating…' : 'Create'}
+        {:else}
+          {loading ? 'Unlocking…' : 'Unlock'}
+        {/if}
       </button>
     </div>
   </div>
@@ -351,6 +417,9 @@
     position: relative;
     display: flex;
     align-items: center;
+  }
+  .pass-repeat {
+    margin-top: 8px;
   }
   .pass-input {
     width: 100%;

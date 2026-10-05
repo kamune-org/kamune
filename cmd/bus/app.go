@@ -1437,17 +1437,60 @@ func (a *App) SetFingerprintFormat(fmt string) {
 	a.addLogEntry("DEBUG", "Fingerprint format set to: "+fmt)
 }
 
-// SubmitPassphrase opens the database at path with passphrase, creating
-// it if it does not exist, and makes it the open database in place of
-// the one open before. It refuses while the server, a dial or a session
-// uses the open database, and when path is the database already open.
+// ErrPassphraseMismatch is returned by CreateDatabase when the repeated
+// passphrase is not the passphrase.
+var ErrPassphraseMismatch = errors.New("the passphrases do not match")
+
+// DatabaseExists reports whether a file exists at path, so that the
+// passphrase dialog knows whether it unlocks a database or creates one,
+// which needs the passphrase twice. A path that cannot be checked counts
+// as existing: SubmitPassphrase then says why it cannot be opened.
+func (a *App) DatabaseExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return !errors.Is(err, os.ErrNotExist)
+}
+
+// SubmitPassphrase opens the existing database at path with passphrase,
+// and makes it the open database in place of the one open before. It
+// never creates a database: one that does not exist yet is created by
+// CreateDatabase, which asks for its passphrase twice, so that neither a
+// typo in the passphrase nor one in the path makes a database the user
+// cannot open. It refuses while the server, a dial or a session uses the
+// open database, and when path is the database already open.
 func (a *App) SubmitPassphrase(
 	path, passphrase string, saveToKeychain bool,
 ) error {
 	if passphrase == "" {
 		return ErrPassphraseRequired
 	}
-	if err := a.unlockDB(path, []byte(passphrase), true); err != nil {
+	return a.unlockWith(path, passphrase, false, saveToKeychain)
+}
+
+// CreateDatabase creates a database at path with passphrase, which repeat
+// must equal, and makes it the open database as SubmitPassphrase does. A
+// database that exists at path by then is opened with passphrase instead.
+func (a *App) CreateDatabase(
+	path, passphrase, repeat string, saveToKeychain bool,
+) error {
+	if passphrase == "" {
+		return ErrPassphraseRequired
+	}
+	if passphrase != repeat {
+		return ErrPassphraseMismatch
+	}
+	return a.unlockWith(path, passphrase, true, saveToKeychain)
+}
+
+// unlockWith opens the database at path with passphrase, creating it when
+// create is set, makes it the open database, saves the passphrase in the
+// keychain with saveToKeychain, and loads the database.
+func (a *App) unlockWith(
+	path, passphrase string, create, saveToKeychain bool,
+) error {
+	if err := a.unlockDB(path, []byte(passphrase), create); err != nil {
 		if errors.Is(err, ErrStorageBusy) || errors.Is(err, ErrStorageOpen) {
 			return err
 		}
