@@ -136,6 +136,48 @@ func TestValidatePeerName(t *testing.T) {
 	}
 }
 
+func TestSamePeerName(t *testing.T) {
+	tests := []struct {
+		name string
+		x, y string
+		same bool
+	}{
+		{"equal", "Bob", "Bob", true},
+		{"case", "Bob", "bOB", true},
+		{"spaces at the ends", "Bob", " Bob\u00a0", true},
+		{"spaces inside", "Bob Lee", "Bob \t Lee", true},
+		{"no space inside", "Bob Lee", "BobLee", true},
+		{"space inside", "Bob", "Bo b", true},
+		{"hair space", "Bob", "Bo\u200ab", true},
+		{"thin space", "Bob Lee", "Bob\u2009Lee", true},
+		{"narrow no-break space", "Bob Lee", "Bob\u202fLee", true},
+		{"medium mathematical space", "Bob", "B\u205fob", true},
+		{"trailing zwj", "Bob", "Bob\u200d", true},
+		{"zwnj inside", "Bob", "Bo\u200cb", true},
+		{"hangul filler", "Bob", "Bob\u3164", true},
+		{"braille blank", "Bob", "Bob\u2800", true},
+		{"null notehead", "Bob", "Bob\U0001d159", true},
+		{"musical begin beam", "Bob", "Bob\U0001d173", true},
+		{"khitan filler", "Bob", "Bob\U00016fe4", true},
+		{"object replacement character", "Bob", "Bob\ufffc", true},
+		{"selector", "\u2764 bob", "\u2764\ufe0f Bob", true},
+		{"tag character", "Bob", "Bob\U000e0041", true},
+		{"control", "Bob", "B\x00ob", true},
+		{"persian zwnj", persian, strings.ReplaceAll(persian, "\u200c", ""), true},
+		{"both empty", "", "\u200d ", true},
+		{"different letter", "Bob", "Rob", false},
+		{"accent", "Bob", "B\u00f6b", false},
+		{"cyrillic", "Bob", "B\u043eb", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			a.Equal(tt.same, SamePeerName(tt.x, tt.y))
+			a.Equal(tt.same, SamePeerName(tt.y, tt.x))
+		})
+	}
+}
+
 func TestSanitizePeerName(t *testing.T) {
 	const repl = "\ufffd"
 	tests := []struct {

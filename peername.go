@@ -74,10 +74,9 @@ const (
 // Names that pass can still look alike: letters of different scripts can
 // share a shape, spaces are allowed, including at either end, and a joiner
 // or selector does not change every letter or symbol it is allowed after.
-// Applications that compare names should do so after trimming spaces,
-// folding case and dropping joiners and selectors. A peer's name is its
-// own claim and proves nothing about its identity, which only the key
-// fingerprint shows.
+// Applications that compare names should use [SamePeerName]. A peer's name
+// is its own claim and proves nothing about its identity, which only the
+// key fingerprint shows.
 //
 // The server and the dialer reject an introduction whose name fails this
 // check before the [RemoteVerifier] runs, and [ServeWithServerName] and
@@ -124,6 +123,44 @@ func SanitizePeerName(name string) string {
 	// Cutting can take away what a joiner or selector at the new end
 	// needs after it. Replacing one keeps its length or shortens it.
 	return replaceRejectedRunes(s[:cut] + ellipsis)
+}
+
+// SamePeerName reports whether two peer names read alike: whether they
+// are equal, case folded, once their spaces and the code points known to
+// show nothing are dropped. Those are the control and format characters,
+// the joiners, the variation selectors, the other default ignorable code
+// points such as the Hangul fillers, and the code points drawn blank that
+// [ValidatePeerName] lists, whether it rejects them or allows them in
+// their place. Every space is dropped, not only those at either end,
+// since some, such as the hair space, are narrow enough to pass for no
+// space at all. Names that differ only in their spaces, such as "Bob Lee"
+// and "BobLee", are therefore the same name to it.
+//
+// Applications that warn when a new key claims the name of a known peer,
+// or that keep names apart, should compare with it rather than with
+// strings.EqualFold: a name may hold a joiner or selector that passes
+// ValidatePeerName and still shows nothing, and a name stored by an older
+// version may hold any code point. It does not normalize, so letters of
+// different scripts that share a shape, such as Latin a and Cyrillic a,
+// fullwidth letters, and an accented letter written as one code point or
+// as a letter and a combining mark still compare as different names, as
+// do names that differ in a code point that only some fonts draw blank.
+func SamePeerName(x, y string) bool {
+	return strings.EqualFold(nameSkeleton(x), nameSkeleton(y))
+}
+
+// nameSkeleton returns name without its spaces and the code points that
+// show nothing. See [SamePeerName].
+func nameSkeleton(name string) string {
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		if unicode.IsSpace(r) || unicode.IsControl(r) || hidden(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // replaceRejectedRunes replaces each invalid UTF-8 sequence and each code
