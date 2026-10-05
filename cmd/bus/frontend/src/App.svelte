@@ -69,7 +69,7 @@
     appendMessage,
   } from './lib/stores';
   import { K, isMac } from './lib/keyboard';
-  import { newConnectAttemptId } from './lib/attempts';
+  import { connectOutcome, newConnectAttemptId } from './lib/attempts';
   import {
     importedRelayPin,
     importedRelayScheme,
@@ -809,7 +809,7 @@
         connectTransport === 'relay' && !connectPeerKey.trim() ? connectRelayToken.trim() : '';
       const relayPeerPub = connectTransport === 'relay' ? connectPeerKey.trim() : '';
       const pw = connectTransport === 'relay' ? connectRelayPassword : '';
-      const result = await ConnectToServer(
+      const call = ConnectToServer(
         addr,
         connectTransport,
         relayAddr,
@@ -828,6 +828,7 @@
         connectUseBroker,
         id
       );
+      const result = await connectOutcome(call);
       if (id !== connectAttempt) {
         // Cancelled, but the session was established first.
         if (result.sessionId) await DisconnectSession(result.sessionId);
@@ -849,7 +850,12 @@
             useBroker: connectUseBroker,
           };
         } else {
-          alert('Failed to connect (' + result.errorCode + '): see logs for details');
+          alert(
+            'Failed to connect (' +
+              result.errorCode +
+              '): ' +
+              (result.message || 'see logs for details')
+          );
         }
         return;
       }

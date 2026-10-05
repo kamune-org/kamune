@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -652,16 +653,64 @@ func (a *App) GetRelayTokens() []relayToken {
 // call that CancelConnect cancelled.
 const errCodeCancelled = "cancelled"
 
+// connectError is the error of a ConnectToServer call that failed with
+// the error code code. Wails rejects a call that returns an error and
+// drops its other results, ConnectResult included, so the code goes with
+// the error: its JSON form, which the window gets as the rejection's
+// cause, holds the code as errorCode. connectOutcome in
+// frontend/src/lib/attempts.ts reads it from there.
+type connectError struct {
+	code string
+	err  error
+}
+
+func (e *connectError) Error() string { return e.err.Error() }
+func (e *connectError) Unwrap() error { return e.err }
+
+// MarshalJSON returns the cause that the window reads the code from.
+func (e *connectError) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ErrorCode string `json:"errorCode"`
+	}{e.code})
+}
+
+// dialErrorCode returns the error code of a ConnectToServer call whose
+// dial failed with err. punched is the connection of a dial over a
+// punched UDP socket, and nil for any other dial. Such a dial failed to
+// punch only when nothing came from the peer: a handshake that failed
+// after that, for one because the user or the peer turned the other
+// down, shows that the punch worked.
+func dialErrorCode(err error, punched *punchSession) string {
+	switch {
+	case errors.Is(err, ErrPeerKeyMismatch):
+		return "peer_key_mismatch"
+	case errors.Is(err, kamune.ErrVerificationFailed),
+		errors.Is(err, ErrVerificationCancelled):
+		return "verification_rejected"
+	case punched != nil && !punched.answered.Load():
+		return "hole_punch_failed"
+	default:
+		return "dial_failed"
+	}
+}
+
 // ConnectToServer dials a server and adds the session. attemptID names
 // the call for CancelConnect, which cancels it until the session is
 // established; it then returns the error code "cancelled" and no error.
 // The window gives each call an ID of its own. With an empty attemptID,
-// only shutdown cancels the call.
+// only shutdown cancels the call. A call that fails otherwise returns
+// its error code both in ConnectResult and in the error, a connectError,
+// since the window gets only the error.
 func (a *App) ConnectToServer(
 	addr, transport, relayAddr, token, name, password,
 	brokerAddr, peerPubB64, p2pToken string,
 	useP2P bool, useBroker bool, attemptID string,
-) (ConnectResult, error) {
+) (res ConnectResult, err error) {
+	defer func() {
+		if err != nil && res.ErrorCode != "" {
+			err = &connectError{code: res.ErrorCode, err: err}
+		}
+	}()
 	// The dialer and the session keep the store, so the database must not
 	// change until the session is in a.sessions or the dial has failed.
 	a.mu.Lock()
@@ -745,6 +794,8 @@ func (a *App) ConnectToServer(
 	}
 	opts := slices.Clone(baseOpts)
 	relayTokenHex := token
+	// punched is the connection of a dial over a punched UDP socket.
+	var punched *punchSession
 
 	// P2P: hole-punch the peer via the broker, then run the kamune
 	// handshake on the punched KCP session. The dialer opens a single
@@ -792,7 +843,8 @@ func (a *App) ConnectToServer(
 		// Wrap the KCP session in a kamune.Conn and pass it to
 		// NewDialer via DialWithFunc. The kamune handshake runs on
 		// the punched UDP socket.
-		punchedConn := kamune.NewConn(kcpSess)
+		punched = &punchSession{Conn: kcpSess}
+		punchedConn := kamune.NewConn(punched)
 		attempt.closeOnCancel(punchedConn)
 		opts = append(opts, kamune.DialWithFunc(
 			func(string) (kamune.Conn, error) {
@@ -807,12 +859,16 @@ func (a *App) ConnectToServer(
 		// session on the punched socket.
 		a.addLogEntry("INFO",
 			"Direct P2P: punching "+addr)
-		punchedConn, err := directP2PDial(attempt.ctx, addr)
+		sess, err := directP2PDial(attempt.ctx, addr)
 		if err != nil {
 			return failed("hole_punch_failed",
 				fmt.Errorf("direct p2p dial: %w", err))
 		}
-		a.addLogEntry("INFO", "Direct P2P: hole-punch succeeded")
+		// As with a broker, the handshake tells whether the punch
+		// worked.
+		a.addLogEntry("INFO", "Direct P2P: hole-punch started")
+		punched = &punchSession{Conn: sess}
+		punchedConn := kamune.NewConn(punched)
 		attempt.closeOnCancel(punchedConn)
 		opts = append(opts, kamune.DialWithFunc(
 			func(string) (kamune.Conn, error) {
@@ -872,17 +928,10 @@ func (a *App) ConnectToServer(
 
 	t, err := dialer.Dial()
 	if err != nil {
-		errCode := "dial_failed"
-		switch {
-		case errors.Is(err, ErrPeerKeyMismatch):
-			errCode = "peer_key_mismatch"
-		case useP2P:
-			errCode = "hole_punch_failed"
-		}
 		if attempt.ctx.Err() == nil {
 			a.addLogEntry("ERROR", "Dial failed: "+err.Error())
 		}
-		return failed(errCode, fmt.Errorf("dial: %w", err))
+		return failed(dialErrorCode(err, punched), fmt.Errorf("dial: %w", err))
 	}
 	// Once kept, the attempt can no longer be cancelled, and the session
 	// goes on.
@@ -944,10 +993,11 @@ func (a *App) ConnectToServer(
 
 			switch {
 			case isDirectP2P:
-				pConn, err := directP2PDial(reconnectCtx, directAddr)
+				sess, err := directP2PDial(reconnectCtx, directAddr)
 				if err != nil {
 					return nil, fmt.Errorf("direct p2p redial: %w", err)
 				}
+				pConn := kamune.NewConn(sess)
 				resumeOpts = append(resumeOpts, kamune.DialWithFunc(
 					func(string) (kamune.Conn, error) {
 						return pConn, nil

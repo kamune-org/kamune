@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"testing"
@@ -146,6 +148,7 @@ func TestConnectToServerRejectsOtherKnownPeer(t *testing.T) {
 	a.Error(err)
 	a.True(errors.Is(err, ErrPeerKeyMismatch), "got %v", err)
 	a.Equal("peer_key_mismatch", res.ErrorCode)
+	requireWindowErrorCode(t, err, "peer_key_mismatch")
 	a.Empty(app.GetSessions())
 	a.Empty(pendingIDs(app))
 }
@@ -195,6 +198,114 @@ func TestConnectToServerRejectsBadPeerKey(t *testing.T) {
 	)
 	a.Error(err)
 	a.Equal("invalid_peer_key", res.ErrorCode)
+	requireWindowErrorCode(t, err, "invalid_peer_key")
+}
+
+// TestDialErrorCode checks the error code of a failed dial: a dial over
+// a punched socket failed to punch only when nothing came from the peer.
+func TestDialErrorCode(t *testing.T) {
+	answered := &punchSession{}
+	answered.answered.Store(true)
+	errClosed := errors.New("connection closed")
+	cases := []struct {
+		name    string
+		err     error
+		punched *punchSession
+		want    string
+	}{
+		{name: "other key", err: ErrPeerKeyMismatch,
+			want: "peer_key_mismatch"},
+		{name: "rejected", err: fmt.Errorf("verify remote: %w",
+			kamune.ErrVerificationFailed), want: "verification_rejected"},
+		{name: "rejected over a punch", err: kamune.ErrVerificationFailed,
+			punched: answered, want: "verification_rejected"},
+		{name: "rejected before the peer answered",
+			err: kamune.ErrVerificationFailed, punched: &punchSession{},
+			want: "verification_rejected"},
+		{name: "prompt cancelled", err: ErrVerificationCancelled,
+			want: "verification_rejected"},
+		{name: "no answer over a punch", err: errClosed,
+			punched: &punchSession{}, want: "hole_punch_failed"},
+		{name: "handshake failed over a punch", err: errClosed,
+			punched: answered, want: "dial_failed"},
+		{name: "version mismatch over a punch",
+			err: kamune.ErrVersionMismatch, punched: answered,
+			want: "dial_failed"},
+		{name: "no punch", err: errClosed, want: "dial_failed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.New(t).Equal(tc.want, dialErrorCode(tc.err, tc.punched))
+		})
+	}
+}
+
+// TestConnectToServerP2PRejectedIsNotPunchFailure dials a peer by direct
+// P2P in Strict mode and rejects it in the prompt. The punch worked, so
+// the call must not report hole_punch_failed, which would offer to try
+// the peer again or through a relay.
+func TestConnectToServerP2PRejectedIsNotPunchFailure(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	app.verifMode = VerificationModeStrict
+
+	l, err := newDirectP2PListener("127.0.0.1:0", "127.0.0.1:9")
+	a.NoError(err)
+	srv, err := kamune.NewServer(
+		"", func(*kamune.Transport) error { return nil },
+		openTestStorage(t), acceptAll,
+		kamune.ServeWithListener(l), kamune.ServeWithServerName("Bob"),
+	)
+	a.NoError(err)
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		_ = srv.ListenAndServe()
+	}()
+	t.Cleanup(func() {
+		_ = srv.Close()
+		<-served
+	})
+
+	type outcome struct {
+		res ConnectResult
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := app.ConnectToServer(
+			l.Addr().String(), "udp", "", "", "alice", "", "", "", "",
+			true, false, "",
+		)
+		done <- outcome{res, err}
+	}()
+	ids := waitPending(t, app, 1)
+	app.VerifyResponse(ids[0], false)
+
+	var got outcome
+	select {
+	case got = <-done:
+	case <-time.After(testWait):
+		a.FailNow("the dial did not return")
+	}
+	a.ErrorIs(got.err, kamune.ErrVerificationFailed)
+	a.Equal("verification_rejected", got.res.ErrorCode)
+	requireWindowErrorCode(t, got.err, "verification_rejected")
+	a.Empty(app.GetSessions())
+}
+
+// requireWindowErrorCode checks that err, which a ConnectToServer call
+// returned, gives the window the error code code. Wails drops the
+// ConnectResult of a call that returns an error, and passes the window
+// the error's JSON form, which it makes with json.Marshal(&err), as the
+// cause of the rejection.
+func requireWindowErrorCode(t *testing.T, err error, code string) {
+	t.Helper()
+	a := require.New(t)
+	cause, jsonErr := json.Marshal(&err)
+	a.NoError(jsonErr)
+	a.JSONEq(`{"errorCode":"`+code+`"}`, string(cause))
 }
 
 // gatedTestListener tags every accepted conn with gate, as the relay and

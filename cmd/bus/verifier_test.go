@@ -412,7 +412,7 @@ func TestPromptTimeoutClosesRequest(t *testing.T) {
 
 	err := waitVerdict(t,
 		runVerifier(app, app.getVerifier(), newTestPeer(t, "Alice")))
-	a.Error(err)
+	a.ErrorIs(err, kamune.ErrVerificationFailed)
 	a.Empty(pendingIDs(app))
 	a.Len(events.promptIDs(), 1)
 	a.Equal(events.promptIDs(), events.closedIDs())

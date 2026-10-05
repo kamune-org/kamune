@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kamune-org/kamune"
@@ -117,11 +118,12 @@ func (l *directP2PListener) Addr() *net.UDPAddr {
 }
 
 // directP2PDial creates a UDP socket, sends a NAT-kick burst to peerAddr,
-// and returns a KCP client session wrapped as a kamune.Conn. The caller
-// should use this with kamune.DialWithFunc to bypass the standard dial.
+// and returns a KCP client session on it. The caller wraps it with
+// kamune.NewConn and passes it to kamune.DialWithFunc to bypass the
+// standard dial.
 func directP2PDial(
 	ctx context.Context, peerAddr string,
-) (kamune.Conn, error) {
+) (net.Conn, error) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
 		return nil, fmt.Errorf("bind punch socket: %w", err)
@@ -152,5 +154,23 @@ func directP2PDial(
 		conn.Close()
 		return nil, fmt.Errorf("kcp session: %w", err)
 	}
-	return kamune.NewConn(sess), nil
+	return sess, nil
+}
+
+// punchSession is the connection of a dial over a punched UDP socket. It
+// records whether anything has come from the peer, which tells a punch
+// that let nothing through from a handshake that failed after the punch
+// worked; see dialErrorCode. The NAT kicks that the peer sends are too
+// short for KCP, which drops them, so they do not count.
+type punchSession struct {
+	net.Conn
+	answered atomic.Bool
+}
+
+func (c *punchSession) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		c.answered.Store(true)
+	}
+	return n, err
 }

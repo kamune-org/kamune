@@ -2,7 +2,7 @@
   // @ts-check
   // (svelte-check then reports names this script uses but never declares)
   import { CancelConnect, ConnectToServer, DisconnectSession } from './go.js';
-  import { newConnectAttemptId } from './attempts';
+  import { connectOutcome, newConnectAttemptId } from './attempts';
   import { insecureWarning, isTLSRelayScheme, pinPlaceholder, relayAddress } from './relayaddr';
 
   /**
@@ -31,8 +31,8 @@
 
   /**
    * connect runs dial, a ConnectToServer call with the attempt ID that it
-   * is given, as the connect in progress. It returns null once Cancel has
-   * cancelled it.
+   * is given, as the connect in progress, and returns how it ended (see
+   * connectOutcome). It returns null once Cancel has cancelled it.
    * @param {(id: string) => Promise<any>} dial
    */
   async function connect(dial) {
@@ -40,7 +40,7 @@
     attempt = id;
     loading = true;
     try {
-      const result = await dial(id);
+      const result = await connectOutcome(dial(id));
       if (id === attempt) return result;
       // Cancelled, but the session was established first.
       if (result.sessionId) await DisconnectSession(result.sessionId);
@@ -95,7 +95,7 @@
           // Stay open for another attempt.
           return;
         }
-        alert('Failed to connect: ' + result.errorCode);
+        alert('Failed to connect: ' + (result.message || result.errorCode));
         close();
       } else {
         close();
@@ -154,7 +154,7 @@
       );
       if (!result) return;
       if (result.errorCode) {
-        alert('Relay fallback failed: ' + result.errorCode);
+        alert('Relay fallback failed: ' + (result.message || result.errorCode));
       } else {
         close();
       }

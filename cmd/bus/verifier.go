@@ -290,7 +290,8 @@ func (a *App) awaitVerification(
 		a.addLogEntry("WARN", fmt.Sprintf(
 			"Verification request %d timed out after %v", reqID, timeout,
 		))
-		return fmt.Errorf("verification timed out after %v", timeout)
+		return fmt.Errorf("%w: no answer within %v",
+			kamune.ErrVerificationFailed, timeout)
 	}
 }
 

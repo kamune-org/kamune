@@ -130,10 +130,11 @@ type SessionInfo struct {
 // ConnectResult is the structured return value of ConnectToServer. On
 // success ErrorCode is empty and SessionID is the kamune session ID. On
 // failure ErrorCode is a stable string the frontend can switch on (e.g.
-// "hole_punch_failed" → show P2PFallbackDialog; "missing_broker" → prompt
-// for a broker address; etc.). The error is reserved for programmer /
-// transport-level errors that should never reach the user; user-facing
-// failure is signaled via ErrorCode.
+// "hole_punch_failed" → show P2PFallbackDialog; "peer_key_mismatch";
+// "verification_rejected"; etc.; see dialErrorCode). A cancelled call
+// returns the code "cancelled" with no error.
+// Any other failure also returns an error, which carries the same code
+// to the window; see connectError.
 type ConnectResult struct {
 	SessionID string `json:"sessionId"`
 	ErrorCode string `json:"errorCode"`
