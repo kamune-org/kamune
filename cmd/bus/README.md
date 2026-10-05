@@ -516,9 +516,13 @@ alone does not show who connects.
 A dialog waits 2 minutes for an answer and then rejects the peer.
 **Accept** stays disabled for 1 second after a dialog appears, and a click
 outside the dialog rejects the peer. Dialogs queue rather than replace each
-other; at most 3 wait at once, and a peer that would need another is
-rejected without one. Stopping or restarting the server, or cancelling a
-connect, closes its open dialogs and rejects their peers.
+other. At most 3 dialogs for peers that connect to your server wait at
+once, and such a peer that would need another is rejected without one.
+Dialogs for peers you connect to, or that Bus reconnects to, do not count
+toward that limit and are never refused for it, so peers that connect to
+your server cannot keep you from connecting. Stopping or restarting the
+server, or cancelling a connect, closes its open dialogs and rejects their
+peers.
 
 ### Resumed Sessions
 
