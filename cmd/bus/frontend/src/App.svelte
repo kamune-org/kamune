@@ -1127,7 +1127,9 @@
                     {:else}
                       <p class="dialog-hint p2p-hint">
                         <span class="p2p-badge p2p-badge-random">random</span>
-                        One-time token from the server — not linked to your identity.
+                        Random token that the broker assigns. It stays registered until you remove it
+                        or the server stops, and admits any peer that has it, more than once. The broker
+                        can link it to your other registrations.
                       </p>
                     {/if}
                   </div>

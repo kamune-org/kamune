@@ -7,7 +7,7 @@ export const welcomeTips = [
   'Check the Peers tab to manage your contacts',
   { text: 'Toggle the server on/off with', key: 'S' },
   'Use the Share Card to send your connection info to a peer',
-  'Choose how you verify peers: Strict asks every time, Quick trusts known ones, Auto-Accept says yes to all',
+  'Choose how you verify peers: Strict asks about every new session, Quick only about unknown keys, Auto-Accept says yes to all. A resumed session is not asked about again',
   'Read your numeric fingerprint out to a new peer so they can check your key — the emojis are only a quick check',
   'Database holds your keys and chat history — keep your password safe',
   'Messages are end-to-end encrypted — only you and your peer can read them',
