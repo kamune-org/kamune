@@ -574,19 +574,43 @@ func (a *App) doneClosing() {
 }
 
 // canUnlock returns ErrStorageBusy while anything uses the open database
-// and ErrStorageOpen when path is the open database.
+// and ErrStorageOpen when path is the open database; see sameDBPath.
 func (a *App) canUnlock(path string) error {
 	a.mu.RLock()
 	busy := a.storageBusyLocked()
-	samePath := filepath.Clean(path) == filepath.Clean(a.dbPath)
+	openPath := a.dbPath
 	a.mu.RUnlock()
 	if busy {
 		return ErrStorageBusy
 	}
-	if samePath && a.store() != nil {
+	if a.store() != nil && sameDBPath(path, openPath) {
 		return ErrStorageOpen
 	}
 	return nil
+}
+
+// sameDBPath reports whether x and y name the same database file: the
+// same path once cleaned, or, as for a symbolic link, a relative path or
+// another spelling of it, the same existing file. bbolt locks a database
+// file while it is open, so opening the open database again under
+// another name would wait for its own lock and then fail as if another
+// program held it.
+func sameDBPath(x, y string) bool {
+	if x == "" || y == "" {
+		return false
+	}
+	if filepath.Clean(x) == filepath.Clean(y) {
+		return true
+	}
+	xi, err := os.Stat(x)
+	if err != nil {
+		return false
+	}
+	yi, err := os.Stat(y)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(xi, yi)
 }
 
 // unlockDB opens the database at path with passphrase, creating it when

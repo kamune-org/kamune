@@ -166,6 +166,69 @@ func TestUnlockOpenDatabaseKeepsIt(t *testing.T) {
 	a.NoError(err, "the open database must stay open")
 }
 
+// TestUnlockOpenDatabaseUnderOtherPath checks that the open database,
+// named by another path to the same file, counts as the open one, so it
+// is neither opened a second time nor reported as held by another
+// program.
+func TestUnlockOpenDatabaseUnderOtherPath(t *testing.T) {
+	app, path := newUnlockedApp(t, "secret")
+	link := filepath.Join(t.TempDir(), "link")
+	require.New(t).NoError(os.Symlink(path, link))
+	wd, err := os.Getwd()
+	require.New(t).NoError(err)
+	rel, err := filepath.Rel(wd, path)
+	require.New(t).NoError(err)
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"symbolic link", link},
+		{"relative path", rel},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			open := app.store()
+			a.ErrorIs(app.SubmitPassphrase(tc.path, "secret", false),
+				ErrStorageOpen)
+			a.Same(open, app.store())
+			a.Equal(path, app.GetDBPath())
+		})
+	}
+}
+
+func TestSameDBPath(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "db")
+	other := filepath.Join(dir, "other")
+	require.New(t).NoError(os.WriteFile(db, nil, 0o600))
+	require.New(t).NoError(os.WriteFile(other, nil, 0o600))
+	link := filepath.Join(dir, "link")
+	require.New(t).NoError(os.Symlink(db, link))
+
+	cases := []struct {
+		name string
+		x, y string
+		same bool
+	}{
+		{"same path", db, db, true},
+		{"unclean path", db, dir + "/./db", true},
+		{"symbolic link", link, db, true},
+		{"other file", db, other, false},
+		{"missing file", db, filepath.Join(dir, "missing"), false},
+		{"both missing, same path", dir + "/x", dir + "/./x", true},
+		{"empty", "", db, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			a.Equal(tc.same, sameDBPath(tc.x, tc.y))
+			a.Equal(tc.same, sameDBPath(tc.y, tc.x))
+		})
+	}
+}
+
 func TestUnlockOtherDatabaseClosesOldOnlyOnSuccess(t *testing.T) {
 	a := require.New(t)
 	app, path := newUnlockedApp(t, "secret")
