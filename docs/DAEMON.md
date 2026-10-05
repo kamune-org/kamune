@@ -306,7 +306,7 @@ command's `id`.
 | `name`             | all                       | The server's display name, saved as the local name. Defaults to the fingerprint pseudonym of the identity key, which incognito mode always uses (and does not save). A name longer than 64 bytes, not UTF-8, or with a control, format, line separator or paragraph separator character (the zero-width joiner and non-joiner are allowed) fails with `invalid_name`.                                                                                                            |
 | `broker_addr`      | p2p                       | Required. The broker's UDP `host:port`; see [P2P Tokens](#p2p-tokens).                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `peer_pub_b64`     | p2p                       | Registers the [static token](#relay) for this peer instead of a random token that the broker assigns.                                                                                                                                                                                                                                                                                                                                                                            |
-| `direct_peer_addr` | direct-p2p                | Required. The peer's UDP `host:port`, which the server sends packets to for 10 seconds to open the NATs on the way.                                                                                                                                                                                                                                                                                                                                                              |
+| `direct_peer_addr` | direct-p2p                | Required. The peer's UDP `host:port`, which the server sends packets to for 10 seconds to open the NATs on the way. The server takes KCP packets only from this IP address, from any port.                                                                                                                                                                                                                                                                                       |
 
 Before the server starts, the command fails with `invalid_params`,
 `invalid_name`, `invalid_transport`, `addr_required`, `invalid_relay_pin`,
@@ -582,6 +582,15 @@ seconds. For p2p, the dial waits at most 30 seconds for the broker to match the
 token (`p2p_match_failed`), then sends 5 packets to the server's address over
 about 400 ms to open the NATs on the way before it starts KCP
 (`hole_punch_failed` when it cannot send any).
+
+When this daemon runs a p2p server that registers the same token with the same
+broker, as when two peers run a p2p server for each other's static token, the
+dial runs from that server's punch socket instead, on the server's own match:
+the broker matches the two servers with each other on most refreshes, and a
+dial from a socket of its own would only be matched after the other server's
+next refresh. The dial takes the last match when it is under 30 seconds old,
+or else sends a REGISTER at once and waits for the next match, within the same
+30 seconds.
 
 Before the dial starts, the command fails with `invalid_params`,
 `invalid_name`, `invalid_transport`, `addr_required`, `invalid_relay_pin`,
@@ -1076,13 +1085,22 @@ refreshes each registration every 30 seconds. `broker_addr` is the broker's UDP
 `host:port` (the relay's shipped config puts its broker on port 4788), not a
 URL. A dialer registers the same token, the broker tells each side the other's
 public address, and both send packets toward the other to open their NATs. The
-server lets KCP packets in only from hosts that the broker matched with one of
-its tokens, for 10 minutes after the match and after each packet.
+server lets KCP packets in only from the IP address of a host that the broker
+matched with one of its tokens, for one minute after the match, which the
+host's packets do not renew, and, once it accepted a session from a host,
+from that session's address and port until the session closes. Removing a
+token stops letting in the hosts matched on it; a session such a host opened
+already goes on. The server takes the broker's packets on the punch socket
+apart from every other datagram, so a stray datagram that reaches it at
+start, such as a former peer's, does not stop it from starting.
 
 A token is either random, 16 bytes (32 hex characters), or static, 32 bytes
 (64 hex characters): the [static token](#relay) for the `peer_pub_b64` given
 to `start_server` or `generate_p2p_token`. A P2P token is not used up by
-a match: it stays registered until it is removed or the server stops.
+a match: it stays registered until it is removed or the server stops. A
+server registers at most 8 tokens, its own included: the broker drops, without
+a word, the REGISTERs of one address past its quota (20 a minute by default),
+so the last of more tokens would lapse while `p2p_tokens` lists them.
 
 A KCP session does not tell which token its peer matched on, so the server
 checks peers against its tokens as a whole. While it registers a random
@@ -1095,9 +1113,10 @@ relay token.
 
 Adds a token to the running p2p server, which registers and refreshes it from
 its punch socket, and returns it. `broker_addr` is required and must be the
-`broker_addr` the server was started with. Without `peer_pub_b64` the server's
-random token is returned, or a random token that the daemon picks is added when
-the server has none. With `peer_pub_b64` the token is the
+`broker_addr` the server was started with. Without `peer_pub_b64` a new random
+token that the daemon picks is added on every call, so that each peer it is
+given to has a token of its own, which `remove_p2p_token` can remove without
+the others. With `peer_pub_b64` the token is the
 [static token](#relay) for that peer, returned as it is when the server has it
 already. The broker carries the first 16 bytes of a static token, and
 anyone who computes it can register with it and is sent the server's public IP
@@ -1105,7 +1124,8 @@ address and port (see the broker's
 [Static Tokens](RELAY.md#static-tokens-1) in RELAY.md).
 
 It fails with `p2p_server_not_running` when no p2p server runs,
-`broker_addr_mismatch` when `broker_addr` is not the server's broker, and
+`broker_addr_mismatch` when `broker_addr` is not the server's broker,
+`p2p_token_limit` while the server registers 8 tokens (remove one first), and
 `p2p_token_failed` otherwise. A new token is announced with `p2p_tokens` before
 the response.
 
@@ -1142,8 +1162,9 @@ the response.
 #### `remove_p2p_token`
 
 Removes a P2P token, the server's own token included, and stops the p2p server
-from registering it again. The broker has no way to drop a registration at
-once, so it forgets the token when its last registration expires, within its
+from registering it again, and from letting in the hosts that the broker
+matched on it. The broker has no way to drop a registration at once, so it
+forgets the token when its last registration expires, within its
 `registration_ttl` (60 seconds by default). Fails with
 `p2p_token_remove_failed` for a token that is not listed.
 
@@ -2644,6 +2665,7 @@ programs, and `reason`, on some errors, tells apart failures that share a code:
 | `p2p_match_failed`             | `dial`                                                                                                                | The broker did not match the token within 30 seconds, or the wait failed.                                                                |
 | `p2p_server_not_running`       | `generate_p2p_token`                                                                                                  | No p2p server runs.                                                                                                                      |
 | `p2p_token_failed`             | `start_server`, `generate_p2p_token`                                                                                  | `broker_addr` is empty, or the P2P token could not be derived or registered.                                                             |
+| `p2p_token_limit`              | `generate_p2p_token`                                                                                                  | The p2p server registers 8 tokens already.                                                                                               |
 | `p2p_token_remove_failed`      | `remove_p2p_token`                                                                                                    | The token is not listed.                                                                                                                 |
 | `passphrase_required`          | `submit_passphrase`, `change_passphrase`                                                                              | The passphrase, or `new_passphrase`, is empty.                                                                                           |
 | `peer_already_exists`          | `add_peer`                                                                                                            | The key is already a known peer.                                                                                                         |
@@ -2837,13 +2859,13 @@ its resumption tokens when it closed the session.
 
 ## Transports
 
-| Transport       | Server-side                                                                     | Client-side                                               |
-| --------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `tcp` (default) | `net.Listen("tcp")` + `ServeWithListener`                                       | `kamune.DialWithTCP`                                      |
-| `udp`           | `kcp.Listen` + `ServeWithListener`                                              | `kamune.DialWithUDP`                                      |
-| `relay`         | `relayconn.ListenRelay*` + `ServeWithListener(multiListener)`                   | `relayconn.DialRelay*` via `DialWithFunc`                 |
-| `p2p`           | `newP2PListener` (punch socket, broker registration, KCP) + `ServeWithListener` | `BrokerClient.WaitMatch` + `HolePunch` via `DialWithFunc` |
-| `direct-p2p`    | `newDirectP2PListener` + `ServeWithListener`                                    | `directP2PDial` via `DialWithFunc`                        |
+| Transport       | Server-side                                                                     | Client-side                                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `tcp` (default) | `net.Listen("tcp")` + `ServeWithListener`                                       | `kamune.DialWithTCP`                                                                                                               |
+| `udp`           | `kcp.Listen` + `ServeWithListener`                                              | `kamune.DialWithUDP`                                                                                                               |
+| `relay`         | `relayconn.ListenRelay*` + `ServeWithListener(multiListener)`                   | `relayconn.DialRelay*` via `DialWithFunc`                                                                                          |
+| `p2p`           | `newP2PListener` (punch socket, broker registration, KCP) + `ServeWithListener` | `BrokerClient.WaitMatch` + `HolePunch`, or the server's `p2pListener.dialMatched` for a token it registers too, via `DialWithFunc` |
+| `direct-p2p`    | `newDirectP2PListener` + `ServeWithListener`                                    | `directP2PDial` via `DialWithFunc`                                                                                                 |
 
 For relay mode, the relay address supports `tcp://`, `ws://`, `wss://`, and
 `tls://` schemes, and is `wss://` when it names none, so a relay without TLS
