@@ -814,7 +814,9 @@ A send that fails is not tried again, and fails with `send_message_failed`:
 
 - with reason `connection_lost` when the connection is gone, so the message was
   not delivered. A dialed session then tries to resume (see
-  `session_reconnecting`), and a server session ends;
+  `session_reconnecting`), and a server session ends. Every send on a session
+  whose connection dropped fails this way until the session resumes, over a
+  relay too;
 - with reason `message_too_large` when the message is over the protocol's or
   the relay's limit, which leaves the session usable;
 - with no reason for other failures.
@@ -1318,8 +1320,9 @@ Returns the current verification mode.
 #### `verify_response`
 
 Answers a pending `verify_peer` event (see [`verify_peer`](#verify_peer)). A
-`request_id` that names no pending prompt, because it was answered, timed out
-or ended when the server stopped, fails with `verification_not_found`. An
+`request_id` that names no pending prompt, because it was answered, timed out,
+was replaced by a newer prompt for the same peer or ended when the server
+stopped, fails with `verification_not_found`. An
 unknown peer that is accepted is stored as a known peer once its session is
 established, unless incognito mode is on; a peer whose handshake fails after
 it was accepted is not stored. It is stored under the name it claimed, unless
@@ -2448,11 +2451,18 @@ or is stored under, the name of another stored peer; names that differ only in
 case, white space or characters that do not show count as the same. Warn the
 user about either.
 
-A peer that connects to the server is rejected at once, without this event,
-while another connection with the same key has a prompt open, or when it is
-unknown and 8 unknown peers that connected have prompts open. Known peers do
-not count toward the 8, and a peer the user dials (`dial` or a reconnect) is
-never rejected this way. While prompts are open the status is `verifying`;
+A peer that connects to the server again while a prompt for its key from an
+earlier connection is open, as after it gave up or its connection dropped,
+gets a new `verify_peer`, which replaces the earlier one: the earlier
+`request_id` is no longer pending, so `verify_response` fails for it with
+`verification_not_found`, and the earlier handshake ends. A client should
+show one prompt per `peer_key`, the latest. The kamune library does not tell
+the daemon when the connection of a prompt goes away, so a prompt can
+outlive its connection; accepting it then admits nobody. An unknown peer
+that connects is rejected at once, without this event, while 8 other unknown
+peers that connected have prompts open. Known peers do not count toward the
+8, and a peer the user dials (`dial` or a reconnect) is never rejected this
+way and replaces no prompt. While prompts are open the status is `verifying`;
 when the last one ends, the status before them comes back.
 
 ```json
@@ -2709,10 +2719,11 @@ is logged.
                   └────────────────────────────┬────────────────────────────┘
                                                │ no
                   ┌────────────────────────────▼────────────────────────────┐
-                  │ Inbound peer whose key already has a prompt open,       │
-                  │ or unknown inbound peer while 8 unknown inbound         │
+                  │ Unknown inbound peer while 8 other unknown inbound      │
                   │ peers have prompts open?                                │
                   │ → reject without a prompt                               │
+                  │ Inbound peer whose key has a prompt open?               │
+                  │ → end that prompt; this connection is asked instead     │
                   └────────────────────────────┬────────────────────────────┘
                                                │ no
                   ┌────────────────────────────▼────────────────────────────┐
