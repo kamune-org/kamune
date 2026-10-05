@@ -70,7 +70,14 @@
   } from './lib/stores';
   import { K, isMac } from './lib/keyboard';
   import { newConnectAttemptId } from './lib/attempts';
-  import { importedRelayScheme, insecureIgnored, relaySchemes } from './lib/importurl';
+  import {
+    importedRelayPin,
+    importedRelayScheme,
+    insecureIgnored,
+    pinImported,
+    pinnedRelayHint,
+    relaySchemes,
+  } from './lib/importurl';
   import { insecureWarning, isTLSRelayScheme, pinPlaceholder, relayAddress } from './lib/relayaddr';
 
   import Sidebar from './lib/Sidebar.svelte';
@@ -459,12 +466,15 @@
           const peerParam = url.searchParams.get('peer') || '';
           connectRelayToken = tokenParam;
           connectPeerKey = peerParam;
-          // An imported URL never turns off TLS verification, and
-          // carries no pin; one typed for another relay would not match.
+          // An imported URL never turns off TLS verification. It may pin
+          // the relay's certificate (see importedRelayPin); without one,
+          // a pin typed for another relay would not match.
           connectRelayInsecure = false;
-          connectRelayPin = '';
+          connectRelayPin = importedRelayPin(url.searchParams.get('pin'), connectRelayScheme);
           if (url.searchParams.get('insecure') === 'true') {
             warnInsecureIgnored();
+          } else if (connectRelayPin) {
+            noteImportedPin();
           }
         } else {
           connectServerAddr2 = url.host;
@@ -590,6 +600,11 @@
 
   function warnInsecureIgnored() {
     toast.set({ message: insecureIgnored, type: 'warning' });
+    setTimeout(() => toast.set(null), 6000);
+  }
+
+  function noteImportedPin() {
+    toast.set({ message: pinImported, type: 'info' });
     setTimeout(() => toast.set(null), 6000);
   }
 
@@ -1375,7 +1390,9 @@
                 />
                 Skip TLS verification
               </label>
-              {#if connectRelayInsecure && !connectRelayPin.trim()}
+              {#if connectRelayPin.trim()}
+                <p class="dialog-hint">{pinnedRelayHint}</p>
+              {:else if connectRelayInsecure}
                 <p class="dialog-hint insecure-warning">{insecureWarning}</p>
               {/if}
             {/if}
@@ -1614,18 +1631,20 @@
   {#if $dialogs.showImport}
     <ImportDialog
       onImport={(e) => {
-        const { transport, host, scheme, token, asksInsecure } = e;
+        const { transport, host, scheme, token, pin, asksInsecure } = e;
         connectTransport = transport;
         if (transport === 'relay') {
           connectRelayAddr = host;
           connectRelayScheme = scheme;
           connectRelayToken = token || '';
           connectPeerKey = '';
-          // An imported URL never turns off TLS verification, and
-          // carries no pin; one typed for another relay would not match.
+          // An imported URL never turns off TLS verification. It may pin
+          // the relay's certificate (see importedRelayPin); without one,
+          // a pin typed for another relay would not match.
           connectRelayInsecure = false;
-          connectRelayPin = '';
+          connectRelayPin = pin || '';
           if (asksInsecure) warnInsecureIgnored();
+          else if (connectRelayPin) noteImportedPin();
         } else {
           connectServerAddr2 = host;
         }

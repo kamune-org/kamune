@@ -1,7 +1,7 @@
 <script>
   import { onDestroy, tick } from 'svelte';
   import jsQR from 'jsqr';
-  import { importedRelayScheme } from './importurl';
+  import { importedRelayPin, importedRelayScheme } from './importurl';
 
   let { onImport, onClose } = $props();
 
@@ -27,12 +27,14 @@
       if (!transport) throw new Error('Unknown transport');
       stopCamera();
       // asksInsecure only lets the window warn: an imported URL never
-      // turns off TLS verification.
+      // turns off TLS verification. A pin is taken; see importedRelayPin.
+      const scheme = importedRelayScheme(url.searchParams.get('scheme'));
       onImport?.({
         transport,
         host: url.host,
-        scheme: importedRelayScheme(url.searchParams.get('scheme')),
+        scheme,
         token: url.searchParams.get('token') || '',
+        pin: importedRelayPin(url.searchParams.get('pin'), scheme),
         asksInsecure: url.searchParams.get('insecure') === 'true',
       });
     } catch {
