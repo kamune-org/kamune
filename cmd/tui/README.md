@@ -176,15 +176,15 @@ when it dials.
 
 ## Controls
 
-| Screen          | Keys                                                                                    |
-| --------------- | --------------------------------------------------------------------------------------- |
-| Menu            | ↑/↓, `k`/`j` or Tab to move; Enter or `1` to `6` to select                              |
-| Input           | Tab and Shift+Tab to move between fields; Enter to connect; Esc to go back              |
-| Connecting      | Esc to cancel                                                                           |
-| Verify          | `y` to accept the peer; `n` or Esc to reject it                                         |
-| Chat            | Enter to send; ↑/↓ and PgUp/PgDn to scroll; Esc to end the chat and go back to the menu |
-| History         | ↑/↓ or `k`/`j` to move; Enter to open a session; Esc or `q` to go back                  |
-| History session | ↑/↓ and PgUp/PgDn to scroll; Esc to go back to the list                                 |
+| Screen          | Keys                                                                            |
+| --------------- | ------------------------------------------------------------------------------- |
+| Menu            | ↑/↓, `k`/`j` or Tab to move; Enter or `1` to `6` to select                      |
+| Input           | Tab and Shift+Tab to move between fields; Enter to connect; Esc to go back      |
+| Connecting      | Esc to cancel                                                                   |
+| Verify          | `y` to accept the peer; `n` or Esc to reject it                                 |
+| Chat            | Enter to send; PgUp/PgDn to scroll; Esc to end the chat and go back to the menu |
+| History         | ↑/↓ or `k`/`j` to move; Enter to open a session; Esc or `q` to go back          |
+| History session | ↑/↓ and PgUp/PgDn to scroll; Esc to go back to the list                         |
 
 Ctrl+C quits from any screen. The TUI does not turn on mouse reporting, so
 it gets no mouse wheel events; scroll with the keys.
