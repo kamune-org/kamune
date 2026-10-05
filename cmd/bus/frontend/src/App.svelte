@@ -996,7 +996,9 @@
           sidebarTab.set('history');
           handleRefreshHistory();
           break;
+        // With Shift held, or Caps Lock on, the key is 'W'.
         case 'w':
+        case 'W':
           e.preventDefault();
           if (e.shiftKey) {
             handleDisconnectAll();
