@@ -16,7 +16,7 @@ import (
 // first [NewServer] or [NewDialer] call, for example in an init function.
 // Each server and dialer reads it once, when it is created, and keeps that
 // value; NewServer and NewDialer fail when it is not a valid version.
-var AppVersion = "0.7.0"
+var AppVersion = "0.8.0"
 
 // MaxAppVersionLength is the longest version, in bytes, that a peer may
 // introduce itself with. See [ValidateAppVersion].
