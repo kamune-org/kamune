@@ -74,7 +74,7 @@ path in `storage_path`.
 
 ```bash
 go test -short ./...          # unit tests only
-go test -timeout 60s ./...    # full suite including end-to-end integration test
+go test -timeout 120s ./...   # full suite including end-to-end integration test
 ```
 
 The integration test spawns the daemon as a subprocess and exercises the
