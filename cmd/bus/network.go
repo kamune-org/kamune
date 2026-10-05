@@ -292,7 +292,7 @@ func (a *App) StartServer(
 		return a.serverHandler(svr, t)
 	}
 	svr, err := kamune.NewServer(
-		addr, handler, store, a.verifierWithin(serverCtx, verifMode),
+		addr, handler, store, a.verifierWithin(serverCtx, verifMode, true),
 		opts...,
 	)
 	if err != nil {
@@ -860,7 +860,7 @@ func (a *App) ConnectToServer(
 	verifMode := a.currentVerifMode()
 	dialer, err := kamune.NewDialer(
 		addr, store,
-		a.pinPeer(wantKey, a.verifierWithin(attempt.ctx, verifMode)),
+		a.pinPeer(wantKey, a.verifierWithin(attempt.ctx, verifMode, false)),
 		opts...,
 	)
 	if err != nil {

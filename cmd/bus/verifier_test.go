@@ -242,16 +242,15 @@ func TestRememberPeer(t *testing.T) {
 }
 
 // TestPromptsQueueUpToCap checks that each prompt is a request of its own,
-// that an answer reaches only the request it names, and that a peer
-// arriving while maxPendingVerifications prompts wait is rejected without
-// a prompt instead of replacing one.
+// that an answer reaches only the request it names, and that a peer that
+// connects to a server while maxPendingVerifications prompts for such
+// peers wait is rejected without a prompt instead of replacing one.
 func TestPromptsQueueUpToCap(t *testing.T) {
 	a := require.New(t)
 	app, cleanup := newTestAppWithStorage(t)
 	defer cleanup()
-	app.verifMode = VerificationModeStrict
 	events := recordEvents(app)
-	rv := app.getVerifier()
+	rv := app.verifierWithin(app.lifeCtx(), VerificationModeStrict, true)
 
 	var errChs []<-chan error
 	var peers []*storage.Peer
@@ -291,6 +290,116 @@ func TestPromptsQueueUpToCap(t *testing.T) {
 	next := waitPending(t, app, 1)
 	app.VerifyResponse(next[0], false)
 	a.ErrorIs(waitVerdict(t, errCh), kamune.ErrVerificationFailed)
+}
+
+// TestOwnDialPromptsSkipInboundCap checks that the prompts that peers
+// which connect to a server hold open do not keep the user from dialing:
+// a prompt for a peer the user dials opens while the inbound cap is
+// full, and does not count toward that cap.
+func TestOwnDialPromptsSkipInboundCap(t *testing.T) {
+	cases := []struct {
+		name string
+		mode VerificationMode
+	}{
+		{"strict", VerificationModeStrict},
+		{"quick", VerificationModeQuick},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, cleanup := newTestAppWithStorage(t)
+			defer cleanup()
+			inbound := app.verifierWithin(app.lifeCtx(), tc.mode, true)
+			outbound := app.verifierWithin(app.lifeCtx(), tc.mode, false)
+
+			var held []<-chan error
+			for i := range maxPendingVerifications {
+				held = append(held,
+					runVerifier(app, inbound, newTestPeer(t, "x")))
+				waitPending(t, app, i+1)
+			}
+
+			own := runVerifier(app, outbound, newTestPeer(t, "Bob"))
+			ids := waitPending(t, app, maxPendingVerifications+1)
+			ownID := ids[len(ids)-1]
+
+			a.ErrorIs(waitVerdict(t,
+				runVerifier(app, inbound, newTestPeer(t, "y"))),
+				ErrTooManyVerifications,
+				"the inbound cap still holds")
+
+			app.VerifyResponse(ownID, true)
+			a.NoError(waitVerdict(t, own))
+
+			a.ErrorIs(waitVerdict(t,
+				runVerifier(app, inbound, newTestPeer(t, "z"))),
+				ErrTooManyVerifications,
+				"an answered own prompt frees no inbound slot")
+			for i, id := range ids[:maxPendingVerifications] {
+				app.VerifyResponse(id, false)
+				a.ErrorIs(waitVerdict(t, held[i]),
+					kamune.ErrVerificationFailed)
+			}
+		})
+	}
+}
+
+// TestInboundPromptsDoNotBlockOwnDial fills a Strict server's prompt cap
+// with peers that connect to it, then dials a peer from the same app:
+// the dial gets a prompt of its own, and once accepted, a session.
+func TestInboundPromptsDoNotBlockOwnDial(t *testing.T) {
+	a := require.New(t)
+	app, _ := newUnlockedApp(t, "secret")
+	app.mu.Lock()
+	app.verifMode = VerificationModeStrict
+	app.mu.Unlock()
+	addr := freeTCPAddr(t)
+	_, _, err := app.StartServer(
+		addr, "tcp", "", "alice", "", "", "", false, false, "",
+	)
+	a.NoError(err)
+	t.Cleanup(func() { _ = app.StopServer() })
+
+	for range maxPendingVerifications {
+		store := openTestStorage(t)
+		go func() {
+			d, err := kamune.NewDialer(addr, store, acceptAll,
+				kamune.DialWithTCP(), kamune.DialWithClientName("x"))
+			if err != nil {
+				return
+			}
+			if tr, err := d.Dial(); err == nil {
+				_ = tr.Close()
+			}
+		}()
+	}
+	inboundIDs := waitPending(t, app, maxPendingVerifications)
+
+	carol, carolKey := startTestServer(t, "Carol", readUntilEnd)
+	type result struct {
+		res ConnectResult
+		err error
+	}
+	out := make(chan result, 1)
+	go func() {
+		res, err := app.ConnectToServer(
+			carol, "tcp", "", "", "alice", "", "",
+			fingerprint.Base64(carolKey), "", false, false, "",
+		)
+		out <- result{res, err}
+	}()
+
+	ids := waitPending(t, app, maxPendingVerifications+1)
+	a.Equal(inboundIDs, ids[:maxPendingVerifications])
+	app.VerifyResponse(ids[maxPendingVerifications], true)
+
+	select {
+	case r := <-out:
+		a.NoError(r.err)
+		a.NotEmpty(r.res.SessionID)
+	case <-time.After(testWait):
+		a.FailNow("the dial did not return")
+	}
 }
 
 func TestPromptTimeoutClosesRequest(t *testing.T) {

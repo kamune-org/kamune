@@ -26,16 +26,20 @@ var ErrVerificationCancelled = errors.New(
 	"the verification was cancelled before it was answered",
 )
 
-// ErrTooManyVerifications rejects a peer that would need a prompt while
-// maxPendingVerifications prompts are already open.
+// ErrTooManyVerifications rejects a peer that connects to a server of the
+// app and would need a prompt while maxPendingVerifications prompts for
+// such peers are already open.
 var ErrTooManyVerifications = errors.New(
 	"too many verification requests are waiting for an answer",
 )
 
-// maxPendingVerifications caps the prompts that may wait for the user at
-// once. Anyone who can reach a listener can start a handshake with a new
-// key, and each prompt holds a server goroutine until the user answers or
-// verificationTimeout passes.
+// maxPendingVerifications caps the prompts for peers that connect to a
+// server of the app that may wait for the user at once. Anyone who can
+// reach a listener can start a handshake with a new key, and each prompt
+// holds a server goroutine until the user answers or verificationTimeout
+// passes. The prompts for peers the user dials neither count toward the
+// cap nor are refused for it, so that peers which connect to the app
+// cannot keep the user from reaching a peer.
 const maxPendingVerifications = 3
 
 // currentVerifMode returns the verification mode that new servers and
@@ -46,30 +50,35 @@ func (a *App) currentVerifMode() VerificationMode {
 	return a.verifMode
 }
 
-// getVerifier returns the verifier for the current verification mode.
+// getVerifier returns the verifier for the current verification mode,
+// for peers that the user dials.
 func (a *App) getVerifier() kamune.RemoteVerifier {
 	return a.verifierFor(a.currentVerifMode())
 }
 
-// verifierFor returns the verifier for mode. A mode that is not defined
-// gets the strict verifier, so a bad value never turns verification off.
+// verifierFor returns the verifier for mode, for peers that the user
+// dials. A mode that is not defined gets the strict verifier, so a bad
+// value never turns verification off.
 func (a *App) verifierFor(mode VerificationMode) kamune.RemoteVerifier {
-	return a.verifierWithin(a.lifeCtx(), mode)
+	return a.verifierWithin(a.lifeCtx(), mode, false)
 }
 
 // verifierWithin returns the verifier for mode whose prompts end, and
 // reject their peer, once ctx ends: ctx is the lifetime of the server or
-// the dial that the verifier is for.
+// the dial that the verifier is for. inbound is set for the verifier of
+// a server, whose peers connect to the app, and clear for one whose
+// peers the user dials, by ConnectToServer or a session's reconnect;
+// see maxPendingVerifications.
 func (a *App) verifierWithin(
-	ctx context.Context, mode VerificationMode,
+	ctx context.Context, mode VerificationMode, inbound bool,
 ) kamune.RemoteVerifier {
 	switch mode {
 	case VerificationModeQuick:
-		return a.createQuickVerifier(ctx)
+		return a.createQuickVerifier(ctx, inbound)
 	case VerificationModeAutoAccept:
 		return a.createAutoAcceptVerifier()
 	default:
-		return a.createStrictVerifier(ctx)
+		return a.createStrictVerifier(ctx, inbound)
 	}
 }
 
@@ -99,11 +108,13 @@ func (a *App) pinPeer(
 
 // createStrictVerifier asks the user about every peer, known or not.
 func (a *App) createStrictVerifier(
-	ctx context.Context,
+	ctx context.Context, inbound bool,
 ) kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
 		id := a.identifyPeer(store, peer)
-		return a.promptVerification(ctx, id, peer.PublicKey, "strict")
+		return a.promptVerification(
+			ctx, id, peer.PublicKey, "strict", inbound,
+		)
 	}
 }
 
@@ -112,7 +123,7 @@ func (a *App) createStrictVerifier(
 // no part: a stored peer is shown under its stored name whatever it
 // claims, and an unknown peer is asked about whatever name it claims.
 func (a *App) createQuickVerifier(
-	ctx context.Context,
+	ctx context.Context, inbound bool,
 ) kamune.RemoteVerifier {
 	return func(store *storage.Storage, peer *storage.Peer) error {
 		id := a.identifyPeer(store, peer)
@@ -120,7 +131,9 @@ func (a *App) createQuickVerifier(
 			a.addLogEntry("INFO", "Auto-accepted known peer: "+id.logName())
 			return nil
 		}
-		return a.promptVerification(ctx, id, peer.PublicKey, "quick")
+		return a.promptVerification(
+			ctx, id, peer.PublicKey, "quick", inbound,
+		)
 	}
 }
 
@@ -130,12 +143,15 @@ func (a *App) createQuickVerifier(
 //
 // Each request gets its own ID, and the frontend queues requests and
 // shows them one at a time, so a new request never replaces the one the
-// user is looking at. At most maxPendingVerifications requests wait at
-// once; a peer that would need another is rejected without a prompt.
+// user is looking at. At most maxPendingVerifications inbound requests,
+// for peers that connected to a server of the app, wait at once; an
+// inbound peer that would need another is rejected without a prompt. A
+// request for a peer the user dials is never rejected for that cap.
 // Every request ends with a verify-peer-closed event, whether it was
 // answered or timed out, so the frontend can drop it from its queue.
 func (a *App) promptVerification(
 	ctx context.Context, id peerIdentity, key []byte, mode string,
+	inbound bool,
 ) error {
 	if ctx.Err() != nil {
 		return ErrVerificationCancelled
@@ -147,10 +163,11 @@ func (a *App) promptVerification(
 	result := make(chan error, 1)
 
 	a.verifMu.Lock()
-	if len(a.verifRequests) >= maxPendingVerifications {
+	if inbound && a.inboundPromptsLocked() >= maxPendingVerifications {
 		a.verifMu.Unlock()
 		a.addLogEntry("WARN", fmt.Sprintf(
-			"Rejected peer %s: %d verification requests are already waiting",
+			"Rejected incoming peer %s: %d verification requests for "+
+				"incoming connections are already waiting",
 			id.logName(), maxPendingVerifications,
 		))
 		return ErrTooManyVerifications
@@ -162,8 +179,9 @@ func (a *App) promptVerification(
 	}
 	reqID := a.verifIDCounter.Add(1)
 	a.verifRequests[reqID] = &pendingVerification{
-		result: result,
-		label:  id.Label,
+		result:  result,
+		label:   id.Label,
+		inbound: inbound,
 	}
 	a.verifMu.Unlock()
 	defer a.endVerification(reqID)
@@ -186,6 +204,18 @@ func (a *App) promptVerification(
 	})
 
 	return a.awaitVerification(ctx, reqID, result)
+}
+
+// inboundPromptsLocked counts the open prompts for peers that connected
+// to a server of the app. The caller holds a.verifMu.
+func (a *App) inboundPromptsLocked() int {
+	n := 0
+	for _, p := range a.verifRequests {
+		if p.inbound {
+			n++
+		}
+	}
+	return n
 }
 
 func verifyingStatus(label string) string {

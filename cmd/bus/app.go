@@ -246,6 +246,9 @@ type pendingVerification struct {
 	result chan error
 	// label names the peer in log entries; see peerIdentity.Label.
 	label string
+	// inbound is set for a peer that connected to a server of the app,
+	// and clear for one the user dialed; see maxPendingVerifications.
+	inbound bool
 }
 
 type relayToken struct {
