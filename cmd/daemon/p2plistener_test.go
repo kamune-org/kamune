@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"net"
-	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -204,25 +203,88 @@ func TestP2PListenerHandlesPeerMatched(t *testing.T) {
 	}
 }
 
-// A host that a PEER_MATCHED named is let in for matchedPeerIdle after
-// the match and after each packet from it.
-func TestP2PListenerPeerExpires(t *testing.T) {
+// A p2p listener stops letting in a peer that the broker matched on a
+// token once the token is removed: the peer still knows the listener's
+// address, but cannot open a session without a new match.
+func TestP2PListenerForgetsPeersOfRemovedTokens(t *testing.T) {
 	a := require.New(t)
-	l := &p2pListener{peers: make(map[netip.Addr]time.Time)}
-	ip := netip.MustParseAddr("192.0.2.1")
-	src := net.UDPAddrFromAddrPort(netip.AddrPortFrom(ip, 4000))
-	other := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 4000}
+	other, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2)},
+	)
+	if err != nil {
+		t.Skipf("no second loopback address: %v", err)
+	}
+	defer other.Close()
+	removed, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+	)
+	a.NoError(err)
+	defer removed.Close()
 
-	a.False(l.admitted(src))
-	l.admitPeer(ip)
-	a.True(l.admitted(src))
-	a.True(l.admitted(&net.UDPAddr{IP: src.IP, Port: 5000}))
-	a.False(l.admitted(other))
+	broker := newFakeBroker(t, false)
+	client, err := NewBrokerClient()
+	a.NoError(err)
+	own := []byte(strings.Repeat("m", 32))
+	extra := []byte(strings.Repeat("n", 32))
+	l, err := newP2PListener(
+		client, broker.addr(), own, nil, "127.0.0.1:0", nil,
+	)
+	a.NoError(err)
+	defer l.Close()
+	a.NoError(l.RegisterToken(extra, nil))
+	broker.waitRegistered(t, extra)
+	keyOf := func(token []byte) []byte {
+		keys := broker.keysFor(token)
+		a.Len(keys, 1)
+		key, err := hex.DecodeString(keys[0])
+		a.NoError(err)
+		return key
+	}
 
-	l.peers[ip] = time.Now().Add(-time.Second)
-	a.False(l.admitted(src))
-	// Admitting another host drops the expired one.
-	l.admitPeer(other.AddrPort().Addr())
-	a.NotContains(l.peers, ip)
-	a.Len(l.peers, 1)
+	accepted := make(chan net.Addr, 4)
+	go func() {
+		for {
+			sess, err := l.kcp.AcceptKCP()
+			if err != nil {
+				return
+			}
+			accepted <- sess.RemoteAddr()
+		}
+	}()
+	// match has the broker match token with peer, and waits for the
+	// listener's kick toward peer, which it sends once it let peer in.
+	match := func(token []byte, peer *net.UDPConn) {
+		t.Helper()
+		broker.peer = peer.LocalAddr().(*net.UDPAddr)
+		_, err := broker.conn.WriteToUDP(
+			broker.peerMatched(relaybroker.WireToken(token), keyOf(token)),
+			l.Addr(),
+		)
+		a.NoError(err)
+		a.NoError(peer.SetReadDeadline(time.Now().Add(testEventTimeout)))
+		buf := make([]byte, 1500)
+		n, _, err := peer.ReadFromUDP(buf)
+		a.NoError(err, "the listener did not punch toward the peer")
+		a.Equal([]byte{0}, buf[:n])
+	}
+	kcpPkt := make([]byte, 32)
+	binary.LittleEndian.PutUint32(kcpPkt, 1)
+
+	match(extra, removed)
+	l.UnregisterToken(extra)
+	match(own, other)
+
+	// The removed token's peer sends first, so a session for it would
+	// be accepted first.
+	_, err = removed.WriteToUDP(kcpPkt, l.Addr())
+	a.NoError(err)
+	_, err = other.WriteToUDP(kcpPkt, l.Addr())
+	a.NoError(err)
+	select {
+	case addr := <-accepted:
+		a.Equal(other.LocalAddr().String(), addr.String(),
+			"let in the peer of a removed token")
+	case <-time.After(testEventTimeout):
+		t.Fatal("the matched peer's packet was not let in")
+	}
 }

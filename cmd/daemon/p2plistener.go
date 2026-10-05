@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net"
 	"net/netip"
 	"slices"
@@ -32,12 +31,6 @@ type listenerToken struct {
 	held bool
 }
 
-// matchedPeerIdle is how long a p2p listener lets packets in from a
-// host that a PEER_MATCHED named, after the match and after the last
-// packet from it. A live session's keepalives, every 30 s, keep its
-// host in.
-const matchedPeerIdle = 10 * time.Minute
-
 type p2pListener struct {
 	bindAddr   string
 	broker     *BrokerClient
@@ -61,13 +54,11 @@ type p2pListener struct {
 	tokens  []listenerToken
 	tokenMu sync.RWMutex
 
-	// peers holds the hosts that a PEER_MATCHED for one of the tokens
-	// named, and until when packets from each are let in.
-	peers   map[netip.Addr]time.Time
-	peersMu sync.Mutex
-
 	conn *net.UDPConn
-	kcp  *kcp.Listener
+	// filter is what kcp-go reads the punch socket through; see
+	// punchFilter.
+	filter *punchFilter
+	kcp    *kcp.Listener
 
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -105,7 +96,6 @@ func newP2PListener(
 		bindAddr:   bindAddr,
 		broker:     broker,
 		brokerAddr: brokerAddr,
-		peers:      make(map[netip.Addr]time.Time),
 		onRefresh:  onRefresh,
 		conn:       conn,
 		ctx:        ctx,
@@ -159,7 +149,15 @@ func newP2PListener(
 		return nil, fmt.Errorf("reset punch socket deadline: %w", err)
 	}
 
-	kcpL, err := kcp.ServeConn(nil, 0, 0, &punchConn{l: l})
+	// kcp-go reads the socket, and so may call handleBroker, as soon
+	// as it starts, so l.filter is set before.
+	f := newPunchFilter(conn)
+	if ap, ok := addrPortOf(brokerUDPAddr); ok {
+		f.broker = ap
+	}
+	f.onBroker = l.handleBroker
+	l.filter = f
+	kcpL, err := kcp.ServeConn(nil, 0, 0, f)
 	if err != nil {
 		l.Close()
 		return nil, fmt.Errorf("kcp listener: %w", err)
@@ -172,9 +170,10 @@ func newP2PListener(
 }
 
 // Accept returns the next KCP session that a peer opened on the punch
-// socket, carrying the listener as its peer gate.
+// socket, carrying the listener as its peer gate. The filter passes on
+// the session's packets until it is closed.
 func (l *p2pListener) Accept() (kamune.Conn, error) {
-	sess, err := l.kcp.AcceptKCP()
+	sess, err := acceptHeld(l.kcp, l.filter)
 	if err != nil {
 		return nil, err
 	}
@@ -298,9 +297,10 @@ func (l *p2pListener) RegisterToken(token, peer []byte) error {
 }
 
 // UnregisterToken stops registering token, the listener's own token or
-// one added by RegisterToken, with the broker. The broker has no way to
-// drop a registration at once, so it forgets the token when its last
-// registration expires.
+// one added by RegisterToken, with the broker, and stops letting in the
+// peers that the broker matched on it; a session that such a peer opened
+// already is kept. The broker has no way to drop a registration at once,
+// so it forgets the token when its last registration expires.
 func (l *p2pListener) UnregisterToken(token []byte) {
 	l.tokenMu.Lock()
 	defer l.tokenMu.Unlock()
@@ -311,6 +311,9 @@ func (l *p2pListener) UnregisterToken(token []byte) {
 		l.releaseToken(t)
 		return true
 	})
+	if l.filter != nil {
+		l.filter.forget(wireKey(token))
+	}
 }
 
 // liveTokens returns the tokens that the listener registers.
@@ -344,16 +347,12 @@ func (l *p2pListener) refreshRegistration() error {
 	return nil
 }
 
-// fromBroker reports whether src is the broker's address.
-func (l *p2pListener) fromBroker(src *net.UDPAddr) bool {
-	return src.Port == l.brokerUDP.Port && src.IP.Equal(l.brokerUDP.IP)
-}
-
 // handleBroker handles a packet from the broker. A PEER_MATCHED for one
 // of the listener's tokens names the dialer that the broker matched with
-// it: the listener lets packets from the dialer's host in and punches
-// toward the dialer, so that a NAT in front of the listener that only
-// lets in replies to its own packets lets the dialer's packets in.
+// it: the listener lets packets from the dialer's host in for
+// matchWindow and punches toward the dialer, so that a NAT in front of
+// the listener that only lets in replies to its own packets lets the
+// dialer's packets in.
 func (l *p2pListener) handleBroker(pkt []byte) {
 	brokerEphPub, nonce, sealed, err := relaybroker.ParseNotify(pkt)
 	if err != nil {
@@ -373,83 +372,8 @@ func (l *p2pListener) handleBroker(pkt []byte) {
 			return
 		}
 		peer := net.UDPAddrFromAddrPort(netip.AddrPortFrom(ip, p.Port))
-		l.admitPeer(ip)
+		l.filter.expect(ip, wireKey(t.token))
 		go func() { _, _ = sendNATKick(l.ctx, l.conn, peer) }()
 		return
 	}
-}
-
-// admitPeer lets packets from host ip in for matchedPeerIdle. It admits
-// the host, not its address and port: behind a NAT that maps each
-// destination to a port of its own, the dialer's packets come from
-// another port than the one the broker saw.
-func (l *p2pListener) admitPeer(ip netip.Addr) {
-	now := time.Now()
-	l.peersMu.Lock()
-	defer l.peersMu.Unlock()
-	maps.DeleteFunc(l.peers, func(_ netip.Addr, until time.Time) bool {
-		return now.After(until)
-	})
-	l.peers[ip.Unmap()] = now.Add(matchedPeerIdle)
-}
-
-// admitted reports whether packets from src are let in, and keeps its
-// host in for matchedPeerIdle if so.
-func (l *p2pListener) admitted(src *net.UDPAddr) bool {
-	ip := src.AddrPort().Addr().Unmap()
-	now := time.Now()
-	l.peersMu.Lock()
-	defer l.peersMu.Unlock()
-	until, ok := l.peers[ip]
-	if !ok || now.After(until) {
-		return false
-	}
-	l.peers[ip] = now.Add(matchedPeerIdle)
-	return true
-}
-
-// punchConn is a p2p listener's punch socket as KCP reads it. KCP starts
-// a session for any packet from a new address, so punchConn hands the
-// broker's packets to the listener instead and drops those from hosts
-// that no PEER_MATCHED named.
-//
-// It must not have the methods of *net.UDPConn that kcp-go looks for to
-// read the socket in batches, which would skip ReadFrom.
-type punchConn struct {
-	l *p2pListener
-}
-
-func (c *punchConn) ReadFrom(b []byte) (int, net.Addr, error) {
-	for {
-		n, src, err := c.l.conn.ReadFromUDP(b)
-		if err != nil {
-			return n, nil, err
-		}
-		switch {
-		case c.l.fromBroker(src):
-			c.l.handleBroker(b[:n])
-		case c.l.admitted(src):
-			return n, src, nil
-		}
-	}
-}
-
-func (c *punchConn) WriteTo(b []byte, addr net.Addr) (int, error) {
-	return c.l.conn.WriteTo(b, addr)
-}
-
-func (c *punchConn) Close() error { return c.l.conn.Close() }
-
-func (c *punchConn) LocalAddr() net.Addr { return c.l.conn.LocalAddr() }
-
-func (c *punchConn) SetDeadline(t time.Time) error {
-	return c.l.conn.SetDeadline(t)
-}
-
-func (c *punchConn) SetReadDeadline(t time.Time) error {
-	return c.l.conn.SetReadDeadline(t)
-}
-
-func (c *punchConn) SetWriteDeadline(t time.Time) error {
-	return c.l.conn.SetWriteDeadline(t)
 }
