@@ -274,13 +274,16 @@ func (s *Storage) ListPeers() ([]*Peer, error) {
 // DeletePeer removes a peer from storage by its public key claim. The
 // database is then compacted with [Storage.Compact], so that the record
 // does not stay in the file. If that fails the peer is deleted all the
-// same, and the error wraps [ErrCompactFailed]. The sessions with the
-// peer are kept.
+// same, the error wraps [ErrCompactFailed], and the next [OpenStorage]
+// compacts the database. The sessions with the peer are kept.
 func (s *Storage) DeletePeer(claim []byte) error {
 	key := s.peerKey(claim)
 	err := s.engine.Command(func(b engine.Namespace) error {
 		peers := b.Sub([]byte(engine.PeersNamespace))
-		return peers.Delete(key)
+		if err := peers.Delete(key); err != nil {
+			return err
+		}
+		return markCompactPending(b)
 	})
 	if err != nil {
 		return err

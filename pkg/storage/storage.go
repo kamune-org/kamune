@@ -51,7 +51,8 @@ var (
 	// [Storage.Compact], and by [Storage.DeleteSession] and
 	// [Storage.DeletePeer] when the record was deleted but the database
 	// could not be compacted afterwards. The deleted data may then still
-	// be in the database file; [Storage.Compact] can be tried again.
+	// be in the database file until a compaction succeeds: the next
+	// [OpenStorage] tries again, and so can [Storage.Compact].
 	ErrCompactFailed = errors.New("could not compact the database")
 	// ErrUnsupportedFormat is returned by [OpenStorage] for a database
 	// written in a newer layout than this version of the package knows.
@@ -136,12 +137,14 @@ type Storage struct {
 // OpenStorage opens the database, creating it unless [WithCreateDB] says
 // otherwise. A database written by an older version is brought up to the
 // current layout first, and then compacted (see [Storage.Compact]), so the
-// first open after an upgrade can take a while; a compaction that fails is
-// logged and tried again on every later open. Older versions cannot read
-// a database after it has been upgraded. Its key wrapping and values are
-// upgraded before its layout; if that fails, OpenStorage returns
-// [ErrUpgradeFailed] and leaves the database as the older version wrote
-// it. A database written by a newer version gives [ErrUnsupportedFormat].
+// first open after an upgrade can take a while. A compaction that fails,
+// after an upgrade or after [Storage.DeleteSession] or
+// [Storage.DeletePeer], is logged and tried again on every later open
+// until it succeeds. Older versions cannot read a database after it has
+// been upgraded. Its key wrapping and values are upgraded before its
+// layout; if that fails, OpenStorage returns [ErrUpgradeFailed] and leaves
+// the database as the older version wrote it. A database written by a
+// newer version gives [ErrUnsupportedFormat].
 func OpenStorage(opts ...StorageOption) (*Storage, error) {
 	s := &Storage{
 		passphraseHandler: defaultPassphraseHandler,
@@ -313,10 +316,12 @@ func (s *Storage) ChangePassphrase(oldPass, newPass []byte) error {
 // live data, until it reuses them. Compacting writes the live data into a
 // new file and atomically renames it over the old one.
 //
-// [Storage.DeleteSession] and [Storage.DeletePeer] compact on their own.
-// Other changes, such as clearing a session name or a setting, popping a
-// resumption token, deleting idle sessions or expired peers, or replacing
-// a value, leave the old value in a free page until the next compaction.
+// [Storage.DeleteSession] and [Storage.DeletePeer] compact on their own,
+// and when that fails, every later [OpenStorage] compacts until one
+// succeeds; a successful Compact also ends those retries. Other changes,
+// such as clearing a session name or a setting, popping a resumption
+// token, deleting idle sessions or expired peers, or replacing a value,
+// leave the old value in a free page until the next compaction.
 // Freed disk blocks of the old file, such as those an SSD remaps, and
 // copies of the file made elsewhere, such as backups, are not scrubbed.
 //
@@ -327,12 +332,17 @@ func (s *Storage) ChangePassphrase(oldPass, newPass []byte) error {
 // also wraps [ErrReopen] means the Storage must be closed and opened
 // again.
 func (s *Storage) Compact() error {
-	c, ok := s.engine.(engine.Compacter)
-	if !ok {
-		return nil
-	}
-	if err := c.Compact(); err != nil {
+	mark, pending, err := s.compactMark()
+	if err != nil {
 		return fmt.Errorf("%w: %w", ErrCompactFailed, err)
+	}
+	if c, ok := s.engine.(engine.Compacter); ok {
+		if err := c.Compact(); err != nil {
+			return fmt.Errorf("%w: %w", ErrCompactFailed, err)
+		}
+	}
+	if pending {
+		s.clearCompactMark(mark)
 	}
 	return nil
 }
@@ -838,8 +848,9 @@ func (s *Storage) SetSettings(app, key, value string) error {
 //
 // The database is then compacted with [Storage.Compact], even when there
 // was no such session, so that the deleted messages do not stay in the
-// file. If that fails the session is deleted all the same, and the error
-// wraps [ErrCompactFailed].
+// file. If that fails the session is deleted all the same, the error
+// wraps [ErrCompactFailed], and the next [OpenStorage] compacts the
+// database.
 func (s *Storage) DeleteSession(sessionID string) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
 		sessions := b.Sub([]byte(engine.SessionsNamespace))
@@ -847,7 +858,7 @@ func (s *Storage) DeleteSession(sessionID string) error {
 		if err != nil && !errors.Is(err, engine.ErrMissingNamespace) {
 			return err
 		}
-		return nil
+		return markCompactPending(b)
 	})
 	if err == nil {
 		err = s.Compact()

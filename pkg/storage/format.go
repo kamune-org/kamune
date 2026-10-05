@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,11 +15,17 @@ import (
 // without it was written before versions were recorded, and is version 0.
 const formatKey = "storage-format"
 
-// compactPendingKey, in the default namespace, marks a database that was
-// upgraded but not compacted since, so its old layout may still be in
-// free pages. It is recorded with the new version and removed once a
-// compaction succeeds (see [Storage.compactAfterUpgrade]).
+// compactPendingKey, in the default namespace, marks a database that may
+// hold data in free pages that it must not keep: the old layout of an
+// upgrade, or what [Storage.DeleteSession] or [Storage.DeletePeer]
+// deleted. It is recorded in the transaction that frees the data, under a
+// new random value, and removed once a compaction that started after it
+// succeeds (see [Storage.Compact]). Each open compacts a database that
+// holds it (see [Storage.compactIfPending]).
 const compactPendingKey = "compact-pending"
+
+// compactMarkSize is the size of the random value of [compactPendingKey].
+const compactMarkSize = 16
 
 // storageFormat is the version of the layout this package writes. Each
 // version adds to the one before it:
@@ -36,7 +44,7 @@ const storageFormat = 2
 // again on every later open until it succeeds.
 func (s *Storage) upgradeFormat(version byte) error {
 	if version >= storageFormat {
-		return s.compactAfterUpgrade()
+		return s.compactIfPending()
 	}
 
 	var changed int
@@ -57,8 +65,7 @@ func (s *Storage) upgradeFormat(version byte) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
 		def := b.Ensure([]byte(engine.DefaultNamespace))
 		if changed > 0 {
-			err := def.PutEncrypted([]byte(compactPendingKey), []byte{1})
-			if err != nil {
+			if err := markCompactPending(b); err != nil {
 				return err
 			}
 		}
@@ -74,46 +81,93 @@ func (s *Storage) upgradeFormat(version byte) error {
 			slog.Int("to", storageFormat),
 		)
 	}
-	return s.compactAfterUpgrade()
+	return s.compactIfPending()
 }
 
-// compactAfterUpgrade compacts the database when [compactPendingKey] says
-// an upgrade left its old layout in free pages, and then removes the
-// mark. A compaction that fails, such as on a full disk or without the
-// lock file, is logged and tried again on the next open.
-func (s *Storage) compactAfterUpgrade() error {
-	key := []byte(compactPendingKey)
-	var pending bool
+// markCompactPending records [compactPendingKey] in b, under a new random
+// value, so that the data the transaction frees is compacted away even if
+// the compaction that should follow fails or never runs.
+func markCompactPending(b engine.Namespace) error {
+	mark := make([]byte, compactMarkSize)
+	if _, err := rand.Read(mark); err != nil {
+		return fmt.Errorf("mark compaction: %w", err)
+	}
+	err := b.Ensure([]byte(engine.DefaultNamespace)).
+		PutEncrypted([]byte(compactPendingKey), mark)
+	if err != nil {
+		return fmt.Errorf("mark compaction: %w", err)
+	}
+	return nil
+}
+
+// compactMark returns the value of [compactPendingKey] and whether it is
+// set. A mark that does not open is still a mark, with a nil value.
+func (s *Storage) compactMark() ([]byte, bool, error) {
+	var (
+		mark    []byte
+		pending bool
+	)
 	err := s.engine.Query(func(b engine.Namespace) error {
-		_, err := b.Sub([]byte(engine.DefaultNamespace)).GetEncrypted(key)
-		// A mark that does not open is still a mark.
+		v, err := b.Sub([]byte(engine.DefaultNamespace)).
+			GetEncrypted([]byte(compactPendingKey))
 		pending = !isMissing(err)
+		if err == nil {
+			mark = v
+		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("read compaction mark: %w", err)
+		return nil, false, fmt.Errorf("read compaction mark: %w", err)
 	}
-	if !pending {
-		return nil
-	}
+	return mark, pending, nil
+}
 
+// clearCompactMark removes [compactPendingKey] after a compaction, unless
+// its value is no longer mark, as [Storage.compactMark] read it before the
+// compaction: a later delete marked the database again, and its freed
+// data may not have been compacted yet. A failure is only logged, since
+// the next open then compacts again.
+func (s *Storage) clearCompactMark(mark []byte) {
+	err := s.engine.Command(func(b engine.Namespace) error {
+		def := b.Sub([]byte(engine.DefaultNamespace))
+		v, err := def.GetEncrypted([]byte(compactPendingKey))
+		switch {
+		case isMissing(err):
+			return nil
+		case err == nil && !bytes.Equal(v, mark),
+			err != nil && mark != nil:
+			return nil
+		}
+		return def.Delete([]byte(compactPendingKey))
+	})
+	if err != nil {
+		slog.Warn(
+			"could not clear the compaction mark; "+
+				"the next open compacts the database again",
+			slog.Any("error", err),
+		)
+	}
+}
+
+// compactIfPending compacts the database when [compactPendingKey] says
+// it holds data in free pages that it must not keep. A compaction that
+// fails, such as on a full disk or without the lock file, is logged and
+// tried again on the next open.
+func (s *Storage) compactIfPending() error {
+	_, pending, err := s.compactMark()
+	if err != nil || !pending {
+		return err
+	}
 	if err := s.Compact(); err != nil {
 		if errors.Is(err, ErrReopen) {
 			return err
 		}
 		slog.Warn(
-			"could not compact the database after upgrading it; "+
-				"its old layout stays in free pages until an open "+
-				"compacts it",
+			"could not compact the database; deleted data and the "+
+				"layout of an upgrade stay in free pages until an "+
+				"open compacts it",
 			slog.Any("error", err),
 		)
-		return nil
-	}
-	err = s.engine.Command(func(b engine.Namespace) error {
-		return b.Sub([]byte(engine.DefaultNamespace)).Delete(key)
-	})
-	if err != nil {
-		return fmt.Errorf("clear compaction mark: %w", err)
 	}
 	return nil
 }
