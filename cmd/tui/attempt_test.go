@@ -24,8 +24,13 @@ func idleServer(t *testing.T, store *storage.Storage) (
 		conns:  make(chan kamune.Conn),
 		closed: make(chan struct{}),
 	}
+	// The listener takes no connections, so the verifier never runs; the
+	// core still requires one.
+	reject := func(*storage.Storage, *storage.Peer) error {
+		return errors.New("idle server takes no peers")
+	}
 	srv, err := kamune.NewServer(
-		"", func(*kamune.Transport) error { return nil }, store, nil,
+		"", func(*kamune.Transport) error { return nil }, store, reject,
 		kamune.ServeWithListener(l),
 	)
 	require.New(t).NoError(err)
