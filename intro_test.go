@@ -65,54 +65,6 @@ func TestIntroduce(t *testing.T) {
 	a.Equal("1.0.0", version)
 }
 
-func TestValidatePeerName(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		valid bool
-	}{
-		{"empty", "", true},
-		{"ascii", "alice", true},
-		{"default fingerprint", strings.Repeat("A", 43), true},
-		{"at the limit", strings.Repeat("a", MaxPeerNameLength), true},
-		{"persian with zwnj", "علی\u200Cرضا", true},
-		{"emoji with zwj", "👩\u200D💻 dev", true},
-		{"emoji with variation selector", "❤\uFE0F bob", true},
-		{"over the limit", strings.Repeat("a", MaxPeerNameLength+1), false},
-		{"multi-byte over the limit", strings.Repeat("é", 33), false},
-		{"invalid utf-8", "bob\xff", false},
-		{"newline", "bob\nalice", false},
-		{"tab", "bob\talice", false},
-		{"nul", "bob\x00", false},
-		{"ansi escape", "\x1b[31mbob", false},
-		{"del", "bob\x7f", false},
-		{"c1 control", "bob\u009b", false},
-		{"right-to-left override", "bob\u202Egnp.exe", false},
-		{"right-to-left isolate", "bob\u2067", false},
-		{"pop directional isolate", "bob\u2069", false},
-		{"left-to-right mark", "bob\u200E", false},
-		{"arabic letter mark", "bob\u061C", false},
-		{"zero-width space", "b\u200Bob", false},
-		{"word joiner", "b\u2060ob", false},
-		{"byte order mark", "\uFEFFbob", false},
-		{"soft hyphen", "bo\u00ADb", false},
-		{"tag character", "bob\U000e0041", false},
-		{"line separator", "bob\u2028alice", false},
-		{"paragraph separator", "bob\u2029alice", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := require.New(t)
-			err := ValidatePeerName(tt.input)
-			if tt.valid {
-				a.NoError(err)
-				return
-			}
-			a.ErrorIs(err, ErrInvalidPeerName)
-		})
-	}
-}
-
 // signedIntroduction builds the signed introduction that sendIntroduction
 // would send, with the given name.
 func signedIntroduction(
@@ -146,6 +98,8 @@ func TestReceiveIntroductionRejectsInvalidName(t *testing.T) {
 		{"terminal escape", "\x1b]0;pwned\x07Bob"},
 		{"newline", "Bob\nverified: yes"},
 		{"zero-width space", "B\u200Bob"},
+		{"trailing zero-width joiner", "Bob\u200d"},
+		{"hangul filler", "Bob\u3164"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

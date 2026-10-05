@@ -14,6 +14,8 @@ fuzz:
 		-fuzztime $(FUZZ_TIME)
 	go test . -run '^$$' -fuzz '^FuzzServerServe$$' \
 		-fuzztime $(FUZZ_TIME)
+	go test . -run '^$$' -fuzz '^FuzzSanitizePeerName$$' \
+		-fuzztime $(FUZZ_TIME)
 	go test ./pkg/exchange -run '^$$' -fuzz '^FuzzParseMergedExchange$$' \
 		-fuzztime $(FUZZ_TIME)
 	go test ./pkg/relayconn -run '^$$' -fuzz '^FuzzFramingReadBytes$$' \
