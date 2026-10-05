@@ -1,3 +1,60 @@
+## v0.8.0
+
+> [!NOTE]
+> This release has no binary release artifacts. It resolves the findings from the Red Team Review report (`docs/RED_TEAM_REVIEW.md`).
+
+### Core Library
+
+- Storage security & Argon2id (STO-01): replaced single-round HKDF with Argon2id for storage passphrase derivation; cryptographically bound stored values to their bucket and key via AEAD associated data; store peers, sessions, and settings under HMAC-keyed names; keep chat timestamps, sender identities, and message lengths encrypted out of plaintext database keys; order chat history by local receive time while recording peer `SentAt`.
+- Storage operations: added `Storage.ChangePassphrase` to re-encrypt and rotate storage master keys and rewrite the database file; enforce 0600 file and 0700 directory permissions; run automatic database compaction after peer or session deletion and post-upgrade; add `WithIncognito` options to keep ephemeral sessions entirely out of persistent storage; prune excess idle sessions per peer via `WithIdleSessionLimit`.
+- Frame budget & padding (RC-02): reserved 24 bytes of relay protocol overhead in transport framing budget so top-bucket 64 KiB frames fit across all relay transports; envelopes strictly padded to discrete bucket boundaries (512 B, 1 KiB, 4 KiB, 16 KiB, 32 KiB, 65,431 B) to prevent traffic analysis.
+- Transport reliability: serialize concurrent `Transport.Receive` calls; immediately close transport on truncated frames, mid-stream I/O failures, or fatal closing frames; map connection resets and truncation to `ErrConnClosed`; bound transport close frame wait duration.
+- Handshake & verification: introduced 132.9-bit `fingerprint.Numeric` (40 digits in four 10-digit groups) as the primary format for out-of-band key verification; reject small-order and non-canonical Ed25519 identity keys; reject peer names with control characters, excessive length, or invisible code points via `ValidatePeerName` and `SamePeerName`; validate and bound `AppVersion` in introductions; enforce timeout on `RemoteVerifier` calls; cap pending unauthenticated handshakes without blocking accept loop; back off exponentially on accept errors; abort in-flight handshakes when server stops; reject resume requests when resumption is disabled.
+- `pkg/relayconn`: raised WebSocket client read limit to 64 KiB (RC-01); report frame limits via `MaxPayloadSize` to reject oversize writes without killing sessions; added TLS certificate pinning via `WithCertificatePin` and `CertFingerprint`; idempotent `RelayConn.Close` with in-flight write drain; bound relay handshakes with independent contexts and timeouts; caller-owned UDP sockets for broker rendezvous; read broker packets into a 64 KiB buffer and discard malformed datagrams; match broker tokens at 32-byte wire size.
+
+### Relay (v1.4.0)
+
+- Broker resilience (REL-01): continue running broker listener on per-datagram read errors (such as Windows `WSAEMSGSIZE`); dedicated sliding-window rate limiters for broker registrations and lookups; direct registry indexing to eliminate full-table scans; rebind registrations only after address quiescence or immediate port update; ship broker disabled (`enabled = false`) by default.
+- Rate limiting & proxy support: rate limit WebSocket and WSS connections before TLS handshake; group IPv6 clients by /64 subnet prefix; extract client IP from configured proxy header; sample rate-limit logs at debug level.
+- Transport & TLS security: require TLS 1.3 minimum; omit relay name from generated self-signed certificates; persist TLS certificates and keys in `server.data_dir` and log SHA-256 fingerprint on startup for client pinning; reject WebSocket connections bearing an `Origin` header; bind plaintext listeners to loopback (`127.0.0.1`) by default.
+- Hardening & configuration: run Docker container as unprivileged user (`kamune`, UID 10001); reject unrecognized configuration keys on startup; treat `handshake_timeout = 0` as 30s default; bound `max_message_size`; add `log_level` setting; remove session and close peer under a single lock; test top-bucket 64 KiB frames across TCP, TLS, and WS listeners.
+
+### Bus (v2.4.0)
+
+- Peer identity & verification (BUS-01): label sessions strictly by stored contact name, ignoring remote claimed names; verify dialed peer key matches expected contact key; drop sessions on peer static tokens from unrecognized keys; queue and cap inbound verification prompts while exempting user-initiated dials; treat unknown verification modes as strict; require confirmation before enabling auto-accept; show numeric fingerprint as primary verification format; reject invalid/small-order peer keys; sanitize and truncate peer names in UI.
+- Database & passphrase: open database only upon user unlock; ask twice for passphrase on newly created databases; warn before using database without passphrase; allow changing, adding, or removing passphrase from settings; keep database open while server or sessions are active; reset settings when unlocking a different database.
+- Sticky incognito mode: sessions starting in incognito mode remain ephemeral; keep incognito sessions, messages, and peers off disk; suppress message content from desktop notifications in incognito mode.
+- Relay & P2P networking: support relay TLS certificate pinning in URLs and connection dialogs; default schemeless relay URLs to WSS; register relay resume listener on dropped connections with single-use tokens; filter P2P punch socket, validate broker echoes, match tokens at 32 bytes, and accept direct P2P sessions only from verified peer address; stop registering removed P2P tokens.
+- UI, performance & build: cap in-memory live chat history to 1,000 messages; throttle notifications to at most one per session per 5 seconds; order live messages by local arrival time; apply Content Security Policy (CSP) to window; release camera hardware upon closing QR import dialog; add macOS camera usage description; add `Ctrl+Shift+W` shortcut to close all sessions; update Svelte to 5.57.1; build Linux releases against GTK4 and WebKitGTK 6.0.
+
+### Daemon (v1.2.0)
+
+- Peer security & validation (BUS-01): name session peers by stored contact record rather than unverified remote claim; reject dialed peers whose public key does not match `peer_pub_b64`; drop sessions on peer static tokens from mismatched keys; cap concurrent inbound verification prompts to one per key; default unknown verification modes to strict; apply verification mode changes without restarting server; return 132-bit numeric fingerprint in verify and identity commands; refuse invalid peer names and small-order Ed25519 keys; omit auto-persisting contacts in auto-accept mode.
+- Storage & keychain: add `change_passphrase` command; return structured `reason` field on `storage_open_failed`; store passphrase in OS keychain only upon explicit request; key keychain accounts by full storage path; forbid deleting history of active sessions; record sender timestamp as `sent_at` separate from local arrival time; emit `history_save_failed` on write errors; cap live session memory with message counter.
+- Networking & robustness: safely drop oversized stdin lines without crashing; exit cleanly on SIGTERM without waiting for stdin; add `relay_pin` parameter for TLS/WSS certificate pinning; default schemeless relay URLs to WSS; 15s timeout on relay dials and registrations; cap P2P server tokens at 8; isolate P2P broker registration keys; accept direct P2P sessions only from matched address; send messages in command order; differentiate `connection_lost` from `message_too_large` send errors; emit bound listening address in status.
+- Schemas: synchronized 83 JSON schemas in `cmd/daemon/schema/` to strictly match all daemon command inputs and event outputs.
+
+### TUI
+
+- Terminal injection defense: strip ANSI escape sequences and terminal control characters from chat text and history.
+- Verification & display: show numeric fingerprint prominently on verify screen with peer claims below fingerprints; require explicit 'y' key to accept peer and ESC to reject; prevent new keys from claiming existing peer names; blur focused fields on tab navigation.
+- Passphrase & storage: add `-change-passphrase` command-line flag; add `-no-passphrase` flag for unencrypted databases; confirm empty passphrase and prompt twice for new database passphrase; read passphrase securely from stdin handle.
+- Relay connectivity: connect to relays over WSS, TLS, WS, or TCP (defaulting to WSS); add relay password (PSK) field for client and server modes; support relay TLS certificate pinning via fingerprint; synchronize relay session countdown from peer join event.
+- UX & concurrency: isolate network writes and history saves off Bubble Tea event loop; channel-based teardown of chat goroutines; mute slog log records while TUI is running; paginate chat scroll using PgUp and PgDn keys.
+
+### Documentation & Specifications
+
+- RFC series: added `RFC006` (pre-1.0 protocol rework overview), `RFC007` (transcript-bound handshake v2), `RFC008` (UDP path layer for KCP), `RFC009` (pinned relay keys and access keys), `RFC010` (pair-derived rendezvous tokens), and `RFC011` (broker v2 protocol specification).
+- Protocol specification (`docs/SPEC.md`): updated §6.2 with peer name and identity key rules; codified 132.9-bit numeric key fingerprint in §6.4; clarified KCP transport claims in §9.2; specified Argon2id passphrase derivation (§11.2), value-location AEAD binding (§11.3), keyed storage names, and storage upgrades and compaction (§11.5); updated frame limits in §13 and exact bucket padding in §12.7.
+- Architecture & diagrams: updated architecture diagrams across `docs/` (wire format, storage hierarchy, key derivation, handshake flow, cipher suite HKDF info strings, signature scope); synchronized README and module documentation with current APIs and security properties.
+
+### Miscellaneous & Tooling
+
+- Go toolchain: updated project toolchain and module definitions to Go 1.27.
+- Dependencies: bumped `golang.org/x/crypto` to v0.57.0 across all five modules (`kamune`, `bus`, `daemon`, `relay`, `tui`).
+- Lint & analysis: added `make align-structs` target; enabled all `govet` analyzers in `.golangci.yaml`.
+- Race detection: standardized `go test -race ./...` execution across all modules in CI and developer documentation.
+
 ## v0.7.0
 
 > [!NOTE]
