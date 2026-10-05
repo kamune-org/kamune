@@ -186,12 +186,14 @@
   let serverTransport = $state('tcp');
   let connectTransport = $state('tcp');
   let serverRelayAddr = $state('');
-  let serverRelayScheme = $state('tcp');
+  // Relays default to wss, which authenticates the relay, as imports,
+  // the P2P fallback and the backend do.
+  let serverRelayScheme = $state('wss');
   let serverRelayPassword = $state('');
   let serverRelayInsecure = $state(false);
   let serverRelayPin = $state('');
   let connectRelayAddr = $state('');
-  let connectRelayScheme = $state('tcp');
+  let connectRelayScheme = $state('wss');
   let connectRelayPassword = $state('');
   let connectPeerKey = $state('');
   let connectRelayToken = $state('');
