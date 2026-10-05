@@ -400,8 +400,11 @@ func (b *Broker) newRegistration(
 // Without proof of possession of the private key in REGISTER, a broker wire
 // format change, an observer holding a captured REGISTER can still:
 //   - replay it from the owner's IP with another source port, by sharing the
-//     owner's NAT or by forging its source IP, which moves the entry to that
-//     port until the owner's next refresh moves it back;
+//     owner's NAT, as under carrier-grade NAT, or by forging its source IP.
+//     That moves the entry to that port at once. The owner's next refresh
+//     moves it back, but a replayer that re-sends the capture right after
+//     each refresh holds the entry most of the time, and a peer matched
+//     then is sent the replayer's address and punches its hole there;
 //   - replay it to keep the entry alive after its owner has stopped
 //     refreshing;
 //   - replay it while the other peer of a static token holds the entry. That

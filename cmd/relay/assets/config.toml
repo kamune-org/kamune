@@ -96,4 +96,9 @@ address = "0.0.0.0:4788"
 # match consumes the entry: the peer's hole punch fails, and the client,
 # whose NOTIFY went to the old address, holds a new entry only from its next
 # REGISTER.
+# REGISTER carries no proof of the client's key. Someone who captured one and
+# shares the client's public IP, as behind the same carrier-grade NAT, can
+# replay it from another port right after each of the client's refreshes and
+# so hold the entry most of the time: a peer that matches then is sent the
+# replayer's address.
 # registration_ttl = "60s"
