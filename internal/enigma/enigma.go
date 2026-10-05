@@ -90,9 +90,12 @@ func Derive(key, salt, info []byte, size int) ([]byte, error) {
 	return d, nil
 }
 
-// Text returns a random base32 string of length l (using a custom alphabet
-// that excludes ambiguous characters like 0/O/1/I). Each byte is generated
-// cryptographically and then mapped into the alphabet.
+// Text returns a random string of length l in the RFC 4648 base32
+// alphabet: the capital letters A to Z and the digits 2 to 7. The digits
+// 0, 1, 8 and 9 are left out, but the letters O and I are not, so the text
+// can still hold characters that look like 0 and 1. Each byte comes from
+// crypto/rand and is mapped to a character by its value modulo 32, which
+// favours none, as 256 is a multiple of 32.
 func Text(l int) string {
 	src := make([]byte, l)
 	if _, err := rand.Read(src); err != nil {
