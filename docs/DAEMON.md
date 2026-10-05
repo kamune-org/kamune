@@ -98,6 +98,12 @@ relay session:
 {
   "session_id": "abc123def456...",
   "peer_name": "CrimsonOtter",
+  "claimed_name": "CrimsonOtter",
+  "peer_key": "MCowBQYDK2VwAyEA...",
+  "peer_fingerprint": "12345 67890 13579 24680 11223 34455 66778 89900",
+  "known_peer": true,
+  "name_mismatch": false,
+  "name_conflict": false,
   "is_server": false,
   "msg_count": 3,
   "last_activity": "2026-06-21T10:30:00Z",
@@ -110,19 +116,25 @@ relay session:
 }
 ```
 
-| Field                | Description                                                                                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `session_id`         | The kamune session ID.                                                                                                                                                   |
-| `peer_name`          | The name the peer introduced itself with, or the one `rename_session` set.                                                                                               |
-| `is_server`          | `true` for a session that a peer opened to the server, `false` for one from `dial`.                                                                                      |
-| `msg_count`          | Messages stored for the session before it started, plus those sent or received since. Stored messages are not counted in incognito mode.                                 |
-| `last_activity`      | Time of the last message sent or received since the session started, or of its start. Omitted while unset.                                                               |
-| `transport_type`     | `tcp`, `udp`, `relay`, `p2p` or `direct-p2p`. Omitted when empty.                                                                                                        |
-| `remote_version`     | The peer's kamune version. Omitted when empty.                                                                                                                           |
-| `cause`              | `dial` for a dialed session, `incoming` for one that a peer opened to the server.                                                                                        |
-| `session_ttl_ns`     | The relay's session TTL for a relay session. Dialed sessions over other transports carry `0`.                                                                            |
-| `session_started_at` | When the daemon set the session up.                                                                                                                                      |
-| `remote_addr`        | Where a dialed session was dialed: the server's address, the `relay_addr` for relay, `p2p` for p2p and the peer's address for direct-p2p. Omitted for incoming sessions. |
+| Field                | Description                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session_id`         | The kamune session ID.                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `peer_name`          | The session's label: the name stored for the peer's key, the name `rename_session` set, or, for a key that is not stored, `Unknown peer` and the first ten digits of the key's numeric fingerprint, such as `Unknown peer 12345 67890`. A stored name from before the protocol limited names is shown with each character that the name rules refuse as U+FFFD and cut to 64 bytes. Never the name the peer introduced itself with. |
+| `claimed_name`       | The name the peer introduced itself with, made safe to show as `peer_name` is. Any peer can claim any name, so show it only as the peer's claim.                                                                                                                                                                                                                                                                                    |
+| `peer_key`           | The peer's public key, base64 as `list_peers` gives it: the key the handshake authenticated.                                                                                                                                                                                                                                                                                                                                        |
+| `peer_fingerprint`   | The numeric fingerprint of `peer_key`, 40 digits in eight groups of five.                                                                                                                                                                                                                                                                                                                                                           |
+| `known_peer`         | Whether the peer's key was stored when the session started. An unknown peer accepted in `verify_peer` is stored by then, unless incognito mode is on.                                                                                                                                                                                                                                                                               |
+| `name_mismatch`      | The peer is stored, and the name it claimed is not the name stored for its key.                                                                                                                                                                                                                                                                                                                                                     |
+| `name_conflict`      | The peer claimed, or is stored under, the name of another stored peer. Names that differ only in case, white space or characters that do not show, such as a zero-width joiner, count as the same.                                                                                                                                                                                                                                  |
+| `is_server`          | `true` for a session that a peer opened to the server, `false` for one from `dial`.                                                                                                                                                                                                                                                                                                                                                 |
+| `msg_count`          | Messages stored for the session before it started, plus those sent or received since. Stored messages are not counted in incognito mode.                                                                                                                                                                                                                                                                                            |
+| `last_activity`      | Time of the last message sent or received since the session started, or of its start. Omitted while unset.                                                                                                                                                                                                                                                                                                                          |
+| `transport_type`     | `tcp`, `udp`, `relay`, `p2p` or `direct-p2p`. Omitted when empty.                                                                                                                                                                                                                                                                                                                                                                   |
+| `remote_version`     | The peer's kamune version. Omitted when empty.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `cause`              | `dial` for a dialed session, `incoming` for one that a peer opened to the server.                                                                                                                                                                                                                                                                                                                                                   |
+| `session_ttl_ns`     | The relay's session TTL for a relay session. Dialed sessions over other transports carry `0`.                                                                                                                                                                                                                                                                                                                                       |
+| `session_started_at` | When the daemon set the session up.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `remote_addr`        | Where a dialed session was dialed: the server's address, the `relay_addr` for relay, `p2p` for p2p and the peer's address for direct-p2p. Omitted for incoming sessions.                                                                                                                                                                                                                                                            |
 
 ### Storage
 
@@ -398,7 +410,7 @@ and P2P tokens are dropped.
 
 ```json
 { "type": "evt", "evt": "status_changed", "data": { "status": "disconnected", "message": "Stopping server..." } }
-{ "type": "evt", "evt": "session_closed", "data": { "session_id": "abc123...", "peer_name": "CrimsonOtter", "is_server": true, "msg_count": 3, "last_activity": "2026-06-21T10:35:00Z", "transport_type": "tcp", "remote_version": "0.5.0", "cause": "incoming", "session_ttl_ns": 0, "session_started_at": "2026-06-21T10:30:00Z" } }
+{ "type": "evt", "evt": "session_closed", "data": { "session_id": "abc123...", "peer_name": "CrimsonOtter", "claimed_name": "CrimsonOtter", "peer_key": "MCowBQYDK2VwAyEA...", "peer_fingerprint": "12345 67890 13579 24680 11223 34455 66778 89900", "known_peer": true, "name_mismatch": false, "name_conflict": false, "is_server": true, "msg_count": 3, "last_activity": "2026-06-21T10:35:00Z", "transport_type": "tcp", "remote_version": "0.5.0", "cause": "incoming", "session_ttl_ns": 0, "session_started_at": "2026-06-21T10:30:00Z" } }
 { "type": "evt", "evt": "server_running", "data": { "running": false, "transport": "tcp" } }
 { "type": "evt", "evt": "status_changed", "data": { "status": "disconnected", "message": "Server stopped" } }
 { "type": "evt", "evt": "history_updated", "data": {} }
@@ -535,17 +547,24 @@ Connects to a remote kamune server. The command is checked at once, and the
 dial then runs in the background; `session_started`, or an error event, carries
 the command's `id`.
 
-| Param                                 | Transports | Description                                                                                                                                                                                                   |
-| ------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `transport`                           | all        | `"tcp"` (the default, when empty or absent), `"udp"`, `"relay"`, `"p2p"` or `"direct-p2p"`. Any other value fails with `invalid_transport`.                                                                   |
-| `addr`                                | tcp, udp   | Required (`addr_required`). The server's address. Ignored for the other transports.                                                                                                                           |
-| `relay_addr`, `relay_pin`, `password` | relay      | As for [`start_server`](#start_server). `relay_addr` is required.                                                                                                                                             |
-| `token`                               | relay      | Required. The server's relay token in hex: 32 characters for a random token, 64 for a [static token](#relay), which the dialing side computes itself.                                                         |
-| `name`                                | all        | The display name sent to the server and saved as the local name. Defaults to the fingerprint pseudonym, which incognito mode always uses (and does not save). Checked as for `start_server` (`invalid_name`). |
-| `broker_addr`                         | p2p        | Required. The broker's UDP `host:port`.                                                                                                                                                                       |
-| `p2p_token`                           | p2p        | Required. The server's P2P token in hex: 32 characters for a random token, 64 for a static one. Anything else fails with `invalid_p2p_token`.                                                                 |
-| `direct_peer_addr`                    | direct-p2p | Required. The peer's UDP `host:port`.                                                                                                                                                                         |
-| `peer_pub_b64`                        | none       | Not used by `dial`.                                                                                                                                                                                           |
+| Param                                 | Transports | Description                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`                           | all        | `"tcp"` (the default, when empty or absent), `"udp"`, `"relay"`, `"p2p"` or `"direct-p2p"`. Any other value fails with `invalid_transport`.                                                                                                                                                                          |
+| `addr`                                | tcp, udp   | Required (`addr_required`). The server's address. Ignored for the other transports.                                                                                                                                                                                                                                  |
+| `relay_addr`, `relay_pin`, `password` | relay      | As for [`start_server`](#start_server). `relay_addr` is required.                                                                                                                                                                                                                                                    |
+| `token`                               | relay      | Required. The server's relay token in hex: 32 characters for a random token, 64 for a [static token](#relay), which the dialing side computes itself.                                                                                                                                                                |
+| `name`                                | all        | The display name sent to the server and saved as the local name. Defaults to the fingerprint pseudonym, which incognito mode always uses (and does not save). Checked as for `start_server` (`invalid_name`).                                                                                                        |
+| `broker_addr`                         | p2p        | Required. The broker's UDP `host:port`.                                                                                                                                                                                                                                                                              |
+| `p2p_token`                           | p2p        | Required. The server's P2P token in hex: 32 characters for a random token, 64 for a static one. Anything else fails with `invalid_p2p_token`.                                                                                                                                                                        |
+| `direct_peer_addr`                    | direct-p2p | Required. The peer's UDP `host:port`.                                                                                                                                                                                                                                                                                |
+| `peer_pub_b64`                        | all        | The public key of the peer to reach, as `list_peers` gives it. The session must reach that key: a peer with another key is rejected before it is verified or asked about, whatever name it claims, and the dial fails with `peer_key_mismatch`. A key that is not a valid Ed25519 key fails with `invalid_peer_key`. |
+
+Set `peer_pub_b64` whenever the dial is meant for a known peer, above all on
+a [static token](#relay): anyone who knows both public keys can answer such a
+token, and the relay or the broker picks who does. Without it, Quick mode
+admits any stored peer that answers, under its own stored name. A reconnect of
+a dialed session is always held to the key of the session's peer, with or
+without `peer_pub_b64`.
 
 For relay, connecting to the relay and the relay handshake are limited to 15
 seconds. For p2p, the dial waits at most 30 seconds for the broker to match the
@@ -554,14 +573,15 @@ about 400 ms to open the NATs on the way before it starts KCP
 (`hole_punch_failed` when it cannot send any).
 
 Before the dial starts, the command fails with `invalid_params`,
-`invalid_name`, `invalid_transport`, `addr_required`, `invalid_relay_pin` or
-`storage_not_opened`. A dial that fails later sets the status to `error` and
-reports one of `storage_unavailable`, `identity_unavailable`,
-`relay_dial_failed` (for example a missing `relay_addr` or `token`),
-`broker_client_failed`, `invalid_p2p_token`, `p2p_match_failed`,
-`hole_punch_failed`, `direct_p2p_failed`, `create_dialer_failed`,
-`dial_failed` (the handshake failed or the peer was rejected) or
-`goroutine_panic`.
+`invalid_name`, `invalid_transport`, `addr_required`, `invalid_relay_pin`,
+`invalid_peer_key` or `storage_not_opened`. A dial that fails later sets the
+status to `error` and reports one of `storage_unavailable`,
+`identity_unavailable`, `relay_dial_failed` (for example a missing
+`relay_addr` or `token`), `broker_client_failed`, `invalid_p2p_token`,
+`p2p_match_failed`, `hole_punch_failed`, `direct_p2p_failed`,
+`create_dialer_failed`, `peer_key_mismatch` (the peer's key is not
+`peer_pub_b64`), `dial_failed` (the handshake failed or the peer was
+rejected) or `goroutine_panic`.
 
 There is no command to cancel a dial. A server that accepts the connection but
 stops answering keeps the dial waiting until the kamune library's handshake
@@ -641,6 +661,12 @@ the 150 seconds allowed for the server's verifier.
   "data": {
     "session_id": "xyz789...",
     "peer_name": "CrimsonOtter",
+    "claimed_name": "CrimsonOtter",
+    "peer_key": "MCowBQYDK2VwAyEA...",
+    "peer_fingerprint": "12345 67890 13579 24680 11223 34455 66778 89900",
+    "known_peer": true,
+    "name_mismatch": false,
+    "name_conflict": false,
     "is_server": false,
     "msg_count": 0,
     "last_activity": "2026-06-21T10:30:00Z",
@@ -698,7 +724,7 @@ that is not live.
 **Output:**
 
 ```json
-{ "type": "evt", "evt": "session_closed", "data": { "session_id": "xyz789...", "peer_name": "CrimsonOtter", "is_server": false, "msg_count": 3, "last_activity": "2026-06-21T10:35:00Z", "transport_type": "tcp", "remote_version": "0.5.0", "cause": "dial", "session_ttl_ns": 0, "session_started_at": "2026-06-21T10:30:00Z", "remote_addr": "127.0.0.1:9000" } }
+{ "type": "evt", "evt": "session_closed", "data": { "session_id": "xyz789...", "peer_name": "CrimsonOtter", "claimed_name": "CrimsonOtter", "peer_key": "MCowBQYDK2VwAyEA...", "peer_fingerprint": "12345 67890 13579 24680 11223 34455 66778 89900", "known_peer": true, "name_mismatch": false, "name_conflict": false, "is_server": false, "msg_count": 3, "last_activity": "2026-06-21T10:35:00Z", "transport_type": "tcp", "remote_version": "0.5.0", "cause": "dial", "session_ttl_ns": 0, "session_started_at": "2026-06-21T10:30:00Z", "remote_addr": "127.0.0.1:9000" } }
 { "type": "evt", "evt": "response", "id": "1", "data": { "status": "closed", "session_id": "xyz789..." } }
 ```
 
@@ -753,6 +779,12 @@ Returns all active sessions.
       {
         "session_id": "xyz789...",
         "peer_name": "CrimsonOtter",
+        "claimed_name": "CrimsonOtter",
+        "peer_key": "MCowBQYDK2VwAyEA...",
+        "peer_fingerprint": "12345 67890 13579 24680 11223 34455 66778 89900",
+        "known_peer": true,
+        "name_mismatch": false,
+        "name_conflict": false,
         "is_server": false,
         "msg_count": 3,
         "last_activity": "2026-06-21T10:30:00Z",
@@ -821,8 +853,15 @@ with it, so neither side has to send the other a token.
 A static token is not a secret, and it does not limit who can connect. Anyone
 who knows both public keys, which peers hand out to be verified, can compute
 it, and the relay and the broker do not check who registers or joins with it.
-Whoever connects with it still goes through the verification mode, which is
-the only check on who connects. The
+Whoever connects with it still goes through the verification mode. A session
+on a static relay token whose peer has another key than the one the token was
+made for is then closed before `session_started`, whatever the mode let in: a
+stored peer that Quick mode admits cannot take a session meant for another
+peer. The verifier runs first, so in Strict mode, or in Quick mode for an
+unknown key, such a peer is still asked about, and its session is closed
+whatever the answer; the token is used up either way. A p2p server checks the
+same for its static tokens, as [P2P Tokens](#p2p-tokens) says. On the dialing
+side, `peer_pub_b64` holds a [`dial`](#dial) to the peer it names. The
 [security considerations](RELAY.md#security-considerations) of static tokens in
 RELAY.md say what a third party can do with one.
 
@@ -1030,6 +1069,13 @@ A token is either random, 16 bytes (32 hex characters), or static, 32 bytes
 to `start_server` or `generate_p2p_token`. A P2P token is not used up by
 a match: it stays registered until it is removed or the server stops.
 
+A KCP session does not tell which token its peer matched on, so the server
+checks peers against its tokens as a whole. While it registers a random
+token, its own or one that `generate_p2p_token` added, it admits any peer.
+While all its tokens are static, it closes a session whose peer is not one of
+their peers before `session_started`, as a relay server does for a static
+relay token.
+
 #### `generate_p2p_token`
 
 Adds a token to the running p2p server, which registers and refreshes it from
@@ -1173,6 +1219,12 @@ list. A session ID that is neither fails with `session_not_found`.
     "type": "live",
     "session_id": "xyz789...",
     "peer_name": "CrimsonOtter",
+    "claimed_name": "CrimsonOtter",
+    "peer_key": "MCowBQYDK2VwAyEA...",
+    "peer_fingerprint": "12345 67890 13579 24680 11223 34455 66778 89900",
+    "known_peer": true,
+    "name_mismatch": false,
+    "name_conflict": false,
     "is_server": false,
     "msg_count": 3,
     "last_activity": "2026-06-21T10:30:00Z",
@@ -1209,7 +1261,9 @@ list. A session ID that is neither fails with `session_not_found`.
 
 Modes: `0` = Strict (prompt for every peer, known or not), `1` = Quick
 (accept known peers without a prompt, prompt for others), `2` = Auto-Accept
-(accept every peer, and store none of them as a known peer). Without a saved
+(accept every peer, and store none of them as a known peer). Only the key
+decides whether a peer is known, never the name it claims, and sessions and
+prompts name a known peer by its stored name. Without a saved
 mode the daemon uses Quick, unless the client set a mode before it opened
 the first storage. No mode prompts for a peer that resumes a session, Strict
 included. See [Verification Flow](#verification-flow).
@@ -1268,7 +1322,9 @@ Answers a pending `verify_peer` event (see [`verify_peer`](#verify_peer)). A
 or ended when the server stopped, fails with `verification_not_found`. An
 unknown peer that is accepted is stored as a known peer once its session is
 established, unless incognito mode is on; a peer whose handshake fails after
-it was accepted is not stored.
+it was accepted is not stored. It is stored under the name it claimed, unless
+that name is empty or another stored peer has it (see `name_conflict`); then
+it is stored under the pseudonym of its key.
 
 **Input:**
 
@@ -2204,6 +2260,12 @@ in [Commands](#connections).
   "data": {
     "session_id": "abc123...",
     "peer_name": "IncomingPeer",
+    "claimed_name": "IncomingPeer",
+    "peer_key": "MCowBQYDK2VwAyEA...",
+    "peer_fingerprint": "12345 67890 13579 24680 11223 34455 66778 89900",
+    "known_peer": true,
+    "name_mismatch": false,
+    "name_conflict": false,
     "is_server": true,
     "msg_count": 0,
     "last_activity": "2026-06-21T10:30:00Z",
@@ -2230,6 +2292,12 @@ and was not resumed, or `close_session`, `stop_server`, `restart_server` or
   "data": {
     "session_id": "abc123...",
     "peer_name": "CrimsonOtter",
+    "claimed_name": "CrimsonOtter",
+    "peer_key": "MCowBQYDK2VwAyEA...",
+    "peer_fingerprint": "12345 67890 13579 24680 11223 34455 66778 89900",
+    "known_peer": true,
+    "name_mismatch": false,
+    "name_conflict": false,
     "is_server": false,
     "msg_count": 3,
     "last_activity": "2026-06-21T10:35:00Z",
@@ -2366,12 +2434,19 @@ peer over a trusted channel before accepting. It carries about 132.9 bits. The
 eight `emoji` carry about 52.7 bits, few enough that an attacker can search for
 a key that shows the same emoji, so they must not be relied on alone. `hex` is
 the whole PKIX key, whose first 12 bytes are the same for every Ed25519 key.
-`peer_name` is the name the peer chose for itself, and proves nothing. The
-default names that the daemon derives from a key, its pseudonym (two
-adjectives, a noun and a number, such as `brave misty otter 42`), are
-nicknames of about 29.6 bits, not fingerprints: anyone can make a key with a
-given pseudonym. `known` tells whether the key is a stored peer, and `mode`
-is `strict` or `quick`.
+`peer_name` is the name stored for the peer's key, or, for a key that is not
+stored, `Unknown peer` and the first ten digits of `numeric`. `claimed_name`
+is the name the peer chose for itself, and proves nothing: show it only as
+the peer's claim. `peer_key` is the peer's public key, base64 as `list_peers`
+gives it. The default names that the daemon derives from a key, its
+pseudonym (two adjectives, a noun and a number, such as `brave misty otter
+42`), are nicknames of about 29.6 bits, not fingerprints: anyone can make a
+key with a given pseudonym. `known` tells whether the key is a stored peer,
+and `mode` is `strict` or `quick`. `name_mismatch` flags a stored peer whose
+claimed name is not its stored name, and `name_conflict` a peer that claims,
+or is stored under, the name of another stored peer; names that differ only in
+case, white space or characters that do not show count as the same. Warn the
+user about either.
 
 A peer that connects to the server is rejected at once, without this event,
 while another connection with the same key has a prompt open, or when it is
@@ -2386,11 +2461,15 @@ when the last one ends, the status before them comes back.
   "evt": "verify_peer",
   "data": {
     "request_id": 42,
-    "peer_name": "CrimsonOtter",
+    "peer_name": "Unknown peer 12345 67890",
+    "claimed_name": "CrimsonOtter",
+    "peer_key": "MCowBQYDK2VwAyEAXd...",
     "numeric": "12345 67890 13579 24680 11223 34455 66778 89900",
     "emoji": ["🦊", "🐱", "🌵", "🔑", "🚀", "🍀", "🎲", "🐙"],
     "hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...",
     "known": false,
+    "name_mismatch": false,
+    "name_conflict": false,
     "mode": "quick"
   }
 }
@@ -2485,85 +2564,86 @@ programs, and `reason`, on some errors, tells apart failures that share a code:
 }
 ```
 
-| Code                           | Commands                                                                                                              | Meaning                                                                                                                          |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `addr_required`                | `start_server`, `dial`                                                                                                | A tcp or udp transport without `addr`.                                                                                           |
-| `broker_addr_mismatch`         | `generate_p2p_token`                                                                                                  | `broker_addr` is not the p2p server's broker.                                                                                    |
-| `broker_client_failed`         | `start_server`, `dial`                                                                                                | The broker client could not be created (p2p).                                                                                    |
-| `cancel_timeout`               | `cancel_start_server`                                                                                                 | The server start did not stop within 5 seconds.                                                                                  |
-| `change_passphrase_failed`     | `change_passphrase`                                                                                                   | The change failed; the passphrase is unchanged.                                                                                  |
-| `create_dialer_failed`         | `dial`                                                                                                                | The kamune dialer could not be created.                                                                                          |
-| `create_server_failed`         | `start_server`                                                                                                        | The listen address could not be bound, or the kamune server could not be created.                                                |
-| `data_base64_required`         | `send_message`                                                                                                        | `data_base64` is empty.                                                                                                          |
-| `delete_failed`                | `delete_history_session`                                                                                              | The session could not be deleted.                                                                                                |
-| `detect_ip_failed`             | `get_share_info`                                                                                                      | The server listens on every interface and the host has no non-loopback IPv4 address.                                             |
-| `dial_failed`                  | `dial`                                                                                                                | The connection or the kamune handshake failed, or the peer was rejected.                                                         |
-| `direct_p2p_failed`            | `start_server`, `dial`                                                                                                | The direct-p2p socket could not be set up.                                                                                       |
-| `export_file_failed`           | `export_logs`                                                                                                         | The file could not be created or put in place.                                                                                   |
-| `export_write_failed`          | `export_logs`                                                                                                         | The entries could not be written.                                                                                                |
-| `goroutine_panic`              | `dial`, `send_message`                                                                                                | The dial or the send panicked.                                                                                                   |
-| `hole_punch_failed`            | `dial`                                                                                                                | No packet could be sent to the matched p2p server.                                                                               |
-| `history_fetch_failed`         | `get_history_messages`                                                                                                | The messages could not be read.                                                                                                  |
-| `history_not_found`            | `load_history`                                                                                                        | The session is not in the history list.                                                                                          |
-| `history_not_loaded`           | `get_history_messages`                                                                                                | `load_history` was not called for the session.                                                                                   |
-| `identity_unavailable`         | `start_server`, `dial`                                                                                                | The identity key could not be read.                                                                                              |
-| `invalid_base64`               | `send_message`                                                                                                        | `data_base64` is not standard base64.                                                                                            |
-| `invalid_fingerprint_format`   | `set_fingerprint_format`                                                                                              | Not one of the formats.                                                                                                          |
-| `invalid_json`                 | any line                                                                                                              | The line is not a JSON object. Has no `id`.                                                                                      |
-| `invalid_log_level`            | `set_log_level`                                                                                                       | Not one of the levels.                                                                                                           |
-| `invalid_name`                 | `start_server`, `dial`, `set_my_name`, `add_peer`, `rename_peer`, `rename_session`                                    | The name breaks the name rules (see `start_server`).                                                                             |
-| `invalid_p2p_token`            | `dial`                                                                                                                | `p2p_token` is not 32 or 64 hex characters.                                                                                      |
-| `invalid_params`               | every command with params                                                                                             | `params` is absent or does not decode into the command's params.                                                                 |
-| `invalid_peer_key`             | `add_peer`, `rename_peer`, `get_peer`, `delete_peer`, `generate_relay_token`                                          | The public key does not decode, has the wrong length, or (for `add_peer` and `generate_relay_token`) is not a valid Ed25519 key. |
-| `invalid_relay_pin`            | `start_server`, `dial`                                                                                                | `relay_pin` is not a SHA-256 fingerprint, is for a `ws` or `tcp` relay, or comes with `?insecure=true`.                          |
-| `invalid_transport`            | `start_server`, `dial`                                                                                                | An unknown transport.                                                                                                            |
-| `invalid_verification_mode`    | `set_verification_mode`                                                                                               | A mode other than 0, 1 or 2.                                                                                                     |
-| `keychain_clear_failed`        | `clear_keychain_passphrase`                                                                                           | The keychain entry could not be removed, or there is none.                                                                       |
-| `line_too_long`                | any line                                                                                                              | The line is over 1 MiB and was dropped. Has no `id`.                                                                             |
-| `listener_failed`              | `start_server`, `generate_relay_token`, `get_share_info`                                                              | A relay listener could not be added to the server.                                                                               |
-| `marshal_failed`               | `get_session_info`                                                                                                    | The session info could not be encoded.                                                                                           |
-| `name_persist_failed`          | `set_my_name`                                                                                                         | The name could not be saved.                                                                                                     |
-| `name_too_long`                | `set_my_name`                                                                                                         | The name is over 32 bytes.                                                                                                       |
-| `p2p_listener_failed`          | `start_server`                                                                                                        | The p2p punch socket could not be set up or registered with the broker.                                                          |
-| `p2p_match_failed`             | `dial`                                                                                                                | The broker did not match the token within 30 seconds, or the wait failed.                                                        |
-| `p2p_server_not_running`       | `generate_p2p_token`                                                                                                  | No p2p server runs.                                                                                                              |
-| `p2p_token_failed`             | `start_server`, `generate_p2p_token`                                                                                  | `broker_addr` is empty, or the P2P token could not be derived or registered.                                                     |
-| `p2p_token_remove_failed`      | `remove_p2p_token`                                                                                                    | The token is not listed.                                                                                                         |
-| `passphrase_required`          | `submit_passphrase`, `change_passphrase`                                                                              | The passphrase, or `new_passphrase`, is empty.                                                                                   |
-| `peer_already_exists`          | `add_peer`                                                                                                            | The key is already a known peer.                                                                                                 |
-| `peer_delete_failed`           | `delete_peer`                                                                                                         | The peer could not be deleted.                                                                                                   |
-| `peer_list_failed`             | `list_peers`                                                                                                          | The peers could not be read.                                                                                                     |
-| `peer_not_found`               | `rename_peer`, `get_peer`                                                                                             | The key is not a known peer.                                                                                                     |
-| `peer_store_failed`            | `add_peer`, `rename_peer`                                                                                             | The peer could not be saved.                                                                                                     |
-| `relay_dial_failed`            | `dial`                                                                                                                | The relay dial could not be prepared, for example without `relay_addr` or `token`.                                               |
-| `relay_link_lost`              | none                                                                                                                  | A relay token lost its link to the relay and was removed. Has no `id`.                                                           |
-| `relay_listen_failed`          | `start_server`, `generate_relay_token`                                                                                | Registering with the relay failed or took over 15 seconds.                                                                       |
-| `relay_not_configured`         | `generate_relay_token`                                                                                                | No relay server runs.                                                                                                            |
-| `relay_token_failed`           | `generate_relay_token`, `get_share_info`                                                                              | The static token could not be derived, or the card's token could not be registered.                                              |
-| `rename_failed`                | `rename_history_session`                                                                                              | The name could not be saved.                                                                                                     |
-| `send_message_failed`          | `send_message`                                                                                                        | The send failed; see its `reason`.                                                                                               |
-| `server_already_running`       | `start_server`                                                                                                        | A server runs.                                                                                                                   |
-| `server_already_started`       | `cancel_start_server`                                                                                                 | The start finished before the cancel.                                                                                            |
-| `server_not_running`           | `get_share_info`                                                                                                      | No server runs.                                                                                                                  |
-| `server_not_started`           | `restart_server`                                                                                                      | No `start_server` has passed its checks.                                                                                         |
-| `server_start_in_progress`     | `start_server`                                                                                                        | Another start is under way.                                                                                                      |
-| `server_start_not_in_progress` | `cancel_start_server`                                                                                                 | No start is under way.                                                                                                           |
-| `server_stopped`               | `generate_relay_token`, `get_share_info`                                                                              | The relay server stopped or restarted meanwhile.                                                                                 |
-| `session_active`               | `delete_history_session`                                                                                              | The session is live.                                                                                                             |
-| `session_id_required`          | `send_message`                                                                                                        | `session_id` is empty.                                                                                                           |
-| `session_not_found`            | `close_session`, `rename_session`, `send_message`, `get_session_info`                                                 | No such session.                                                                                                                 |
-| `storage_busy`                 | `open_storage`, `submit_passphrase`, `change_passphrase`                                                              | A server runs, a server start or a dial is under way, or a session is open.                                                      |
-| `storage_not_opened`           | `start_server`, `dial`, `submit_passphrase`, `change_passphrase`                                                      | No storage is open, nor a path for `submit_passphrase`.                                                                          |
-| `storage_open_failed`          | `open_storage`, `submit_passphrase`                                                                                   | The storage did not open; see its `reason`.                                                                                      |
-| `storage_path_required`        | `open_storage`                                                                                                        | `storage_path` is empty.                                                                                                         |
-| `storage_reopen_failed`        | `change_passphrase`                                                                                                   | The new passphrase is in effect, but the storage could not be opened again.                                                      |
-| `storage_unavailable`          | `start_server`, `dial`, the peer commands, `get_history_messages`, `rename_history_session`, `delete_history_session` | No storage is open.                                                                                                              |
-| `token_not_found`              | `remove_relay_token`                                                                                                  | The token is not listed.                                                                                                         |
-| `unknown_command`              | any line                                                                                                              | An unknown `cmd`.                                                                                                                |
-| `unknown_message_type`         | any line                                                                                                              | A `type` other than `"cmd"`.                                                                                                     |
-| `unknown_transport`            | `get_share_info`                                                                                                      | The server's transport has no share card.                                                                                        |
-| `verification_not_found`       | `verify_response`                                                                                                     | No prompt with that `request_id` is pending.                                                                                     |
-| `wrong_passphrase`             | `change_passphrase`                                                                                                   | `old_passphrase` does not open the storage.                                                                                      |
+| Code                           | Commands                                                                                                              | Meaning                                                                                                                                  |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `addr_required`                | `start_server`, `dial`                                                                                                | A tcp or udp transport without `addr`.                                                                                                   |
+| `broker_addr_mismatch`         | `generate_p2p_token`                                                                                                  | `broker_addr` is not the p2p server's broker.                                                                                            |
+| `broker_client_failed`         | `start_server`, `dial`                                                                                                | The broker client could not be created (p2p).                                                                                            |
+| `cancel_timeout`               | `cancel_start_server`                                                                                                 | The server start did not stop within 5 seconds.                                                                                          |
+| `change_passphrase_failed`     | `change_passphrase`                                                                                                   | The change failed; the passphrase is unchanged.                                                                                          |
+| `create_dialer_failed`         | `dial`                                                                                                                | The kamune dialer could not be created.                                                                                                  |
+| `create_server_failed`         | `start_server`                                                                                                        | The listen address could not be bound, or the kamune server could not be created.                                                        |
+| `data_base64_required`         | `send_message`                                                                                                        | `data_base64` is empty.                                                                                                                  |
+| `delete_failed`                | `delete_history_session`                                                                                              | The session could not be deleted.                                                                                                        |
+| `detect_ip_failed`             | `get_share_info`                                                                                                      | The server listens on every interface and the host has no non-loopback IPv4 address.                                                     |
+| `dial_failed`                  | `dial`                                                                                                                | The connection or the kamune handshake failed, or the peer was rejected.                                                                 |
+| `direct_p2p_failed`            | `start_server`, `dial`                                                                                                | The direct-p2p socket could not be set up.                                                                                               |
+| `export_file_failed`           | `export_logs`                                                                                                         | The file could not be created or put in place.                                                                                           |
+| `export_write_failed`          | `export_logs`                                                                                                         | The entries could not be written.                                                                                                        |
+| `goroutine_panic`              | `dial`, `send_message`                                                                                                | The dial or the send panicked.                                                                                                           |
+| `hole_punch_failed`            | `dial`                                                                                                                | No packet could be sent to the matched p2p server.                                                                                       |
+| `history_fetch_failed`         | `get_history_messages`                                                                                                | The messages could not be read.                                                                                                          |
+| `history_not_found`            | `load_history`                                                                                                        | The session is not in the history list.                                                                                                  |
+| `history_not_loaded`           | `get_history_messages`                                                                                                | `load_history` was not called for the session.                                                                                           |
+| `identity_unavailable`         | `start_server`, `dial`                                                                                                | The identity key could not be read.                                                                                                      |
+| `invalid_base64`               | `send_message`                                                                                                        | `data_base64` is not standard base64.                                                                                                    |
+| `invalid_fingerprint_format`   | `set_fingerprint_format`                                                                                              | Not one of the formats.                                                                                                                  |
+| `invalid_json`                 | any line                                                                                                              | The line is not a JSON object. Has no `id`.                                                                                              |
+| `invalid_log_level`            | `set_log_level`                                                                                                       | Not one of the levels.                                                                                                                   |
+| `invalid_name`                 | `start_server`, `dial`, `set_my_name`, `add_peer`, `rename_peer`, `rename_session`                                    | The name breaks the name rules (see `start_server`).                                                                                     |
+| `invalid_p2p_token`            | `dial`                                                                                                                | `p2p_token` is not 32 or 64 hex characters.                                                                                              |
+| `invalid_params`               | every command with params                                                                                             | `params` is absent or does not decode into the command's params.                                                                         |
+| `invalid_peer_key`             | `add_peer`, `rename_peer`, `get_peer`, `delete_peer`, `generate_relay_token`, `dial`                                  | The public key does not decode, has the wrong length, or (for `add_peer`, `generate_relay_token` and `dial`) is not a valid Ed25519 key. |
+| `invalid_relay_pin`            | `start_server`, `dial`                                                                                                | `relay_pin` is not a SHA-256 fingerprint, is for a `ws` or `tcp` relay, or comes with `?insecure=true`.                                  |
+| `invalid_transport`            | `start_server`, `dial`                                                                                                | An unknown transport.                                                                                                                    |
+| `invalid_verification_mode`    | `set_verification_mode`                                                                                               | A mode other than 0, 1 or 2.                                                                                                             |
+| `keychain_clear_failed`        | `clear_keychain_passphrase`                                                                                           | The keychain entry could not be removed, or there is none.                                                                               |
+| `line_too_long`                | any line                                                                                                              | The line is over 1 MiB and was dropped. Has no `id`.                                                                                     |
+| `listener_failed`              | `start_server`, `generate_relay_token`, `get_share_info`                                                              | A relay listener could not be added to the server.                                                                                       |
+| `marshal_failed`               | `get_session_info`                                                                                                    | The session info could not be encoded.                                                                                                   |
+| `name_persist_failed`          | `set_my_name`                                                                                                         | The name could not be saved.                                                                                                             |
+| `name_too_long`                | `set_my_name`                                                                                                         | The name is over 32 bytes.                                                                                                               |
+| `p2p_listener_failed`          | `start_server`                                                                                                        | The p2p punch socket could not be set up or registered with the broker.                                                                  |
+| `p2p_match_failed`             | `dial`                                                                                                                | The broker did not match the token within 30 seconds, or the wait failed.                                                                |
+| `p2p_server_not_running`       | `generate_p2p_token`                                                                                                  | No p2p server runs.                                                                                                                      |
+| `p2p_token_failed`             | `start_server`, `generate_p2p_token`                                                                                  | `broker_addr` is empty, or the P2P token could not be derived or registered.                                                             |
+| `p2p_token_remove_failed`      | `remove_p2p_token`                                                                                                    | The token is not listed.                                                                                                                 |
+| `passphrase_required`          | `submit_passphrase`, `change_passphrase`                                                                              | The passphrase, or `new_passphrase`, is empty.                                                                                           |
+| `peer_already_exists`          | `add_peer`                                                                                                            | The key is already a known peer.                                                                                                         |
+| `peer_delete_failed`           | `delete_peer`                                                                                                         | The peer could not be deleted.                                                                                                           |
+| `peer_key_mismatch`            | `dial`                                                                                                                | The peer's key is not `peer_pub_b64`.                                                                                                    |
+| `peer_list_failed`             | `list_peers`                                                                                                          | The peers could not be read.                                                                                                             |
+| `peer_not_found`               | `rename_peer`, `get_peer`                                                                                             | The key is not a known peer.                                                                                                             |
+| `peer_store_failed`            | `add_peer`, `rename_peer`                                                                                             | The peer could not be saved.                                                                                                             |
+| `relay_dial_failed`            | `dial`                                                                                                                | The relay dial could not be prepared, for example without `relay_addr` or `token`.                                                       |
+| `relay_link_lost`              | none                                                                                                                  | A relay token lost its link to the relay and was removed. Has no `id`.                                                                   |
+| `relay_listen_failed`          | `start_server`, `generate_relay_token`                                                                                | Registering with the relay failed or took over 15 seconds.                                                                               |
+| `relay_not_configured`         | `generate_relay_token`                                                                                                | No relay server runs.                                                                                                                    |
+| `relay_token_failed`           | `generate_relay_token`, `get_share_info`                                                                              | The static token could not be derived, or the card's token could not be registered.                                                      |
+| `rename_failed`                | `rename_history_session`                                                                                              | The name could not be saved.                                                                                                             |
+| `send_message_failed`          | `send_message`                                                                                                        | The send failed; see its `reason`.                                                                                                       |
+| `server_already_running`       | `start_server`                                                                                                        | A server runs.                                                                                                                           |
+| `server_already_started`       | `cancel_start_server`                                                                                                 | The start finished before the cancel.                                                                                                    |
+| `server_not_running`           | `get_share_info`                                                                                                      | No server runs.                                                                                                                          |
+| `server_not_started`           | `restart_server`                                                                                                      | No `start_server` has passed its checks.                                                                                                 |
+| `server_start_in_progress`     | `start_server`                                                                                                        | Another start is under way.                                                                                                              |
+| `server_start_not_in_progress` | `cancel_start_server`                                                                                                 | No start is under way.                                                                                                                   |
+| `server_stopped`               | `generate_relay_token`, `get_share_info`                                                                              | The relay server stopped or restarted meanwhile.                                                                                         |
+| `session_active`               | `delete_history_session`                                                                                              | The session is live.                                                                                                                     |
+| `session_id_required`          | `send_message`                                                                                                        | `session_id` is empty.                                                                                                                   |
+| `session_not_found`            | `close_session`, `rename_session`, `send_message`, `get_session_info`                                                 | No such session.                                                                                                                         |
+| `storage_busy`                 | `open_storage`, `submit_passphrase`, `change_passphrase`                                                              | A server runs, a server start or a dial is under way, or a session is open.                                                              |
+| `storage_not_opened`           | `start_server`, `dial`, `submit_passphrase`, `change_passphrase`                                                      | No storage is open, nor a path for `submit_passphrase`.                                                                                  |
+| `storage_open_failed`          | `open_storage`, `submit_passphrase`                                                                                   | The storage did not open; see its `reason`.                                                                                              |
+| `storage_path_required`        | `open_storage`                                                                                                        | `storage_path` is empty.                                                                                                                 |
+| `storage_reopen_failed`        | `change_passphrase`                                                                                                   | The new passphrase is in effect, but the storage could not be opened again.                                                              |
+| `storage_unavailable`          | `start_server`, `dial`, the peer commands, `get_history_messages`, `rename_history_session`, `delete_history_session` | No storage is open.                                                                                                                      |
+| `token_not_found`              | `remove_relay_token`                                                                                                  | The token is not listed.                                                                                                                 |
+| `unknown_command`              | any line                                                                                                              | An unknown `cmd`.                                                                                                                        |
+| `unknown_message_type`         | any line                                                                                                              | A `type` other than `"cmd"`.                                                                                                             |
+| `unknown_transport`            | `get_share_info`                                                                                                      | The server's transport has no share card.                                                                                                |
+| `verification_not_found`       | `verify_response`                                                                                                     | No prompt with that `request_id` is pending.                                                                                             |
+| `wrong_passphrase`             | `change_passphrase`                                                                                                   | `old_passphrase` does not open the storage.                                                                                              |
 
 ## Storage Model
 
