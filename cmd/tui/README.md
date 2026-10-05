@@ -117,6 +117,15 @@ shows:
    name stored for it.
 4. The name and app version that the peer claims, which are not verified.
 
+When the name that the peer claims, or the name stored for its key, reads
+the same as the name of a stored peer with a different key, a warning
+follows that name. Names read the same when they differ only in case, in
+the amount of white space around and between their words, in forms such
+as fullwidth letters, or in characters that show as nothing, such as a
+zero-width joiner. Names that only look alike, such as one with a
+Cyrillic letter in place of a Latin one, do not; only the fingerprint
+tells peers apart.
+
 Over a channel you trust, such as a phone call, ask the peer to read out
 the numeric fingerprint of its own key, and check it against the peer's
 number on the screen; then read yours out in turn. The numeric fingerprint
@@ -130,9 +139,15 @@ Enter included, is ignored, so an Enter meant for the previous screen
 cannot accept a key you have not checked. A prompt left unanswered for two
 minutes rejects the peer, and a peer that connects while a prompt is open
 is rejected at once. After a rejection, Start Server goes on waiting for
-another peer; the other modes end and return to the menu. The TUI stores
-a peer you accept once its session is established. When the chat opens,
-it shows a line that names the peer and gives its numeric fingerprint.
+another peer; the other modes end and return to the menu.
+
+The TUI stores a peer you accept once its session is established, under
+the name it claims. A peer that claims no name, or a name that reads the
+same as that of a stored peer, is stored under a pseudonym derived from
+its key instead, such as `gentle frosty deer 78`, and its verify screen
+gives that pseudonym. The stored name is how the TUI names the peer from
+then on. When the chat opens, it shows a line that names the peer by its
+stored name and gives its numeric fingerprint.
 
 ### Resumed sessions
 
