@@ -2227,6 +2227,35 @@ func TestResumeSkipsVerifierUntilPeerDeleted(t *testing.T) {
 	a.Error(serveErr)
 }
 
+// TestResumeDisabledRejects checks that a server with resumption off
+// answers a resume request with a rejection, so the dialer gets
+// ErrResumptionRejected rather than a closed connection, and that the
+// session's tokens stay unused.
+func TestResumeDisabledRejects(t *testing.T) {
+	a := require.New(t)
+	clientStore, cleanupClient := newTestStore(t)
+	defer cleanupClient()
+	serverStore, cleanupServer := newTestStore(t)
+	defer cleanupServer()
+
+	sessionID := coldDial(t, clientStore, serverStore)
+	tokens, err := serverStore.GetList(sessionID, storage.ResumptionTokensKey)
+	a.NoError(err)
+
+	verifier := func(*storage.Storage, *storage.Peer) error {
+		return errors.New("verifier must not run")
+	}
+	dialErr, serveErr := resumeDial(
+		t, clientStore, serverStore, sessionID, verifier,
+		ServeWithResumeEnabled(false),
+	)
+	a.ErrorIs(dialErr, ErrResumptionRejected)
+	a.ErrorContains(serveErr, "resume rejected: resumption not available")
+	after, err := serverStore.GetList(sessionID, storage.ResumptionTokensKey)
+	a.NoError(err)
+	a.Equal(tokens, after)
+}
+
 // TestResumeWindowStartsAtColdHandshake checks that resuming a session does
 // not extend its resumption window, which counts from the cold handshake.
 func TestResumeWindowStartsAtColdHandshake(t *testing.T) {

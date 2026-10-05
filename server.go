@@ -706,10 +706,11 @@ func (s *Server) handshake(cn Conn, p *pendingConn) (*Transport, bool, error) {
 		return t, true, err
 	case RouteResumeRequest:
 		if !s.resumeEnabled {
-			return nil, false, fmt.Errorf(
-				"%w: expected %s, got %s",
-				ErrUnexpectedRoute, RouteIdentity, route,
-			)
+			// Refuse it like any other resume request, so the dialer gets
+			// ErrResumptionRejected and stops retrying, rather than a
+			// closed connection that looks like a network error.
+			t, err := s.rejectResume(ec, "resumption not available")
+			return t, false, err
 		}
 		t, err := s.handleResume(cn, ec, st)
 		return t, false, err
@@ -1005,9 +1006,11 @@ func ServeWithListener(l Listener) ServerOptions {
 }
 
 // ServeWithResumeEnabled controls whether the server accepts session resumption
-// requests. When disabled, incoming ResumeRequest messages are treated as
-// unexpected routes and the dialer must fall back to a full Introduction.
-// Enabled by default.
+// requests. When disabled, the server refuses every ResumeRequest with the
+// same generic rejection it sends for an unknown session, so the dialer's
+// Dial returns [ErrResumptionRejected] at once and the dialer must start a
+// new session with a cold handshake. No token is consumed. Enabled by
+// default.
 //
 // A resumed session does not run the [RemoteVerifier]. The server accepts
 // a resume request that is signed by the peer key stored for the session

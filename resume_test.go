@@ -332,8 +332,7 @@ func (e *resumeEnv) requestResume(
 
 // TestHandleResumeRejects sends resume requests that the server must refuse
 // through Server.serve, and checks that the server answers with a generic
-// rejection, or not at all when resumption is off, and that no token is
-// consumed.
+// rejection, also when resumption is off, and that no token is consumed.
 func TestHandleResumeRejects(t *testing.T) {
 	other, err := attest.New()
 	require.New(t).NoError(err)
@@ -352,22 +351,20 @@ func TestHandleResumeRejects(t *testing.T) {
 	}
 
 	cases := []struct {
-		want error
 		// setup changes the stored session before the request is sent.
 		setup func(*testing.T, *resumeEnv)
 		// request returns the signer and message of the request. Nil
 		// sends a valid request signed by the client.
 		request func(*resumeEnv) (*attest.Attest, []byte)
 		name    string
-		// reason is the reason that serve gives for the rejection, or ""
-		// when the server sends no answer.
+		// reason is the reason that serve gives for the rejection.
 		reason string
 		opts   []ServerOptions
 	}{
 		{
-			name: "resumption disabled",
-			want: ErrUnexpectedRoute,
-			opts: []ServerOptions{ServeWithResumeEnabled(false)},
+			name:   "resumption disabled",
+			reason: "resumption not available",
+			opts:   []ServerOptions{ServeWithResumeEnabled(false)},
 		},
 		{
 			name:   "malformed request",
@@ -460,18 +457,10 @@ func TestHandleResumeRejects(t *testing.T) {
 
 			ans := e.requestResume(t, signer, data, tc.opts...)
 			a.False(ans.accepted)
-			a.Error(ans.serveErr)
-			if tc.want != nil {
-				a.ErrorIs(ans.serveErr, tc.want)
-			}
-			if tc.reason == "" {
-				a.Error(ans.readErr, "the server answered")
-			} else {
-				a.NoError(ans.readErr)
-				// The dialer learns nothing about which check failed.
-				a.Equal("resumption not available", ans.reason)
-				a.ErrorContains(ans.serveErr, "resume rejected: "+tc.reason)
-			}
+			a.NoError(ans.readErr)
+			// The dialer learns nothing about which check failed.
+			a.Equal("resumption not available", ans.reason)
+			a.ErrorContains(ans.serveErr, "resume rejected: "+tc.reason)
 			a.Equal(before, e.storedTokens(a), "a token was consumed")
 		})
 	}
