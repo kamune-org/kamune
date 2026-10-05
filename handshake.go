@@ -174,8 +174,8 @@ func requestHandshake(
 		// Cold handshake: use the sessionSuffix from the response.
 		sessionID = sessionKey + resp.GetSessionKey()
 	}
-	// Bind later challenge material to the semantic handshake transcript
-	// (inner pb.Handshake fields only).
+	// The challenge this side sends is derived with the transcript hash
+	// (see deriveChallengeInfo).
 	transcriptHash := handshakeTranscriptHash(req, &resp)
 
 	// Step 3: Decapsulate shared secret
@@ -199,7 +199,8 @@ func requestHandshake(
 
 	t := newTransport(conn, serde, sessionID, encoder, decoder)
 
-	// Step 5: Challenge exchange (bound to handshake transcript)
+	// Step 5: Challenge exchange, which confirms that both sides derived
+	// the same traffic keys (see acceptChallenge).
 	err = sendChallenge(
 		t,
 		secret,
@@ -297,8 +298,8 @@ func acceptHandshake(
 		return nil, fmt.Errorf("writing handshake response: %w", err)
 	}
 
-	// Bind later challenge material to the semantic handshake transcript
-	// (inner pb.Handshake fields only).
+	// The challenge this side sends is derived with the transcript hash
+	// (see deriveChallengeInfo).
 	transcriptHash := handshakeTranscriptHash(&req, resp)
 
 	// Step 3: Create transport with encryption
@@ -317,8 +318,9 @@ func acceptHandshake(
 
 	t := newTransport(conn, ut, sessionID, encoder, decoder)
 
-	// Step 4: Challenge exchange (bound to handshake transcript). Responder
-	// accepts initiator's challenge, then sends its own and verifies echo.
+	// Step 4: Challenge exchange, which confirms that both sides derived
+	// the same traffic keys (see acceptChallenge). The responder accepts
+	// the initiator's challenge, then sends its own and verifies the echo.
 	if err := acceptChallenge(t, RouteSendChallenge); err != nil {
 		return nil, fmt.Errorf("accepting challenge: %w", err)
 	}
@@ -368,6 +370,17 @@ func sendChallenge(t *Transport, secret, info []byte) error {
 }
 
 // acceptChallenge receives a challenge and echoes it back for verification.
+//
+// It does not derive the challenge it expects, so it takes any value. The
+// exchange is key confirmation only: the challenge and its echo travel
+// under the session's traffic keys, so each side learns that the other
+// derived the same keys. It does not check that the peer saw the same
+// handshake transcript, and it adds no replay or downgrade protection of
+// its own. Every field of the transcript hash also feeds the traffic keys
+// or the session ID, and the handshake messages are signed. A replayed
+// handshake fails because the keys depend on fresh material from each
+// side: the initiator's new ML-KEM key pair and salt, and the responder's
+// new encapsulation and salt.
 func acceptChallenge(t *Transport, expectedRoute Route) error {
 	r := Bytes(nil)
 	md, err := t.Receive(r)
@@ -412,8 +425,10 @@ func validateHandshakeFields(
 	return nil
 }
 
-// handshakeTranscriptHash binds later challenge material to the semantic
-// handshake inputs that matter for key agreement.
+// handshakeTranscriptHash hashes the semantic handshake inputs that matter
+// for key agreement, for the challenge each side derives. The receiver of a
+// challenge does not recompute it (see acceptChallenge), so nothing checks
+// this hash: the challenge exchange is key confirmation only.
 //
 // We intentionally avoid hashing the full signed envelope bytes (which include
 // padding/metadata) and instead bind to the inner pb.Handshake fields that
@@ -463,13 +478,12 @@ func handshakeTranscriptHash(req *pb.Handshake, resp *pb.Handshake) [32]byte {
 	return out
 }
 
-// deriveChallengeInfo returns challenge "info" bound to session, direction, and
-// the handshake transcript hash (prevents replay across different handshakes
-// even if a shared secret were ever reused).
+// deriveChallengeInfo returns the HKDF info that a challenge is derived
+// with: the session ID, the direction and the handshake transcript hash.
+// Only the sender derives the challenge; the receiver echoes whatever it
+// gets (see acceptChallenge), so the info gives the challenge no replay
+// protection, and the exchange is key confirmation only.
 func deriveChallengeInfo(sessionID, direction string, hash [32]byte) []byte {
-	// Keep it simple and deterministic.
-	// The transcript hash ensures the challenge is bound to the negotiated
-	// handshake bytes, not just the exported secret.
 	buf := &bytes.Buffer{}
 	buf.Grow(len(sessionID) + 1 + len(direction) + 1 + len(hash[:]))
 	buf.WriteString(sessionID)
