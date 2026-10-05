@@ -1057,7 +1057,8 @@ func ServeWithVerifyTimeout(d time.Duration) ServerOptions {
 // [RemoteVerifier], which decides on its own whether to store the peer. The
 // option does not stop the server from resuming a session stored earlier,
 // which consumes one of that session's tokens and stores no new ones; the
-// session's remaining tokens are still invalidated when it ends. Use it
+// session's remaining tokens are still invalidated when it ends, or when a
+// transport that it replaced is closed (see [Transport.Close]). Use it
 // together with [ServeWithResumeEnabled] (false) to refuse resumption as
 // well.
 func ServeWithoutPersistence() ServerOptions {

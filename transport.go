@@ -71,7 +71,10 @@ func isTimeout(err error) bool {
 //
 // A Transport invalidates only the tokens it is responsible for (see
 // [Transport.Close]). Once a resumption of its session on another
-// Transport has stored new tokens, ending this one leaves them alone.
+// Transport has stored new tokens, ending this one leaves them alone. A
+// resumption without persistence ([ServeWithoutPersistence] or
+// [DialWithoutPersistence]) stores none; then ending a Transport that it
+// replaced still keeps the resumed session from being resumed again.
 type Transport struct {
 	conn           Conn
 	acceptedMeta   any
@@ -256,6 +259,17 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 // resumed. Once a resumption of the session on another transport has
 // stored new tokens, closing this one leaves them alone, so closing a
 // transport that a resumption replaced does not end the resumed session.
+//
+// Without persistence this does not hold. A resumption by a server built
+// with [ServeWithoutPersistence], or a dialer built with
+// [DialWithoutPersistence], stores no new tokens, so every transport of
+// the session on that side holds tokens that are still stored. Closing
+// any of them, including one that a later resumption replaced,
+// invalidates the session's tokens: the resumed transport keeps working,
+// but its session cannot be resumed again once it drops. End a replaced
+// transport with [Transport.CloseAbort] instead. That keeps the session
+// resumable only when the peer resumed it without persistence as well: a
+// peer that stores new tokens holds ones that this side does not know.
 //
 // Close waits at most 5 seconds for the close frame to be sent, including
 // the wait for a Send already in progress, and then closes the connection

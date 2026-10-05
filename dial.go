@@ -370,7 +370,8 @@ func DialWithVerifyTimeout(d time.Duration) DialOption {
 // [RemoteVerifier], which decides on its own whether to store the peer. With
 // [DialWithResume], the dialer still consumes a stored token of the session
 // it resumes, but stores no new ones, and the session's remaining tokens are
-// still invalidated when it ends.
+// still invalidated when it ends, or when a transport that it replaced is
+// closed (see [Transport.Close]).
 func DialWithoutPersistence() DialOption {
 	return func(d *Dialer) error {
 		d.handshakeOpts.noPersistence = true

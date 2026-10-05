@@ -220,6 +220,24 @@ func dialServed(
 	t *testing.T, clientStore, serverStore *storage.Storage, sessionID string,
 ) (client, server *Transport) {
 	t.Helper()
+	client, server, err := dialServedWith(
+		t, clientStore, serverStore, sessionID, nil, nil,
+	)
+	require.New(t).NoError(err, "dial")
+	return client, server
+}
+
+// dialServedWith is dialServed with options for the server and the dialer.
+// It returns the dialer's error instead of failing the test, once the
+// server is done with the connection too.
+func dialServedWith(
+	t *testing.T,
+	clientStore, serverStore *storage.Storage,
+	sessionID string,
+	serverOpts []ServerOptions,
+	dialOpts []DialOption,
+) (client, server *Transport, err error) {
+	t.Helper()
 	a := require.New(t)
 	verifier := func(store *storage.Storage, peer *storage.Peer) error {
 		return store.StorePeer(peer)
@@ -242,6 +260,7 @@ func dialServed(
 		},
 		serverStore,
 		verifier,
+		serverOpts...,
 	)
 	a.NoError(err)
 	serveErr := make(chan error, 1)
@@ -249,22 +268,26 @@ func dialServed(
 		serveErr <- srv.serve(serverConn)
 	}()
 
-	opts := []DialOption{DialWithFunc(func(string) (Conn, error) {
+	opts := append([]DialOption{DialWithFunc(func(string) (Conn, error) {
 		return clientConn, nil
-	})}
+	})}, dialOpts...)
 	if sessionID != "" {
 		opts = append(opts, DialWithResume(sessionID))
 	}
 	dialer, err := NewDialer("", clientStore, verifier, opts...)
 	a.NoError(err)
 	client, err = dialer.Dial()
-	a.NoError(err, "dial")
+	if err != nil {
+		// Dial closed its end, so the server gives up as well.
+		<-serveErr
+		return nil, nil, err
+	}
 	msg := Bytes(nil)
 	_, err = client.Receive(msg)
 	a.NoError(err)
 	a.Equal([]byte("ok"), msg.Value)
 	a.NoError(<-serveErr)
-	return client, <-served
+	return client, <-served, nil
 }
 
 // TestClosingReplacedTransportKeepsResumedSession drops a session, resumes
@@ -304,6 +327,77 @@ func TestClosingReplacedTransportKeepsResumedSession(t *testing.T) {
 			a.NoError(resumed.CloseAbort())
 
 			again, _ := dialServed(t, clientStore, serverStore, sessionID)
+			a.Equal(sessionID, again.SessionID())
+		})
+	}
+}
+
+// TestClosingReplacedTransportWithoutPersistence pins what the Close doc
+// says of a resumption without persistence: it stores no new tokens, so
+// closing the transport it replaced deletes the tokens the resumed
+// session would need on that side, and CloseAbort keeps them. Both sides
+// resume without persistence; with only one, the other would store new
+// tokens that the first does not know.
+func TestClosingReplacedTransportWithoutPersistence(t *testing.T) {
+	cases := []struct {
+		closeOld  func(client, server *Transport) error
+		wantErr   error
+		name      string
+		resumable bool
+	}{
+		{
+			name:     "dialer closes its old transport",
+			closeOld: func(c, _ *Transport) error { return c.Close() },
+			wantErr:  storage.ErrNotFound,
+		},
+		{
+			name:     "server closes its old transport",
+			closeOld: func(_, s *Transport) error { return s.Close() },
+			wantErr:  ErrResumptionRejected,
+		},
+		{
+			name:      "dialer aborts its old transport",
+			closeOld:  func(c, _ *Transport) error { return c.CloseAbort() },
+			resumable: true,
+		},
+		{
+			name:      "server aborts its old transport",
+			closeOld:  func(_, s *Transport) error { return s.CloseAbort() },
+			resumable: true,
+		},
+	}
+	serverOpts := []ServerOptions{ServeWithoutPersistence()}
+	dialOpts := []DialOption{DialWithoutPersistence()}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			clientStore, cleanupClient := newTestStore(t)
+			defer cleanupClient()
+			serverStore, cleanupServer := newTestStore(t)
+			defer cleanupServer()
+
+			oldClient, oldServer := dialServed(
+				t, clientStore, serverStore, "",
+			)
+			sessionID := oldClient.SessionID()
+			a.NoError(oldClient.CloseAbort())
+
+			resumed, _, err := dialServedWith(
+				t, clientStore, serverStore, sessionID, serverOpts, dialOpts,
+			)
+			a.NoError(err)
+			a.Equal(sessionID, resumed.SessionID())
+			_ = tc.closeOld(oldClient, oldServer)
+			a.NoError(resumed.CloseAbort())
+
+			again, _, err := dialServedWith(
+				t, clientStore, serverStore, sessionID, serverOpts, dialOpts,
+			)
+			if !tc.resumable {
+				a.ErrorIs(err, tc.wantErr)
+				return
+			}
+			a.NoError(err)
 			a.Equal(sessionID, again.SessionID())
 		})
 	}
