@@ -151,9 +151,14 @@ opens an encrypted database with the passphrase from `KAMUNE_DB_PASSPHRASE`;
 
 - Without `db_no_passphrase`, the passphrase is read from
   `KAMUNE_DB_PASSPHRASE`. When that is unset, the command fails with
-  `storage_open_failed` and reason `passphrase_required`, and the path is kept
-  for [`submit_passphrase`](#submit_passphrase). The daemon never saves this
-  passphrase to the keychain.
+  `storage_open_failed` and reason `passphrase_required`. The daemon never
+  saves this passphrase to the keychain.
+- `db_no_passphrase` on an encrypted storage fails with `storage_open_failed`
+  and reason `wrong_passphrase`.
+- The path of an `open_storage` that fails, with `db_no_passphrase` or
+  without, is kept for [`submit_passphrase`](#submit_passphrase), in place of
+  the path of any earlier one that failed, until a storage opens. An
+  `open_storage` refused with `storage_busy` keeps no path.
 - A storage that has no identity key yet gets a new Ed25519 identity.
 - While a storage is open, the new one is opened first, and the old one is
   closed only once that succeeds; when the new open fails, the old storage
@@ -169,8 +174,14 @@ opens an encrypted database with the passphrase from `KAMUNE_DB_PASSPHRASE`;
   storage does not open. That error carries a `reason` when the cause is one a
   client can act on: `wrong_passphrase`, `passphrase_required`,
   `corrupt_metadata`, `insecure_permissions` (the database file is open to
-  other users and its mode cannot be restricted) or `unsupported_format` (a
-  newer version wrote it).
+  other users and its mode cannot be restricted), `unsupported_format` (a
+  newer version wrote it), `in_use` (another program, such as another daemon,
+  the TUI or Bus, holds the database; the open waits 5 seconds for it first),
+  or `upgrade_failed` or `compact_failed` (an older version wrote the
+  database, and it could not be upgraded, or compacted after its upgrade, for
+  example on a full disk or in a directory the daemon cannot write to, where
+  the lock file next to the database cannot be created; free space or make
+  the directory writable, and every open tries again).
 
 **Input:**
 
@@ -203,8 +214,9 @@ the history list of the storage come first:
 #### `submit_passphrase`
 
 Opens a storage with the given passphrase: the path of the last
-`open_storage` without `db_no_passphrase` that failed, or else the path of the
-open storage. It fails with `storage_not_opened` when there is neither, and
+`open_storage`, when that failed, with `db_no_passphrase` or without, or else
+the path of the open storage. The response names the path it opened in
+`storage_path`. It fails with `storage_not_opened` when there is neither, and
 with `passphrase_required` for an empty passphrase; an unencrypted database is
 opened with `open_storage` and `db_no_passphrase`. Opening, the settings and
 the other errors work as for [`open_storage`](#open_storage).
@@ -227,7 +239,7 @@ A failure to save is logged as a warning.
 **Output:** the identity events of `open_storage`, then:
 
 ```json
-{ "type": "evt", "evt": "response", "id": "1", "data": { "status": "opened" } }
+{ "type": "evt", "evt": "response", "id": "1", "data": { "status": "opened", "storage_path": "/home/alice/.config/kamune/daemon.db" } }
 ```
 
 #### `change_passphrase`
@@ -2560,8 +2572,8 @@ Emitted when a command fails or an internal error occurs. Correlated by command
 `id` when applicable. `error` is a message for people, `code` a stable code for
 programs, and `reason`, on some errors, tells apart failures that share a code:
 `storage_open_failed` carries `wrong_passphrase`, `passphrase_required`,
-`corrupt_metadata`, `insecure_permissions` or `unsupported_format` (see
-[`open_storage`](#open_storage)), and `send_message_failed` carries
+`corrupt_metadata`, `insecure_permissions`, `unsupported_format`, `in_use`,
+`upgrade_failed` or `compact_failed` (see [`open_storage`](#open_storage)), and `send_message_failed` carries
 `connection_lost` or `message_too_large` (see
 [`send_message`](#send_message)).
 
@@ -2683,14 +2695,14 @@ open fails.
 
 ### Passphrase Sources
 
-| Scenario                                                       | Behavior                                                                                                                                                                                        |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `db_no_passphrase: true`                                       | Opens with `WithNoPassphrase()`.                                                                                                                                                                |
-| `db_no_passphrase: false` + `KAMUNE_DB_PASSPHRASE` env var set | Opens with the env var value, which is never saved to the keychain.                                                                                                                             |
-| `db_no_passphrase: false` + env var empty                      | Fails with `storage_open_failed`, reason `passphrase_required`. The path is kept for `submit_passphrase`.                                                                                       |
-| `submit_passphrase`                                            | Opens the path of the last failed `open_storage` without `db_no_passphrase`, or else the open storage's path, with the given passphrase; saves it to the keychain only with `save_to_keychain`. |
-| `change_passphrase`                                            | Re-encrypts the open storage under a new passphrase.                                                                                                                                            |
-| System keychain                                                | Never read to open a storage.                                                                                                                                                                   |
+| Scenario                                                       | Behavior                                                                                                                                                                                                           |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `db_no_passphrase: true`                                       | Opens with `WithNoPassphrase()`.                                                                                                                                                                                   |
+| `db_no_passphrase: false` + `KAMUNE_DB_PASSPHRASE` env var set | Opens with the env var value, which is never saved to the keychain.                                                                                                                                                |
+| `db_no_passphrase: false` + env var empty                      | Fails with `storage_open_failed`, reason `passphrase_required`. The path is kept for `submit_passphrase`.                                                                                                          |
+| `submit_passphrase`                                            | Opens the path of the last `open_storage` when that failed, with `db_no_passphrase` or without, or else the open storage's path, with the given passphrase; saves it to the keychain only with `save_to_keychain`. |
+| `change_passphrase`                                            | Re-encrypts the open storage under a new passphrase.                                                                                                                                                               |
+| System keychain                                                | Never read to open a storage.                                                                                                                                                                                      |
 
 ## Verification Flow
 
