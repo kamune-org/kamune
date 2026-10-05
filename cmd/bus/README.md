@@ -271,8 +271,11 @@ the bubble only selects text.
   close or a network error such as an unreachable host, Bus tries to resume
   it (see [Resumed Sessions](#resumed-sessions)) up to 10 times, waiting 1
   second before the second try and twice as long before each next one, up
-  to 30 seconds. The session header shows "reconnecting (n/10)". A session
-  that the peer closed, or whose traffic failed to decrypt, is not resumed.
+  to 30 seconds. The session header shows "reconnecting (n/10)". Bus stops
+  at once, and closes the session, when the peer rejects the resumption,
+  as it does past the 24-hour window or after it deleted the session, or
+  when no resumption token is left. A session that the peer closed, or
+  whose traffic failed to decrypt, is not resumed.
   When a peer resumes a session with your server, the session takes the
   place of its old entry.
 
