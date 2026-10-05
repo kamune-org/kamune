@@ -34,7 +34,9 @@ func validateLabel(name string) (string, error) {
 	return name, nil
 }
 
-// nameRuneAllowed mirrors the code points kamune.ValidatePeerName allows.
+// nameRuneAllowed reports whether escapeLogText writes r as it is: r is
+// not a control, line-separator or format character, except the two
+// zero-width joiners, which names in some scripts and emoji need.
 func nameRuneAllowed(r rune) bool {
 	switch {
 	case r == '\u200C', r == '\u200D':
@@ -47,34 +49,13 @@ func nameRuneAllowed(r rune) bool {
 }
 
 // sanitizeName makes a name safe to show, for names stored before the
-// protocol limited them. Every code point kamune.ValidatePeerName rejects,
-// and every invalid UTF-8 sequence, becomes U+FFFD, and a name longer
-// than kamune.MaxPeerNameLength bytes is cut on a rune boundary and ends
-// with an ellipsis. The result always passes kamune.ValidatePeerName.
+// protocol limited them. It is kamune.SanitizePeerName: every code point
+// kamune.ValidatePeerName rejects, and every invalid UTF-8 sequence,
+// becomes U+FFFD, and a name longer than kamune.MaxPeerNameLength bytes
+// is cut on a rune boundary and ends with an ellipsis. The result always
+// passes kamune.ValidatePeerName.
 func sanitizeName(name string) string {
-	const ellipsis = "…"
-	var b strings.Builder
-	limit := kamune.MaxPeerNameLength
-	for i, r := range name {
-		if r == utf8.RuneError {
-			if _, size := utf8.DecodeRuneInString(name[i:]); size == 1 {
-				r = unicode.ReplacementChar
-			}
-		}
-		if !nameRuneAllowed(r) {
-			r = unicode.ReplacementChar
-		}
-		if b.Len()+utf8.RuneLen(r) > limit {
-			out := b.String()
-			for len(out)+len(ellipsis) > limit {
-				_, size := utf8.DecodeLastRuneInString(out)
-				out = out[:len(out)-size]
-			}
-			return out + ellipsis
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
+	return kamune.SanitizePeerName(name)
 }
 
 // escapeLogText keeps a log message on one line and shown as written:

@@ -27,6 +27,9 @@ func TestSanitizeName(t *testing.T) {
 		{"escape", "\x1b[31mred", "\uFFFD[31mred"},
 		{"invalid utf-8", "Bob\xff", "Bob\uFFFD"},
 		{"zero width space", "B\u200Bob", "B\uFFFDob"},
+		{"joiner between latin letters", "Bo\u200Db", "Bo\uFFFDb"},
+		{"trailing joiner", "Bob\u200D", "Bob\uFFFD"},
+		{"hangul filler", "Bob\u3164", "Bob\uFFFD"},
 		{"empty", "", ""},
 	}
 	for _, tc := range cases {

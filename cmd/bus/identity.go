@@ -49,29 +49,36 @@ func (a *App) identifyPeer(
 	store *storage.Storage, peer *storage.Peer,
 ) peerIdentity {
 	id := peerIdentity{
-		ClaimedName: sanitizeName(peer.Name),
 		KeyB64:      fingerprint.Base64(peer.PublicKey),
 		Fingerprint: fingerprint.Numeric(peer.PublicKey),
 	}
-	if nameSkeleton(id.ClaimedName) == "" {
-		id.ClaimedName = ""
+	// Names are compared as they are and only shown sanitized:
+	// sanitizing turns a code point that shows nothing into a visible
+	// U+FFFD, after which nameSkeleton could no longer tell that "Bob"
+	// with a hidden suffix reads as "Bob".
+	claimed := peer.Name
+	if nameSkeleton(claimed) == "" {
+		claimed = ""
 	}
+	id.ClaimedName = sanitizeName(claimed)
+	var label string
 	if store != nil {
 		if stored, err := store.FindPeer(peer.PublicKey); err == nil {
 			id.Known = true
-			id.Label = sanitizeName(stored.Name)
+			label = stored.Name
 		}
 	}
-	if nameSkeleton(id.Label) == "" {
+	if nameSkeleton(label) == "" {
 		if id.Known {
-			id.Label = fingerprint.Pseudonym(peer.PublicKey)
+			label = fingerprint.Pseudonym(peer.PublicKey)
 		} else {
-			id.Label = unknownPeerLabel(peer.PublicKey)
+			label = unknownPeerLabel(peer.PublicKey)
 		}
 	}
-	id.NameMismatch = id.Known && !sameName(id.Label, id.ClaimedName)
-	id.NameConflict = a.isOtherPeersName(id.KeyB64, id.ClaimedName) ||
-		(id.Known && a.isOtherPeersName(id.KeyB64, id.Label))
+	id.Label = sanitizeName(label)
+	id.NameMismatch = id.Known && !sameName(label, claimed)
+	id.NameConflict = a.isOtherPeersName(id.KeyB64, claimed) ||
+		(id.Known && a.isOtherPeersName(id.KeyB64, label))
 	return id
 }
 
@@ -134,9 +141,15 @@ func dropBlankRunes(s string) string {
 // zero-width joiners and spaces and the bidirectional controls), a
 // variation selector, another default-ignorable code point, such as
 // U+034F COMBINING GRAPHEME JOINER and the Hangul fillers U+115F, U+1160,
-// U+3164 and U+FFA0, or U+2800 BRAILLE PATTERN BLANK.
+// U+3164 and U+FFA0, or a code point drawn blank: U+2800 BRAILLE PATTERN
+// BLANK, U+16FE4 KHITAN FILLER, U+1D159 MUSICAL SYMBOL NULL NOTEHEAD and
+// U+FFFC OBJECT REPLACEMENT CHARACTER.
 func blankRune(r rune) bool {
-	return r == '\u2800' || unicode.IsControl(r) ||
+	switch r {
+	case '\u2800', '\U00016FE4', '\U0001D159', '\uFFFC':
+		return true
+	}
+	return unicode.IsControl(r) ||
 		unicode.In(r, unicode.Cf, unicode.Variation_Selector,
 			unicode.Other_Default_Ignorable_Code_Point)
 }

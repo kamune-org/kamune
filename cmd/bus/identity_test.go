@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -87,12 +88,16 @@ func TestIdentifyPeer(t *testing.T) {
 			case "<pseudonym>":
 				want = fingerprint.Pseudonym(peer.PublicKey)
 			}
-			a.Equal(want, id.Label)
+			// Names are shown sanitized: a code point that shows nothing
+			// shows as U+FFFD.
+			a.Equal(kamune.SanitizePeerName(want), id.Label)
 			wantClaimed := tc.claimed
 			if tc.noClaim {
 				wantClaimed = ""
 			}
-			a.Equal(wantClaimed, id.ClaimedName)
+			a.Equal(kamune.SanitizePeerName(wantClaimed), id.ClaimedName)
+			a.NoError(kamune.ValidatePeerName(id.Label))
+			a.NoError(kamune.ValidatePeerName(id.ClaimedName))
 			a.Equal(tc.wantKnown, id.Known)
 			a.Equal(tc.wantMismatch, id.NameMismatch)
 			a.Equal(tc.wantConflict, id.NameConflict)
