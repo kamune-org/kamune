@@ -522,9 +522,11 @@ func decodeChatEntry(key, value []byte) (ChatEntry, bool) {
 }
 
 // ListSessions returns the IDs of the stored sessions, in no particular
-// order. Each is read from the meta namespace of its session; a session
+// order. Each is read from the meta namespace of its session; a namespace
 // whose ID is missing there, or does not match the name it is stored
-// under, is skipped.
+// under, is skipped. Such a namespace is usually one that an upgrade kept
+// for values that do not open, and warned about once; it is skipped
+// without a warning.
 func (s *Storage) ListSessions() ([]string, error) {
 	var ids []string
 	err := s.engine.Query(func(b engine.Namespace) error {
@@ -532,7 +534,7 @@ func (s *Storage) ListSessions() ([]string, error) {
 		for _, name := range sessions.ListSubNamespaces() {
 			id, ok := s.sessionID(sessions, name)
 			if !ok {
-				slog.Warn("skipping session without a valid ID")
+				slog.Debug("skipping session without a valid ID")
 				continue
 			}
 			ids = append(ids, id)

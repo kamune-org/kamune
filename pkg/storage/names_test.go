@@ -2,10 +2,15 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha3"
 	"encoding/binary"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -455,4 +460,63 @@ func TestSettingCodec(t *testing.T) {
 		_, ok := decodeSetting(bad)
 		require.New(t).False(ok, "%q", bad)
 	}
+}
+
+// warnRecorder is a slog handler that keeps the messages of warnings and
+// errors.
+type warnRecorder struct {
+	msgs []string
+	mu   sync.Mutex
+}
+
+func (r *warnRecorder) Enabled(_ context.Context, l slog.Level) bool {
+	return l >= slog.LevelWarn
+}
+
+func (r *warnRecorder) Handle(_ context.Context, rec slog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.msgs = append(r.msgs, rec.Message)
+	return nil
+}
+
+func (r *warnRecorder) WithAttrs([]slog.Attr) slog.Handler { return r }
+func (r *warnRecorder) WithGroup(string) slog.Handler      { return r }
+
+func (r *warnRecorder) messages() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.msgs)
+}
+
+// TestKeptLegacyNamespaceWarnsOnce upgrades a database that keeps a
+// session's old namespace, and checks that the upgrade warns about it
+// once and that listing the sessions does not warn again.
+func TestKeptLegacyNamespaceWarnsOnce(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	const sessionID = "QWERTYUIOPASDFGHJKLZXCVB"
+	writeKeptLegacySession(t, path, sessionID)
+
+	rec := &warnRecorder{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(rec))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
+	a.NoError(err)
+	defer s.Close()
+	upgrade := rec.messages()
+	kept := slices.IndexFunc(upgrade, func(msg string) bool {
+		return strings.HasPrefix(msg, "keeping session values")
+	})
+	a.NotEqual(-1, kept, "the upgrade did not warn: %q", upgrade)
+	for range 3 {
+		sessions, err := s.ListSessions()
+		a.NoError(err)
+		a.Equal([]string{sessionID}, sessions)
+	}
+	_, err = s.ListSessionsByRecent()
+	a.NoError(err)
+	a.Equal(upgrade, rec.messages(), "listing warned")
 }
