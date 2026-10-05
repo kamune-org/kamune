@@ -110,12 +110,13 @@ func TestRememberPeer_TakenNameIsNotStored(t *testing.T) {
 
 // TestVerify_NewKeyClaimingAContactsName runs a TUI direct server, twice,
 // for a dialer whose key is not stored and that introduces itself with
-// the name of a stored peer, with a joiner added. The prompt warns of the
+// the name of a stored peer written in fullwidth letters, which the core
+// accepts and nameKey folds to the stored name. The prompt warns of the
 // name, the peer is stored under its pseudonym, and the next prompt and
 // the chat name it by that pseudonym.
 func TestVerify_NewKeyClaimingAContactsName(t *testing.T) {
 	a := require.New(t)
-	const claimed = "Bob\u200D"
+	const claimed = "\uFF22\uFF4F\uFF42"
 	store, dialerStore := openTestStore(t), openTestStore(t)
 	bobKey, err := openTestStore(t).PublicKey()
 	a.NoError(err)
