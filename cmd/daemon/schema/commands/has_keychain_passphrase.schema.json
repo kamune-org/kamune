@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-has-keychain-passphrase",
   "title": "has_keychain_passphrase params",
-  "description": "Checks whether a keychain passphrase is stored.",
+  "description": "Checks whether a keychain passphrase is stored for the storage path of the last open_storage when that failed, as one that waits for submit_passphrase, or else for the open storage, or the one that was open last.",
   "type": "object",
   "properties": {},
   "additionalProperties": false

@@ -158,3 +158,32 @@ func TestKeychainHasAndClear(t *testing.T) {
 	a.NoError(err)
 	a.Equal("other", secret)
 }
+
+// While an open_storage that failed waits for submit_passphrase, the
+// keychain commands act on its path, so that a client can look up the
+// passphrase saved for the storage it is about to unlock.
+func TestKeychainCommandsUseThePendingPath(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	pending := filepath.Join(t.TempDir(), "locked.db")
+	a.NoError(keyring.Set(keychainService, keychainAccount(pending), "saved"))
+	t.Cleanup(func() {
+		_ = keyring.Delete(keychainService, keychainAccount(pending))
+	})
+	run := func(id ID, handle func(Command)) recordedEvent {
+		t.Helper()
+		handle(Command{ID: id})
+		return rec.waitFor(t, func(e recordedEvent) bool { return e.ID == id })
+	}
+
+	a.Equal(false, run("open", d.handleHasKeychainPassphrase).Data["has_passphrase"])
+	t.Setenv("KAMUNE_DB_PASSPHRASE", "")
+	err := d.openStorage(OpenStorageParams{StoragePath: pending})
+	a.ErrorIs(err, errPassphraseRequired)
+
+	a.Equal(true, run("has", d.handleHasKeychainPassphrase).Data["has_passphrase"])
+	evt := run("clear", d.handleClearKeychainPassphrase)
+	a.Equal(EvtResponse, evt.Evt, "clear: %v", evt.Data)
+	_, err = keyring.Get(keychainService, keychainAccount(pending))
+	a.ErrorIs(err, keyring.ErrNotFound)
+}

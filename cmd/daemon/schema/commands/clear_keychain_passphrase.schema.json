@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-clear-keychain-passphrase",
   "title": "clear_keychain_passphrase params",
-  "description": "Clears the stored keychain passphrase.",
+  "description": "Clears the keychain passphrase stored for the storage that has_keychain_passphrase looks at. Fails with keychain_clear_failed when it cannot, which includes when none is stored.",
   "type": "object",
   "properties": {},
   "additionalProperties": false

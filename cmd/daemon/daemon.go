@@ -1433,23 +1433,32 @@ func (d *Daemon) handleSetLogLevel(cmd Command) {
 
 // --- P3: Keychain ---
 
-// handleHasKeychainPassphrase checks if a passphrase is stored in the system
-// keychain (mirrors cmd/bus/app.go:880-886).
-func (d *Daemon) handleHasKeychainPassphrase(cmd Command) {
+// keychainPath returns the storage path whose keychain entry the
+// keychain commands act on: that of the last open_storage when it
+// failed, which waits for submit_passphrase, or else that of the open
+// storage, or of the one that was open last.
+func (d *Daemon) keychainPath() string {
 	d.mu.RLock()
-	path := d.dbPath
-	d.mu.RUnlock()
+	defer d.mu.RUnlock()
+	if d.pendingDBPath != "" {
+		return d.pendingDBPath
+	}
+	return d.dbPath
+}
 
-	_, err := keychainGet(path)
+// handleHasKeychainPassphrase checks if a passphrase is stored in the system
+// keychain for the storage that keychainPath names (mirrors
+// cmd/bus/app.go:880-886).
+func (d *Daemon) handleHasKeychainPassphrase(cmd Command) {
+	_, err := keychainGet(d.keychainPath())
 	d.emit(EvtResponse, cmd.ID, MapA{"has_passphrase": err == nil})
 }
 
-// handleClearKeychainPassphrase removes the stored passphrase from the system
-// keychain (mirrors cmd/bus/app.go:888-897).
+// handleClearKeychainPassphrase removes the stored passphrase of the
+// storage that keychainPath names from the system keychain (mirrors
+// cmd/bus/app.go:888-897).
 func (d *Daemon) handleClearKeychainPassphrase(cmd Command) {
-	d.mu.RLock()
-	path := d.dbPath
-	d.mu.RUnlock()
+	path := d.keychainPath()
 
 	if err := keychainDelete(path); err != nil {
 		d.emitError(cmd.ID, "keychain_clear_failed", fmt.Sprintf("failed to clear keychain: %v", err))
