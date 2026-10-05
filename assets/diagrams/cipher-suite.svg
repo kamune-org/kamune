@@ -74,7 +74,7 @@
   <text x="450" y="310" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600" style="white-space: pre;">HKDF-SHA512</text>
   <text x="450" y="326" text-anchor="middle" fill="#8b949e" font-size="9.5" style="white-space: pre;">Extract-and-Expand · RFC 5869 · Directional info binding</text>
   <rect x="290" y="288" width="320" height="3" rx="2" fill="url(#gKdf)" opacity="0.6"/>
-  <text x="295" y="348" fill="#6e7681" font-size="8" style="white-space: pre;">Inputs: shared_secret + salt + sessionID||direction</text>
+  <text x="295" y="348" fill="#6e7681" font-size="8" style="white-space: pre;">Inputs: shared_secret + salt + direction||sessionID</text>
   <line x1="450" y1="352" x2="450" y2="394" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
   <text x="458" y="372" fill="#6e7681" font-size="8.5" style="white-space: pre;">32-byte</text>
   <text x="458" y="382" fill="#6e7681" font-size="8.5" style="white-space: pre;">derived keys</text>
