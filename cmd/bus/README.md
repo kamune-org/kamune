@@ -496,10 +496,15 @@ fingerprint for a key that is not saved, and shows the introduced name only
 as the peer's claim. The Sessions tab flags a session "not saved" for an
 unknown key, "other name" when a saved key introduces itself under another
 name, and "name clash" when a peer claims, or is saved under, another saved
-peer's name; the chat panel shows a matching note. Names you type for peers
-and sessions may be at most 64 bytes long, with no control, line-separator
-or format characters such as bidirectional overrides. Your own name may be
-at most 32 bytes long.
+peer's name; the chat panel shows a matching note. For these checks two
+names are the same when they differ only in case, in white space, in code
+points that show as nothing, such as zero-width joiners, Hangul fillers or
+variation selectors, or in compatibility forms such as full-width letters.
+A name made only of such code points counts as no name: a peer that claims
+one is saved under its pseudonym, and one you type counts as empty. Names
+you type for peers and sessions may be at most 64 bytes long, with no
+control, line-separator or format characters such as bidirectional
+overrides. Your own name may be at most 32 bytes long.
 
 ### Connecting to a Chosen Peer
 
