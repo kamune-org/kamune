@@ -137,7 +137,8 @@ func decodeSetting(v []byte) ([]byte, bool) {
 // dropped. Records already under keyed names are left alone, so it can
 // run again after an interruption. Values that do not open are not seen,
 // and stay where they are: a session that holds any keeps its old
-// namespace, and so its ID in the file, for them.
+// namespace, and so its ID in the file, for them, until
+// [Storage.DeleteSession] deletes the session.
 func (s *Storage) keyNames() (int, error) {
 	var changed int
 	err := s.engine.Command(func(b engine.Namespace) error {
@@ -343,8 +344,8 @@ func removeEmptySession(sessions engine.Namespace, name []byte) error {
 	}
 	if old.FirstKey() != nil {
 		slog.Warn(
-			"keeping session values that do not open " +
-				"under the session's old name",
+			"keeping session values that do not open under the " +
+				"session's old name until the session is deleted",
 		)
 		return nil
 	}

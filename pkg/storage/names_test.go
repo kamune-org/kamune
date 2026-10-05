@@ -260,6 +260,61 @@ func TestOpenStorageKeysLegacyNames(t *testing.T) {
 	}
 }
 
+// writeKeptLegacySession writes the legacy layout of [writeLegacyLayout]
+// at path, with sessionID holding a chat entry and a meta entry that do
+// not open, so that an upgrade keeps the session's old namespace for
+// them. It returns those values and their keys, by sub-namespace.
+func writeKeptLegacySession(
+	t *testing.T, path, sessionID string,
+) (junk, junkKeys map[string][]byte) {
+	t.Helper()
+	a := require.New(t)
+	keys := map[string][]byte{}
+	for _, name := range []string{"alice", "mallory"} {
+		att, err := attest.New()
+		a.NoError(err)
+		keys[name] = att.MarshalPublicKey()
+	}
+	s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
+	a.NoError(err)
+	writeLegacyLayout(
+		t, s, sessionID, map[string][]byte{"alice": keys["alice"]},
+		keys["alice"], keys["mallory"], [][]byte{makeToken(1, 32)},
+	)
+	a.NoError(s.Close())
+
+	junk = map[string][]byte{
+		"chat": bytes.Repeat([]byte{0xa5}, 80),
+		"meta": bytes.Repeat([]byte{0x5a}, 60),
+	}
+	junkKeys = map[string][]byte{
+		"chat": chatKey(time.Unix(1_790_000_002, 0), SenderPeer, 9),
+		"meta": []byte("custom_app_key"),
+	}
+	db, err := bolt.Open(path, 0600, nil)
+	a.NoError(err)
+	defer db.Close()
+	a.NoError(db.Update(func(tx *bolt.Tx) error {
+		for sub, v := range junk {
+			b := legacySession(t, tx, sessionID).Bucket([]byte(sub))
+			if err := b.Put(junkKeys[sub], v); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+	return junk, junkKeys
+}
+
+// legacySession returns the namespace of the session sessionID under its
+// plain ID, and fails the test when there is none.
+func legacySession(t *testing.T, tx *bolt.Tx, sessionID string) *bolt.Bucket {
+	t.Helper()
+	b := tx.Bucket([]byte(engine.SessionsNamespace)).Bucket([]byte(sessionID))
+	require.New(t).NotNil(b, "session under its old name")
+	return b
+}
+
 // TestOpenStorageKeepsSessionValuesThatDoNotOpen upgrades a database
 // whose legacy session holds a chat entry and a meta entry that do not
 // open, and checks that both stay where they were, byte for byte, while
@@ -267,52 +322,11 @@ func TestOpenStorageKeysLegacyNames(t *testing.T) {
 func TestOpenStorageKeepsSessionValuesThatDoNotOpen(t *testing.T) {
 	a := require.New(t)
 	path := filepath.Join(t.TempDir(), "db")
-	open := func() *Storage {
-		s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
-		a.NoError(err)
-		return s
-	}
-	keys := map[string][]byte{}
-	for _, name := range []string{"alice", "mallory"} {
-		att, err := attest.New()
-		a.NoError(err)
-		keys[name] = att.MarshalPublicKey()
-	}
 	const sessionID = "QWERTYUIOPASDFGHJKLZXCVB"
-	s := open()
-	writeLegacyLayout(
-		t, s, sessionID, map[string][]byte{"alice": keys["alice"]},
-		keys["alice"], keys["mallory"], [][]byte{makeToken(1, 32)},
-	)
-	a.NoError(s.Close())
+	junk, junkKeys := writeKeptLegacySession(t, path, sessionID)
 
-	junk := map[string][]byte{
-		"chat": bytes.Repeat([]byte{0xa5}, 80),
-		"meta": bytes.Repeat([]byte{0x5a}, 60),
-	}
-	junkKeys := map[string][]byte{
-		"chat": chatKey(time.Unix(1_790_000_002, 0), SenderPeer, 9),
-		"meta": []byte("custom_app_key"),
-	}
-	session := func(tx *bolt.Tx, sub string) *bolt.Bucket {
-		b := tx.Bucket([]byte(engine.SessionsNamespace)).
-			Bucket([]byte(sessionID))
-		a.NotNil(b, "session under its old name")
-		return b.Bucket([]byte(sub))
-	}
-	db, err := bolt.Open(path, 0600, nil)
+	s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
 	a.NoError(err)
-	a.NoError(db.Update(func(tx *bolt.Tx) error {
-		for sub, v := range junk {
-			if err := session(tx, sub).Put(junkKeys[sub], v); err != nil {
-				return err
-			}
-		}
-		return nil
-	}))
-	a.NoError(db.Close())
-
-	s = open()
 	sessions, err := s.ListSessions()
 	a.NoError(err)
 	a.Equal([]string{sessionID}, sessions)
@@ -324,13 +338,13 @@ func TestOpenStorageKeepsSessionValuesThatDoNotOpen(t *testing.T) {
 	a.Equal("work", name)
 	a.NoError(s.Close())
 
-	db, err = bolt.Open(path, 0600, &bolt.Options{ReadOnly: true})
+	db, err := bolt.Open(path, 0600, &bolt.Options{ReadOnly: true})
 	a.NoError(err)
 	defer db.Close()
 	a.NoError(db.View(func(tx *bolt.Tx) error {
 		for sub, v := range junk {
 			left := map[string][]byte{}
-			b := session(tx, sub)
+			b := legacySession(t, tx, sessionID).Bucket([]byte(sub))
 			a.NotNil(b, "%s under the old name", sub)
 			err := b.ForEach(func(k, v []byte) error {
 				left[string(k)] = bytes.Clone(v)
@@ -344,6 +358,29 @@ func TestOpenStorageKeepsSessionValuesThatDoNotOpen(t *testing.T) {
 		}
 		return nil
 	}))
+}
+
+// TestDeleteSessionRemovesKeptLegacyNamespace deletes a session whose
+// upgrade kept its old namespace for values that do not open, and checks
+// that the old namespace, and with it the session ID, leaves the file
+// too.
+func TestDeleteSessionRemovesKeptLegacyNamespace(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	const sessionID = "QWERTYUIOPASDFGHJKLZXCVB"
+	writeKeptLegacySession(t, path, sessionID)
+
+	s, err := OpenStorage(WithDBPath(path), WithNoPassphrase())
+	a.NoError(err)
+	a.NoError(s.DeleteSession(sessionID))
+	sessions, err := s.ListSessions()
+	a.NoError(err)
+	a.Empty(sessions)
+	a.NoError(s.Close())
+
+	raw, err := os.ReadFile(path)
+	a.NoError(err)
+	a.False(bytes.Contains(raw, []byte(sessionID)), "session ID in file")
 }
 
 // TestOpenStorageFinishesKeyingNames opens a database in which some

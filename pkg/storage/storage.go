@@ -844,7 +844,9 @@ func (s *Storage) SetSettings(app, key, value string) error {
 // DeleteSession removes the session sub-namespace (chat, meta, resumption)
 // for the given session ID. Close a session that is still connected first:
 // a message stored for it afterwards with [Storage.AddChatEntry] creates
-// its chat again, and the session is listed again with that message.
+// its chat again, and the session is listed again with that message. It
+// also removes the namespace that an upgrade keeps under the session's
+// plain ID for values that did not open, if there is one.
 //
 // The database is then compacted with [Storage.Compact], even when there
 // was no such session, so that the deleted messages do not stay in the
@@ -854,9 +856,18 @@ func (s *Storage) SetSettings(app, key, value string) error {
 func (s *Storage) DeleteSession(sessionID string) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
 		sessions := b.Sub([]byte(engine.SessionsNamespace))
-		err := sessions.DeleteNamespace(s.sessionName(sessionID))
-		if err != nil && !errors.Is(err, engine.ErrMissingNamespace) {
-			return err
+		names := [][]byte{s.sessionName(sessionID)}
+		// A namespace under the plain ID that is not the keyed one of a
+		// session is what keyNames kept of this session.
+		_, keyed := s.sessionID(sessions, sessionID)
+		if sessionID != "" && !keyed {
+			names = append(names, []byte(sessionID))
+		}
+		for _, name := range names {
+			err := sessions.DeleteNamespace(name)
+			if err != nil && !errors.Is(err, engine.ErrMissingNamespace) {
+				return err
+			}
 		}
 		return markCompactPending(b)
 	})
