@@ -393,3 +393,52 @@ func TestSendOnClosedRelayConn(t *testing.T) {
 	a.NoError(err)
 	a.Len(history, 1)
 }
+
+// TestLiveMessagesInArrivalOrder has the local side send a message and
+// the peer answer it, with the local clock set back in between, and
+// checks that a received message carries the local receive time, keeps
+// the peer's time apart in SentAt, and that the session lists the
+// messages in the order they were sent and received, whatever their
+// times say, as its history does.
+func TestLiveMessagesInArrivalOrder(t *testing.T) {
+	a := require.New(t)
+	app, _ := newUnlockedApp(t, "secret")
+	app.mu.Lock()
+	app.verifMode = VerificationModeAutoAccept
+	app.mu.Unlock()
+	// offset sets the local clock back once the question is sent.
+	var offset atomic.Int64
+	app.clock = func() time.Time {
+		return time.Now().Add(time.Duration(offset.Load()))
+	}
+	answer := make(chan struct{})
+	addr, _ := startTestServer(t, "srv", func(tr *kamune.Transport) error {
+		<-answer
+		if _, err := tr.Send(
+			kamune.Bytes([]byte("NO")), kamune.RouteExchangeMessages,
+		); err != nil {
+			return err
+		}
+		return readUntilEnd(tr)
+	})
+	res, err := app.ConnectToServer(
+		addr, "tcp", "", "", "", "", "", "", "", false, false, "",
+	)
+	a.NoError(err)
+	a.NoError(app.SendMessage(res.SessionID, "should I wire the money?"))
+
+	offset.Store(int64(-time.Hour))
+	sentAfter := time.Now()
+	close(answer)
+	a.Eventually(func() bool {
+		return len(app.GetSessionMessages(res.SessionID)) == 2
+	}, testWait, 10*time.Millisecond)
+
+	msgs := app.GetSessionMessages(res.SessionID)
+	a.Equal("should I wire the money?", msgs[0].Text)
+	a.Equal("NO", msgs[1].Text)
+	a.True(msgs[1].Timestamp.Before(msgs[0].Timestamp),
+		"a received message carries the local receive time")
+	a.False(msgs[1].SentAt.Before(sentAfter.Add(-time.Second)),
+		"SentAt keeps the time the peer put on the message")
+}

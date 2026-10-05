@@ -199,6 +199,16 @@
   function formatTime(ts) {
     return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
+
+  // timeTitle is the tooltip of a message's time: the full local time,
+  // and for a peer's message also the time the peer put on it, which
+  // comes from the peer's clock and so orders nothing.
+  function timeTitle(msg) {
+    const at = new Date(msg.timestamp).toLocaleString();
+    const sent = msg.sentAt ? new Date(msg.sentAt) : null;
+    if (msg.isLocal || !sent || sent.getFullYear() < 1971) return at;
+    return `Received ${at}\nSent ${sent.toLocaleString()} by the peer's clock`;
+  }
 </script>
 
 <div class="chat-panel">
@@ -525,7 +535,7 @@
             <div class="bubble-header">
               <span class="bubble-sender">{msg.isLocal ? 'You' : 'Peer'}</span>
               <span class="bubble-meta">
-                <span class="bubble-time">{formatTime(msg.timestamp)}</span>
+                <span class="bubble-time" title={timeTitle(msg)}>{formatTime(msg.timestamp)}</span>
                 <!-- Copying is an explicit action: the clipboard, and any
                      clipboard history, keeps the text after the session. -->
                 <button

@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -156,10 +155,24 @@ type HistorySessionInfo struct {
 	Loaded       bool      `json:"loaded"`
 }
 
+// MessageInfo is a message of a session, as the window shows it.
 type MessageInfo struct {
-	Text      string    `json:"text"`
+	Text string `json:"text"`
+	// Timestamp is when the message was sent or received, by the local
+	// clock, or, for a message from the history, when it was stored.
+	// Messages are listed in the order they were sent or received, which
+	// is the order of Timestamp unless the local clock was set back. A
+	// message counts as sent once its send has returned, which is also
+	// when the history stores it, so a reply that arrives before then,
+	// which only an automated peer can manage, is listed before the
+	// message it answers, in the session and in the history alike.
 	Timestamp time.Time `json:"timestamp"`
-	IsLocal   bool      `json:"isLocal"`
+	// SentAt is the time the sender put on the message: for a message
+	// from the peer, by the peer's clock, which the peer controls, so it
+	// is only for display and never orders messages. It is zero for a
+	// message stored without it.
+	SentAt  time.Time `json:"sentAt"`
+	IsLocal bool      `json:"isLocal"`
 }
 
 type StatusInfo struct {
@@ -1822,11 +1835,10 @@ func (a *App) GetSessionMessages(sessionID string) []MessageInfo {
 	defer a.mu.RUnlock()
 	for _, s := range a.sessions {
 		if s.ID == sessionID {
+			// The session holds its messages in the order they were
+			// sent or received, which is the order to show them in.
 			msgs := make([]MessageInfo, len(s.Messages))
 			copy(msgs, s.Messages)
-			sort.SliceStable(msgs, func(i, j int) bool {
-				return msgs[i].Timestamp.Before(msgs[j].Timestamp)
-			})
 			return msgs
 		}
 	}
@@ -1864,6 +1876,7 @@ func (a *App) GetHistoryMessages(sessionID string) []MessageInfo {
 		msgs[i] = MessageInfo{
 			Text:      string(e.Data),
 			Timestamp: e.Timestamp,
+			SentAt:    e.SentAt,
 			IsLocal:   e.Sender == storage.SenderLocal,
 		}
 	}

@@ -20,7 +20,12 @@ export interface LogEntryInfo {
 
 export interface MessageInfo {
   text: string;
+  // timestamp is when the message was sent or received, by the local
+  // clock; messages are listed in the order they arrived.
   timestamp: string;
+  // sentAt is the time the sender put on the message. For a peer's
+  // message it comes from the peer's clock, so it is only shown.
+  sentAt?: string;
   isLocal: boolean;
 }
 

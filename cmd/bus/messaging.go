@@ -27,6 +27,12 @@ var ErrMessageNotSent = errors.New(
 // error wraps ErrMessageNotSent: the message is never sent again on that
 // connection, which the session's receive loop replaces by resuming the
 // session when it can. Any other error leaves the connection usable.
+//
+// The message joins the session, and the history, only once it has been
+// sent, after any message that arrived meanwhile; see
+// MessageInfo.Timestamp. Holding the receive loop back for the send
+// could stall both peers when each waits to send to the other, and the
+// history keeps its entries in the order they were stored.
 func (a *App) SendMessage(sessionID string, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -65,7 +71,8 @@ func (a *App) SendMessage(sessionID string, text string) error {
 
 	msg := MessageInfo{
 		Text:      text,
-		Timestamp: metadata.Timestamp(),
+		Timestamp: a.now(),
+		SentAt:    metadata.Timestamp(),
 		IsLocal:   true,
 	}
 
@@ -163,10 +170,14 @@ func (a *App) receiveMessages(session *liveSession) (dropped, removed bool) {
 			continue
 		}
 
+		// The time the peer put on the message comes from its clock,
+		// which it controls, so the message is listed by the time it
+		// arrived.
 		msgText := string(b.GetValue())
 		msg := MessageInfo{
 			Text:      msgText,
-			Timestamp: metadata.Timestamp(),
+			Timestamp: a.now(),
+			SentAt:    metadata.Timestamp(),
 			IsLocal:   false,
 		}
 

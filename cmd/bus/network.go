@@ -1415,6 +1415,7 @@ func (a *App) loadChatHistory(session *liveSession) {
 		session.Messages = append(session.Messages, MessageInfo{
 			Text:      string(e.Data),
 			Timestamp: e.Timestamp,
+			SentAt:    e.SentAt,
 			IsLocal:   e.Sender == storage.SenderLocal,
 		})
 	}
