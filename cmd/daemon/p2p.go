@@ -195,6 +195,10 @@ func (d *Daemon) GenerateP2PToken(
 	return hexToken, nil
 }
 
+// deriveP2PToken returns the static relay or p2p token for the peer
+// whose key is peerPubB64, or nil when peerPubB64 is empty: SHA-256 of
+// the two raw Ed25519 public keys, smaller first (relayconn.TokenFromKeys).
+// It derives no secret: anyone who knows both keys gets the same token.
 func (d *Daemon) deriveP2PToken(peerPubB64 string) ([]byte, error) {
 	if peerPubB64 == "" {
 		return nil, nil

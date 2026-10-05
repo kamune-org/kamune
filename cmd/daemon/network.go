@@ -1556,11 +1556,16 @@ func (d *Daemon) dropRelayPool(sessionID string) {
 	}
 }
 
-// handleGenerateRelayToken creates a new relay token for the running server.
-// When peer_pub_b64 is provided, it derives a deterministic (static) token
-// using ECDH (mirrors cmd/bus/network.go:427-466). The token is registered
-// with the relay after the command returns, so that a slow relay does not
-// hold up other commands; the response follows once it is registered.
+// handleGenerateRelayToken creates a new relay token for the running
+// server. When peer_pub_b64 is provided, the token is the static token
+// for that peer: SHA-256 of the two raw public keys, smaller first (see
+// relayconn.TokenFromKeys), which the peer computes too (mirrors
+// cmd/bus/network.go:427-466). It involves no secret, so anyone who
+// knows both keys can compute it and use it; the server admits only
+// that peer on it (see tokenTracker.admitsPeer), and the verifier still
+// runs first. The token is registered with the relay after the command
+// returns, so that a slow relay does not hold up other commands; the
+// response follows once it is registered.
 func (d *Daemon) handleGenerateRelayToken(cmd Command) {
 	var params GenerateRelayTokenParams
 	if cmd.Params != nil {
