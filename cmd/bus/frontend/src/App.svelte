@@ -61,6 +61,7 @@
     libraryVersion,
     myName,
     theme,
+    isDarkTheme,
     relayToken,
     relayTokens,
     p2pTokens,
@@ -384,7 +385,7 @@
     });
     EventsOn('theme-changed', (t) => {
       theme.set(t);
-      document.documentElement.classList.toggle('dark', t === 'dark');
+      document.documentElement.classList.toggle('dark', isDarkTheme(t));
     });
     EventsOn('server-running', (running, transportType) => {
       serverActive = running;
@@ -544,7 +545,7 @@
 
       const t = await GetTheme();
       theme.set(t);
-      document.documentElement.classList.toggle('dark', t === 'dark');
+      document.documentElement.classList.toggle('dark', isDarkTheme(t));
 
       const ready = await GetStorageReady();
       showPassphraseDialog = !ready;

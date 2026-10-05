@@ -91,6 +91,13 @@ const (
 	VerificationModeAutoAccept VerificationMode = 2
 )
 
+// defaultVerificationMode is the verification mode of a database that
+// keeps none.
+const defaultVerificationMode = VerificationModeQuick
+
+// defaultLogLevel is the log level of a database that keeps none.
+const defaultLogLevel = "INFO"
+
 // valid reports whether m is one of the defined verification modes.
 func (m VerificationMode) valid() bool {
 	return m >= VerificationModeStrict && m <= VerificationModeAutoAccept
@@ -446,12 +453,12 @@ func NewApp() *App {
 		histSessions:   make([]*historySession, 0),
 		status:         StatusDisconnected,
 		statusMsg:      "Not connected",
-		verifMode:      VerificationModeQuick,
+		verifMode:      defaultVerificationMode,
 		appVersion:     appVersion,
 		fingerprintFmt: "hex",
 		logBufferSize:  200,
 		logEntries:     make([]LogEntryInfo, 0, 200),
-		logLevel:       "INFO",
+		logLevel:       defaultLogLevel,
 		verifRequests:  make(map[int64]*pendingVerification),
 		peers:          make([]PeerInfo, 0),
 		brokerClient:   bc,
@@ -953,45 +960,7 @@ func (a *App) initFromStorage() {
 			a.emitEvent("local-name-changed", name)
 		}
 
-		modeStr, modeErr := store.GetSettings("bus", "verification_mode")
-		if modeErr == nil && modeStr != "" {
-			mode, ok := parseVerificationMode(modeStr)
-			if !ok {
-				a.addLogEntry("WARN", fmt.Sprintf(
-					"Unknown stored verification mode %q, using Strict",
-					modeStr,
-				))
-				mode = VerificationModeStrict
-			}
-			a.mu.Lock()
-			a.verifMode = mode
-			a.mu.Unlock()
-
-			checkVerifRadio(a.verifRadioItems, int(mode))
-			a.updateMenu()
-			a.emitEvent("verification-mode-changed", int(mode))
-		}
-
-		incognitoStr, incognitoErr := store.GetSettings("bus", "incognito")
-		if incognitoErr == nil && incognitoStr == "true" {
-			a.mu.Lock()
-			a.incognito = true
-			a.mu.Unlock()
-			a.emitEvent("incognito-changed", true)
-		}
-
-		logLevel, logLevelErr := store.GetSettings("bus", "log_level")
-		if logLevelErr == nil && a.applyLogLevel(logLevel) {
-			a.emitEvent("log-level-changed", logLevel)
-		}
-
-		theme, themeErr := store.GetSettings("bus", "theme")
-		if themeErr == nil && theme != "" {
-			a.mu.Lock()
-			a.theme = theme
-			a.mu.Unlock()
-			a.emitEvent("theme-changed", theme)
-		}
+		a.loadSettings(store)
 
 		a.emitEvent("storage-ready")
 		a.emitEvent("fingerprint-changed", emoji, b64, hex, sum, numeric)
@@ -999,8 +968,11 @@ func (a *App) initFromStorage() {
 	} else {
 		a.mu.Lock()
 		a.pubKey = nil
+		a.myName = ""
 		a.storageReady = true
 		a.mu.Unlock()
+		a.emitEvent("local-name-changed", "")
+		a.loadSettings(store)
 		a.emitEvent("storage-ready")
 		a.emitEvent("fingerprint-changed", "", "", "", "", "")
 		a.addLogEntry("DEBUG", "No identity key found: "+err.Error())
@@ -1008,6 +980,57 @@ func (a *App) initFromStorage() {
 
 	a.loadHistorySessions(store)
 	a.refreshPeersCache()
+}
+
+// loadSettings applies the settings that store keeps, the verification
+// mode, incognito mode, log level and theme, and a default for each one
+// that it does not keep, so that no setting carries over from a database
+// unlocked before: a database that keeps no verification mode runs in
+// defaultVerificationMode, not in the Auto-Accept mode of another, and
+// incognito mode is on only when the database keeps it on. A mode that
+// is not defined, or that cannot be read, gives Strict.
+func (a *App) loadSettings(store *storage.Storage) {
+	mode := defaultVerificationMode
+	switch s, err := store.GetSettings("bus", "verification_mode"); {
+	case err != nil:
+		a.addLogEntry("WARN",
+			"Could not read the verification mode, using Strict: "+
+				err.Error())
+		mode = VerificationModeStrict
+	case s != "":
+		m, ok := parseVerificationMode(s)
+		if !ok {
+			a.addLogEntry("WARN", fmt.Sprintf(
+				"Unknown stored verification mode %q, using Strict", s,
+			))
+			m = VerificationModeStrict
+		}
+		mode = m
+	}
+
+	incognitoStr, _ := store.GetSettings("bus", "incognito")
+	incognito := incognitoStr == "true"
+
+	logLevel, _ := store.GetSettings("bus", "log_level")
+	if _, ok := parseLogLevel(logLevel); !ok {
+		logLevel = defaultLogLevel
+	}
+
+	theme, _ := store.GetSettings("bus", "theme")
+
+	a.mu.Lock()
+	a.verifMode = mode
+	a.incognito = incognito
+	a.theme = theme
+	a.mu.Unlock()
+	a.applyLogLevel(logLevel)
+
+	checkVerifRadio(a.verifRadioItems, int(mode))
+	a.updateMenu()
+	a.emitEvent("verification-mode-changed", int(mode))
+	a.emitEvent("incognito-changed", incognito)
+	a.emitEvent("log-level-changed", logLevel)
+	a.emitEvent("theme-changed", theme)
 }
 
 func (a *App) loadHistorySessions(store *storage.Storage) {

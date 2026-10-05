@@ -7,6 +7,7 @@
     verificationMode,
     incognito,
     theme,
+    isDarkTheme,
   } from './stores';
   import { SetTheme } from './go.js';
 
@@ -21,13 +22,9 @@
   const modeLabels = ['Strict', 'Quick', 'Auto-Accept'];
   const AUTO_ACCEPT = 2;
 
-  let isDark = $state(document.documentElement.classList.contains('dark'));
-
-  $effect(() => {
-    if ($theme) {
-      isDark = $theme === 'dark';
-    }
-  });
+  // isDark follows the theme as App.svelte shows it, a database that
+  // keeps none included, so that the first click always flips it.
+  let isDark = $derived(isDarkTheme($theme));
 
   function toggleTheme() {
     SetTheme(isDark ? 'light' : 'dark');

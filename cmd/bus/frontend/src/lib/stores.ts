@@ -122,7 +122,17 @@ export const incognito = writable(false);
 export const appVersion = writable('2.0.0');
 export const libraryVersion = writable('');
 export const myName = writable('');
+// theme is the theme the open database keeps: 'dark', 'light', or ''
+// for none, which follows the system; see isDarkTheme.
 export const theme = writable('');
+
+// isDarkTheme reports whether the theme t shows dark: 'dark' does and
+// 'light' does not, and no theme follows the system's preference, as
+// public/theme.js does before the app loads.
+export function isDarkTheme(t: string): boolean {
+  if (t === 'dark' || t === 'light') return t === 'dark';
+  return matchMedia('(prefers-color-scheme: dark)').matches;
+}
 
 export const activeSessionId = writable<string | null>(null);
 export const sidebarTab = writable<SidebarTab>('sessions');

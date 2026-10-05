@@ -231,6 +231,76 @@ func TestSameDBPath(t *testing.T) {
 	}
 }
 
+// createDBWithSettings creates a database as createDB does, with the bus
+// settings settings stored in it.
+func createDBWithSettings(
+	t *testing.T, passphrase string, settings map[string]string,
+) string {
+	t.Helper()
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+	store, err := (&App{}).openDB(path, []byte(passphrase), true)
+	a.NoError(err)
+	for key, value := range settings {
+		a.NoError(store.SetSettings("bus", key, value))
+	}
+	a.NoError(store.Close())
+	return path
+}
+
+// TestSwitchDatabaseResetsSettings switches from a database in
+// Auto-Accept and incognito mode, with a dark theme and the DEBUG log
+// level, to another one, and checks that the new database's settings
+// apply, and the defaults for what it does not keep, so that none of the
+// old database's settings carries over.
+func TestSwitchDatabaseResetsSettings(t *testing.T) {
+	cases := []struct {
+		name          string
+		settings      map[string]string
+		wantMode      VerificationMode
+		wantIncognito bool
+		wantTheme     string
+		wantLevel     string
+	}{
+		{name: "new database", wantMode: VerificationModeQuick,
+			wantLevel: "INFO"},
+		{name: "stored settings", settings: map[string]string{
+			"verification_mode": "0", "incognito": "false",
+			"theme": "light", "log_level": "WARN",
+		}, wantMode: VerificationModeStrict, wantTheme: "light",
+			wantLevel: "WARN"},
+		{name: "stored Auto-Accept and incognito", settings: map[string]string{
+			"verification_mode": "2", "incognito": "true",
+		}, wantMode: VerificationModeAutoAccept, wantIncognito: true,
+			wantLevel: "INFO"},
+		{name: "unknown mode and level", settings: map[string]string{
+			"verification_mode": "7", "log_level": "LOUD",
+		}, wantMode: VerificationModeStrict, wantLevel: "INFO"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			app, _ := newUnlockedApp(t, "secret")
+			app.confirmFn = func(string, string) bool { return true }
+			a.True(app.SetVerificationMode(int(VerificationModeAutoAccept)))
+			a.True(app.SetIncognito(true))
+			app.SetTheme("dark")
+			app.SetLogLevel("DEBUG")
+
+			other := createDBWithSettings(t, "other", tc.settings)
+			events := recordEvents(app)
+			a.NoError(app.SubmitPassphrase(other, "other", false))
+
+			a.Equal(int(tc.wantMode), app.GetVerificationMode())
+			a.Equal(tc.wantIncognito, app.GetIncognito())
+			a.Equal(tc.wantTheme, app.GetTheme())
+			a.Equal(tc.wantLevel, app.GetLogLevel())
+			a.NotEmpty(events.named("verification-mode-changed"))
+			a.NotEmpty(events.named("incognito-changed"))
+		})
+	}
+}
+
 func TestUnlockOtherDatabaseClosesOldOnlyOnSuccess(t *testing.T) {
 	a := require.New(t)
 	app, path := newUnlockedApp(t, "secret")
