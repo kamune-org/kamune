@@ -807,27 +807,9 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 			d.emitError(cmd.ID, "invalid_p2p_token", err.Error())
 			return
 		}
-		matchCtx, matchCancel := context.WithTimeout(ctx, d.matchTimeout)
-		punchConn, payload, err := broker.WaitMatch(
-			matchCtx, params.BrokerAddr, tokenBytes,
-		)
-		matchCancel()
+		conn, code, err := d.p2pDial(ctx, broker, params, tokenBytes)
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				err = fmt.Errorf(
-					"no peer matched the token within %v", d.matchTimeout,
-				)
-			}
-			d.emitError(cmd.ID, "p2p_match_failed", fmt.Sprintf("wait match: %v", err))
-			return
-		}
-		conn, err := broker.HolePunch(
-			ctx, punchConn,
-			payload.IP, payload.Port, DefaultHolePunchTimeout,
-		)
-		if err != nil {
-			punchConn.Close()
-			d.emitError(cmd.ID, "hole_punch_failed", fmt.Sprintf("hole punch: %v", err))
+			d.emitError(cmd.ID, code, err.Error())
 			return
 		}
 		opts = append(opts, kamune.DialWithFunc(
@@ -979,6 +961,65 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	go d.keepAliveLoop(session, keepAliveDone)
 	d.receiveMessages(session)
 	d.loadHistorySessions()
+}
+
+// p2pDial opens a KCP session to the p2p server that the broker matches
+// token with. On failure it returns the error code to report:
+// p2p_match_failed or hole_punch_failed.
+//
+// When this daemon's own p2p server registers token with the same
+// broker, as when two peers run a p2p server for each other's static
+// token, the session runs from that server's punch socket, on the
+// server's match; see p2pListener.dialMatched. Otherwise the dial
+// registers the token from a socket of its own, waits for the match and
+// punches to the server.
+func (d *Daemon) p2pDial(
+	ctx context.Context, broker *BrokerClient, params DialParams,
+	token []byte,
+) (net.Conn, string, error) {
+	matchCtx, matchCancel := context.WithTimeout(ctx, d.matchTimeout)
+	defer matchCancel()
+	noMatch := func(err error) (net.Conn, string, error) {
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = fmt.Errorf(
+				"no peer matched the token within %v", d.matchTimeout,
+			)
+		}
+		return nil, "p2p_match_failed", fmt.Errorf("wait match: %w", err)
+	}
+
+	d.mu.RLock()
+	l, ok := d.p2pListener.(*p2pListener)
+	d.mu.RUnlock()
+	if ok && l.brokerAddr == params.BrokerAddr {
+		if _, registered := l.registered(token); registered {
+			conn, err := l.dialMatched(matchCtx, token)
+			if err == nil {
+				d.addLogEntry("INFO", "Dialing the p2p peer from the "+
+					"punch socket of the p2p server, which registers "+
+					"the same token")
+				return conn, "", nil
+			}
+			if !errors.Is(err, errDiverted) {
+				return noMatch(err)
+			}
+		}
+	}
+
+	punchConn, payload, err := broker.WaitMatch(
+		matchCtx, params.BrokerAddr, token,
+	)
+	if err != nil {
+		return noMatch(err)
+	}
+	conn, err := broker.HolePunch(
+		ctx, punchConn, payload.IP, payload.Port, DefaultHolePunchTimeout,
+	)
+	if err != nil {
+		punchConn.Close()
+		return nil, "hole_punch_failed", fmt.Errorf("hole punch: %w", err)
+	}
+	return conn, "", nil
 }
 
 // serverHandler handles incoming server connections. A session that

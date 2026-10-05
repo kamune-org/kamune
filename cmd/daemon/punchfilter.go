@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"net"
 	"net/netip"
 	"sync"
@@ -18,6 +20,21 @@ const (
 	// maxMatchedPeers caps the matched peers that a p2p listener expects
 	// at once.
 	maxMatchedPeers = 64
+	// divertQuiet is how long a punchFilter drops the packets of an
+	// address after the dial that it diverted them to ended, so that the
+	// peer's last packets for that dial do not open a session with the
+	// listener.
+	divertQuiet = 10 * time.Second
+	// divertBacklog is how many packets a diverted dial may have waiting
+	// before more are dropped.
+	divertBacklog = 256
+)
+
+// errDiverted is returned by punchFilter.divertFrom for an address that
+// the filter already hands to a dial or to a session the listener
+// accepted.
+var errDiverted = errors.New(
+	"the punch socket already has a session with that address",
 )
 
 // matchedPeer is a peer that a punchFilter expects: until when, and the
@@ -37,7 +54,8 @@ type matchedPeer struct {
 // the direct p2p peer, from that of a peer the broker matched within
 // matchWindow on a token the listener still registers, or from the
 // address of a session the listener accepted, until that session
-// closes.
+// closes. The packets of a session that the daemon dialed from the punch
+// socket go to that session instead; see divertFrom.
 //
 // Only the IP address of a direct or matched peer is checked, not its
 // port: a NAT may send the peer's packets from a port other than the one
@@ -57,15 +75,22 @@ type punchFilter struct {
 	mu      sync.Mutex
 	matched map[netip.Addr]matchedPeer
 	live    map[netip.AddrPort]int
-	now     func() time.Time
+	// diverted holds the dials from the punch socket by the address of
+	// their peer, and quiet the addresses of ended dials, until when
+	// their packets are dropped.
+	diverted map[netip.AddrPort]*divertConn
+	quiet    map[netip.AddrPort]time.Time
+	now      func() time.Time
 }
 
 func newPunchFilter(conn *net.UDPConn) *punchFilter {
 	return &punchFilter{
-		conn:    conn,
-		matched: make(map[netip.Addr]matchedPeer),
-		live:    make(map[netip.AddrPort]int),
-		now:     time.Now,
+		conn:     conn,
+		matched:  make(map[netip.Addr]matchedPeer),
+		live:     make(map[netip.AddrPort]int),
+		diverted: make(map[netip.AddrPort]*divertConn),
+		quiet:    make(map[netip.AddrPort]time.Time),
+		now:      time.Now,
 	}
 }
 
@@ -157,12 +182,77 @@ func (f *punchFilter) admits(src netip.AddrPort) bool {
 	return ok && f.now().Before(m.until)
 }
 
+// divertFrom has the filter hand the packets from addr to the
+// net.PacketConn it returns, in place of the listener, until that is
+// closed: a dial can then run a KCP session from the punch socket. It
+// fails with errDiverted while a session the listener accepted, or
+// another dial, has packets from addr.
+func (f *punchFilter) divertFrom(addr netip.AddrPort) (*divertConn, error) {
+	addr = netip.AddrPortFrom(addr.Addr().Unmap(), addr.Port())
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.live[addr] > 0 || f.diverted[addr] != nil {
+		return nil, errDiverted
+	}
+	delete(f.quiet, addr)
+	c := &divertConn{
+		f:    f,
+		addr: addr,
+		in:   make(chan []byte, divertBacklog),
+		done: make(chan struct{}),
+	}
+	f.diverted[addr] = c
+	return c, nil
+}
+
+// closeDiverted closes the conn of every dial that the filter diverts
+// packets to, so that their sessions fail rather than wait for packets.
+func (f *punchFilter) closeDiverted() {
+	f.mu.Lock()
+	conns := make([]*divertConn, 0, len(f.diverted))
+	for _, c := range f.diverted {
+		conns = append(conns, c)
+	}
+	f.mu.Unlock()
+	for _, c := range conns {
+		_ = c.Close()
+	}
+}
+
+// route hands pkt, a packet from src, to the dial that src is diverted
+// to, and reports whether the packet is taken: by such a dial, or
+// dropped because a dial with src ended a moment ago.
+func (f *punchFilter) route(src netip.AddrPort, pkt []byte) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if c := f.diverted[src]; c != nil {
+		select {
+		case c.in <- bytes.Clone(pkt):
+		default:
+		}
+		return true
+	}
+	until, ok := f.quiet[src]
+	if !ok {
+		return false
+	}
+	if f.now().Before(until) {
+		return true
+	}
+	delete(f.quiet, src)
+	return false
+}
+
 // ReadFrom returns the next packet from an expected peer. It hands the
-// packets from the broker to onBroker and drops every other packet.
+// packets from the broker to onBroker and those of a diverted dial to
+// the dial, and drops every other packet.
 func (f *punchFilter) ReadFrom(p []byte) (int, net.Addr, error) {
 	for {
 		n, src, err := f.conn.ReadFromUDPAddrPort(p)
 		if err != nil {
+			// kcp-go stops reading, and the dials get no more
+			// packets either.
+			f.closeDiverted()
 			return n, nil, err
 		}
 		src = netip.AddrPortFrom(src.Addr().Unmap(), src.Port())
@@ -170,6 +260,9 @@ func (f *punchFilter) ReadFrom(p []byte) (int, net.Addr, error) {
 			if f.onBroker != nil {
 				f.onBroker(p[:n])
 			}
+			continue
+		}
+		if f.route(src, p[:n]) {
 			continue
 		}
 		if f.admits(src) {
@@ -219,4 +312,71 @@ func acceptHeld(l *kcp.Listener, f *punchFilter) (*heldSession, error) {
 	return &heldSession{
 		UDPSession: sess, release: f.hold(sess.RemoteAddr()),
 	}, nil
+}
+
+// divertConn is the net.PacketConn of a KCP session that the daemon
+// dialed from a p2p listener's punch socket: it reads the packets that
+// the listener's punchFilter diverts from the peer's address, and writes
+// to the punch socket.
+type divertConn struct {
+	f         *punchFilter
+	addr      netip.AddrPort
+	in        chan []byte
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func (c *divertConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	select {
+	case pkt := <-c.in:
+		return copy(p, pkt), net.UDPAddrFromAddrPort(c.addr), nil
+	case <-c.done:
+		return 0, nil, net.ErrClosed
+	}
+}
+
+func (c *divertConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	select {
+	case <-c.done:
+		return 0, net.ErrClosed
+	default:
+	}
+	return c.f.conn.WriteTo(p, addr)
+}
+
+// Close ends the diversion: the filter drops the packets from the peer's
+// address for divertQuiet, and then lets them reach the listener again.
+// It leaves the punch socket open.
+func (c *divertConn) Close() error {
+	c.closeOnce.Do(func() {
+		c.f.mu.Lock()
+		if c.f.diverted[c.addr] == c {
+			delete(c.f.diverted, c.addr)
+			c.f.quiet[c.addr] = c.f.now().Add(divertQuiet)
+		}
+		c.f.mu.Unlock()
+		close(c.done)
+	})
+	return nil
+}
+
+func (c *divertConn) LocalAddr() net.Addr { return c.f.conn.LocalAddr() }
+
+// SetDeadline, SetReadDeadline and SetWriteDeadline do nothing: kcp-go
+// keeps the deadlines of a session itself.
+func (c *divertConn) SetDeadline(time.Time) error      { return nil }
+func (c *divertConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *divertConn) SetWriteDeadline(time.Time) error { return nil }
+
+// divertedSession is a KCP session over a divertConn, which it closes
+// with it.
+type divertedSession struct {
+	*kcp.UDPSession
+	conn *divertConn
+}
+
+func (s *divertedSession) Close() error {
+	err := s.UDPSession.Close()
+	_ = s.conn.Close()
+	return err
 }

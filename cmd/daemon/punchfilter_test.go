@@ -122,3 +122,63 @@ func TestPunchFilterMatchedCap(t *testing.T) {
 	a.False(f.admits(netip.AddrPortFrom(ip(0), 1)))
 	a.True(f.admits(netip.AddrPortFrom(ip(maxMatchedPeers), 1)))
 }
+
+// A dial from the punch socket gets the packets of its peer's address
+// in place of the listener. Once it ends, the filter drops that
+// address's packets for divertQuiet, and then lets them reach the
+// listener again as before. An address that a session the listener
+// accepted, or another dial, has cannot be diverted.
+func TestPunchFilterDivert(t *testing.T) {
+	a := require.New(t)
+	now := time.Unix(1000, 0)
+	f := newPunchFilter(nil)
+	f.now = func() time.Time { return now }
+	peer := netip.MustParseAddrPort("192.0.2.1:4000")
+	held := netip.MustParseAddrPort("198.51.100.1:4000")
+	f.expect(peer.Addr(), "token")
+	f.hold(net.UDPAddrFromAddrPort(held))
+
+	_, err := f.divertFrom(held)
+	a.ErrorIs(err, errDiverted)
+	c, err := f.divertFrom(peer)
+	a.NoError(err)
+	_, err = f.divertFrom(peer)
+	a.ErrorIs(err, errDiverted)
+
+	a.True(f.route(peer, []byte("kcp")))
+	a.False(f.route(netip.AddrPortFrom(peer.Addr(), 4001), []byte("x")))
+	buf := make([]byte, 16)
+	n, from, err := c.ReadFrom(buf)
+	a.NoError(err)
+	a.Equal("kcp", string(buf[:n]))
+	a.Equal(peer.String(), from.String())
+
+	a.NoError(c.Close())
+	_, _, err = c.ReadFrom(buf)
+	a.ErrorIs(err, net.ErrClosed)
+	a.True(f.route(peer, []byte("late")), "a late packet was let through")
+	now = now.Add(divertQuiet)
+	f.expect(peer.Addr(), "token")
+	a.False(f.route(peer, []byte("new")))
+	a.True(f.admits(peer))
+}
+
+// When the punch socket fails, as when its listener closes, the dials
+// that it diverted packets to fail too, rather than wait for packets.
+func TestPunchFilterClosesDialsWithTheSocket(t *testing.T) {
+	a := require.New(t)
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	a.NoError(err)
+	f := newPunchFilter(conn)
+	c, err := f.divertFrom(netip.MustParseAddrPort("192.0.2.1:4000"))
+	a.NoError(err)
+	read := make(chan error, 1)
+	go func() {
+		_, _, err := f.ReadFrom(make([]byte, 64))
+		read <- err
+	}()
+	a.NoError(conn.Close())
+	a.Error(<-read)
+	_, _, err = c.ReadFrom(make([]byte, 64))
+	a.ErrorIs(err, net.ErrClosed)
+}

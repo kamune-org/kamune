@@ -46,6 +46,17 @@ func newMatchBroker(t *testing.T) *matchBroker {
 
 func (b *matchBroker) addr() string { return b.conn.LocalAddr().String() }
 
+// heldKeys returns the keys of the registrations that the broker holds.
+func (b *matchBroker) heldKeys() [][]byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var keys [][]byte
+	for _, r := range b.held {
+		keys = append(keys, r.key)
+	}
+	return keys
+}
+
 func (b *matchBroker) serve() {
 	buf := make([]byte, 1500)
 	for {
@@ -286,5 +297,101 @@ func TestP2PListenerForgetsPeersOfRemovedTokens(t *testing.T) {
 			"let in the peer of a removed token")
 	case <-time.After(testEventTimeout):
 		t.Fatal("the matched peer's packet was not let in")
+	}
+}
+
+// startP2PServerFor starts a p2p server on d at broker with the static
+// token for peer, and returns its listener.
+func startP2PServerFor(
+	t *testing.T, d *Daemon, rec *eventRecorder, broker string, peer []byte,
+) *p2pListener {
+	a := require.New(t)
+	d.handleStartServer(Command{
+		ID: "start",
+		Params: mustJSON(StartServerParams{
+			Addr: "127.0.0.1:0", Transport: "p2p", BrokerAddr: broker,
+			PeerPubB64: fingerprint.Base64(peer),
+		}),
+	})
+	evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == "start" })
+	a.Equal(EvtServerStarted, evt.Evt, "start failed: %v", evt.Data)
+	d.mu.RLock()
+	l, ok := d.p2pListener.(*p2pListener)
+	d.mu.RUnlock()
+	a.True(ok)
+	return l
+}
+
+// When two peers run a p2p server for each other, both servers register
+// the same static token, and the broker matches them with each other. A
+// dial on the token from either side runs from its own server's punch
+// socket, on the server's match, instead of waiting for a match of its
+// own that the broker gives only after the other server's next refresh.
+func TestP2PDialWhenBothServeTheToken(t *testing.T) {
+	tests := []struct {
+		name  string
+		stale bool
+	}{
+		{name: "fresh match"},
+		{name: "stale match", stale: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			broker := newMatchBroker(t)
+			server, srec := newTestDaemon(t, VerificationModeQuick, false)
+			client, crec := newTestDaemon(t, VerificationModeQuick, false)
+			trustPeer(t, server, client)
+			trustPeer(t, client, server)
+			serverKey, err := server.store().PublicKey()
+			a.NoError(err)
+			clientKey, err := client.store().PublicKey()
+			a.NoError(err)
+
+			sl := startP2PServerFor(t, server, srec, broker.addr(), clientKey)
+			cl := startP2PServerFor(t, client, crec, broker.addr(), serverKey)
+			token := sl.token
+			a.Equal(token, cl.token)
+			key := wireKey(token)
+			a.Eventually(func() bool {
+				cl.matchMu.Lock()
+				defer cl.matchMu.Unlock()
+				_, ok := cl.matches[key]
+				return ok
+			}, testEventTimeout, 10*time.Millisecond)
+			if tt.stale {
+				cl.matchMu.Lock()
+				m := cl.matches[key]
+				m.at = time.Now().Add(-matchWindow)
+				cl.matches[key] = m
+				cl.matchMu.Unlock()
+			}
+
+			// Without the server's match, the dial would wait for a
+			// refresh of the other server, 30 seconds away.
+			client.matchTimeout = testEventTimeout / 3
+			client.handleDial(Command{
+				ID: "dial",
+				Params: mustJSON(DialParams{
+					Transport: "p2p", BrokerAddr: broker.addr(),
+					P2PToken:   hex.EncodeToString(token),
+					PeerPubB64: fingerprint.Base64(serverKey),
+				}),
+			})
+			if tt.stale {
+				// The dial sent a REGISTER, which the broker holds; the
+				// other server's refresh matches it.
+				a.Eventually(func() bool {
+					return len(broker.heldKeys()) == 1
+				}, testEventTimeout, 10*time.Millisecond)
+				a.NoError(sl.refreshRegistration())
+			}
+			evt := crec.waitFor(t, func(e recordedEvent) bool {
+				return e.ID == "dial" &&
+					(e.Evt == EvtSessionStarted || e.Evt == EvtError)
+			})
+			a.Equal(EvtSessionStarted, evt.Evt, "dial failed: %v", evt.Data)
+			srec.waitFor(t, isEvent(EvtSessionStarted))
+		})
 	}
 }

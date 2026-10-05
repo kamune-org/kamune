@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -60,6 +63,14 @@ type p2pListener struct {
 	filter *punchFilter
 	kcp    *kcp.Listener
 
+	// matches holds, by the wire form of each token in hex, the peer
+	// that the last PEER_MATCHED for the token named; see dialMatched.
+	// matchSignal is closed, and replaced, on every match. matchMu
+	// guards both.
+	matches     map[string]peerMatch
+	matchSignal chan struct{}
+	matchMu     sync.Mutex
+
 	ctx       context.Context
 	cancel    context.CancelFunc
 	closeOnce sync.Once
@@ -93,13 +104,15 @@ func newP2PListener(
 
 	ctx, cancel := context.WithCancel(context.Background())
 	l := &p2pListener{
-		bindAddr:   bindAddr,
-		broker:     broker,
-		brokerAddr: brokerAddr,
-		onRefresh:  onRefresh,
-		conn:       conn,
-		ctx:        ctx,
-		cancel:     cancel,
+		bindAddr:    bindAddr,
+		broker:      broker,
+		brokerAddr:  brokerAddr,
+		onRefresh:   onRefresh,
+		matches:     make(map[string]peerMatch),
+		matchSignal: make(chan struct{}),
+		conn:        conn,
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 
 	brokerUDPAddr, err := net.ResolveUDPAddr("udp4", brokerAddr)
@@ -384,7 +397,129 @@ func (l *p2pListener) handleBroker(pkt []byte) {
 		}
 		peer := net.UDPAddrFromAddrPort(netip.AddrPortFrom(ip, p.Port))
 		l.filter.expect(ip, wireKey(t.token))
+		l.noteMatch(t.token, netip.AddrPortFrom(ip.Unmap(), p.Port))
 		go func() { _, _ = sendNATKick(l.ctx, l.conn, peer) }()
 		return
+	}
+}
+
+// matchFresh is how old the last match of a token may be for
+// dialMatched to dial the peer it named without a new one. The peer's
+// listener lets the punch socket in for matchWindow from the same
+// match, and a token that two listeners register is matched again about
+// every p2pTokenRefreshInterval.
+const matchFresh = matchWindow / 2
+
+// peerMatch is the peer that a PEER_MATCHED named, and when it came.
+type peerMatch struct {
+	addr netip.AddrPort
+	at   time.Time
+}
+
+// noteMatch records that the broker matched token with the peer at addr.
+func (l *p2pListener) noteMatch(token []byte, addr netip.AddrPort) {
+	l.matchMu.Lock()
+	defer l.matchMu.Unlock()
+	l.matches[wireKey(token)] = peerMatch{addr: addr, at: time.Now()}
+	close(l.matchSignal)
+	l.matchSignal = make(chan struct{})
+}
+
+// registered returns the listener's registration of token, and false
+// when it registers no such token.
+func (l *p2pListener) registered(token []byte) (listenerToken, bool) {
+	l.tokenMu.RLock()
+	defer l.tokenMu.RUnlock()
+	for _, t := range l.tokens {
+		if bytes.Equal(t.token, token) {
+			return t, true
+		}
+	}
+	return listenerToken{}, false
+}
+
+// dialMatched dials the peer that the broker matches token with, from
+// the punch socket, for a dial on a static token that the listener
+// registers too, as when two peers run a p2p server for each other. A
+// dial from a socket of its own would register the token under the
+// listener's broker identity, so the broker would take it for the
+// listener and move the registration back and forth between the two
+// sockets, and a dial would match only when the peer's refresh came
+// first. Instead, dialMatched takes the peer from the listener's own
+// match: the last one when it is fresh, or else the next one, which a
+// REGISTER it sends at once brings about while the broker holds the
+// peer's registration. Both listeners let the other's punch socket in
+// on such a match, and punch to it, so the dial needs no punching.
+//
+// It fails with ctx's error when no match comes before ctx ends, and
+// with errDiverted when a session with the peer's punch socket is open
+// already.
+func (l *p2pListener) dialMatched(
+	ctx context.Context, token []byte,
+) (net.Conn, error) {
+	addr, err := l.awaitMatch(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := l.filter.divertFrom(addr)
+	if err != nil {
+		return nil, err
+	}
+	var convid uint32
+	if err := binary.Read(
+		rand.Reader, binary.LittleEndian, &convid,
+	); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("convid: %w", err)
+	}
+	sess, err := kcp.NewConn4(
+		convid, net.UDPAddrFromAddrPort(addr), nil, 0, 0, false, conn,
+	)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("kcp session: %w", err)
+	}
+	return &divertedSession{UDPSession: sess, conn: conn}, nil
+}
+
+// awaitMatch returns the address of the peer that the broker last
+// matched token with, when that match is younger than matchFresh, or
+// else sends a REGISTER of token and waits for the next match, until ctx
+// ends.
+func (l *p2pListener) awaitMatch(
+	ctx context.Context, token []byte,
+) (netip.AddrPort, error) {
+	key := wireKey(token)
+	fresh := func() (netip.AddrPort, chan struct{}, bool) {
+		l.matchMu.Lock()
+		defer l.matchMu.Unlock()
+		m, ok := l.matches[key]
+		return m.addr, l.matchSignal, ok && time.Since(m.at) < matchFresh
+	}
+	addr, signal, ok := fresh()
+	if ok {
+		return addr, nil
+	}
+	t, ok := l.registered(token)
+	if !ok {
+		return netip.AddrPort{}, errors.New("the token is not registered")
+	}
+	pkt := relaybroker.BuildRegister(
+		t.token, t.id.PublicKey(), l.claimIP, l.claimPort,
+	)
+	if _, err := l.conn.WriteToUDP(pkt, l.brokerUDP); err != nil {
+		return netip.AddrPort{}, fmt.Errorf("send register: %w", err)
+	}
+	for {
+		select {
+		case <-signal:
+		case <-ctx.Done():
+			return netip.AddrPort{}, ctx.Err()
+		case <-l.ctx.Done():
+			return netip.AddrPort{}, net.ErrClosed
+		}
+		if addr, signal, ok = fresh(); ok {
+			return addr, nil
+		}
 	}
 }
