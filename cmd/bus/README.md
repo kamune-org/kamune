@@ -350,10 +350,12 @@ fingerprint in the pin field instead of skipping verification. The relay
 logs it at startup as `sha256` on its `tls certificate` line; it is 64 hex
 digits, with or without the colons that `openssl x509 -noout -fingerprint
 -sha256` prints. Bus then trusts exactly that certificate, whatever **Skip
-TLS verification** says. While verification is skipped without a pin, the
-dialog shows a warning. The dialogs pass the relay address to the backend
-as `scheme://host:port?pin=<sha256>` or `scheme://host:port?insecure=true`;
-a pin on `tcp` or `ws` is an error.
+TLS verification** says, and the Connect dialog says so under the pin.
+While verification is skipped without a pin, the dialog shows a warning.
+When no trusted authority signed the relay's certificate and no pin is
+set, the error says to enter the pin. The dialogs pass the relay address to
+the backend as `scheme://host:port?pin=<sha256>` or
+`scheme://host:port?insecure=true`; a pin on `tcp` or `ws` is an error.
 
 ### Connection Cards and Imports
 
@@ -371,15 +373,19 @@ token, or your address for direct P2P.
 
 An import fills the Connect dialog with the URL's transport, address, scheme
 and token, and for a relay URL clears the selected peer. It never turns on
-**Skip TLS verification** and clears the pin field; when the URL asks to
-skip verification, a warning says that the request was ignored. A missing
-or unknown scheme selects `wss`. **Import from Clipboard** (`Ctrl+Shift+I`)
-also turns off **Hole punching** and **Use broker**, and for a relay URL
-selects the peer key in the URL's `peer` parameter, if it has one. As with
-a saved peer, the dialog then sends no token: Bus derives the static token
-from both keys and pins that key. The camera of **Scan with Camera** turns
-off however the import dialog closes, and on macOS the app asks for camera
-access the first time.
+**Skip TLS verification**; when the URL asks to skip verification, a
+warning says that the request was ignored. For a `wss` or `tls` relay it
+fills the pin field with the URL's `pin` parameter, as a daemon's relay card
+carries, and a notice says so; otherwise it clears the pin field. The pin
+lets the relay show only the certificate it names, and the URL names the
+relay already, so taking it gives whoever made the URL nothing more. A
+missing or unknown scheme selects `wss`. **Import from Clipboard**
+(`Ctrl+Shift+I`) also turns off **Hole punching** and **Use broker**, and
+for a relay URL selects the peer key in the URL's `peer` parameter, if it
+has one. As with a saved peer, the dialog then sends no token: Bus derives
+the static token from both keys and pins that key. The camera of **Scan
+with Camera** turns off however the import dialog closes, and on macOS the
+app asks for camera access the first time.
 
 ## P2P Connections
 
