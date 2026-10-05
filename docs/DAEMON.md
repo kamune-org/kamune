@@ -132,7 +132,7 @@ relay session:
 | `transport_type`     | `tcp`, `udp`, `relay`, `p2p` or `direct-p2p`. Omitted when empty.                                                                                                                                                                                                                                                                                                                                                                   |
 | `remote_version`     | The peer's kamune version. Omitted when empty.                                                                                                                                                                                                                                                                                                                                                                                      |
 | `cause`              | `dial` for a dialed session, `incoming` for one that a peer opened to the server.                                                                                                                                                                                                                                                                                                                                                   |
-| `session_ttl_ns`     | The relay's session TTL for a relay session. Dialed sessions over other transports carry `0`.                                                                                                                                                                                                                                                                                                                                       |
+| `session_ttl_ns`     | The relay's session TTL for a relay session. Sessions over other transports carry `0`, incoming sessions of a server started after a relay server stopped too.                                                                                                                                                                                                                                                                      |
 | `session_started_at` | When the daemon set the session up.                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `remote_addr`        | Where a dialed session was dialed: the server's address, the `relay_addr` for relay, `p2p` for p2p and the peer's address for direct-p2p. Omitted for incoming sessions.                                                                                                                                                                                                                                                            |
 
@@ -499,9 +499,8 @@ and `cancel_timeout` when the start did not stop in time.
 Returns the current server state. `transport`, `relay_addr` and `name` are
 those of the last `start_server` (`name` is empty when it gave none). `addr`
 is the address the server is bound to while it runs, and otherwise the address
-the last `start_server` asked for. `started_at` is the start time of the
-newest session that a peer opened to the server, or empty when there is none;
-the daemon does not report when the server itself started.
+the last `start_server` asked for. `started_at` is when the running server
+started, and empty while no server runs.
 
 **Input:** (no params)
 
@@ -820,7 +819,9 @@ Sends a message on a live session and saves it to the session's history,
 except in incognito mode. The send runs after the command is read, so other
 commands are handled meanwhile, and the messages of one session are sent,
 saved and reported with `message_sent` in the order of their commands.
-`message_sent.timestamp` is the time the daemon put on the message.
+`message_sent.timestamp` is the local time the message went out, the clock
+that `get_history_messages` orders the history by, and `sent_at` the time the
+daemon put on the message, which the peer gets as its `sent_at`.
 
 A send that fails is not tried again, and fails with `send_message_failed`:
 
@@ -852,7 +853,7 @@ with `history_save_failed` before its `message_sent`.
 **Output:**
 
 ```json
-{ "type": "evt", "evt": "message_sent", "id": "1", "data": { "session_id": "xyz789...", "timestamp": "2026-06-21T10:30:00.123456789Z" } }
+{ "type": "evt", "evt": "message_sent", "id": "1", "data": { "session_id": "xyz789...", "timestamp": "2026-06-21T10:30:00.123500000Z", "sent_at": "2026-06-21T10:30:00.123456789Z" } }
 { "type": "evt", "evt": "session_updated", "data": { "session_id": "xyz789..." } }
 ```
 
@@ -1388,13 +1389,17 @@ Existing session history and peers remain accessible. The incognito flag is
 saved in the open storage and applied when that storage is opened.
 
 `set_incognito` applies at once to what the daemon saves itself (messages,
-session records and peers) and to the next dial. A running server keeps what
-it started with until `restart_server`: its name, and whether the kamune
-library stores its sessions and lets peers resume them. So a server started
-with incognito mode off still has the library store the peer's key, start
-time and resumption tokens of each new session, and update a stored peer's
-last-seen time. A dialed session likewise keeps what was chosen when it was
-dialed. Changing the flag while a server runs logs a warning.
+session records and peers) and to the next dial, except for a session that
+started in incognito mode, or on a server started in it: such a session stays
+out of storage until it ends, and none of its messages are saved after the
+mode is turned off. A running server keeps what it started with until
+`restart_server`: its name, and whether the kamune library stores its
+sessions and lets peers resume them, and so new sessions on a server started
+in incognito mode are incognito too. A server started with incognito mode off
+still has the library store the peer's key, start time and resumption tokens
+of each new session, and update a stored peer's last-seen time. A dialed
+session likewise keeps what was chosen when it was dialed. Changing the flag
+while a server runs logs a warning.
 
 #### `get_incognito`
 
@@ -1443,7 +1448,9 @@ with the most recent message first. The daemon keeps the list in memory, and
 reads it again when a storage is opened, a server starts or a session ends,
 and on `refresh_history`. `message_count`, `first_message` and
 `last_message` describe the session's stored messages, and `loaded` tells
-whether `load_history` was called for it.
+whether `load_history` was called for it. A `name` that the name rules
+refuse, as another client may have stored it, is made safe to show as for
+`list_peers`, here and in `get_session_info`.
 
 **Input:** (no params)
 
@@ -1632,7 +1639,10 @@ Reloads the history list from storage.
 #### `list_peers`
 
 Returns all known peers. `app_version` is empty for a peer added with
-`add_peer`. Fails with `storage_unavailable` or `peer_list_failed`.
+`add_peer`. A stored name that the name rules refuse, as one stored before
+the protocol limited names, is shown with each character that the rules
+refuse as U+FFFD and cut to 64 bytes, as `peer_name` in `SessionInfo` is.
+Fails with `storage_unavailable` or `peer_list_failed`.
 
 **Input:** (no params)
 
@@ -1729,8 +1739,9 @@ with `invalid_name`. It also fails with `invalid_peer_key`,
 
 #### `get_peer`
 
-Returns a single known peer by base64 public key. Fails with
-`invalid_peer_key`, `storage_unavailable` or `peer_not_found`.
+Returns a single known peer by base64 public key, its name made safe to show
+as for `list_peers`. Fails with `invalid_peer_key`, `storage_unavailable` or
+`peer_not_found`.
 
 **Input:**
 
@@ -1930,8 +1941,10 @@ itself. Entries use the service `kamune` and the account
 #### `has_keychain_passphrase`
 
 Returns whether a passphrase is stored in the system keychain for the storage
-that is open, or that was open last. It does not look at the path of an
-`open_storage` that failed, such as one that waits for `submit_passphrase`.
+that [`submit_passphrase`](#submit_passphrase) would open: that of the last
+`open_storage` when it failed, or else the storage that is open, or that was
+open last. Before any `open_storage`, it looks at the account
+`db-passphrase:default`.
 
 **Input:** (no params)
 
@@ -1952,11 +1965,9 @@ that is open, or that was open last. It does not look at the path of an
 
 #### `clear_keychain_passphrase`
 
-Removes the stored passphrase of the storage that is open, or that was open
-last, from the system keychain; like `has_keychain_passphrase`, it does not
-look at the path of an `open_storage` that failed. Fails with
-`keychain_clear_failed` when it cannot, which includes when no passphrase is
-saved.
+Removes the stored passphrase of the storage that `has_keychain_passphrase`
+looks at from the system keychain. Fails with `keychain_clear_failed` when it
+cannot, which includes when no passphrase is saved.
 
 **Input:** (no params)
 
@@ -2341,9 +2352,12 @@ Emitted when a message is sent, received, or a live session is renamed.
 ### `message_received`
 
 Emitted when a message is received from a peer. Also emits `session_updated`.
-`timestamp` is the time the sender put on the message, which the sender can
-set to anything. A message that could not be saved to history is reported
-with `history_save_failed` first.
+`timestamp` is the local time the message arrived, the clock that
+`get_history_messages` orders the history by, so live messages and loaded
+history can be merged by it. `sent_at` is the time the sender put on the
+message, which the sender can set to anything: show it only as the sender's
+claim. A message that could not be saved to history is reported with
+`history_save_failed` first.
 
 ```json
 {
@@ -2352,7 +2366,8 @@ with `history_save_failed` first.
   "data": {
     "session_id": "abc123...",
     "data_base64": "SGVsbG8sIFdvcmxkIQ==",
-    "timestamp": "2026-06-21T10:30:00.123456789Z"
+    "timestamp": "2026-06-21T10:30:00.223456789Z",
+    "sent_at": "2026-06-21T10:30:00.123456789Z"
   }
 }
 {
