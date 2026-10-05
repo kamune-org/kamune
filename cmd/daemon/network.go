@@ -367,6 +367,7 @@ func (d *Daemon) startServer(
 	}
 	d.pubKey = pubKey
 	d.server = srv
+	d.serverIncognito = incognito
 	d.serverDone = done
 	d.serverBoundAddr = params.Addr
 	serverTransport := params.Transport
@@ -898,13 +899,14 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 
 	sessionID := t.SessionID()
 	peer := t.RemotePeer()
-	d.rememberPeer(store, peer)
+	d.rememberPeer(store, peer, incognito)
 	identity := identifyPeer(store, peer)
 
 	session := &liveSession{
 		ID:               sessionID,
 		PeerName:         identity.Label,
 		Identity:         identity,
+		incognito:        incognito,
 		RemoteVersion:    peer.AppVersion,
 		RemoteAddr:       params.Addr,
 		Cause:            "dial",
@@ -992,6 +994,9 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 		transport = "tcp"
 	}
 	relaySessionTTL := d.relaySessionTTL
+	// A server started in incognito mode stores no session records, so
+	// its sessions stay incognito after set_incognito turns it off.
+	incognito := d.serverIncognito || d.incognito
 	d.mu.RUnlock()
 
 	sessionID := t.SessionID()
@@ -1008,13 +1013,14 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	d.mu.Lock()
 	stampRelaySession(t.AcceptedMeta(), sessionID)
 	d.mu.Unlock()
-	d.rememberPeer(d.store(), peer)
+	d.rememberPeer(d.store(), peer, incognito)
 	identity := identifyPeer(d.store(), peer)
 
 	session := &liveSession{
 		ID:               sessionID,
 		PeerName:         identity.Label,
 		Identity:         identity,
+		incognito:        incognito,
 		RemoteVersion:    peer.AppVersion,
 		Cause:            "incoming",
 		Transport:        t,
@@ -1028,9 +1034,7 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 		keepAliveDone:    make(chan struct{}),
 	}
 
-	var store *storage.Storage
-	if s := d.store(); s != nil && !d.isIncognito() {
-		store = s
+	if store := d.store(); store != nil && !incognito {
 		if err := store.CreateSession(sessionID, peer.PublicKey); err != nil {
 			d.addLogEntry("WARN", "Failed to create session record: "+err.Error())
 		}
@@ -1875,9 +1879,10 @@ func (d *Daemon) reusableShareToken(target relayTarget) (relayToken, bool) {
 
 // loadChatHistory starts the session's message count and last activity
 // from its stored history. It reads the stored counter and the last
-// entry only, so a long history costs neither time nor memory.
+// entry only, so a long history costs neither time nor memory. An
+// incognito session has no stored history.
 func (d *Daemon) loadChatHistory(session *liveSession) {
-	if d.isIncognito() {
+	if session.incognito || d.isIncognito() {
 		return
 	}
 	store := d.store()

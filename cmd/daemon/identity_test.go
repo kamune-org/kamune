@@ -172,7 +172,7 @@ func TestRememberPeerKeepsOtherPeersNames(t *testing.T) {
 			}
 
 			d.noteAdmitted(peer.PublicKey)
-			d.rememberPeer(store, peer)
+			d.rememberPeer(store, peer, false)
 
 			stored, err := store.FindPeer(peer.PublicKey)
 			a.NoError(err)

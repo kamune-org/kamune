@@ -157,6 +157,9 @@ type Daemon struct {
 	serverBrokerAddr     string
 	serverPeerPubB64     string
 	serverDirectPeerAddr string
+	// serverIncognito records that the running server was started in
+	// incognito mode, so that it stores no session records.
+	serverIncognito bool
 
 	relayAddr     string
 	relayPassword string

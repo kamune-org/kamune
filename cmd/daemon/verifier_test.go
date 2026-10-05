@@ -562,7 +562,7 @@ func TestVerifiersDoNotStorePeers(t *testing.T) {
 			_, err := d.store().FindPeer(peer.PublicKey)
 			a.Error(err, "the verifier stored the peer")
 
-			d.rememberPeer(d.store(), peer)
+			d.rememberPeer(d.store(), peer, false)
 			_, err = d.store().FindPeer(peer.PublicKey)
 			if tt.wantStored {
 				a.NoError(err, "the established peer was not stored")
@@ -580,14 +580,14 @@ func TestRememberPeerNeedsAnAcceptance(t *testing.T) {
 	a := require.New(t)
 	d, _ := newTestDaemon(t, VerificationModeQuick, false)
 	peer := &storage.Peer{Name: "dave", PublicKey: newTestPeerKey(t)}
-	d.rememberPeer(d.store(), peer)
+	d.rememberPeer(d.store(), peer, false)
 	_, err := d.store().FindPeer(peer.PublicKey)
 	a.Error(err, "a peer nobody accepted was stored")
 
 	// An acceptance that a later verdict on the key replaced is void.
 	d.noteAdmitted(peer.PublicKey)
 	a.NoError(d.createAutoAcceptVerifier()(d.store(), peer))
-	d.rememberPeer(d.store(), peer)
+	d.rememberPeer(d.store(), peer, false)
 	_, err = d.store().FindPeer(peer.PublicKey)
 	a.Error(err, "a stale acceptance stored the peer")
 }

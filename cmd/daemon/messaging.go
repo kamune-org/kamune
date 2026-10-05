@@ -186,7 +186,7 @@ func (d *Daemon) sendMessage(
 	session.countMessage()
 
 	d.saveChatEntry(
-		sessionID, data, metadata.Timestamp(), storage.SenderLocal,
+		session, data, metadata.Timestamp(), storage.SenderLocal,
 	)
 
 	d.emit(EvtMessageSent, cmd.ID, MapA{
@@ -315,7 +315,7 @@ func (d *Daemon) receiveMessages(session *liveSession) {
 		session.countMessage()
 
 		d.saveChatEntry(
-			session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
+			session, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
 		)
 
 		d.emit(EvtMessageReceived, "", MapA{
@@ -401,7 +401,7 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) error {
 		session.countMessage()
 
 		d.saveChatEntry(
-			session.ID, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
+			session, b.GetValue(), metadata.Timestamp(), storage.SenderPeer,
 		)
 
 		d.emit(EvtMessageReceived, "", MapA{
@@ -414,17 +414,18 @@ func (d *Daemon) receiveMessagesBlocking(session *liveSession) error {
 	}
 }
 
-// saveChatEntry adds a message of the session sessionID to its history,
-// unless storage is closed or incognito is on. The message was sent or
-// received all the same, so a failure is logged and reported with
-// history_save_failed instead.
+// saveChatEntry adds a message of session to its history, unless
+// storage is closed, incognito is on, or the session started in
+// incognito mode. The message was sent or received all the same, so a
+// failure is logged and reported with history_save_failed instead.
 func (d *Daemon) saveChatEntry(
-	sessionID string, data []byte, ts time.Time, sender storage.Sender,
+	session *liveSession, data []byte, ts time.Time, sender storage.Sender,
 ) {
 	store := d.store()
-	if store == nil || d.isIncognito() {
+	if store == nil || session.incognito || d.isIncognito() {
 		return
 	}
+	sessionID := session.ID
 	err := store.AddChatEntry(sessionID, data, ts, sender)
 	if err == nil {
 		return

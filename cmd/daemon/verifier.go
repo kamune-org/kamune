@@ -184,14 +184,17 @@ func (d *Daemon) forgetAdmitted(key []byte) {
 
 // rememberPeer stores peer, the remote peer of a session that has just
 // been established, when the user accepted it as an unknown peer; see
-// noteAdmitted. It stores nothing in incognito mode, nor a peer that is
-// stored already.
+// noteAdmitted. It stores nothing for a session that started in
+// incognito mode (incognito), nor while incognito mode is on, nor a peer
+// that is stored already.
 //
 // The stored name names the peer in every later session and prompt, so
 // the name the peer claimed is stored only when no other stored peer has
 // it (see sameName); a peer that claims another peer's name, or none, is
 // stored under the pseudonym of its key.
-func (d *Daemon) rememberPeer(store *storage.Storage, peer *storage.Peer) {
+func (d *Daemon) rememberPeer(
+	store *storage.Storage, peer *storage.Peer, incognito bool,
+) {
 	if store == nil || peer == nil {
 		return
 	}
@@ -200,7 +203,7 @@ func (d *Daemon) rememberPeer(store *storage.Storage, peer *storage.Peer) {
 	_, ok := d.admitted[key]
 	delete(d.admitted, key)
 	d.verifMu.Unlock()
-	if !ok || d.isIncognito() {
+	if !ok || incognito || d.isIncognito() {
 		return
 	}
 	if _, err := store.FindPeer(peer.PublicKey); err == nil {

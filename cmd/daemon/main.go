@@ -267,11 +267,18 @@ type relayToken struct {
 // memory: msgCount counts those stored before the session started and
 // those sent or received since. Identity describes the peer as the
 // session started; see identifyPeer.
+//
+// incognito records that the session started in incognito mode, or on
+// a server that was started in it. Such a session stays out of storage
+// until it ends, whatever set_incognito does meanwhile: it has no
+// session record to add messages to. It is set when the session is
+// made and not changed after.
 type liveSession struct {
 	mu               sync.Mutex
 	ID               string
 	PeerName         string
 	Identity         peerIdentity
+	incognito        bool
 	RemoteVersion    string
 	RemoteAddr       string
 	Cause            string

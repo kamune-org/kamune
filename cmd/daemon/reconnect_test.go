@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -413,6 +414,75 @@ func TestCloseSessionLeavesNoResumptionTokens(t *testing.T) {
 			for _, msg := range logMessages(client) {
 				a.NotContains(msg, "resumption tokens")
 			}
+		})
+	}
+}
+
+// A session that started in incognito mode stays out of storage after
+// set_incognito turns the mode off: on the side that dialed it in
+// incognito mode, and on a server started in incognito mode. Messages
+// sent and received after the switch are not stored either.
+func TestIncognitoSessionStaysIncognito(t *testing.T) {
+	tests := []struct {
+		name            string
+		serverIncognito bool
+		clientIncognito bool
+	}{
+		{name: "incognito client", clientIncognito: true},
+		{name: "incognito server", serverIncognito: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			server, serverRec := newTestDaemon(
+				t, VerificationModeQuick, tt.serverIncognito,
+			)
+			client, clientRec := newTestDaemon(
+				t, VerificationModeQuick, tt.clientIncognito,
+			)
+			trustPeer(t, server, client)
+			trustPeer(t, client, server)
+			addr := startTestServer(t, server, serverRec)
+			id := dialTestServer(t, client, clientRec, addr)
+			waitForSession(t, server, id)
+
+			for _, d := range []*Daemon{server, client} {
+				d.handleSetIncognito(Command{
+					ID:     "off",
+					Params: mustJSON(SetIncognitoParams{Enabled: false}),
+				})
+			}
+			send := func(
+				d *Daemon, rec, peerRec *eventRecorder, n int,
+			) {
+				t.Helper()
+				cmdID := ID(fmt.Sprintf("send-%d", n))
+				d.handleSendMessage(Command{
+					ID: cmdID,
+					Params: mustJSON(SendMessageParams{
+						SessionID:  id,
+						DataBase64: base64.StdEncoding.EncodeToString([]byte(cmdID)),
+					}),
+				})
+				rec.waitFor(t, func(e recordedEvent) bool {
+					return e.ID == cmdID && e.Evt == EvtMessageSent
+				})
+				peerRec.waitFor(t, func(e recordedEvent) bool {
+					return e.Evt == EvtMessageReceived &&
+						e.Data["data_base64"] ==
+							base64.StdEncoding.EncodeToString([]byte(cmdID))
+				})
+			}
+			send(client, clientRec, serverRec, 1)
+			send(server, serverRec, clientRec, 2)
+
+			incognitoSide := client
+			if tt.serverIncognito {
+				incognitoSide = server
+			}
+			ids, err := incognitoSide.store().ListSessions()
+			a.NoError(err)
+			a.Empty(ids, "an incognito session was stored")
 		})
 	}
 }

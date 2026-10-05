@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-set-incognito",
   "title": "set_incognito params",
-  "description": "Turns incognito mode on or off, and saves the setting while a storage is open. In incognito mode sessions, their messages and newly accepted peers are not stored, and the local name is the fingerprint pseudonym. The setting applies at once, except that a running server keeps or drops the resumption records of its sessions by the setting it started with, until restart_server.",
+  "description": "Turns incognito mode on or off, and saves the setting while a storage is open. In incognito mode sessions, their messages and newly accepted peers are not stored, and the local name is the fingerprint pseudonym. The setting applies at once, with two exceptions. A session that started in incognito mode, or on a server started in it, stays out of storage until it ends: turning the mode off stores none of its messages. And a running server keeps or drops the resumption records of its sessions by the setting it started with, until restart_server.",
   "type": "object",
   "properties": {
     "enabled": { "type": "boolean" }
