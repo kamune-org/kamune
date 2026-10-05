@@ -18,7 +18,7 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-var testErr = errors.New("test error")
+var errTest = errors.New("test error")
 
 // ---------------------------------------------------------------------------
 // decodeTokenList
@@ -424,7 +424,7 @@ func (f *fakeListener) Addr() net.Addr {
 
 func TestTokenTracker_DeadOnAcceptError(t *testing.T) {
 	a := require.New(t)
-	errAccept := testErr
+	errAccept := errTest
 	fl := &fakeListener{
 		acceptFn: func() (kamune.Conn, error) {
 			return nil, errAccept
@@ -510,7 +510,7 @@ func TestTokenTracker_ShortCircuitOnConsumedStop(t *testing.T) {
 func TestTokenTracker_DeadIdempotent(t *testing.T) {
 	fl := &fakeListener{
 		acceptFn: func() (kamune.Conn, error) {
-			return nil, testErr
+			return nil, errTest
 		},
 	}
 

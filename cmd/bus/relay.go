@@ -20,8 +20,6 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-var errRelayCloseHint = errors.New("the relay server closed the connection — check the password and token")
-
 // wrapRelayError names the relay at scheme://host in err, which dialing
 // it or registering with it returned, and adds a hint at a likely cause:
 // a wrong password or token when the relay closed the connection, and a
