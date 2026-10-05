@@ -4,7 +4,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -198,6 +201,28 @@ func TestSendErrorReason(t *testing.T) {
 			name: "over the relay's limit",
 			err:  fmt.Errorf("writing: %w", exchange.ErrFrameTooLarge),
 			want: "message_too_large",
+		},
+		{
+			name: "closed relay connection",
+			err:  fmt.Errorf("writing: %w", net.ErrClosed),
+			want: "connection_lost",
+		},
+		{
+			name: "connection reset",
+			err: fmt.Errorf("writing: %w", &net.OpError{
+				Op: "write", Err: syscall.ECONNRESET,
+			}),
+			want: "connection_lost",
+		},
+		{
+			name: "broken pipe",
+			err:  fmt.Errorf("writing: %w", syscall.EPIPE),
+			want: "connection_lost",
+		},
+		{
+			name: "closed pipe",
+			err:  fmt.Errorf("writing: %w", io.ErrClosedPipe),
+			want: "connection_lost",
 		},
 		{name: "other", err: errors.New("write deadline"), want: ""},
 	}

@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/kamune-org/kamune"
@@ -194,21 +197,43 @@ func (d *Daemon) sendMessage(
 	d.addLogEntry("DEBUG", "Sent message to "+sessionID)
 }
 
+// connGoneErrors are the errors of a failed send that mean the
+// connection is gone: those that the kamune library reads as a dropped
+// connection when it receives. Transport.Send wraps a failed write in
+// kamune.ErrConnClosed only when the frame broke off part-way, and a
+// relay connection that was closed, as the receive loop does when it
+// finds the connection dropped, fails every write with net.ErrClosed.
+var connGoneErrors = []error{
+	kamune.ErrConnClosed,
+	io.EOF,
+	io.ErrUnexpectedEOF,
+	io.ErrClosedPipe,
+	net.ErrClosed,
+	syscall.ECONNRESET,
+	syscall.ECONNABORTED,
+	syscall.EPIPE,
+}
+
 // sendErrorReason returns the reason of a send_message_failed error for
 // err, from Transport.Send, or an empty string.
 //
-// connection_lost: the error wraps kamune.ErrConnClosed, so the
-// connection is gone, for example after a write that failed part-way
-// through the frame. The message was not delivered, and must not be sent
-// again on that transport. The receive loop finds the connection closed,
-// so a dialed session reconnects and a server session ends.
+// connection_lost: the error wraps kamune.ErrConnClosed or another of
+// connGoneErrors, so the connection is gone, for example after a write
+// that failed part-way through the frame, or on a relay connection that
+// was closed after it dropped. The message was not delivered, and must
+// not be sent again on that transport. The receive loop finds the
+// connection closed, so a dialed session reconnects and a server session
+// ends.
 //
 // message_too_large: the message is over the protocol's or the relay's
 // limit. The session is intact.
 func sendErrorReason(err error) string {
+	for _, target := range connGoneErrors {
+		if errors.Is(err, target) {
+			return "connection_lost"
+		}
+	}
 	switch {
-	case errors.Is(err, kamune.ErrConnClosed):
-		return "connection_lost"
 	case errors.Is(err, kamune.ErrMessageTooLarge),
 		errors.Is(err, exchange.ErrFrameTooLarge):
 		return "message_too_large"
