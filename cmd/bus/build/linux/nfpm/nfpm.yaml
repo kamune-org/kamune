@@ -17,7 +17,7 @@ license: "MIT"
 release: "1"
 
 contents:
-  - src: "./bin/bus"
+  - src: "./build/bin/bus"
     dst: "/usr/local/bin/bus"
   - src: "./build/appicon.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/bus.png"
