@@ -5,9 +5,13 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/kamune-org/kamune"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
+	"github.com/kamune-org/kamune/pkg/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,5 +71,50 @@ func TestAddPeerRefusesInvalidKeys(t *testing.T) {
 			a.NotEqual("invalid_peer_key", evt.Data["code"],
 				"delete_peer refused a key it should look up")
 		})
+	}
+}
+
+// Names stored before the protocol limited them, such as one with a
+// bidirectional override that is longer than the limit, go out made safe
+// to show: in list_peers, get_peer and the history list.
+func TestStoredLegacyNamesAreSanitized(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	legacy := "Bob\u202egnp.exe" + strings.Repeat("x", 2000)
+	key := newTestPeerKey(t)
+	a.NoError(d.store().StorePeer(&storage.Peer{
+		Name: legacy, PublicKey: key, FirstSeen: time.Now(),
+	}))
+	a.NoError(d.store().AddChatEntry(
+		"SESSION", []byte("hi"), time.Now(), storage.SenderPeer,
+	))
+	a.NoError(d.store().SetSessionName("SESSION", legacy))
+	d.loadHistorySessions()
+
+	run := func(id ID, handle func(Command), params any) recordedEvent {
+		handle(Command{ID: id, Params: mustJSON(params)})
+		return rec.waitFor(t, func(e recordedEvent) bool { return e.ID == id })
+	}
+	var names []string
+	evt := run("list", d.handleListPeers, struct{}{})
+	peers, _ := evt.Data["peers"].([]any)
+	a.Len(peers, 1)
+	peer, _ := peers[0].(map[string]any)
+	names = append(names, fmt.Sprint(peer["name"]))
+	evt = run("get", d.handleGetPeer,
+		GetPeerParams{PublicKey: fingerprint.Base64(key)})
+	names = append(names, fmt.Sprint(evt.Data["name"]))
+	evt = run("history", d.handleGetHistorySessions, struct{}{})
+	sessions, _ := evt.Data["sessions"].([]any)
+	a.Len(sessions, 1)
+	session, _ := sessions[0].(map[string]any)
+	names = append(names, fmt.Sprint(session["name"]))
+	evt = run("info", d.handleGetSessionInfo,
+		GetSessionInfoParams{SessionID: "SESSION"})
+	names = append(names, fmt.Sprint(evt.Data["name"]))
+
+	for _, name := range names {
+		a.NoError(kamune.ValidatePeerName(name), "%q", name)
+		a.True(strings.HasPrefix(name, "Bob\ufffdgnp.exe"), "%q", name)
 	}
 }

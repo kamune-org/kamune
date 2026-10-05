@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-list-peers",
   "title": "list_peers params",
-  "description": "Returns all known peers.",
+  "description": "Returns all known peers. A stored name that the name rules refuse, such as one stored before the protocol limited names, is shown with each refused character as U+FFFD and cut to 64 bytes.",
   "type": "object",
   "properties": {},
   "additionalProperties": false

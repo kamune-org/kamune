@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-cmd-get-history-sessions",
   "title": "get_history_sessions params",
-  "description": "Returns all history sessions.",
+  "description": "Returns all history sessions. A session name that the name rules refuse, as another client may have stored it, is made safe to show as list_peers does.",
   "type": "object",
   "properties": {},
   "additionalProperties": false

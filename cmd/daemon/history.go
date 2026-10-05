@@ -140,8 +140,10 @@ func (d *Daemon) loadHistorySessions() {
 	d.histSessions = make([]*historySession, 0, len(summaries))
 	for _, s := range summaries {
 		d.histSessions = append(d.histSessions, &historySession{
-			ID:           s.ID,
-			Name:         s.Name,
+			ID: s.ID,
+			// Another client, or an older daemon, may have stored a
+			// name that is not safe to show.
+			Name:         sanitizeName(s.Name),
 			MessageCount: s.MessageCount,
 			FirstMessage: s.FirstMessage,
 			LastMessage:  s.LastMessage,
@@ -304,7 +306,7 @@ func (d *Daemon) handleRenameHistorySession(cmd Command) {
 	d.mu.Lock()
 	for _, hs := range d.histSessions {
 		if hs.ID == params.SessionID {
-			hs.Name = params.Name
+			hs.Name = sanitizeName(params.Name)
 			break
 		}
 	}
@@ -413,7 +415,8 @@ func (d *Daemon) handleRefreshHistory(cmd Command) {
 	d.emit(EvtResponse, cmd.ID, MapS{"status": "refreshed"})
 }
 
-// handleListPeers returns all known peers.
+// handleListPeers returns all known peers. A name stored before the
+// protocol limited peer names is made safe to show; see sanitizeName.
 func (d *Daemon) handleListPeers(cmd Command) {
 	store := d.store()
 	if store == nil {
@@ -431,7 +434,7 @@ func (d *Daemon) handleListPeers(cmd Command) {
 	infos := make([]PeerInfo, len(peers))
 	for i, p := range peers {
 		infos[i] = PeerInfo{
-			Name:       p.Name,
+			Name:       sanitizeName(p.Name),
 			AppVersion: p.AppVersion,
 			FirstSeen:  p.FirstSeen,
 			LastSeen:   p.LastSeen,

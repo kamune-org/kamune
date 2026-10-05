@@ -1172,7 +1172,8 @@ func (d *Daemon) handleRenamePeer(cmd Command) {
 }
 
 // handleGetPeer returns a single known peer by base64 public key (mirrors
-// cmd/bus/peers.go:46-60).
+// cmd/bus/peers.go:46-60). Its name is made safe to show, as list_peers
+// does.
 func (d *Daemon) handleGetPeer(cmd Command) {
 	var params GetPeerParams
 	if err := json.Unmarshal(cmd.Params, &params); err != nil {
@@ -1199,7 +1200,7 @@ func (d *Daemon) handleGetPeer(cmd Command) {
 	}
 
 	d.emit(EvtResponse, cmd.ID, MapA{
-		"name":        p.Name,
+		"name":        sanitizeName(p.Name),
 		"public_key":  fingerprint.Base64(p.PublicKey),
 		"first_seen":  p.FirstSeen,
 		"last_seen":   p.LastSeen,
