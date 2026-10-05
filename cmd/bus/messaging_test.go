@@ -1,9 +1,16 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -299,4 +306,90 @@ func TestSendOnLostConnection(t *testing.T) {
 	history, err := app.store().GetChatHistory(id)
 	a.NoError(err)
 	a.Empty(history)
+}
+
+func TestSendLost(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		lost bool
+	}{
+		{"none", nil, false},
+		{"connection closed",
+			fmt.Errorf("%w: closed", kamune.ErrConnClosed), true},
+		{"closed relay connection",
+			fmt.Errorf("writing: %w", net.ErrClosed), true},
+		{"closed pipe", fmt.Errorf("writing: %w", io.ErrClosedPipe), true},
+		{"end of file", fmt.Errorf("writing: %w", io.EOF), true},
+		{"broken pipe", fmt.Errorf("writing: %w", &net.OpError{
+			Op: "write", Net: "tcp",
+			Err: os.NewSyscallError("write", syscall.EPIPE),
+		}), true},
+		{"serializing", errors.New("serializing: bad message"), false},
+		{"invalid route", kamune.ErrInvalidRoute, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.New(t).Equal(tc.lost, sendLost(tc.err))
+		})
+	}
+}
+
+// closingConn is a kamune.Conn whose writes fail with net.ErrClosed once
+// it is cut, as those of a relay connection do once it is closed.
+type closingConn struct {
+	kamune.Conn
+	cut atomic.Bool
+}
+
+func (c *closingConn) WriteBytes(b []byte) error {
+	if c.cut.Load() {
+		return net.ErrClosed
+	}
+	return c.Conn.WriteBytes(b)
+}
+
+// TestSendOnClosedRelayConn sends on a session whose connection fails
+// writes with net.ErrClosed, as a relay connection does after a drop, and
+// checks that the message is reported as not sent for the lost
+// connection, and is neither shown nor stored as sent.
+func TestSendOnClosedRelayConn(t *testing.T) {
+	a := require.New(t)
+	app, _ := newUnlockedApp(t, "secret")
+	addr, _ := startTestServer(t, "srv", readUntilEnd)
+	var cc *closingConn
+	d, err := kamune.NewDialer(addr, openTestStorage(t), acceptAll,
+		kamune.DialWithFunc(func(addr string) (kamune.Conn, error) {
+			c, err := net.Dial("tcp", addr)
+			if err != nil {
+				return nil, err
+			}
+			cc = &closingConn{Conn: kamune.NewConn(c)}
+			return cc, nil
+		}),
+	)
+	a.NoError(err)
+	tr, err := d.Dial()
+	a.NoError(err)
+	t.Cleanup(func() { _ = tr.Close() })
+	id := tr.SessionID()
+	done := make(chan struct{})
+	close(done)
+	session := &liveSession{ID: id, Transport: tr, ReceiveDone: done}
+	app.mu.Lock()
+	app.sessions = append(app.sessions, session)
+	app.mu.Unlock()
+
+	a.NoError(app.SendMessage(id, "before"))
+	cc.cut.Store(true)
+	err = app.SendMessage(id, "after")
+	a.ErrorIs(err, ErrMessageNotSent)
+
+	app.mu.RLock()
+	a.Len(session.Messages, 1)
+	a.Equal("before", session.Messages[0].Text)
+	app.mu.RUnlock()
+	history, err := app.store().GetChatHistory(id)
+	a.NoError(err)
+	a.Len(history, 1)
 }

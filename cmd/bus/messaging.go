@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -22,11 +23,10 @@ var ErrMessageNotSent = errors.New(
 )
 
 // SendMessage sends text to the session sessionID. When the connection
-// is gone (kamune.ErrConnClosed), possibly with part of the message
-// written, the error wraps ErrMessageNotSent: the message is never sent
-// again on that connection, which the session's receive loop replaces by
-// resuming the session when it can. Any other error leaves the
-// connection usable.
+// is gone (see sendLost), possibly with part of the message written, the
+// error wraps ErrMessageNotSent: the message is never sent again on that
+// connection, which the session's receive loop replaces by resuming the
+// session when it can. Any other error leaves the connection usable.
 func (a *App) SendMessage(sessionID string, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -54,7 +54,7 @@ func (a *App) SendMessage(sessionID string, text string) error {
 		kamune.Bytes([]byte(text)),
 		kamune.RouteExchangeMessages,
 	)
-	if errors.Is(err, kamune.ErrConnClosed) {
+	if sendLost(err) {
 		a.addLogEntry("WARN",
 			"Message not sent, connection lost | session_id="+sessionID)
 		return fmt.Errorf("%w: %w", ErrMessageNotSent, err)
@@ -237,6 +237,21 @@ func connLost(err error) bool {
 	}
 	_, ok := errors.AsType[*net.OpError](err)
 	return ok
+}
+
+// sendLost reports whether err, from Transport.Send, means that the
+// session's connection is gone: kamune.ErrConnClosed, or a write error
+// that the core passes on without mapping it to that, such as the
+// net.ErrClosed of a relay connection that its receive loop closed after
+// a drop, a closed pipe, an end of file, or a socket error (see
+// connLost).
+func sendLost(err error) bool {
+	if err == nil {
+		return false
+	}
+	return connLost(err) || errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 // maxLiveMessages caps the messages that a live session holds in memory
