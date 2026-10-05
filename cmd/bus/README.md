@@ -165,8 +165,11 @@ passphrase saved for the database path. If one is saved, Bus opens the
 existing database with it. Otherwise the passphrase dialog appears:
 
 - **Unlock** opens the database at the path shown with the passphrase you
-  enter, or creates it with that passphrase if there is none. The folder
-  button picks a directory; the database is the file `db` in it.
+  enter. When there is no database at that path, the dialog says that a
+  new one will be created, asks for the passphrase twice and shows
+  **Create** instead; it creates the database only when both entries
+  match, so a typo cannot lock you out. The folder button picks a
+  directory; the database is the file `db` in it.
 - **Remember in system keychain** saves the passphrase under the service
   `kamune` and the account `db-passphrase:<path>`.
 - **Use without passphrase…** opens or creates the database with an empty
@@ -203,7 +206,8 @@ saved passphrase is removed.
 
 Clicking the database card opens the passphrase dialog for another
 database. Bus opens the new database first and keeps the old one open if
-that fails. It refuses to switch databases or change the passphrase while
+that fails. A path to the open database, also through a symbolic link or a
+relative path, is refused as already unlocked. It refuses to switch databases or change the passphrase while
 the server is starting, running or stopping, a connect is in progress, or a
 session is live or still closing.
 
