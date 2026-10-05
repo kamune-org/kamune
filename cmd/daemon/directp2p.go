@@ -13,8 +13,14 @@ import (
 	"github.com/xtaci/kcp-go/v5"
 )
 
+// directP2PListener is a kamune.Listener that accepts KCP sessions from
+// a peer whose address is known up front. kcp-go reads its socket
+// through a punchFilter that drops every packet from an IP address other
+// than the peer's, so only the peer can open a session. The port is not
+// checked, as the dialer sends from a port of its own.
 type directP2PListener struct {
 	conn      *net.UDPConn
+	filter    *punchFilter
 	kcp       *kcp.Listener
 	peerAddr  *net.UDPAddr
 	ctx       context.Context
@@ -43,12 +49,16 @@ func newDirectP2PListener(listenAddr, peerAddr string) (*directP2PListener, erro
 
 	l := &directP2PListener{
 		conn:     conn,
+		filter:   newPunchFilter(conn),
 		peerAddr: peerUDPAddr,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
+	if ap, ok := addrPortOf(peerUDPAddr); ok {
+		l.filter.direct = ap.Addr()
+	}
 
-	kcpL, err := kcp.ServeConn(nil, 0, 0, conn)
+	kcpL, err := kcp.ServeConn(nil, 0, 0, l.filter)
 	if err != nil {
 		conn.Close()
 		cancel()
