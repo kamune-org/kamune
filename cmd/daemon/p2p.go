@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -96,6 +97,10 @@ func (d *Daemon) getOrCreateBrokerClient() (*BrokerClient, error) {
 // peerPubB64 is empty. The server's p2p listener registers and refreshes
 // it from its punch socket, the address that a peer who dials the token
 // is told to punch to. brokerAddr must be the server's broker.
+//
+// A static token that the server has already is returned as it is. A
+// random token is new on every call, so that each peer it is given to
+// gets a token of its own, which can be removed without the others.
 func (d *Daemon) GenerateP2PToken(
 	brokerAddr, peerPubB64 string,
 ) (string, error) {
@@ -119,25 +124,16 @@ func (d *Daemon) GenerateP2PToken(
 		return "", err
 	}
 
-	d.mu.RLock()
-	var existingToken string
-	for i := range d.p2pTokens {
-		t := d.p2pTokens[i]
-		if t.brokerAddr != brokerAddr {
-			continue
+	if staticToken != nil {
+		hexToken := hex.EncodeToString(staticToken)
+		d.mu.RLock()
+		listed := slices.ContainsFunc(d.p2pTokens, func(t p2pToken) bool {
+			return t.brokerAddr == brokerAddr && t.Token == hexToken
+		})
+		d.mu.RUnlock()
+		if listed {
+			return hexToken, nil
 		}
-		if staticToken != nil && t.PeerPubB64 == peerPubB64 {
-			existingToken = t.Token
-			break
-		}
-		if staticToken == nil && t.Mode != "static" {
-			existingToken = t.Token
-			break
-		}
-	}
-	d.mu.RUnlock()
-	if existingToken != "" {
-		return existingToken, nil
 	}
 
 	token, mode := staticToken, "static"

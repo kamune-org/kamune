@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"slices"
 	"strings"
@@ -715,4 +716,50 @@ func TestBrokerEchoIgnoresStrayDatagrams(t *testing.T) {
 	a.NoError(err, "the p2p dial did not register")
 	t.Cleanup(func() { _ = conn.Close() })
 	a.Equal(relaybroker.NotifyPeerMatched, payload.Type)
+}
+
+// generate_p2p_token without peer_pub_b64 adds a new random token on
+// every call, never the server's own or one it gave out before, so that
+// each peer gets a token of its own that can be removed alone. A static
+// token for a peer is returned again as it is.
+func TestGenerateP2PTokenRandomIsNewEachTime(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	broker := newFakeBroker(t, false)
+	d.handleStartServer(Command{
+		ID: "start",
+		Params: mustJSON(StartServerParams{
+			Addr: "127.0.0.1:0", Transport: "p2p", BrokerAddr: broker.addr(),
+			PeerPubB64: fingerprint.Base64(newTestPeerKey(t)),
+		}),
+	})
+	evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == "start" })
+	a.Equal(EvtServerStarted, evt.Evt, "start failed: %v", evt.Data)
+
+	n := 0
+	generate := func(peer []byte) string {
+		t.Helper()
+		n++
+		id := ID(fmt.Sprintf("gen-%d", n))
+		params := MapS{"broker_addr": broker.addr()}
+		if peer != nil {
+			params["peer_pub_b64"] = fingerprint.Base64(peer)
+		}
+		d.handleGenerateP2PToken(Command{ID: id, Params: mustJSON(params)})
+		evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == id })
+		a.Equal(EvtResponse, evt.Evt, "generate failed: %v", evt.Data)
+		token, _ := evt.Data["token"].(string)
+		return token
+	}
+
+	own := d.GetP2PTokens()[0].Token
+	first, second := generate(nil), generate(nil)
+	a.NotEqual(own, first)
+	a.NotEqual(own, second)
+	a.NotEqual(first, second)
+
+	peer := newTestPeerKey(t)
+	static := generate(peer)
+	a.Equal(static, generate(peer))
+	a.Len(d.GetP2PTokens(), 4)
 }
