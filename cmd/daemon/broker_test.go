@@ -31,6 +31,9 @@ type fakeBroker struct {
 	peer  *net.UDPAddr
 	// noEcho makes the broker drop STUN_ECHO requests.
 	noEcho atomic.Bool
+	// stray, if set, sends a datagram to the source of each STUN_ECHO
+	// before the broker answers it, as another host might.
+	stray atomic.Pointer[net.UDPConn]
 
 	mu sync.Mutex
 	// registered holds the wire token of each REGISTER, keys the X25519
@@ -69,6 +72,9 @@ func (b *fakeBroker) serve() {
 		}
 		pkt := buf[:n]
 		if relaybroker.ParseEchoRequest(pkt) == nil {
+			if stray := b.stray.Load(); stray != nil {
+				_, _ = stray.WriteToUDP(make([]byte, 30), src)
+			}
 			if !b.noEcho.Load() {
 				resp := relaybroker.BuildEchoResponse(src)
 				_, _ = b.conn.WriteToUDP(resp, src)
@@ -677,4 +683,36 @@ func TestP2PRefreshExtendsTokenExpiry(t *testing.T) {
 		}
 	}
 	a.Contains([]string{tokens[0].Token, tokens[1].Token}, random)
+}
+
+// A datagram from another host that reaches the punch socket before the
+// broker's echo reply, such as a former peer's KCP retransmit, is not
+// taken for the reply: a p2p server still starts, and a p2p dial still
+// registers.
+func TestBrokerEchoIgnoresStrayDatagrams(t *testing.T) {
+	a := require.New(t)
+	broker := newFakeBroker(t, true)
+	stray, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+	)
+	a.NoError(err)
+	t.Cleanup(func() { _ = stray.Close() })
+	broker.stray.Store(stray)
+	client, err := NewBrokerClient()
+	a.NoError(err)
+
+	token := []byte(strings.Repeat("s", 32))
+	l, err := newP2PListener(
+		client, broker.addr(), token, nil, "127.0.0.1:0", nil,
+	)
+	a.NoError(err, "the p2p listener did not start")
+	t.Cleanup(func() { _ = l.Close() })
+	a.Equal(l.Addr().Port, int(l.claimPort))
+
+	ctx, cancel := context.WithTimeout(t.Context(), testEventTimeout)
+	defer cancel()
+	conn, payload, err := client.WaitMatch(ctx, broker.addr(), token)
+	a.NoError(err, "the p2p dial did not register")
+	t.Cleanup(func() { _ = conn.Close() })
+	a.Equal(relaybroker.NotifyPeerMatched, payload.Type)
 }

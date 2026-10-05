@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"sync"
 	"time"
 
@@ -17,8 +16,6 @@ import (
 
 	relaybroker "github.com/kamune-org/kamune/pkg/relayconn/broker"
 )
-
-var echoRequest = []byte{'K', 'B', 'R', 'K', 0x01, 0x01}
 
 var ErrHolePunchFailed = errors.New("hole-punch failed")
 
@@ -199,7 +196,9 @@ func (b *BrokerClient) WaitMatch(
 		return nil, relaybroker.Payload{}, fmt.Errorf("resolve broker: %w", err)
 	}
 
-	claimIP, claimPort, err := b.echoFrom(ctx, punchConn, brokerUDPAddr)
+	ectx, ecancel := context.WithTimeout(ctx, echoTimeout)
+	claimIP, claimPort, err := id.EchoOn(ectx, punchConn)
+	ecancel()
 	if err != nil {
 		punchConn.Close()
 		return nil, relaybroker.Payload{}, fmt.Errorf("broker echo: %w", err)
@@ -242,52 +241,6 @@ func (b *BrokerClient) WaitMatch(
 			return punchConn, payload, nil
 		}
 	}
-}
-
-// echoFrom sends a STUN_ECHO from conn and returns the address the broker
-// sees for conn. It waits for the reply for at most echoTimeout, and not
-// past ctx's deadline.
-func (b *BrokerClient) echoFrom(
-	ctx context.Context, conn *net.UDPConn, brokerAddr *net.UDPAddr,
-) (net.IP, uint16, error) {
-	deadline := time.Now().Add(echoTimeout)
-	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
-	}
-	if err := conn.SetDeadline(deadline); err != nil {
-		return nil, 0, fmt.Errorf("set deadline: %w", err)
-	}
-	if _, err := conn.WriteToUDP(echoRequest, brokerAddr); err != nil {
-		return nil, 0, fmt.Errorf("write echo: %w", err)
-	}
-	buf := make([]byte, 64)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return nil, 0, fmt.Errorf("read echo: %w", err)
-	}
-	return parseEchoResponse(buf[:n])
-}
-
-func parseEchoResponse(resp []byte) (net.IP, uint16, error) {
-	for i, c := range resp {
-		if c == 0 {
-			resp = resp[:i]
-			break
-		}
-	}
-	host, portStr, err := net.SplitHostPort(string(resp))
-	if err != nil {
-		return nil, 0, fmt.Errorf("malformed echo response %q: %w", resp, err)
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return nil, 0, fmt.Errorf("parse ip %q: invalid", host)
-	}
-	port64, err := strconv.ParseUint(portStr, 10, 16)
-	if err != nil {
-		return nil, 0, fmt.Errorf("parse port %q: %w", portStr, err)
-	}
-	return ip, uint16(port64), nil
 }
 
 // natKicks and natKickGap shape the burst of NAT kicks that sendNATKick

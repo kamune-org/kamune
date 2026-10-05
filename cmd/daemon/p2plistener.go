@@ -108,12 +108,6 @@ func newP2PListener(
 		return nil, fmt.Errorf("resolve broker: %w", err)
 	}
 	l.brokerUDP = brokerUDPAddr
-	claimIP, claimPort, err := broker.echoFrom(ctx, conn, brokerUDPAddr)
-	if err != nil {
-		l.Close()
-		return nil, fmt.Errorf("broker echo: %w", err)
-	}
-	l.claimIP, l.claimPort = claimIP, claimPort
 
 	// A static token has the identity that BrokerClient keeps for it. A
 	// random one, which the broker assigns anew, gets a new identity.
@@ -132,6 +126,17 @@ func newP2PListener(
 			token: token, id: own.id, held: true, peer: own.peer,
 		}}
 	}
+	// EchoOn takes only the broker's reply as the echo: a former peer's
+	// KCP retransmits, or anyone else's datagram, may reach the socket
+	// first.
+	ectx, ecancel := context.WithTimeout(ctx, echoTimeout)
+	claimIP, claimPort, err := own.id.EchoOn(ectx, conn)
+	ecancel()
+	if err != nil {
+		l.Close()
+		return nil, fmt.Errorf("broker echo: %w", err)
+	}
+	l.claimIP, l.claimPort = claimIP, claimPort
 	// Without a token, the broker assigns one; RegisterOn waits for it.
 	rctx, rcancel := context.WithTimeout(ctx, 2*time.Second)
 	token, err = own.id.RegisterOn(rctx, conn, token, claimIP, claimPort)
