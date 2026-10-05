@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -21,15 +22,26 @@ import (
 
 var errRelayCloseHint = errors.New("the relay server closed the connection — check the password and token")
 
+// wrapRelayError names the relay at scheme://host in err, which dialing
+// it or registering with it returned, and adds a hint at a likely cause:
+// a wrong password or token when the relay closed the connection, and a
+// missing certificate pin when no trusted authority signed the relay's
+// certificate, as for the self-signed one a relay makes for itself.
 func wrapRelayError(scheme, host string, password bool, err error) error {
 	var hint string
-	if strings.Contains(err.Error(), "received close frame") {
+	var unknown x509.UnknownAuthorityError
+	switch {
+	case strings.Contains(err.Error(), "received close frame"):
 		hint = "; relay closed the connection"
 		if password {
 			hint += " — wrong password?"
 		} else {
 			hint += " — try providing a password or check the token"
 		}
+	case errors.As(err, &unknown):
+		hint = "; no trusted authority vouches for the relay's " +
+			"certificate — enter its SHA-256 fingerprint as the relay " +
+			"certificate pin"
 	}
 	return fmt.Errorf("%s://%s%s: %w", scheme, host, hint, err)
 }

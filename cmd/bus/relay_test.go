@@ -710,7 +710,8 @@ func TestRelayTokenHexRoundTrip(t *testing.T) {
 // TestRelayCertificatePin starts a relay listener on a TLS relay with a
 // self-signed certificate, and checks that a pin of that certificate is
 // trusted in place of the chain check, that a pin of another one is not,
-// and that without a pin the certificate is still checked.
+// and that without a pin the certificate is still checked, with a hint
+// to pin it.
 func TestRelayCertificatePin(t *testing.T) {
 	relay, fp := newFakeTLSRelay(t)
 	host := strings.TrimPrefix(relay.addr(), "tcp://")
@@ -721,6 +722,7 @@ func TestRelayCertificatePin(t *testing.T) {
 		skip    bool
 		wantErr error
 		fail    bool
+		wantMsg string
 	}{
 		{name: "pinned", addr: "tls://" + host + "?pin=" + fp},
 		{name: "pinned while skipping",
@@ -730,7 +732,9 @@ func TestRelayCertificatePin(t *testing.T) {
 		{name: "other pin while skipping", skip: true,
 			addr:    "tls://" + host + "?insecure=true&pin=" + other,
 			wantErr: relayconn.ErrCertPinMismatch},
-		{name: "no pin", addr: "tls://" + host, fail: true},
+		{name: "no pin", addr: "tls://" + host, fail: true,
+			wantMsg: "enter its SHA-256 fingerprint as the relay " +
+				"certificate pin"},
 		{name: "verification skipped", addr: "tls://" + host, skip: true},
 	}
 	for _, tc := range cases {
@@ -743,6 +747,9 @@ func TestRelayCertificatePin(t *testing.T) {
 				a.Error(err)
 				if tc.wantErr != nil {
 					a.ErrorIs(err, tc.wantErr)
+				}
+				if tc.wantMsg != "" {
+					a.ErrorContains(err, tc.wantMsg)
 				}
 				return
 			}
