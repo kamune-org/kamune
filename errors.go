@@ -40,6 +40,10 @@ var (
 	// ErrInvalidPeerName is returned when a peer's name, local or received
 	// in an introduction, fails [ValidatePeerName].
 	ErrInvalidPeerName = errors.New("invalid peer name")
+	// ErrInvalidAppVersion is returned when a version, the local
+	// [AppVersion] or one received in an introduction, fails
+	// [ValidateAppVersion].
+	ErrInvalidAppVersion = errors.New("invalid app version")
 	// ErrMissingStorage is returned by NewServer and NewDialer when they are
 	// given a nil storage.
 	ErrMissingStorage = errors.New("storage is required")

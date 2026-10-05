@@ -58,8 +58,9 @@ func sendIntroduction(
 }
 
 // receiveIntroduction parses an introduction message from a signed transport.
-// It validates the signature and the peer's name (see [ValidatePeerName]) and
-// extracts the peer's identity and version.
+// It validates the signature, the peer's name (see [ValidatePeerName]) and
+// the form of its version (see [ValidateAppVersion]), and extracts the
+// peer's identity and version.
 func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, string, error) {
 	r, err := routeFromST(st)
 	if err != nil {
@@ -86,6 +87,9 @@ func receiveIntroduction(st *pb.SignedTransport) (*storage.Peer, string, error) 
 	}
 	if err := ValidatePeerName(introduce.GetName()); err != nil {
 		return nil, "", err
+	}
+	if err := ValidateAppVersion(introduce.GetAppVersion()); err != nil {
+		return nil, "", fmt.Errorf("%w: %w", ErrVersionMismatch, err)
 	}
 
 	peer := &storage.Peer{

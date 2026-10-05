@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -17,11 +18,31 @@ import (
 // value; NewServer and NewDialer fail when it is not a valid version.
 var AppVersion = "0.7.0"
 
+// MaxAppVersionLength is the longest version, in bytes, that a peer may
+// introduce itself with. See [ValidateAppVersion].
+const MaxAppVersionLength = 32
+
+// ValidateAppVersion checks a version that a peer introduces itself with.
+// It returns an error wrapping [ErrInvalidAppVersion] unless version is at
+// most [MaxAppVersionLength] bytes of the form major.minor.patch: three
+// decimal numbers of ASCII digits, with no sign and no leading zeros, such
+// as 0.7.0.
+//
+// [AppVersion] must pass it, or [NewServer] and [NewDialer] fail. The
+// server and the dialer reject an introduction whose version fails it
+// before the [RemoteVerifier] runs, with an error that wraps both
+// ErrInvalidAppVersion and [ErrVersionMismatch]. Applications can use it
+// to check a version stored by an older release before showing it.
+func ValidateAppVersion(version string) error {
+	_, err := parseSemver(version)
+	return err
+}
+
 // appVersion returns AppVersion after checking that it parses.
 func appVersion() (string, error) {
 	v := AppVersion
 	if _, err := parseSemver(v); err != nil {
-		return "", fmt.Errorf("invalid AppVersion %q: %w", v, err)
+		return "", fmt.Errorf("invalid AppVersion: %w", err)
 	}
 	return v, nil
 }
@@ -30,29 +51,57 @@ type semver struct {
 	major, minor, patch int
 }
 
+// parseSemver parses a version that [ValidateAppVersion] accepts. Its
+// errors wrap [ErrInvalidAppVersion].
 func parseSemver(v string) (semver, error) {
 	if v == "" {
-		return semver{}, fmt.Errorf("empty version string")
+		return semver{}, fmt.Errorf("%w: empty", ErrInvalidAppVersion)
 	}
-	parts := strings.SplitN(v, ".", 3)
-	if len(parts) != 3 {
+	// Check the length first, so that an error never quotes a long string.
+	if len(v) > MaxAppVersionLength {
 		return semver{}, fmt.Errorf(
-			"invalid semver %q: expected major.minor.patch", v,
+			"%w: %d bytes, the limit is %d",
+			ErrInvalidAppVersion, len(v), MaxAppVersionLength,
 		)
 	}
-	major, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return semver{}, fmt.Errorf("invalid major version in %q: %w", v, err)
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return semver{}, fmt.Errorf(
+			"%w: %q is not major.minor.patch", ErrInvalidAppVersion, v,
+		)
 	}
-	minor, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return semver{}, fmt.Errorf("invalid minor version in %q: %w", v, err)
+	var nums [3]int
+	for i, p := range parts {
+		n, err := parseVersionNumber(p)
+		if err != nil {
+			return semver{}, fmt.Errorf(
+				"%w: %q: %s", ErrInvalidAppVersion, v, err,
+			)
+		}
+		nums[i] = n
 	}
-	patch, err := strconv.Atoi(parts[2])
-	if err != nil {
-		return semver{}, fmt.Errorf("invalid patch version in %q: %w", v, err)
+	return semver{major: nums[0], minor: nums[1], patch: nums[2]}, nil
+}
+
+// parseVersionNumber parses one number of a version: ASCII digits, with no
+// sign and no leading zero unless the number is 0.
+func parseVersionNumber(s string) (int, error) {
+	switch {
+	case s == "":
+		return 0, errors.New("empty number")
+	case len(s) > 1 && s[0] == '0':
+		return 0, errors.New("leading zero")
 	}
-	return semver{major: major, minor: minor, patch: patch}, nil
+	for i := range len(s) {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, errors.New("not a decimal number")
+		}
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, errors.New("number out of range")
+	}
+	return n, nil
 }
 
 // checkVersion checks the remote peer's version against local, a version
@@ -60,12 +109,12 @@ func parseSemver(v string) (semver, error) {
 func checkVersion(local, remote string) error {
 	localSemver, err := parseSemver(local)
 	if err != nil {
-		return fmt.Errorf("parsing local version %q: %w", local, err)
+		return fmt.Errorf("parsing local version: %w", err)
 	}
 	rv, err := parseSemver(remote)
 	if err != nil {
 		return fmt.Errorf(
-			"%w: parsing remote version %q: %w", ErrVersionMismatch, remote, err,
+			"%w: parsing remote version: %w", ErrVersionMismatch, err,
 		)
 	}
 

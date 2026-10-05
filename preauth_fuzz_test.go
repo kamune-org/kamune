@@ -53,7 +53,7 @@ func FuzzPreAuthEnvelopeValidation(f *testing.F) {
 				message, marshalErr = proto.Marshal(&pb.Introduce{
 					Name:       text,
 					PublicKey:  at.MarshalPublicKey(),
-					AppVersion: "fuzz",
+					AppVersion: AppVersion,
 				})
 			} else {
 				message, marshalErr = proto.Marshal(&pb.ResumeAccept{
@@ -96,7 +96,7 @@ func FuzzPreAuthEnvelopeValidation(f *testing.F) {
 				a.NotNil(peer)
 				a.Equal(text, peer.Name)
 				a.Equal(at.MarshalPublicKey(), peer.PublicKey)
-				a.Equal("fuzz", version)
+				a.Equal(AppVersion, version)
 			}
 			return
 		}

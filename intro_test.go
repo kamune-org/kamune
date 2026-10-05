@@ -66,16 +66,16 @@ func TestIntroduce(t *testing.T) {
 }
 
 // signedIntroduction builds the signed introduction that sendIntroduction
-// would send, with the given name.
+// would send, with the given name and version.
 func signedIntroduction(
-	t *testing.T, at *attest.Attest, name string,
+	t *testing.T, at *attest.Attest, name, version string,
 ) *pb.SignedTransport {
 	t.Helper()
 	a := require.New(t)
 	msg, err := proto.Marshal(&pb.Introduce{
 		Name:       name,
 		PublicKey:  at.MarshalPublicKey(),
-		AppVersion: AppVersion,
+		AppVersion: version,
 	})
 	a.NoError(err)
 	md, err := proto.Marshal(&pb.Metadata{Route: RouteIdentity.ToProto()})
@@ -104,7 +104,7 @@ func TestReceiveIntroductionRejectsInvalidName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := require.New(t)
-			st := signedIntroduction(t, at, tt.input)
+			st := signedIntroduction(t, at, tt.input, AppVersion)
 			peer, _, err := receiveIntroduction(st)
 			a.ErrorIs(err, ErrInvalidPeerName)
 			a.Nil(peer)
@@ -113,12 +113,39 @@ func TestReceiveIntroductionRejectsInvalidName(t *testing.T) {
 
 	t.Run("valid name", func(t *testing.T) {
 		a := require.New(t)
-		st := signedIntroduction(t, at, "Bob")
+		st := signedIntroduction(t, at, "Bob", AppVersion)
 		peer, version, err := receiveIntroduction(st)
 		a.NoError(err)
 		a.Equal("Bob", peer.Name)
 		a.Equal(AppVersion, version)
 	})
+}
+
+func TestReceiveIntroductionRejectsInvalidVersion(t *testing.T) {
+	at, err := attest.New()
+	require.New(t).NoError(err)
+
+	tests := []struct {
+		name    string
+		version string
+	}{
+		{"oversized", "0.7." + strings.Repeat("0", 60*1024)},
+		{"leading zeros", "0.7.00"},
+		{"empty", ""},
+		{"prefix", "v0.7.0"},
+		{"control character", "0.7.0\u001b[2J"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			st := signedIntroduction(t, at, "Bob", tt.version)
+			peer, _, err := receiveIntroduction(st)
+			a.ErrorIs(err, ErrVersionMismatch)
+			a.ErrorIs(err, ErrInvalidAppVersion)
+			a.Less(len(err.Error()), 200)
+			a.Nil(peer)
+		})
+	}
 }
 
 func TestNameOptionsRejectInvalidName(t *testing.T) {

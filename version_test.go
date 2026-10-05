@@ -3,6 +3,7 @@ package kamune
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -54,6 +55,15 @@ func TestParseSemver(t *testing.T) {
 		{"1.2", 0, 0, 0, true},
 		{"abc.def.ghi", 0, 0, 0, true},
 		{"1.2.3.4", 0, 0, 0, true},
+		{"10.20.30", 10, 20, 30, false},
+		{"01.2.3", 0, 0, 0, true},
+		{"1.2.03", 0, 0, 0, true},
+		{"+1.2.3", 0, 0, 0, true},
+		{"1.-2.3", 0, 0, 0, true},
+		{"1..3", 0, 0, 0, true},
+		{" 1.2.3", 0, 0, 0, true},
+		{"1.2.3-dev", 0, 0, 0, true},
+		{"1.2.99999999999999999999999999", 0, 0, 0, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -109,6 +119,34 @@ func TestAppVersionSetAfterInit(t *testing.T) {
 		ServeWithListener(newTestListener(nil)),
 	)
 	a.ErrorContains(err, "invalid AppVersion")
+}
+
+func TestValidateAppVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		valid   bool
+	}{
+		{"current", AppVersion, true},
+		{"long numbers", "1.2." + strings.Repeat("1", 15), true},
+		{"over the limit", "1.1." + strings.Repeat("1", MaxAppVersionLength-3),
+			false},
+		{"oversized", "1.2." + strings.Repeat("0", 60*1024), false},
+		{"leading zeros", "0.7.000", false},
+		{"line break", "0.7.0\n", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			err := ValidateAppVersion(tt.version)
+			if tt.valid {
+				a.NoError(err)
+				return
+			}
+			a.ErrorIs(err, ErrInvalidAppVersion)
+			a.Less(len(err.Error()), 200)
+		})
+	}
 }
 
 func TestCheckVersionRejectsInvalidLocal(t *testing.T) {
