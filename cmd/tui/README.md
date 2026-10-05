@@ -20,6 +20,14 @@ On every launch you'll be prompted for:
 2. **Passphrase**: unlocks the BoltDB store (skip the prompt with
    `KAMUNE_DB_PASSPHRASE` or `-no-passphrase`)
 
+Only one program can have the database open at a time. If another, such as
+bus, the daemon or another TUI, has it open, the TUI waits for it to close
+the database for about five seconds after the passphrase, then says so and
+exits. A database written by an older version is upgraded when this
+version first opens it, which needs a writable directory and room on the
+disk for a copy of the file. If the upgrade fails, the TUI says so and
+exits; the older version can still open the database.
+
 ### Passphrase
 
 The passphrase is typed without echo. For a database that does not exist
