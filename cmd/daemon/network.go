@@ -252,8 +252,13 @@ func (d *Daemon) startServer(
 			)
 			return
 		}
+		var peerKey []byte
+		if len(tokenBytes) > 0 {
+			// deriveP2PToken checked the key.
+			peerKey, _ = decodeValidPeerKey(params.PeerPubB64)
+		}
 		pl, err := newP2PListener(
-			broker, params.BrokerAddr, tokenBytes, params.Addr,
+			broker, params.BrokerAddr, tokenBytes, peerKey, params.Addr,
 			d.p2pRefreshed,
 		)
 		if err != nil {
@@ -976,7 +981,10 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	d.loadHistorySessions()
 }
 
-// serverHandler handles incoming server connections.
+// serverHandler handles incoming server connections. A session that
+// came in on a static relay or p2p token is closed before it is stored
+// or shown, with errPeerKeyMismatch, when its peer is not the peer the
+// token was made for; see peerGate.
 func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	d.mu.RLock()
 	transport := d.serverTransport
@@ -987,10 +995,19 @@ func (d *Daemon) serverHandler(t *kamune.Transport) error {
 	d.mu.RUnlock()
 
 	sessionID := t.SessionID()
+	peer := t.RemotePeer()
+	if !admittedBy(t.AcceptedMeta(), peer.PublicKey) {
+		// The verifier has admitted it, but not for this token.
+		d.forgetAdmitted(peer.PublicKey)
+		d.addLogEntry("WARN", "Rejected incoming session from "+
+			identifyPeer(d.store(), peer).logName()+
+			": the token it used was made for another peer")
+		_ = t.Close()
+		return errPeerKeyMismatch
+	}
 	d.mu.Lock()
 	stampRelaySession(t.AcceptedMeta(), sessionID)
 	d.mu.Unlock()
-	peer := t.RemotePeer()
 	d.rememberPeer(d.store(), peer)
 	identity := identifyPeer(d.store(), peer)
 
@@ -1579,14 +1596,24 @@ func (d *Daemon) currentRelayTarget() (relayTarget, bool) {
 // listener to target's server, unless that server has stopped since. The
 // registration may take up to d.relayTimeout, so addRelayToken must not
 // run on the command loop. resumeOf names the session that the token is
-// registered for, so that its peer can resume it, or is empty. On
-// failure it returns the error code to report: relay_listen_failed,
-// server_stopped or listener_failed.
+// registered for, so that its peer can resume it, or is empty. A token
+// with peerPubB64, a static token, admits only that peer; see
+// tokenTracker.admitsPeer. On failure it returns the error code to
+// report: invalid_peer_key, relay_listen_failed, server_stopped or
+// listener_failed.
 func (d *Daemon) addRelayToken(
 	target relayTarget,
 	staticToken []byte,
 	mode, peerPubB64, resumeOf string,
 ) (relayToken, string, error) {
+	var peerKey []byte
+	if peerPubB64 != "" {
+		key, err := decodeValidPeerKey(peerPubB64)
+		if err != nil {
+			return relayToken{}, "invalid_peer_key", err
+		}
+		peerKey = key
+	}
 	listener, token, ttl, sessionTTL, err := listenRelayTracked(
 		d.ctx, d, target.addr, target.password, target.pin, staticToken,
 	)
@@ -1596,6 +1623,7 @@ func (d *Daemon) addRelayToken(
 	if tt, ok := listener.(*tokenTracker); ok {
 		// Set before the listener is in use.
 		tt.resumeOf = resumeOf
+		tt.peer = peerKey
 	}
 
 	rt := relayToken{

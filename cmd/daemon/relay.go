@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -116,6 +117,11 @@ type tokenTracker struct {
 	// that its peer can resume it, or empty. It is set before the
 	// listener is in use and not changed after.
 	resumeOf string
+	// peer is the key of the peer that a static token was derived for,
+	// the only peer that the token admits, or nil for a token that
+	// admits any peer; see admitsPeer. Like resumeOf, it is set before
+	// the listener is in use.
+	peer     []byte
 	consumed atomic.Bool
 	// stopping is set once the daemon stops or closes the listener.
 	stopping atomic.Bool
@@ -142,6 +148,13 @@ func (c *trackingConn) Close() error {
 		err = c.Conn.Close()
 	})
 	return err
+}
+
+// admitsPeer reports whether the token admits the peer whose key is key:
+// a static token admits only the peer it was derived for. It makes
+// tokenTracker, the AcceptedMeta of its connection, a peerGate.
+func (t *tokenTracker) admitsPeer(key []byte) bool {
+	return t.peer == nil || bytes.Equal(t.peer, key)
 }
 
 func (t *tokenTracker) Accept() (kamune.Conn, error) {

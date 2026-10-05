@@ -151,7 +151,12 @@ func (d *Daemon) GenerateP2PToken(
 		}
 		mode = "random"
 	}
-	if err := l.RegisterToken(token); err != nil {
+	var peerKey []byte
+	if staticToken != nil {
+		// deriveP2PToken checked the key.
+		peerKey, _ = decodeValidPeerKey(peerPubB64)
+	}
+	if err := l.RegisterToken(token, peerKey); err != nil {
 		return "", fmt.Errorf("register token on punch socket: %w", err)
 	}
 

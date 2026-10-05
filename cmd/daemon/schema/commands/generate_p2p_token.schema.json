@@ -6,7 +6,7 @@
   "type": "object",
   "properties": {
     "broker_addr":  { "type": "string", "description": "Broker address. Must be the broker_addr the p2p server was started with." },
-    "peer_pub_b64": { "type": "string", "description": "Base64-encoded public key of the target peer." }
+    "peer_pub_b64": { "type": "string", "description": "Base64-encoded public key of the peer to derive a static token for. A p2p server whose tokens are all static admits only their peers: a session whose peer has another key is closed before session_started. A random token, the server's own included, admits any peer." }
   },
   "required": ["broker_addr"]
 }

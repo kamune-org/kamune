@@ -336,7 +336,7 @@ func TestRemovedP2PTokensAreNotRegistered(t *testing.T) {
 	a.NoError(l.refreshRegistration())
 	// The broker reads the punch socket's packets in order, so once it
 	// has the REGISTER of tokenC it has those of the refresh as well.
-	a.NoError(l.RegisterToken(tokenC))
+	a.NoError(l.RegisterToken(tokenC, nil))
 	after := broker.waitRegistered(t, tokenC)[before:]
 	a.Len(after, 1)
 	a.True(relaybroker.TokenMatches(after[0], tokenC))

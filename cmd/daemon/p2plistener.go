@@ -23,6 +23,10 @@ import (
 type listenerToken struct {
 	token []byte
 	id    *brokerID
+	// peer is the key of the peer that a static token was derived for,
+	// or nil for a random token, which admits any peer; see
+	// p2pListener.admitsPeer.
+	peer []byte
 	// held is set when id comes from BrokerClient.identity, which the
 	// listener releases once it stops registering the token.
 	held bool
@@ -73,12 +77,13 @@ type p2pListener struct {
 
 // newP2PListener binds a punch socket at bindAddr and registers token
 // from it with the broker at brokerAddr, or a token that the broker
-// assigns when token is empty. It refreshes the registrations of its
-// tokens every p2pTokenRefreshInterval and calls onRefresh, if not nil,
-// after each refresh that went out.
+// assigns when token is empty. peerKey is the key of the peer that a
+// static token was derived for, or nil. It refreshes the registrations
+// of its tokens every p2pTokenRefreshInterval and calls onRefresh, if
+// not nil, after each refresh that went out.
 func newP2PListener(
-	broker *BrokerClient, brokerAddr string, token []byte, bindAddr string,
-	onRefresh func(l *p2pListener, at time.Time),
+	broker *BrokerClient, brokerAddr string, token, peerKey []byte,
+	bindAddr string, onRefresh func(l *p2pListener, at time.Time),
 ) (*p2pListener, error) {
 	if broker == nil {
 		return nil, fmt.Errorf("broker is required")
@@ -122,7 +127,7 @@ func newP2PListener(
 
 	// A static token has the identity that BrokerClient keeps for it. A
 	// random one, which the broker assigns anew, gets a new identity.
-	own := listenerToken{held: len(token) > 0}
+	own := listenerToken{held: len(token) > 0, peer: bytes.Clone(peerKey)}
 	if own.held {
 		own.id, err = broker.identity(brokerAddr, token)
 	} else {
@@ -133,7 +138,9 @@ func newP2PListener(
 		return nil, fmt.Errorf("broker client: %w", err)
 	}
 	if own.held {
-		l.tokens = []listenerToken{{token: token, id: own.id, held: true}}
+		l.tokens = []listenerToken{{
+			token: token, id: own.id, held: true, peer: own.peer,
+		}}
 	}
 	// Without a token, the broker assigns one; RegisterOn waits for it.
 	rctx, rcancel := context.WithTimeout(ctx, 2*time.Second)
@@ -164,12 +171,32 @@ func newP2PListener(
 	return l, nil
 }
 
+// Accept returns the next KCP session that a peer opened on the punch
+// socket, carrying the listener as its peer gate.
 func (l *p2pListener) Accept() (kamune.Conn, error) {
 	sess, err := l.kcp.AcceptKCP()
 	if err != nil {
 		return nil, err
 	}
-	return kamune.NewConn(sess), nil
+	return &gatedConn{Conn: kamune.NewConn(sess), gate: l}, nil
+}
+
+// admitsPeer reports whether a token that the listener registers admits
+// the peer whose key is key: a random token, or a static token derived
+// for that peer. A KCP session does not tell which token its peer
+// matched on, so this holds for the listener as a whole: while it
+// registers a random token, every peer is admitted, the peer of a
+// removed static token too. A listener that registers no token admits
+// no peer.
+func (l *p2pListener) admitsPeer(key []byte) bool {
+	l.tokenMu.RLock()
+	defer l.tokenMu.RUnlock()
+	for _, t := range l.tokens {
+		if t.peer == nil || bytes.Equal(t.peer, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *p2pListener) Close() error {
@@ -241,13 +268,17 @@ func (l *p2pListener) releaseToken(t listenerToken) {
 }
 
 // RegisterToken registers an additional token from the punch socket,
-// under the broker identity that BrokerClient keeps for it.
-func (l *p2pListener) RegisterToken(token []byte) error {
+// under the broker identity that BrokerClient keeps for it. peer is the
+// key of the peer that a static token was derived for, or nil for a
+// random token.
+func (l *p2pListener) RegisterToken(token, peer []byte) error {
 	id, err := l.broker.identity(l.brokerAddr, token)
 	if err != nil {
 		return fmt.Errorf("broker client: %w", err)
 	}
-	t := listenerToken{token: token, id: id, held: true}
+	t := listenerToken{
+		token: token, id: id, held: true, peer: bytes.Clone(peer),
+	}
 	pkt := relaybroker.BuildRegister(
 		token, id.PublicKey(), l.claimIP, l.claimPort,
 	)

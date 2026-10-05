@@ -12,7 +12,7 @@
     "password":          { "type": "string", "description": "Pre-shared key for relay authentication." },
     "name":              { "type": "string", "description": "Server display name. Defaults to a fingerprint pseudonym, which incognito mode always uses. A name longer than 64 bytes, or with a control, format, line separator or paragraph separator character, such as a line break, a bidirectional control or a zero-width space, fails with invalid_name; the zero-width joiner and non-joiner are allowed." },
     "broker_addr":       { "type": "string", "description": "UDP host:port of the broker. Required when transport is \"p2p\"." },
-    "peer_pub_b64":      { "type": "string", "description": "Base64-encoded public key of a specific peer for static P2P token derivation." },
+    "peer_pub_b64":      { "type": "string", "description": "Base64-encoded public key of a specific peer for static P2P token derivation. The static token admits only that peer; see generate_p2p_token." },
     "direct_peer_addr":  { "type": "string", "description": "UDP host:port of the peer. Required when transport is \"direct-p2p\"." }
   },
   "allOf": [
