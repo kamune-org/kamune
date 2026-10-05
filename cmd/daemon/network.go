@@ -2148,6 +2148,9 @@ func waitOrTimeout[T any](ch <-chan T, label string) {
 	}
 }
 
+// stopRelayResources closes the relay listeners of the server and drops
+// what the daemon kept of its relay, the session TTL included, so that
+// the sessions of a later server that is not a relay server carry none.
 func (d *Daemon) stopRelayResources() {
 	d.mu.Lock()
 	listeners := d.relayListeners
@@ -2157,6 +2160,7 @@ func (d *Daemon) stopRelayResources() {
 	d.relayAddr = ""
 	d.relayPassword = ""
 	d.relayPin = nil
+	d.relaySessionTTL = 0
 	d.mu.Unlock()
 	if listeners != nil {
 		_ = listeners.Close()

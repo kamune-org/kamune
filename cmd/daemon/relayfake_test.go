@@ -35,6 +35,9 @@ type fakeRelay struct {
 	scheme string
 	// ttl is the token TTL, in seconds, that the relay reports.
 	ttl atomic.Uint32
+	// sessionTTL is the session TTL, in seconds, that the relay
+	// reports.
+	sessionTTL atomic.Uint32
 	// wrongToken makes the relay answer a listener registration that
 	// asks for a token with another one.
 	wrongToken atomic.Bool
@@ -193,7 +196,10 @@ func (r *fakeRelay) handle(conn net.Conn) {
 
 func (r *fakeRelay) reply(ch *exchange.Channel, token []byte) {
 	b, _ := proto.Marshal(&pb.Frame{Kind: &pb.Frame_Registered{
-		Registered: &pb.Registered{Token: token, TtlSeconds: r.ttl.Load()},
+		Registered: &pb.Registered{
+			Token: token, TtlSeconds: r.ttl.Load(),
+			SessionTtlSeconds: r.sessionTTL.Load(),
+		},
 	}})
 	_ = ch.WriteBytes(b)
 }

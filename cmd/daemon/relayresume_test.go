@@ -589,3 +589,31 @@ func TestGenerateRelayTokenParams(t *testing.T) {
 		}
 	}
 }
+
+// The session TTL that a relay reported is that relay server's: once it
+// stops, the sessions of a tcp server started next carry no session TTL.
+func TestRelaySessionTTLEndsWithTheRelayServer(t *testing.T) {
+	a := require.New(t)
+	relay := newFakeRelay(t)
+	relay.sessionTTL.Store(300)
+	server, serverRec := newTestDaemon(t, VerificationModeQuick, false)
+	client, clientRec := newTestDaemon(t, VerificationModeQuick, false)
+	trustPeer(t, server, client)
+	trustPeer(t, client, server)
+
+	startRelayServer(t, server, serverRec, relay)
+	server.mu.RLock()
+	a.Equal(300*time.Second, server.relaySessionTTL)
+	server.mu.RUnlock()
+	server.stopServer()
+
+	serverRec.mu.Lock()
+	serverRec.events = nil
+	serverRec.mu.Unlock()
+	addr := startTestServer(t, server, serverRec)
+	id := dialTestServer(t, client, clientRec, addr)
+	evt := serverRec.waitFor(t, func(e recordedEvent) bool {
+		return e.Evt == EvtSessionStarted && e.Data["session_id"] == id
+	})
+	a.Equal(float64(0), evt.Data["session_ttl_ns"])
+}
