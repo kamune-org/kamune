@@ -50,4 +50,33 @@ var (
 	// ErrMissingVerifier is returned by NewServer and NewDialer when they
 	// are given a nil [RemoteVerifier].
 	ErrMissingVerifier = errors.New("remote verifier is required")
+	// ErrInvalidExport is returned when ExportKeyingMaterial is called
+	// with a label or length outside the allowed range.
+	ErrInvalidExport = errors.New("invalid exporter label or length")
+	// ErrUnsupportedProtocol is returned when a handshake frame's
+	// version is not the version this build speaks.
+	ErrUnsupportedProtocol = errors.New("unsupported protocol version")
+	// ErrInvalidHandshake is returned when a handshake frame has the
+	// right version but its type, length, or plaintext is not valid.
+	ErrInvalidHandshake = errors.New("malformed handshake message")
+	// ErrPeerKeyMismatch is returned when an authenticated peer key is
+	// not the pinned key, or a PeerConstraint rejects it.
+	ErrPeerKeyMismatch = errors.New(
+		"peer key does not match the pinned key",
+	)
+	// ErrSelfConnection is returned when the peer's identity key is
+	// the local identity key.
+	ErrSelfConnection = errors.New("peer key is the local key")
+	// ErrHandshakeRejected is returned when the peer sends a
+	// rejected Confirm.
+	ErrHandshakeRejected = errors.New("peer rejected the handshake")
+	// ErrNoResumptionState is returned when a resume was asked for
+	// and the session has no initiator row.
+	ErrNoResumptionState = errors.New("no resumption state for session")
+	// ErrResumeInProgress is returned when this process is already
+	// resuming the session.
+	ErrResumeInProgress = errors.New("session is being resumed already")
+	// ErrResumeRefused is returned when a resume-only dial is answered
+	// with a cold session.
+	ErrResumeRefused = errors.New("peer did not resume the session")
 )
