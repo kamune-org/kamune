@@ -285,7 +285,7 @@ func relayPair(
 	t *testing.T, r relayTarget, serverPass, dialPass string,
 ) (server, dialer relayResult) {
 	t.Helper()
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	accept := func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil }
 	ctx := context.Background()
 	delivered := make(chan relayResult, 1)
 	srv, token, ttl, err := relayServe(
@@ -433,7 +433,7 @@ func TestRelay_TLSCertificate(t *testing.T) {
 			}
 			tt.check(a, server.err)
 
-			accept := func(*storage.Storage, *storage.Peer) error {
+			accept := func(context.Context, *storage.Storage, kamune.VerifyRequest) error {
 				return nil
 			}
 			_, _, err = relayDial(

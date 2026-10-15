@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -200,7 +201,9 @@ func runVerifier(
 	vfn kamune.RemoteVerifier, store *storage.Storage, peer *storage.Peer,
 ) <-chan error {
 	done := make(chan error, 1)
-	go func() { done <- vfn(store, peer) }()
+	go func() {
+		done <- vfn(context.Background(), store, kamune.VerifyRequest{Peer: peer})
+	}()
 	return done
 }
 
@@ -454,7 +457,7 @@ func TestEnterChat_NamesAcceptedPeer(t *testing.T) {
 
 func TestEnterChat_SaysWhenASessionResumed(t *testing.T) {
 	a := require.New(t)
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	accept := func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil }
 	serverStore, dialerStore := openTestStore(t), openTestStore(t)
 	l := &pipeListener{
 		conns:  make(chan kamune.Conn, 2),

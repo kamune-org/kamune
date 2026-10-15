@@ -155,7 +155,7 @@ func TestConnected_DuringPromptEndsPrompt(t *testing.T) {
 
 func TestServe_HandlerKeepsSessionUntilReleased(t *testing.T) {
 	a := require.New(t)
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	accept := func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil }
 	clientNet, serverNet := net.Pipe()
 	delivered := make(chan connectedMsg, 1)
 	srv, err := serve("", openTestStore(t), accept,
@@ -364,7 +364,7 @@ func TestChat_EscInServeModeClosesGracefully(t *testing.T) {
 	m.state = stateConnecting
 	m.att = newAttempt()
 	att := m.att
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	accept := func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil }
 	clientNet, serverNet := net.Pipe()
 	delivered := make(chan connectedMsg, 1)
 	handlerDone := make(chan struct{})
@@ -397,8 +397,8 @@ func TestChat_EscInServeModeClosesGracefully(t *testing.T) {
 	m.Update(waitFor(t, delivered))
 	a.Equal(stateChat, m.state)
 	sid := m.sess.t.SessionID()
-	_, err = m.store.PopList(sid, storage.ResumptionTokensKey)
-	a.NoError(err, "the session has no resumption tokens to begin with")
+	_, err = m.store.GetResumption(sid, storage.ResumeRoleResponder)
+	a.NoError(err, "the session has no resumption row to begin with")
 
 	peerErr := make(chan error, 1)
 	go func() {
@@ -412,8 +412,8 @@ func TestChat_EscInServeModeClosesGracefully(t *testing.T) {
 	a.ErrorIs(waitFor(t, peerErr), kamune.ErrPeerDisconnected)
 	waitFor(t, handlerDone)
 	a.True(m.shutdown(time.Minute))
-	_, err = m.store.PopList(sid, storage.ResumptionTokensKey)
-	a.Error(err, "the closed session can still be resumed")
+	_, err = m.store.GetResumption(sid, storage.ResumeRoleResponder)
+	a.ErrorIs(err, storage.ErrNoResumption)
 }
 
 func TestSendPing(t *testing.T) {

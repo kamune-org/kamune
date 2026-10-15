@@ -676,7 +676,10 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 		timeout = verifyPromptTimeout
 	}
 	var prompting atomic.Bool
-	return func(store *storage.Storage, peer *storage.Peer) error {
+	return func(
+		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		peer := req.Peer
 		if !prompting.CompareAndSwap(false, true) {
 			return errPromptOpen
 		}

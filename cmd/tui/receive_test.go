@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"path/filepath"
 	"sync"
@@ -61,7 +62,7 @@ func dialPipe(
 ) *kamune.Transport {
 	t.Helper()
 	a := require.New(t)
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	accept := func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil }
 	clientNet, serverNet := net.Pipe()
 
 	srv, err := kamune.NewServer(

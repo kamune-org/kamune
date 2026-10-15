@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"strings"
 	"testing"
@@ -155,7 +156,7 @@ func TestVerify_NewKeyClaimingAContactsName(t *testing.T) {
 		clientNet, serverNet := net.Pipe()
 		l.conns <- kamune.NewConn(serverNet)
 		d, err := kamune.NewDialer("", dialerStore,
-			func(*storage.Storage, *storage.Peer) error { return nil },
+			func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil },
 			kamune.DialWithClientName(claimed),
 			kamune.DialWithFunc(func(string) (kamune.Conn, error) {
 				return kamune.NewConn(clientNet), nil

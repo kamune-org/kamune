@@ -26,7 +26,7 @@ func idleServer(t *testing.T, store *storage.Storage) (
 	}
 	// The listener takes no connections, so the verifier never runs; the
 	// core still requires one.
-	reject := func(*storage.Storage, *storage.Peer) error {
+	reject := func(context.Context, *storage.Storage, kamune.VerifyRequest) error {
 		return errors.New("idle server takes no peers")
 	}
 	srv, err := kamune.NewServer(
@@ -126,7 +126,7 @@ func TestDial_CancelEndsHandshake(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := dial(ctx, ln.Addr().String(), openTestStore(t),
-			func(*storage.Storage, *storage.Peer) error { return nil },
+			func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil },
 		)
 		done <- err
 	}()
