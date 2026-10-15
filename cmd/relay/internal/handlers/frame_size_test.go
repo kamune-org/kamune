@@ -161,7 +161,8 @@ func TestRelayCarriesLargestKamuneFrame(t *testing.T) {
 	sizes := []int{
 		1, 100, 900, 3000, 10_000, 30_000, 40_000, 60_000, 60_000, 60_000, 10,
 	}
-	verify := func(s *storage.Storage, p *storage.Peer) error {
+	verify := func(_ context.Context, s *storage.Storage, req kamune.VerifyRequest) error {
+		p := req.Peer
 		return s.StorePeer(p)
 	}
 	echo := func(tr *kamune.Transport) error {
