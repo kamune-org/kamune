@@ -338,7 +338,7 @@ func dialTestTransport(t *testing.T) *kamune.Transport {
 	addr, _ := startTestServer(t, "srv", readUntilEnd)
 	d, err := kamune.NewDialer(
 		addr, openTestStorage(t),
-		func(*storage.Storage, *storage.Peer) error { return nil },
+		func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil },
 		kamune.DialWithTCP(),
 	)
 	a.NoError(err)

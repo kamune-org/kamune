@@ -358,7 +358,7 @@ func TestReconnectStopsOnPermanentError(t *testing.T) {
 		wantRetry bool
 	}{
 		{"resumption rejected", fmt.Errorf("handshake: attempt resume: %w: %s",
-			kamune.ErrResumptionRejected, "resumption not available"), false},
+			kamune.ErrNoResumptionState, "resumption not available"), false},
 		{"no resumption token", fmt.Errorf("getting resumption token: %w",
 			storage.ErrNotFound), false},
 		{"session gone", fmt.Errorf("getting session peer: %w",

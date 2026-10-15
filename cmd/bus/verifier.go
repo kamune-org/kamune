@@ -92,14 +92,17 @@ func (a *App) pinPeer(
 	if want == nil {
 		return rv
 	}
-	return func(store *storage.Storage, peer *storage.Peer) error {
+	return func(
+		ctx context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		peer := req.Peer
 		if !bytes.Equal(peer.PublicKey, want) {
 			a.addLogEntry("WARN",
 				"Rejected peer "+a.identifyPeer(store, peer).logName()+
 					": its key is not the selected peer's key")
 			return ErrPeerKeyMismatch
 		}
-		return rv(store, peer)
+		return rv(ctx, store, req)
 	}
 }
 
@@ -110,7 +113,10 @@ func (a *App) pinPeer(
 func (a *App) createStrictVerifier(
 	ctx context.Context, inbound bool,
 ) kamune.RemoteVerifier {
-	return func(store *storage.Storage, peer *storage.Peer) error {
+	return func(
+		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		peer := req.Peer
 		id := a.identifyPeer(store, peer)
 		return a.promptVerification(
 			ctx, id, peer.PublicKey, "strict", inbound,
@@ -125,7 +131,10 @@ func (a *App) createStrictVerifier(
 func (a *App) createQuickVerifier(
 	ctx context.Context, inbound bool,
 ) kamune.RemoteVerifier {
-	return func(store *storage.Storage, peer *storage.Peer) error {
+	return func(
+		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		peer := req.Peer
 		id := a.identifyPeer(store, peer)
 		if id.Known {
 			a.addLogEntry("INFO", "Auto-accepted known peer: "+id.logName())
@@ -251,7 +260,10 @@ func (a *App) endVerification(reqID int64) {
 
 // createAutoAcceptVerifier admits every peer without asking.
 func (a *App) createAutoAcceptVerifier() kamune.RemoteVerifier {
-	return func(store *storage.Storage, peer *storage.Peer) error {
+	return func(
+		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		peer := req.Peer
 		a.addLogEntry("INFO",
 			"Auto-accepted peer: "+a.identifyPeer(store, peer).logName())
 		return nil

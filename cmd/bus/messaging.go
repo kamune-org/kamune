@@ -402,13 +402,13 @@ func sendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duration) 
 
 // reconnectRetryable reports whether a failed reconnect may succeed on a
 // later attempt. A resumption that the peer rejected
-// (kamune.ErrResumptionRejected), as it does once the session is past its
+// (kamune.ErrNoResumptionState), as it does once the session is past its
 // resumption window or the peer has deleted it, and missing storage or
 // resumption state do not change between attempts, so retrying them would
 // only keep a dead session listed.
 func reconnectRetryable(err error) bool {
 	for _, target := range []error{
-		kamune.ErrResumptionRejected,
+		kamune.ErrNoResumptionState,
 		kamune.ErrMissingStorage,
 		storage.ErrNotFound,
 		storage.ErrSessionNotFound,

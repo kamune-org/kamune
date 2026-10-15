@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -60,7 +61,7 @@ func startTestServer(
 
 	srv, err := kamune.NewServer(
 		"", handler, openTestStorage(t),
-		func(*storage.Storage, *storage.Peer) error { return nil },
+		func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil },
 		kamune.ServeWithListener(tcpTestListener{ln}),
 		kamune.ServeWithServerName(name),
 	)
@@ -104,12 +105,12 @@ func TestPinPeer(t *testing.T) {
 				}
 			}
 			ran := false
-			rv := app.pinPeer(want, func(*storage.Storage, *storage.Peer) error {
+			rv := app.pinPeer(want, func(context.Context, *storage.Storage, kamune.VerifyRequest) error {
 				ran = true
 				return nil
 			})
 
-			err := rv(app.store(), peer)
+			err := rv(context.Background(), app.store(), kamune.VerifyRequest{Peer: peer})
 			if tc.wantErr != nil {
 				a.ErrorIs(err, tc.wantErr)
 			} else {
@@ -384,7 +385,7 @@ func TestServerHandlerChecksTokenPeer(t *testing.T) {
 
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			a.NoError(err)
-			acceptAll := func(*storage.Storage, *storage.Peer) error {
+			acceptAll := func(context.Context, *storage.Storage, kamune.VerifyRequest) error {
 				return nil
 			}
 			var srv *kamune.Server
@@ -453,7 +454,7 @@ func TestServerHandlerDropsSessionOfStoppedServer(t *testing.T) {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	a.NoError(err)
-	acceptAll := func(*storage.Storage, *storage.Peer) error { return nil }
+	acceptAll := func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil }
 	// srv is not the app's server, as after StopServer has taken it out
 	// while a handshake was still in progress.
 	var srv *kamune.Server
@@ -546,7 +547,7 @@ func TestGetShareInfoP2P(t *testing.T) {
 	defer ln.Close()
 	srv, err := kamune.NewServer(
 		"", func(*kamune.Transport) error { return nil }, app.store(),
-		func(*storage.Storage, *storage.Peer) error { return nil },
+		func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil },
 		kamune.ServeWithListener(tcpTestListener{ln}),
 	)
 	a.NoError(err)

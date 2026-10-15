@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"slices"
 	"sync"
 	"testing"
@@ -50,12 +51,14 @@ func waitPending(t *testing.T, app *App, n int) []int64 {
 
 // runVerifier runs rv in a goroutine and returns its result channel.
 func runVerifier(
-	app *App, rv func(*storage.Storage, *storage.Peer) error,
+	app *App, rv func(context.Context, *storage.Storage, kamune.VerifyRequest) error,
 	peer *storage.Peer,
 ) <-chan error {
 	errCh := make(chan error, 1)
 	store := app.store()
-	go func() { errCh <- rv(store, peer) }()
+	go func() {
+		errCh <- rv(context.Background(), store, kamune.VerifyRequest{Peer: peer})
+	}()
 	return errCh
 }
 

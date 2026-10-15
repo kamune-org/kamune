@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -35,7 +36,9 @@ func newIncognitoApp(t *testing.T) *App {
 	return app
 }
 
-func acceptAll(*storage.Storage, *storage.Peer) error { return nil }
+func acceptAll(context.Context, *storage.Storage, kamune.VerifyRequest) error {
+	return nil
+}
 
 func TestIncognitoDialLeavesNoSessionRecord(t *testing.T) {
 	a := require.New(t)
