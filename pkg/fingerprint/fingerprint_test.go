@@ -1,6 +1,7 @@
 package fingerprint
 
 import (
+	"bytes"
 	"encoding/base64"
 	"math"
 	"strconv"
@@ -154,4 +155,19 @@ func TestNumericFormat(t *testing.T) {
 		}
 	}
 	a.NotEqual(Numeric([]byte("a")), Numeric([]byte("b")))
+}
+
+func TestSafetyNumber(t *testing.T) {
+	a := require.New(t)
+	left := bytes.Repeat([]byte{0x01}, 44)
+	right := bytes.Repeat([]byte{0x02}, 44)
+	got := SafetyNumber(left, right)
+	a.Equal(got, SafetyNumber(right, left))
+	a.Contains(got, Numeric(left))
+	a.Contains(got, Numeric(right))
+	lines := strings.Split(got, "\n")
+	a.Equal([]string{Numeric(left), Numeric(right)}, lines)
+	digits := strings.ReplaceAll(got, " ", "")
+	digits = strings.ReplaceAll(digits, "\n", "")
+	a.Len(digits, 80)
 }

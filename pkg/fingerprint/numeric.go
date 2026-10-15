@@ -1,6 +1,7 @@
 package fingerprint
 
 import (
+	"bytes"
 	"crypto/sha512"
 	"strconv"
 	"strings"
@@ -48,4 +49,13 @@ func Numeric(b []byte) string {
 		sb.WriteString(group)
 	}
 	return sb.String()
+}
+
+// SafetyNumber returns the Numeric codes of a and b, one per line, with
+// the bytewise-smaller input first. Compare those Numeric codes.
+func SafetyNumber(a, b []byte) string {
+	if bytes.Compare(a, b) > 0 {
+		a, b = b, a
+	}
+	return Numeric(a) + "\n" + Numeric(b)
 }
