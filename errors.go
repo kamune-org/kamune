@@ -18,8 +18,8 @@ var (
 	// ErrInvalidSignature is returned when a cryptographic signature fails
 	// verification.
 	ErrInvalidSignature = errors.New("invalid signature")
-	// ErrVerificationFailed is returned when a peer verification check
-	// (e.g. challenge-response, remote verifier) does not pass.
+	// ErrVerificationFailed is returned when a handshake check, such as
+	// the remote verifier or a finished MAC, does not pass.
 	ErrVerificationFailed = errors.New("verification failed")
 	// ErrMessageTooLarge is returned when a frame exceeds maxTransportSize.
 	ErrMessageTooLarge = errors.New("message is too large")
@@ -34,14 +34,11 @@ var (
 	ErrInvalidRoute = errors.New("invalid route")
 	// ErrReceiveTimeout is returned when Transport.Receive exceeds its deadline.
 	ErrReceiveTimeout = errors.New("receive timed out")
-	// ErrResumptionRejected is returned when a ResumeRequest is rejected by the
-	//  responder (session not found, expired, token invalid, etc.).
-	ErrResumptionRejected = errors.New("resumption rejected")
 	// ErrInvalidPeerName is returned when a peer's name, local or received
-	// in an introduction, fails [ValidatePeerName].
+	// in a handshake, fails [ValidatePeerName].
 	ErrInvalidPeerName = errors.New("invalid peer name")
 	// ErrInvalidAppVersion is returned when a version, the local
-	// [AppVersion] or one received in an introduction, fails
+	// [AppVersion] or one received in a handshake, fails
 	// [ValidateAppVersion].
 	ErrInvalidAppVersion = errors.New("invalid app version")
 	// ErrMissingStorage is returned by NewServer and NewDialer when they are

@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,11 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xtaci/kcp-go/v5"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/kamune-org/kamune/internal/clock"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-func TestServerHandshakeDeadlineCoversExchange(t *testing.T) {
+func TestServerHandshakeDeadlineCoversHello(t *testing.T) {
 	a := require.New(t)
 	client, server := net.Pipe()
 	t.Cleanup(func() {
@@ -57,7 +60,8 @@ func TestServerClearsHandshakeDeadlineBeforeHandler(t *testing.T) {
 		_ = serverConn.Close()
 	})
 
-	verifier := func(store *storage.Storage, peer *storage.Peer) error {
+	verifier := func(_ context.Context, store *storage.Storage, req VerifyRequest) error {
+		peer := req.Peer
 		return store.StorePeer(peer)
 	}
 	handlerErr := make(chan error, 1)
@@ -103,7 +107,8 @@ func coldDial(
 ) string {
 	t.Helper()
 	a := require.New(t)
-	verifier := func(store *storage.Storage, peer *storage.Peer) error {
+	verifier := func(_ context.Context, store *storage.Storage, req VerifyRequest) error {
+		peer := req.Peer
 		return store.StorePeer(peer)
 	}
 
@@ -157,15 +162,19 @@ func TestDialPersistsAndResumesSession(t *testing.T) {
 	defer cleanupServer()
 
 	sessionID := coldDial(t, clientStore, serverStore)
-	for _, store := range []*storage.Storage{clientStore, serverStore} {
-		m, err := store.GetMeta(sessionID, storage.ResumptionTokensKey)
-		a.NoError(err)
-		a.Greater(len(m.Value()), 4)
-		_, err = store.GetEstablishedAt(sessionID)
-		a.NoError(err)
-	}
+	row, err := clientStore.GetResumption(
+		sessionID, storage.ResumeRoleInitiator,
+	)
+	a.NoError(err)
+	a.NotEmpty(row.Current)
+	row, err = serverStore.GetResumption(
+		sessionID, storage.ResumeRoleResponder,
+	)
+	a.NoError(err)
+	a.NotEmpty(row.Current)
 
-	verifier := func(store *storage.Storage, peer *storage.Peer) error {
+	verifier := func(_ context.Context, store *storage.Storage, req VerifyRequest) error {
+		peer := req.Peer
 		return store.StorePeer(peer)
 	}
 	clientNet, serverNet := net.Pipe()
@@ -205,6 +214,7 @@ func TestDialPersistsAndResumesSession(t *testing.T) {
 	tr, err := dialer.Dial()
 	a.NoError(err)
 	a.Equal(sessionID, tr.SessionID())
+	a.True(tr.Resumed())
 	msg := Bytes(nil)
 	_, err = tr.Receive(msg)
 	a.NoError(err)
@@ -239,7 +249,8 @@ func dialServedWith(
 ) (client, server *Transport, err error) {
 	t.Helper()
 	a := require.New(t)
-	verifier := func(store *storage.Storage, peer *storage.Peer) error {
+	verifier := func(_ context.Context, store *storage.Storage, req VerifyRequest) error {
+		peer := req.Peer
 		return store.StorePeer(peer)
 	}
 	clientNet, serverNet := net.Pipe()
@@ -332,75 +343,20 @@ func TestClosingReplacedTransportKeepsResumedSession(t *testing.T) {
 	}
 }
 
-// TestClosingReplacedTransportWithoutPersistence pins what the Close doc
-// says of a resumption without persistence: it stores no new tokens, so
-// closing the transport it replaced deletes the tokens the resumed
-// session would need on that side, and CloseAbort keeps them. Both sides
-// resume without persistence; with only one, the other would store new
-// tokens that the first does not know.
-func TestClosingReplacedTransportWithoutPersistence(t *testing.T) {
-	cases := []struct {
-		closeOld  func(client, server *Transport) error
-		wantErr   error
-		name      string
-		resumable bool
-	}{
-		{
-			name:     "dialer closes its old transport",
-			closeOld: func(c, _ *Transport) error { return c.Close() },
-			wantErr:  storage.ErrNotFound,
-		},
-		{
-			name:     "server closes its old transport",
-			closeOld: func(_, s *Transport) error { return s.Close() },
-			wantErr:  ErrResumptionRejected,
-		},
-		{
-			name:      "dialer aborts its old transport",
-			closeOld:  func(c, _ *Transport) error { return c.CloseAbort() },
-			resumable: true,
-		},
-		{
-			name:      "server aborts its old transport",
-			closeOld:  func(_, s *Transport) error { return s.CloseAbort() },
-			resumable: true,
-		},
+// TestDialWithoutPersistenceRejectsResume checks that asking to resume
+// with persistence off fails in NewDialer.
+func TestDialWithoutPersistenceRejectsResume(t *testing.T) {
+	a := require.New(t)
+	store := newTransportTestStorage(t)
+	accept := func(context.Context, *storage.Storage, VerifyRequest) error {
+		return nil
 	}
-	serverOpts := []ServerOptions{ServeWithoutPersistence()}
-	dialOpts := []DialOption{DialWithoutPersistence()}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			a := require.New(t)
-			clientStore, cleanupClient := newTestStore(t)
-			defer cleanupClient()
-			serverStore, cleanupServer := newTestStore(t)
-			defer cleanupServer()
-
-			oldClient, oldServer := dialServed(
-				t, clientStore, serverStore, "",
-			)
-			sessionID := oldClient.SessionID()
-			a.NoError(oldClient.CloseAbort())
-
-			resumed, _, err := dialServedWith(
-				t, clientStore, serverStore, sessionID, serverOpts, dialOpts,
-			)
-			a.NoError(err)
-			a.Equal(sessionID, resumed.SessionID())
-			_ = tc.closeOld(oldClient, oldServer)
-			a.NoError(resumed.CloseAbort())
-
-			again, _, err := dialServedWith(
-				t, clientStore, serverStore, sessionID, serverOpts, dialOpts,
-			)
-			if !tc.resumable {
-				a.ErrorIs(err, tc.wantErr)
-				return
-			}
-			a.NoError(err)
-			a.Equal(sessionID, again.SessionID())
-		})
-	}
+	_, err := NewDialer(
+		"", store, accept,
+		DialWithoutPersistence(),
+		DialWithResume("session"),
+	)
+	a.ErrorContains(err, "resume requires persistence")
 }
 
 type metaConn struct {
@@ -427,7 +383,8 @@ func TestAcceptedMeta_ReachesHandler(t *testing.T) {
 	})
 
 	got := make(chan any, 1)
-	verifier := func(store *storage.Storage, peer *storage.Peer) error {
+	verifier := func(_ context.Context, store *storage.Storage, req VerifyRequest) error {
+		peer := req.Peer
 		return store.StorePeer(peer)
 	}
 	server, err := NewServer(
@@ -505,7 +462,7 @@ func TestWithoutPersistenceLeavesNoSessionRecord(t *testing.T) {
 				_ = serverConn.Close()
 			})
 
-			verifier := func(*storage.Storage, *storage.Peer) error {
+			verifier := func(context.Context, *storage.Storage, VerifyRequest) error {
 				return nil
 			}
 			server, err := NewServer(
@@ -549,88 +506,75 @@ func TestWithoutPersistenceLeavesNoSessionRecord(t *testing.T) {
 	}
 }
 
-func TestWithoutPersistenceResumedSessionLosesTokensOnClose(t *testing.T) {
-	cases := []struct {
-		name       string
-		serverOpts []ServerOptions
-		dialOpts   []DialOption
-	}{
-		{
-			name:       "server without persistence",
-			serverOpts: []ServerOptions{ServeWithoutPersistence()},
-		},
-		{
-			name:     "dialer without persistence",
-			dialOpts: []DialOption{DialWithoutPersistence()},
-		},
+func TestServerWithoutPersistenceAnswersCold(t *testing.T) {
+	a := require.New(t)
+	clientStore, cleanupClient := newTestStore(t)
+	defer cleanupClient()
+	serverStore, cleanupServer := newTestStore(t)
+	defer cleanupServer()
+	sessionID := coldDial(t, clientStore, serverStore)
+
+	clientNet, serverNet := net.Pipe()
+	clientConn := newConn(clientNet)
+	serverConn := newConn(serverNet)
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+	})
+
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error {
+		return nil
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			a := require.New(t)
-			clientStore, cleanupClient := newTestStore(t)
-			defer cleanupClient()
-			serverStore, cleanupServer := newTestStore(t)
-			defer cleanupServer()
-			sessionID := coldDial(t, clientStore, serverStore)
-
-			clientNet, serverNet := net.Pipe()
-			clientConn := newConn(clientNet)
-			serverConn := newConn(serverNet)
-			t.Cleanup(func() {
-				_ = clientConn.Close()
-				_ = serverConn.Close()
-			})
-
-			verifier := func(*storage.Storage, *storage.Peer) error {
+	server, err := NewServer(
+		"",
+		func(tr *Transport) error {
+			_, err := tr.Receive(Bytes(nil))
+			if errors.Is(err, ErrPeerDisconnected) {
 				return nil
 			}
-			server, err := NewServer(
-				"",
-				func(tr *Transport) error {
-					_, err := tr.Receive(Bytes(nil))
-					if errors.Is(err, ErrPeerDisconnected) {
-						return nil
-					}
-					return err
-				},
-				serverStore,
-				verifier,
-				tc.serverOpts...,
-			)
-			a.NoError(err)
-			serveErr := make(chan error, 1)
-			go func() {
-				serveErr <- server.serve(serverConn)
-			}()
+			return err
+		},
+		serverStore,
+		verifier,
+		ServeWithoutPersistence(),
+	)
+	a.NoError(err)
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- server.serve(serverConn)
+	}()
 
-			dialer, err := NewDialer("", clientStore, verifier, append(
-				tc.dialOpts,
-				DialWithResume(sessionID),
-				DialWithFunc(func(string) (Conn, error) {
-					return clientConn, nil
-				}),
-			)...)
-			a.NoError(err)
-			tr, err := dialer.Dial()
-			a.NoError(err)
-			a.Equal(sessionID, tr.SessionID())
-			a.NoError(tr.Close())
-			a.NoError(<-serveErr)
+	dialer, err := NewDialer(
+		"", clientStore, verifier,
+		DialWithResume(sessionID),
+		DialWithFunc(func(string) (Conn, error) {
+			return clientConn, nil
+		}),
+	)
+	a.NoError(err)
+	tr, err := dialer.Dial()
+	a.NoError(err)
+	a.False(tr.Resumed())
+	a.NotEqual(sessionID, tr.SessionID())
+	a.NoError(tr.Close())
+	a.NoError(<-serveErr)
 
-			stores := map[string]*storage.Storage{
-				"server": serverStore,
-				"client": clientStore,
-			}
-			for side, store := range stores {
-				_, err := store.PopList(sessionID, storage.ResumptionTokensKey)
-				a.ErrorIs(err, storage.ErrNotFound, "%s tokens", side)
-			}
-		})
-	}
+	_, err = clientStore.GetResumption(
+		sessionID, storage.ResumeRoleInitiator,
+	)
+	a.ErrorIs(err, storage.ErrNoResumption)
+	_, err = serverStore.GetResumption(
+		sessionID, storage.ResumeRoleResponder,
+	)
+	a.NoError(err)
+	_, err = clientStore.GetResumption(
+		tr.SessionID(), storage.ResumeRoleInitiator,
+	)
+	a.ErrorIs(err, storage.ErrNoResumption)
 }
 
 func TestNilStorageIsAnError(t *testing.T) {
-	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	cases := []struct {
 		build func() error
 		name  string
@@ -703,6 +647,31 @@ func TestNilVerifierIsAnError(t *testing.T) {
 			a.NotPanics(func() { err = tc.build() })
 			a.ErrorIs(err, ErrMissingVerifier)
 		})
+	}
+}
+
+func newTestStore(
+	t testing.TB, opts ...storage.StorageOption,
+) (*storage.Storage, func()) {
+	t.Helper()
+	a := require.New(t)
+	f, err := os.CreateTemp("", "kamune-test-*.db")
+	a.NoError(err)
+	a.NoError(f.Close())
+
+	s, err := storage.OpenStorage(
+		append(
+			[]storage.StorageOption{
+				storage.WithDBPath(f.Name()),
+				storage.WithNoPassphrase(),
+			},
+			opts...,
+		)...,
+	)
+	a.NoError(err)
+	return s, func() {
+		_ = s.Close()
+		_ = os.Remove(f.Name())
 	}
 }
 
@@ -810,7 +779,7 @@ func startTestServer(
 		"",
 		func(*Transport) error { return nil },
 		store,
-		func(*storage.Storage, *storage.Peer) error { return nil },
+		func(context.Context, *storage.Storage, VerifyRequest) error { return nil },
 		append(opts, ServeWithListener(l))...,
 	)
 	a.NoError(err)
@@ -1150,7 +1119,7 @@ func TestIdleTCPConnsFromOneHostDoNotBlockDialer(t *testing.T) {
 	t.Cleanup(cleanupServer)
 	clientStore, cleanupClient := newTestStore(t)
 	t.Cleanup(cleanupClient)
-	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	server, err := NewServer(
 		"127.0.0.1:0",
 		func(*Transport) error { return nil },
@@ -1222,7 +1191,7 @@ func TestIdleTCPConnsFromManyHostsDoNotBlockDialer(t *testing.T) {
 	t.Cleanup(cleanupServer)
 	clientStore, cleanupClient := newTestStore(t)
 	t.Cleanup(cleanupClient)
-	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	server, err := NewServer(
 		"127.0.0.1:0",
 		func(*Transport) error { return nil },
@@ -1338,7 +1307,7 @@ func TestIdleConnsFromOneNetworkDoNotDropDialer(t *testing.T) {
 	a := require.New(t)
 	clientStore, cleanupClient := newTestStore(t)
 	t.Cleanup(cleanupClient)
-	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	l := newTestListener(net.ErrClosed)
 	// Keep the idle connections waiting for the whole test.
 	startTestServer(t, l, ServeWithIntroTimeout(time.Hour))
@@ -1405,7 +1374,7 @@ func TestTiedNetworksLoseConnsAtRandom(t *testing.T) {
 			"",
 			func(*Transport) error { return nil },
 			store,
-			func(*storage.Storage, *storage.Peer) error { return nil },
+			func(context.Context, *storage.Storage, VerifyRequest) error { return nil },
 			ServeWithListener(newTestListener(net.ErrClosed)),
 			ServeWithMaxPendingHandshakes(len(addrs)),
 		)
@@ -1425,6 +1394,50 @@ func TestTiedNetworksLoseConnsAtRandom(t *testing.T) {
 	for _, addr := range addrs {
 		a.Positive(dropped[addr], "%s was never dropped", addr)
 	}
+}
+
+func TestServer_HelloStageEviction(t *testing.T) {
+	a := require.New(t)
+	store, cleanup := newTestStore(t)
+	t.Cleanup(cleanup)
+	const n = 2
+	server, err := NewServer(
+		"",
+		func(*Transport) error { return nil },
+		store,
+		func(context.Context, *storage.Storage, VerifyRequest) error { return nil },
+		ServeWithListener(newTestListener(net.ErrClosed)),
+		ServeWithMaxPendingHandshakes(n),
+	)
+	a.NoError(err)
+
+	waiting := newSourceConn(stubbornConn{}, "10.9.0.1:1")
+	wp, _, ok := server.admit(waiting)
+	a.True(ok)
+	a.NotNil(wp)
+
+	hellos := make([]*sourceConn, n)
+	for i := range n {
+		c := newSourceConn(stubbornConn{}, fmt.Sprintf("10.8.%d.1:1", i))
+		p, _, ok := server.admit(c)
+		a.True(ok)
+		a.NoError(server.helloReceived(p))
+		hellos[i] = c
+	}
+	extra := newSourceConn(stubbornConn{}, "10.8.9.1:1")
+	ep, _, ok := server.admit(extra)
+	a.True(ok)
+	a.NoError(server.helloReceived(ep))
+
+	closed := 0
+	for _, c := range hellos {
+		if c.isClosed() {
+			closed++
+		}
+	}
+	a.Equal(1, closed)
+	a.False(waiting.isClosed())
+	a.False(extra.isClosed())
 }
 
 func TestPendingCapsByTransport(t *testing.T) {
@@ -1448,7 +1461,7 @@ func TestPendingCapsByTransport(t *testing.T) {
 					"",
 					func(*Transport) error { return nil },
 					store,
-					func(*storage.Storage, *storage.Peer) error { return nil },
+					func(context.Context, *storage.Storage, VerifyRequest) error { return nil },
 					ServeWithListener(newTestListener(net.ErrClosed)),
 				)
 				a.NoError(err)
@@ -1548,7 +1561,7 @@ func TestKCPFloodFromManySourcesDoesNotDropDialer(t *testing.T) {
 	t.Cleanup(cleanupServer)
 	clientStore, cleanupClient := newTestStore(t)
 	t.Cleanup(cleanupClient)
-	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	kl, err := kcp.Listen("127.0.0.1:0")
 	a.NoError(err)
 	addr := kl.Addr().String()
@@ -1649,7 +1662,7 @@ func TestIntroducedConnIsNotDropped(t *testing.T) {
 		"",
 		func(*Transport) error { return nil },
 		serverStore,
-		func(*storage.Storage, *storage.Peer) error {
+		func(context.Context, *storage.Storage, VerifyRequest) error {
 			close(verifying)
 			<-release
 			return nil
@@ -1673,7 +1686,7 @@ func TestIntroducedConnIsNotDropped(t *testing.T) {
 	dialer, err := NewDialer(
 		"",
 		clientStore,
-		func(*storage.Storage, *storage.Peer) error { return nil },
+		func(context.Context, *storage.Storage, VerifyRequest) error { return nil },
 		DialWithFunc(func(string) (Conn, error) { return clientConn, nil }),
 	)
 	a.NoError(err)
@@ -1755,8 +1768,8 @@ func (h *logRecorder) levels(msg string) []slog.Level {
 }
 
 func TestServeConnLogLevel(t *testing.T) {
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
-	reject := func(*storage.Storage, *storage.Peer) error {
+	accept := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
+	reject := func(context.Context, *storage.Storage, VerifyRequest) error {
 		return ErrVerificationFailed
 	}
 	cases := []struct {
@@ -1771,7 +1784,7 @@ func TestServeConnLogLevel(t *testing.T) {
 		{
 			name:     "closed before the introduction",
 			verifier: accept,
-			msg:      "serve conn before introduction",
+			msg:      "serve conn before authentication",
 			level:    slog.LevelDebug,
 		},
 		{
@@ -1848,7 +1861,7 @@ func TestIntroTimeoutOptionRejectsNonPositive(t *testing.T) {
 	a := require.New(t)
 	store, cleanup := newTestStore(t)
 	defer cleanup()
-	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	for _, d := range []time.Duration{0, -time.Second} {
 		_, err := NewServer(
 			"", func(*Transport) error { return nil }, store, verifier,
@@ -1935,10 +1948,10 @@ func runVerifierHandshake(
 
 func TestSlowVerifierOutlastsHandshakeDeadline(t *testing.T) {
 	const timeout = time.Second
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	accept := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	// slow accepts only after the handshake deadline set before the
 	// verifier started has certainly passed.
-	slow := func(*storage.Storage, *storage.Peer) error {
+	slow := func(context.Context, *storage.Storage, VerifyRequest) error {
 		time.Sleep(timeout + 500*time.Millisecond)
 		return nil
 	}
@@ -1968,8 +1981,8 @@ func TestSlowVerifierOutlastsHandshakeDeadline(t *testing.T) {
 
 func TestLateVerifierAcceptIsRejected(t *testing.T) {
 	const limit = 100 * time.Millisecond
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
-	late := func(*storage.Storage, *storage.Peer) error {
+	accept := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
+	late := func(context.Context, *storage.Storage, VerifyRequest) error {
 		time.Sleep(3 * limit)
 		return nil
 	}
@@ -2018,7 +2031,7 @@ func TestVerifyTimeoutOptionsRejectNonPositive(t *testing.T) {
 	a := require.New(t)
 	store, cleanup := newTestStore(t)
 	defer cleanup()
-	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	for _, d := range []time.Duration{0, -time.Second} {
 		_, err := NewServer(
 			"", func(*Transport) error { return nil }, store, verifier,
@@ -2042,14 +2055,11 @@ func TestCloseStopsHandshakesInProgress(t *testing.T) {
 	cases := []struct {
 		wrap func(Conn) Conn
 		name string
-		// completes is whether the handshake still completes after Close.
-		completes bool
 	}{
 		{name: "pending connection is closed", wrap: func(c Conn) Conn { return c }},
 		{
-			name:      "handshake completing after close",
-			wrap:      func(c Conn) Conn { return stubbornConn{Conn: c} },
-			completes: true,
+			name: "close is ignored but the context ends the handshake",
+			wrap: func(c Conn) Conn { return stubbornConn{Conn: c} },
 		},
 	}
 	for _, tc := range cases {
@@ -2071,7 +2081,7 @@ func TestCloseStopsHandshakesInProgress(t *testing.T) {
 					return nil
 				},
 				serverStore,
-				func(*storage.Storage, *storage.Peer) error {
+				func(context.Context, *storage.Storage, VerifyRequest) error {
 					close(verifying)
 					<-release
 					return nil
@@ -2094,7 +2104,7 @@ func TestCloseStopsHandshakesInProgress(t *testing.T) {
 			dialer, err := NewDialer(
 				"",
 				clientStore,
-				func(*storage.Storage, *storage.Peer) error { return nil },
+				func(context.Context, *storage.Storage, VerifyRequest) error { return nil },
 				DialWithFunc(func(string) (Conn, error) {
 					return clientConn, nil
 				}),
@@ -2133,12 +2143,7 @@ func TestCloseStopsHandshakesInProgress(t *testing.T) {
 			a.Empty(sessions, "session stored for a handshake dropped at Close")
 
 			got := <-dialed
-			if !tc.completes {
-				a.Error(got.dialErr)
-				return
-			}
-			a.NoError(got.dialErr)
-			a.ErrorIs(got.recvErr, ErrPeerDisconnected)
+			a.Error(got.dialErr)
 		})
 	}
 }
@@ -2150,7 +2155,7 @@ func TestShutdownWaitsForHandlers(t *testing.T) {
 	serverStore, cleanupServer := newTestStore(t)
 	defer cleanupServer()
 
-	verifier := func(*storage.Storage, *storage.Peer) error { return nil }
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	started := make(chan struct{})
 	release := make(chan struct{})
 	l := newTestListener(net.ErrClosed)
@@ -2243,7 +2248,7 @@ func TestNewServerFailureLeavesPortFree(t *testing.T) {
 			a := require.New(t)
 			store, cleanup := newTestStore(t)
 			defer cleanup()
-			verifier := func(*storage.Storage, *storage.Peer) error {
+			verifier := func(context.Context, *storage.Storage, VerifyRequest) error {
 				return nil
 			}
 			handler := func(*Transport) error { return nil }
@@ -2279,7 +2284,7 @@ func resumeDial(
 	sessionID string,
 	verifier RemoteVerifier,
 	opts ...ServerOptions,
-) (error, error) {
+) (*Transport, error, error) {
 	t.Helper()
 	a := require.New(t)
 	clientNet, serverNet := net.Pipe()
@@ -2323,14 +2328,13 @@ func resumeDial(
 		a.NoError(err)
 		a.Equal([]byte("resumed"), msg.Value)
 	}
-	return dialErr, <-serveErr
+	return tr, dialErr, <-serveErr
 }
 
-// TestResumeSkipsVerifierUntilPeerDeleted pins what the docs of
-// ServeWithResumeEnabled and RemoteVerifier say: a resumed session runs no
-// verifier, and deleting the peer from the server's storage stops it from
-// resuming.
-func TestResumeSkipsVerifierUntilPeerDeleted(t *testing.T) {
+// TestResumeRunsVerifierAndDropsDeletedPeer checks that a resumed session
+// still runs the verifier, and that deleting the peer from the dialer's
+// storage makes the next resume fail.
+func TestResumeRunsVerifierAndDropsDeletedPeer(t *testing.T) {
 	a := require.New(t)
 	clientStore, cleanupClient := newTestStore(t)
 	defer cleanupClient()
@@ -2340,32 +2344,33 @@ func TestResumeSkipsVerifierUntilPeerDeleted(t *testing.T) {
 	sessionID := coldDial(t, clientStore, serverStore)
 
 	var calls atomic.Int32
-	verifier := func(*storage.Storage, *storage.Peer) error {
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error {
 		calls.Add(1)
-		return errors.New("verifier must not run")
+		return nil
 	}
-	dialErr, serveErr := resumeDial(
+	tr, dialErr, serveErr := resumeDial(
 		t, clientStore, serverStore, sessionID, verifier,
 	)
 	a.NoError(dialErr)
 	a.NoError(serveErr)
-	a.Zero(calls.Load())
+	a.True(tr.Resumed())
+	a.Positive(calls.Load())
 
-	clientKey, err := clientStore.PublicKey()
+	row, err := clientStore.GetResumption(
+		sessionID, storage.ResumeRoleInitiator,
+	)
 	a.NoError(err)
-	a.NoError(serverStore.DeletePeer(clientKey))
-	dialErr, serveErr = resumeDial(
+	a.NoError(clientStore.DeletePeer(row.PeerKey))
+	_, dialErr, serveErr = resumeDial(
 		t, clientStore, serverStore, sessionID, verifier,
 	)
-	a.ErrorIs(dialErr, ErrResumptionRejected)
+	a.ErrorIs(dialErr, ErrNoResumptionState)
 	a.Error(serveErr)
 }
 
-// TestResumeDisabledRejects checks that a server with resumption off
-// answers a resume request with a rejection, so the dialer gets
-// ErrResumptionRejected rather than a closed connection, and that the
-// session's tokens stay unused.
-func TestResumeDisabledRejects(t *testing.T) {
+// TestResumeDisabledAnswersCold checks that a server with resumption off
+// answers an offer with a cold handshake and still runs the verifier.
+func TestResumeDisabledAnswersCold(t *testing.T) {
 	a := require.New(t)
 	clientStore, cleanupClient := newTestStore(t)
 	defer cleanupClient()
@@ -2373,26 +2378,26 @@ func TestResumeDisabledRejects(t *testing.T) {
 	defer cleanupServer()
 
 	sessionID := coldDial(t, clientStore, serverStore)
-	tokens, err := serverStore.GetList(sessionID, storage.ResumptionTokensKey)
-	a.NoError(err)
-
-	verifier := func(*storage.Storage, *storage.Peer) error {
-		return errors.New("verifier must not run")
+	var calls atomic.Int32
+	verifier := func(context.Context, *storage.Storage, VerifyRequest) error {
+		calls.Add(1)
+		return nil
 	}
-	dialErr, serveErr := resumeDial(
+	tr, dialErr, serveErr := resumeDial(
 		t, clientStore, serverStore, sessionID, verifier,
 		ServeWithResumeEnabled(false),
 	)
-	a.ErrorIs(dialErr, ErrResumptionRejected)
-	a.ErrorContains(serveErr, "resume rejected: resumption not available")
-	after, err := serverStore.GetList(sessionID, storage.ResumptionTokensKey)
-	a.NoError(err)
-	a.Equal(tokens, after)
+	a.NoError(dialErr)
+	a.NoError(serveErr)
+	a.False(tr.Resumed())
+	a.NotEqual(sessionID, tr.SessionID())
+	a.Positive(calls.Load())
 }
 
-// TestResumeWindowStartsAtColdHandshake checks that resuming a session does
-// not extend its resumption window, which counts from the cold handshake.
-func TestResumeWindowStartsAtColdHandshake(t *testing.T) {
+// TestResumeMaxAgeCountsFromColdHandshake checks that a resume inside the
+// idle window keeps the cold time, and that a resume past the maximum age
+// starts a new session.
+func TestResumeMaxAgeCountsFromColdHandshake(t *testing.T) {
 	a := require.New(t)
 	fake := clock.NewFake(time.Now())
 	clientStore, cleanupClient := newTestStore(t)
@@ -2401,25 +2406,563 @@ func TestResumeWindowStartsAtColdHandshake(t *testing.T) {
 	defer cleanupServer()
 
 	sessionID := coldDial(t, clientStore, serverStore)
-	cold, err := serverStore.GetEstablishedAt(sessionID)
+	cold, err := serverStore.GetResumption(
+		sessionID, storage.ResumeRoleResponder,
+	)
 	a.NoError(err)
 
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	accept := func(context.Context, *storage.Storage, VerifyRequest) error {
+		return nil
+	}
 	fake.Advance(20 * time.Hour)
-	dialErr, serveErr := resumeDial(
+	tr, dialErr, serveErr := resumeDial(
 		t, clientStore, serverStore, sessionID, accept, ServeWithClock(fake),
 	)
 	a.NoError(dialErr)
 	a.NoError(serveErr)
-	after, err := serverStore.GetEstablishedAt(sessionID)
+	a.True(tr.Resumed())
+	after, err := serverStore.GetResumption(
+		sessionID, storage.ResumeRoleResponder,
+	)
 	a.NoError(err)
-	a.True(cold.Equal(after))
+	a.True(cold.ColdAt.Equal(after.ColdAt))
 
-	// 25 hours after the cold handshake but 5 after the resumption.
-	fake.Advance(5 * time.Hour)
-	dialErr, serveErr = resumeDial(
+	fake.Advance(defaultResumeMaxAge)
+	tr, dialErr, serveErr = resumeDial(
 		t, clientStore, serverStore, sessionID, accept, ServeWithClock(fake),
 	)
-	a.ErrorIs(dialErr, ErrResumptionRejected)
-	a.ErrorContains(serveErr, "session expired")
+	a.NoError(dialErr)
+	a.NoError(serveErr)
+	a.False(tr.Resumed())
+	a.NotEqual(sessionID, tr.SessionID())
 }
+
+// TestSweepKeepsLiveSession checks that a connection that stays up past
+// the idle window is still resumable after it drops.
+func TestSweepKeepsLiveSession(t *testing.T) {
+	a := require.New(t)
+	fake := clock.NewFake(time.Now().Truncate(time.Second))
+	clientStore, cleanupClient := newTestStore(t, storage.WithClock(fake))
+	t.Cleanup(cleanupClient)
+	serverStore, cleanupServer := newTestStore(t, storage.WithClock(fake))
+	t.Cleanup(cleanupServer)
+
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	accepted := make(chan *Transport, 1)
+	verifier := func(
+		context.Context, *storage.Storage, VerifyRequest,
+	) error {
+		return nil
+	}
+	clientNet, serverNet := net.Pipe()
+	clientConn := newConn(clientNet)
+	serverConn := newConn(serverNet)
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverNet.Close()
+	})
+	server, err := NewServer(
+		"",
+		func(tr *Transport) error {
+			accepted <- tr
+			<-release
+			return nil
+		},
+		serverStore,
+		verifier,
+		ServeWithClock(fake),
+	)
+	a.NoError(err)
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.serve(serverConn) }()
+	dialer, err := NewDialer(
+		"", clientStore, verifier,
+		DialWithFunc(func(string) (Conn, error) { return clientConn, nil }),
+	)
+	a.NoError(err)
+	client, err := dialer.Dial()
+	a.NoError(err)
+	var serverTr *Transport
+	select {
+	case serverTr = <-accepted:
+	case <-time.After(10 * time.Second):
+		a.FailNow("the server handler did not start")
+	}
+	sid := serverTr.SessionID()
+
+	fake.Advance(defaultResumeIdle + time.Hour)
+	server.sweepOnce()
+	row, err := serverStore.GetResumption(sid, storage.ResumeRoleResponder)
+	a.NoError(err)
+	refreshed := row.RefreshedAt
+
+	a.NoError(serverTr.CloseAbort())
+	row, err = serverStore.GetResumption(sid, storage.ResumeRoleResponder)
+	a.NoError(err)
+	a.True(row.RefreshedAt.After(refreshed))
+
+	fake.Advance(defaultResumeIdle - time.Hour)
+	server.sweepOnce()
+	_, err = serverStore.GetResumption(sid, storage.ResumeRoleResponder)
+	a.NoError(err)
+
+	fake.Advance(2 * time.Hour)
+	server.sweepOnce()
+	_, err = serverStore.GetResumption(sid, storage.ResumeRoleResponder)
+	a.ErrorIs(err, storage.ErrNoResumption)
+
+	releaseOnce.Do(func() { close(release) })
+	_ = client.Close()
+	select {
+	case <-serveErr:
+	case <-time.After(10 * time.Second):
+		a.FailNow("the server handshake did not return")
+	}
+}
+
+// TestHandshake_Deadlines covers an idle connection after ClientHello, a
+// verifier that outlives verifyTimeout, and a cancelled DialContext.
+func TestHandshake_Deadlines(t *testing.T) {
+	t.Run("idle after client hello", func(t *testing.T) {
+		a := require.New(t)
+		store, cleanup := newTestStore(t)
+		t.Cleanup(cleanup)
+		ident := hsIdent(t)
+		left, right := net.Pipe()
+		t.Cleanup(func() {
+			_ = left.Close()
+			_ = right.Close()
+		})
+		client := newConn(left)
+		dc := &deadlineConn{Conn: newConn(right)}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		const limit = 50 * time.Millisecond
+		sawHello := make(chan struct{})
+		done := make(chan error, 1)
+		go func() {
+			_, err := runResponder(ctx, dc, responderInput{
+				attest:        ident,
+				store:         store,
+				name:          "bob",
+				verifyTimeout: limit,
+				introTimeout:  time.Hour,
+				verify: func(
+					context.Context, *storage.Storage, VerifyRequest,
+				) error {
+					return nil
+				},
+				onHello: func() error {
+					close(sawHello)
+					return nil
+				},
+			})
+			done <- err
+		}()
+		go func() {
+			_, _ = client.ReadBytes()
+			_, _ = client.ReadBytes()
+		}()
+		go func() {
+			_ = client.WriteBytes(validClientHello(t))
+		}()
+		select {
+		case <-sawHello:
+		case <-time.After(5 * time.Second):
+			a.FailNow("client hello was not read")
+		}
+		var remain time.Duration
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			dc.mu.Lock()
+			for _, at := range dc.deadlines {
+				r := time.Until(at)
+				if r > 0 && r < time.Minute {
+					remain = r
+				}
+			}
+			dc.mu.Unlock()
+			if remain > 0 {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		want := defaultHandshakeTimeout + limit
+		a.InDelta(float64(want), float64(remain), float64(3*time.Second))
+		cancel()
+		select {
+		case err := <-done:
+			a.ErrorIs(err, context.Canceled)
+		case <-time.After(5 * time.Second):
+			a.FailNow("cancelling did not end the idle handshake")
+		}
+	})
+
+	t.Run("verifier slower than verify timeout", func(t *testing.T) {
+		a := require.New(t)
+		const limit = 80 * time.Millisecond
+		accept := func(
+			context.Context, *storage.Storage, VerifyRequest,
+		) error {
+			return nil
+		}
+		late := func(
+			context.Context, *storage.Storage, VerifyRequest,
+		) error {
+			time.Sleep(3 * limit)
+			return nil
+		}
+		run := runVerifierHandshake(t, late, accept, func(s *Server, _ *Dialer) {
+			s.handshakeOpts.verifyTimeout = limit
+		})
+		a.Error(run.dialErr)
+		a.ErrorIs(run.serveErr, ErrVerificationFailed)
+		a.False(run.handlerRan)
+	})
+
+	t.Run("dial context cancelled", func(t *testing.T) {
+		a := require.New(t)
+		clientStore, cleanupClient := newTestStore(t)
+		t.Cleanup(cleanupClient)
+		serverStore, cleanupServer := newTestStore(t)
+		t.Cleanup(cleanupServer)
+		clientNet, serverNet := net.Pipe()
+		clientConn := newConn(clientNet)
+		serverConn := newConn(serverNet)
+		t.Cleanup(func() {
+			_ = clientConn.Close()
+			_ = serverConn.Close()
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		inVerify := make(chan struct{})
+		var once sync.Once
+		server, err := NewServer(
+			"",
+			func(*Transport) error { return nil },
+			serverStore,
+			func(context.Context, *storage.Storage, VerifyRequest) error {
+				once.Do(func() { close(inVerify) })
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		)
+		a.NoError(err)
+		dialer, err := NewDialer(
+			"",
+			clientStore,
+			func(context.Context, *storage.Storage, VerifyRequest) error {
+				return nil
+			},
+			DialWithFunc(func(string) (Conn, error) { return clientConn, nil }),
+		)
+		a.NoError(err)
+		serveErr := make(chan error, 1)
+		go func() { serveErr <- server.serve(serverConn) }()
+		dialed := make(chan error, 1)
+		go func() {
+			_, err := dialer.DialContext(ctx)
+			dialed <- err
+		}()
+		select {
+		case <-inVerify:
+		case <-time.After(10 * time.Second):
+			a.FailNow("the server verifier did not run")
+		}
+		cancel()
+		select {
+		case err := <-dialed:
+			a.ErrorIs(err, context.Canceled)
+		case <-time.After(10 * time.Second):
+			a.FailNow("the cancelled dial did not return")
+		}
+		select {
+		case <-serveErr:
+		case <-time.After(10 * time.Second):
+			a.FailNow("the server handshake did not return")
+		}
+	})
+}
+
+func TestAuthenticatedConnIsNotDropped(t *testing.T) {
+	a := require.New(t)
+	clientStore, cleanupClient := newTestStore(t)
+	t.Cleanup(cleanupClient)
+	serverStore, cleanupServer := newTestStore(t)
+	t.Cleanup(cleanupServer)
+
+	verifying := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseVerifier := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseVerifier)
+	l := newTestListener(net.ErrClosed)
+	server, err := NewServer(
+		"",
+		func(*Transport) error { return nil },
+		serverStore,
+		func(context.Context, *storage.Storage, VerifyRequest) error {
+			close(verifying)
+			<-release
+			return nil
+		},
+		ServeWithListener(l),
+		ServeWithMaxPendingHandshakes(1),
+		ServeWithIntroTimeout(time.Hour),
+	)
+	a.NoError(err)
+	go func() { _ = server.ListenAndServe() }()
+	t.Cleanup(func() { _ = server.Close() })
+
+	clientNet, serverNet := net.Pipe()
+	clientConn := newConn(clientNet)
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverNet.Close()
+	})
+	dialerConn := newSourceConn(newConn(serverNet), "10.1.0.1:1")
+	sendConn(t, l, dialerConn)
+	dialer, err := NewDialer(
+		"",
+		clientStore,
+		func(context.Context, *storage.Storage, VerifyRequest) error {
+			return nil
+		},
+		DialWithFunc(func(string) (Conn, error) { return clientConn, nil }),
+	)
+	a.NoError(err)
+	dialed := dialAsync(dialer)
+	select {
+	case <-verifying:
+	case <-time.After(10 * time.Second):
+		a.FailNow("the server verifier did not run")
+	}
+
+	hello := validClientHello(t)
+	hellos := make([]*sourceConn, 3)
+	for i := range hellos {
+		cNet, sNet := net.Pipe()
+		t.Cleanup(func() {
+			_ = cNet.Close()
+			_ = sNet.Close()
+		})
+		writer := newConn(cNet)
+		go func() {
+			_ = writer.WriteBytes(hello)
+			_, _ = io.Copy(io.Discard, cNet)
+		}()
+		addr := fmt.Sprintf("10.2.%d.1:1", i)
+		hellos[i] = newSourceConn(newConn(sNet), addr)
+		sendConn(t, l, hellos[i])
+	}
+	closed := false
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && !closed {
+		for _, c := range hellos {
+			if c.isClosed() {
+				closed = true
+			}
+		}
+		if !closed {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	a.True(closed, "a hello-stage connection was not dropped")
+	a.False(dialerConn.isClosed(), "the authenticated connection was dropped")
+	stillOpen := 0
+	for _, c := range hellos {
+		if !c.isClosed() {
+			stillOpen++
+		}
+	}
+	a.Positive(stillOpen, "every hello connection closed")
+
+	releaseVerifier()
+	select {
+	case err := <-dialed:
+		a.NoError(err)
+	case <-time.After(10 * time.Second):
+		a.FailNow("the dial did not complete")
+	}
+}
+
+func TestServer_F1FloodDoesNotBlock(t *testing.T) {
+	const floodN = 10000
+	a := require.New(t)
+	var lim unix.Rlimit
+	a.NoError(unix.Getrlimit(unix.RLIMIT_NOFILE, &lim))
+	need := uint64(floodN + 2048)
+	if lim.Cur < need {
+		if lim.Max < need {
+			t.Skipf("file limit %d cannot hold %d connections", lim.Max, floodN)
+		}
+		lim.Cur = need
+		a.NoError(unix.Setrlimit(unix.RLIMIT_NOFILE, &lim))
+	}
+
+	clientStore, cleanupClient := newTestStore(t)
+	t.Cleanup(cleanupClient)
+	serverStore, cleanupServer := newTestStore(t)
+	t.Cleanup(cleanupServer)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	a.NoError(err)
+	var handled atomic.Int32
+	var verified atomic.Int32
+	server, err := NewServer(
+		"",
+		func(*Transport) error {
+			handled.Add(1)
+			return nil
+		},
+		serverStore,
+		func(context.Context, *storage.Storage, VerifyRequest) error {
+			verified.Add(1)
+			return nil
+		},
+		ServeWithListener(&floodListener{Listener: ln}),
+		ServeWithIntroTimeout(time.Hour),
+	)
+	a.NoError(err)
+	go func() { _ = server.ListenAndServe() }()
+	t.Cleanup(func() { _ = server.Close() })
+	addr := ln.Addr().String()
+
+	hello := validClientHello(t)
+	frame := make([]byte, 2+len(hello))
+	binary.BigEndian.PutUint16(frame[:2], uint16(len(hello)))
+	copy(frame[2:], hello)
+
+	hold := make(chan struct{})
+	var holdOnce sync.Once
+	release := func() { holdOnce.Do(func() { close(hold) }) }
+	t.Cleanup(release)
+
+	var wrote atomic.Int32
+	var failed atomic.Int32
+	errOnce := make(chan error, 1)
+	noteErr := func(err error) {
+		select {
+		case errOnce <- err:
+		default:
+		}
+	}
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, 128)
+	wg.Add(floodN)
+	for range floodN {
+		go func() {
+			defer wg.Done()
+			slots <- struct{}{}
+			var c net.Conn
+			var err error
+			for range 5 {
+				c, err = net.DialTimeout("tcp", addr, 5*time.Second)
+				if err == nil {
+					break
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			<-slots
+			if err != nil {
+				failed.Add(1)
+				noteErr(err)
+				return
+			}
+			if tc, ok := c.(*net.TCPConn); ok {
+				_ = tc.SetLinger(0)
+			}
+			defer c.Close()
+			if _, err = c.Write(frame); err != nil {
+				failed.Add(1)
+				noteErr(err)
+				return
+			}
+			wrote.Add(1)
+			<-hold
+		}()
+	}
+	settle := time.Now().Add(4 * time.Minute)
+	for wrote.Load()+failed.Load() < floodN && time.Now().Before(settle) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if wrote.Load()+failed.Load() < floodN {
+		a.FailNow(fmt.Sprintf(
+			"flood did not settle: wrote %d failed %d",
+			wrote.Load(), failed.Load(),
+		))
+	}
+	if wrote.Load() == 0 {
+		var dialErr error
+		select {
+		case dialErr = <-errOnce:
+		default:
+		}
+		a.FailNow(fmt.Sprintf(
+			"no flood connection wrote a hello (%d failed): %v",
+			failed.Load(), dialErr,
+		))
+	}
+	a.Greater(wrote.Load(), int32(floodN*9/10))
+
+	dialer, err := NewDialer(
+		addr,
+		clientStore,
+		func(context.Context, *storage.Storage, VerifyRequest) error {
+			time.Sleep(2 * time.Second)
+			return nil
+		},
+	)
+	a.NoError(err)
+	dialed := make(chan error, 1)
+	go func() {
+		tr, err := dialer.Dial()
+		if err == nil {
+			_ = tr.CloseAbort()
+		}
+		dialed <- err
+	}()
+	select {
+	case err := <-dialed:
+		a.NoError(err)
+	case <-time.After(30 * time.Second):
+		a.FailNow("the dialer did not finish during the flood")
+	}
+	a.Equal(int32(1), handled.Load())
+	a.Equal(int32(1), verified.Load())
+}
+
+// floodListener accepts TCP connections and reports a distinct IPv4 address
+// for each, spread across many /24s. This host does not alias the rest of
+// 127/8, so the real source is loopback; admission keys off RemoteAddr.
+type floodListener struct {
+	net.Listener
+	n atomic.Uint64
+}
+
+func (l *floodListener) Accept() (Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	// Reset on close, so the flood does not leave the port in TIME_WAIT.
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.SetLinger(0)
+	}
+	i := l.n.Add(1)
+	ip := net.IPv4(10, byte((i/250)%200+1), byte(i%250+1), 1)
+	return remoteAddrConn{
+		Conn: newConn(c),
+		addr: &net.TCPAddr{IP: ip, Port: int(i%50000) + 1},
+	}, nil
+}
+
+// remoteAddrConn reports addr instead of the connection's source.
+type remoteAddrConn struct {
+	Conn
+	addr net.Addr
+}
+
+func (c remoteAddrConn) RemoteAddr() net.Addr { return c.addr }

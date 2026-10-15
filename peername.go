@@ -78,8 +78,8 @@ const (
 // is its own claim and proves nothing about its identity, which only the
 // key fingerprint shows.
 //
-// The server and the dialer reject an introduction whose name fails this
-// check before the [RemoteVerifier] runs, and [ServeWithServerName] and
+// The server and the dialer reject a handshake whose name fails this check
+// before the [RemoteVerifier] runs, and [ServeWithServerName] and
 // [DialWithClientName] reject such a local name. Applications can use it to
 // check names that users type, and [SanitizePeerName] to show names that
 // were stored without the check.

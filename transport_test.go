@@ -72,7 +72,6 @@ func incomingTransport(
 
 	conn := &queuedConn{frames: [][]byte{cipher.Encrypt(payload)}}
 	tr := newTransport(conn, serde, "test-session", cipher, cipher)
-	tr.established = true
 	return tr
 }
 
@@ -221,16 +220,19 @@ func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 		before [][]byte
 		first  []byte
 		next   []byte
+		keep   bool
 	}{
 		{
 			name:  "decryption failure",
 			first: bytes.Repeat([]byte{0x5a}, 64),
 			next:  frame(serde, RouteExchangeMessages, 1),
+			keep:  true,
 		},
 		{
 			name:  "tampered ciphertext",
 			first: tampered,
 			next:  frame(serde, RouteExchangeMessages, 1),
+			keep:  true,
 		},
 		{
 			name:   "replayed frame",
@@ -238,6 +240,7 @@ func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 			before: [][]byte{replayed},
 			first:  replayed,
 			next:   frame(serde, RouteExchangeMessages, 2),
+			keep:   true,
 		},
 		{
 			name:  "invalid signature",
@@ -250,11 +253,12 @@ func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 			want:  ErrOutOfSync,
 			first: frame(serde, RouteExchangeMessages, 2),
 			next:  frame(serde, RouteExchangeMessages, 1),
+			keep:  true,
 		},
 		{
 			name:  "unexpected route",
 			want:  ErrUnexpectedRoute,
-			first: frame(serde, RouteSendChallenge, 1),
+			first: frame(serde, Route(1), 1),
 			next:  frame(serde, RouteExchangeMessages, 2),
 		},
 		{
@@ -271,9 +275,8 @@ func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 				frames: append(slices.Clone(tc.before), tc.first, tc.next),
 			}
 			tr := newTransport(conn, serde, "test-session", cipher, cipher)
-			tr.established = true
 			store := newTransportTestStorage(t)
-			storeResumptionTokens(t, tr, store, 7)
+			storeTestResumption(t, tr, store, 1)
 			for range tc.before {
 				_, err := tr.Receive(Bytes(nil))
 				a.NoError(err)
@@ -285,10 +288,12 @@ func TestReceive_FatalFrameTerminatesTransport(t *testing.T) {
 				a.ErrorIs(err, tc.want)
 			}
 			a.True(conn.closed)
-			_, popErr := store.PopList(
-				tr.sessionID, storage.ResumptionTokensKey,
-			)
-			a.ErrorIs(popErr, storage.ErrNotFound, "session stays resumable")
+			_, getErr := store.GetResumption(tr.sessionID, tr.resRole)
+			if tc.keep {
+				a.NoError(getErr)
+			} else {
+				a.ErrorIs(getErr, storage.ErrNoResumption)
+			}
 
 			_, again := tr.Receive(Bytes(nil))
 			a.Equal(err, again)
@@ -365,7 +370,6 @@ func TestReceive_ConcurrentCallersKeepSequence(t *testing.T) {
 		conn.frames = append(conn.frames, cipher.Encrypt(payload))
 	}
 	tr := newTransport(conn, serde, "test-session", cipher, cipher)
-	tr.established = true
 
 	type result struct {
 		err error
@@ -419,7 +423,7 @@ func TestTransportReceiveRejectsInvalidRouteBeforeMutatingMessage(
 	dst := Bytes([]byte("original"))
 
 	_, err := transport.Receive(dst)
-	a.ErrorIs(err, ErrInvalidRoute)
+	a.ErrorIs(err, ErrUnexpectedRoute)
 	a.Equal([]byte("original"), dst.GetValue())
 	a.Equal(uint64(1), transport.recvSequence)
 }
@@ -459,7 +463,6 @@ func FuzzTransportReceiveEnvelope(f *testing.F) {
 		transport := newTransport(
 			conn, serde, "fuzz-session", cipher, cipher,
 		)
-		transport.established = true
 		original := []byte("original")
 		dst := Bytes(bytes.Clone(original))
 
@@ -471,11 +474,6 @@ func FuzzTransportReceiveEnvelope(f *testing.F) {
 			a.Equal(uint64(0), transport.recvSequence)
 			a.Equal(original, dst.GetValue())
 			a.True(conn.closed)
-		case !route.IsValid():
-			a.ErrorIs(receiveErr, ErrInvalidRoute)
-			a.Nil(metadata)
-			a.Equal(uint64(1), transport.recvSequence)
-			a.Equal(original, dst.GetValue())
 		case !route.isSessionRoute():
 			a.ErrorIs(receiveErr, ErrUnexpectedRoute)
 			a.Nil(metadata)
@@ -539,7 +537,6 @@ func FuzzTransportReceiveRaw(f *testing.F) {
 		}
 		conn := &queuedConn{frames: [][]byte{frame}}
 		tr := newTransport(conn, serde, "fuzz-session", cipher, cipher)
-		tr.established = true
 
 		md, _, err := tr.ReceivePayload()
 		if err == nil {
@@ -570,29 +567,23 @@ func TestTransport_PadToBucket(t *testing.T) {
 		msg  proto.Message
 		name string
 	}{
-		{&pb.Handshake{SessionKey: "x"}, "tiny"},
+		{&pb.SessionData{Fields: map[string][]byte{"k": []byte("x")}}, "tiny"},
 		{
-			&pb.Handshake{
-				Key:        make([]byte, 1024),
-				Salt:       make([]byte, handshakeSaltSize),
-				SessionKey: "0123456789",
-			},
+			&pb.SessionData{Fields: map[string][]byte{
+				"k": make([]byte, 1024),
+			}},
 			"small",
 		},
 		{
-			&pb.Handshake{
-				Key:        make([]byte, 16*1024),
-				Salt:       make([]byte, handshakeSaltSize),
-				SessionKey: "0123456789",
-			},
+			&pb.SessionData{Fields: map[string][]byte{
+				"k": make([]byte, 16*1024),
+			}},
 			"medium",
 		},
 		{
-			&pb.Handshake{
-				Key:        make([]byte, int(maxTransportSize)-64),
-				Salt:       make([]byte, handshakeSaltSize),
-				SessionKey: "0123456789",
-			},
+			&pb.SessionData{Fields: map[string][]byte{
+				"k": make([]byte, int(maxTransportSize)-64),
+			}},
 			"near_max",
 		},
 	}
@@ -700,7 +691,7 @@ func TestTransport_LargestFrameFitsRelayWrapping(t *testing.T) {
 
 func TestTransportReceiveRejectsHandshakeRoute(t *testing.T) {
 	a := require.New(t)
-	tr := incomingTransport(t, RouteIdentity, 1, Bytes(nil))
+	tr := incomingTransport(t, Route(1), 1, Bytes(nil))
 
 	_, err := tr.Receive(Bytes(nil))
 	a.ErrorIs(err, ErrUnexpectedRoute)
@@ -711,55 +702,42 @@ func TestTransportSendRejectsHandshakeRoute(t *testing.T) {
 	a := require.New(t)
 	tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
 
-	_, err := tr.Send(Bytes(nil), RouteSendChallenge)
-	a.ErrorIs(err, ErrUnexpectedRoute)
+	_, err := tr.Send(Bytes(nil), Route(1))
+	a.ErrorIs(err, ErrInvalidRoute)
 }
 
-func TestTransportChallengeRoutesBeforeEstablished(t *testing.T) {
-	a := require.New(t)
-	tr := incomingTransport(t, RouteSendChallenge, 1, Bytes([]byte("c")))
-	tr.established = false
-
-	_, err := tr.Receive(Bytes(nil))
-	a.NoError(err)
-
-	_, err = tr.Send(Bytes([]byte("c")), RouteVerifyChallenge)
-	a.NoError(err)
-
-	_, err = tr.Send(Bytes(nil), RouteExchangeMessages)
-	a.ErrorIs(err, ErrUnexpectedRoute)
-}
-
-func TestTransportSessionRoutesRejectedBeforeEstablished(t *testing.T) {
-	a := require.New(t)
-	tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
-	tr.established = false
-
-	_, err := tr.Receive(Bytes(nil))
-	a.ErrorIs(err, ErrUnexpectedRoute)
-	a.True(tr.conn.(*queuedConn).closed)
-}
-
-// storeResumptionTokens stores resumption tokens of tr, derived from
-// secret, in store, as an established session does.
-func storeResumptionTokens(
-	t *testing.T, tr *Transport, store *storage.Storage, secret byte,
+// storeTestResumption stores a v2 resumption row for tr at gen.
+func storeTestResumption(
+	t *testing.T, tr *Transport, store *storage.Storage, gen uint64,
 ) {
 	t.Helper()
-	tr.setResumptionRoot(bytes.Repeat([]byte{secret}, 32))
-	persistEstablishedSession(store, tr, true)
-	require.New(t).Len(tr.tokens, resumptionTokenCount)
+	a := require.New(t)
+	tr.storage = store
+	tr.resRole = storage.ResumeRoleInitiator
+	tr.resGen = gen
+	old := uint64(0)
+	if gen > 1 {
+		old = gen - 1
+	}
+	a.NoError(store.SwapResumption(tr.sessionID, old, &storage.Resumption{
+		Generation:  gen,
+		Current:     bytes.Repeat([]byte{byte(gen)}, 64),
+		PeerKey:     bytes.Repeat([]byte{0x05}, 44),
+		ColdAt:      time.Unix(1_700_000_000, 0),
+		RefreshedAt: time.Unix(1_700_000_100, 0),
+		Role:        storage.ResumeRoleInitiator,
+	}))
 }
 
 func TestTransportCloseClearsResumptionTokens(t *testing.T) {
 	a := require.New(t)
 	store := newTransportTestStorage(t)
 	tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
-	storeResumptionTokens(t, tr, store, 0x11)
+	storeTestResumption(t, tr, store, 1)
 
 	a.NoError(tr.Close())
-	_, err := store.PopList(tr.sessionID, storage.ResumptionTokensKey)
-	a.ErrorIs(err, storage.ErrNotFound)
+	_, err := store.GetResumption(tr.sessionID, tr.resRole)
+	a.ErrorIs(err, storage.ErrNoResumption)
 }
 
 // TestTransportCloseKeepsTokensOfResumedSession closes a transport after
@@ -770,34 +748,34 @@ func TestTransportCloseKeepsTokensOfResumedSession(t *testing.T) {
 	a := require.New(t)
 	store := newTransportTestStorage(t)
 	old := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
-	storeResumptionTokens(t, old, store, 0x11)
+	storeTestResumption(t, old, store, 1)
 	resumed := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
 	a.Equal(old.sessionID, resumed.sessionID)
-	storeResumptionTokens(t, resumed, store, 0x12)
+	storeTestResumption(t, resumed, store, 2)
 
 	a.NoError(old.Close())
-	tokens, err := store.GetList(old.sessionID, storage.ResumptionTokensKey)
+	row, err := store.GetResumption(old.sessionID, old.resRole)
 	a.NoError(err)
-	a.Equal(resumed.tokens, tokens, "resumed session lost its tokens")
+	a.Equal(uint64(2), row.Generation)
 
 	a.NoError(resumed.Close())
-	_, err = store.PopList(old.sessionID, storage.ResumptionTokensKey)
-	a.ErrorIs(err, storage.ErrNotFound)
+	_, err = store.GetResumption(old.sessionID, old.resRole)
+	a.ErrorIs(err, storage.ErrNoResumption)
 }
 
 func TestTransportReceiveCloseClearsResumptionTokens(t *testing.T) {
 	a := require.New(t)
 	store := newTransportTestStorage(t)
 	tr := incomingTransport(t, RouteCloseTransport, 1, Bytes(nil))
-	storeResumptionTokens(t, tr, store, 0x22)
+	storeTestResumption(t, tr, store, 1)
 
 	_, err := tr.Receive(Bytes(nil))
 	a.ErrorIs(err, ErrPeerDisconnected)
-	_, err = store.PopList(tr.sessionID, storage.ResumptionTokensKey)
-	a.ErrorIs(err, storage.ErrNotFound)
+	_, err = store.GetResumption(tr.sessionID, tr.resRole)
+	a.ErrorIs(err, storage.ErrNoResumption)
 }
 
-func newTransportTestStorage(t *testing.T) *storage.Storage {
+func newTransportTestStorage(t testing.TB) *storage.Storage {
 	t.Helper()
 	a := require.New(t)
 	f, err := os.CreateTemp("", "kamune-transport-*.db")
@@ -946,11 +924,11 @@ func TestTransportCloseClearsTokensWhenCloseFrameFails(t *testing.T) {
 			tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
 			tr.conn = tc.conn()
 			tr.closeTimeout = 50 * time.Millisecond
-			storeResumptionTokens(t, tr, store, 0x44)
+			storeTestResumption(t, tr, store, 1)
 
 			a.NoError(tr.Close())
-			_, err := store.PopList(tr.sessionID, storage.ResumptionTokensKey)
-			a.ErrorIs(err, storage.ErrNotFound)
+			_, err := store.GetResumption(tr.sessionID, tr.resRole)
+			a.ErrorIs(err, storage.ErrNoResumption)
 		})
 	}
 }

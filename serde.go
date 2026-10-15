@@ -110,38 +110,22 @@ func signingInput(metadataBytes, data []byte) []byte {
 	varintLen := binary.MaxVarintLen64
 	input := make(
 		[]byte, 0,
-		len(transportSignInfo)+varintLen+len(metadataBytes)+len(data),
+		len(attest.ContextTransportFrame)+varintLen+len(metadataBytes)+len(data),
 	)
-	input = append(input, transportSignInfo...)
+	input = append(input, attest.ContextTransportFrame...)
 	input = binary.AppendUvarint(input, uint64(len(metadataBytes)))
 	input = append(input, metadataBytes...)
 	input = append(input, data...)
 	return input
 }
 
-// routeFromST extracts the route from a SignedTransport's opaque metadata
-// bytes. Used for pre-verification route dispatch (introduction/resume).
-func routeFromST(st *pb.SignedTransport) (Route, error) {
-	var md pb.Metadata
-	if err := proto.Unmarshal(st.GetMetadata(), &md); err != nil {
-		return RouteInvalid, fmt.Errorf("unmarshalling metadata: %w", err)
+// randomBytes returns n cryptographically secure random bytes.
+func randomBytes(n int) []byte {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		panic("kamune: crypto/rand: " + err.Error())
 	}
-	return RouteFromProto(md.GetRoute()), nil
-}
-
-// readSignedTransport reads raw bytes from a Conn and unmarshals them
-// into a SignedTransport protobuf message, without signature verification.
-// Signature verification is deferred to the serde for each direction.
-func readSignedTransport(c Conn) (*pb.SignedTransport, error) {
-	payload, err := c.ReadBytes()
-	if err != nil {
-		return nil, fmt.Errorf("reading payload: %w", err)
-	}
-	var st pb.SignedTransport
-	if err := proto.Unmarshal(payload, &st); err != nil {
-		return nil, fmt.Errorf("unmarshalling transport: %w", err)
-	}
-	return &st, nil
+	return buf
 }
 
 // paddingField is the protobuf field number of SignedTransport.Padding.

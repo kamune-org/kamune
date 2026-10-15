@@ -1,6 +1,7 @@
 package kamune
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strings"
@@ -107,10 +108,10 @@ func TestAppVersionSetAfterInit(t *testing.T) {
 	serverStore, cleanupServer := newTestStore(t)
 	defer cleanupServer()
 
-	AppVersion = "0.8.0"
+	AppVersion = "0.9.0"
 	a.NotEmpty(coldDial(t, clientStore, serverStore))
 
-	accept := func(*storage.Storage, *storage.Peer) error { return nil }
+	accept := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	AppVersion = "dev"
 	_, err := NewDialer("", clientStore, accept)
 	a.ErrorContains(err, "invalid AppVersion")

@@ -486,7 +486,7 @@ func scriptInitiatorAuth(t *testing.T, plainFn func(key []byte) []byte) error {
 	ic, rc := pipeConns(t)
 	errc := make(chan error, 1)
 	go func() {
-		_, err := runResponder(context.Background(), rc, nil, responderInput{
+		_, err := runResponder(context.Background(), rc, responderInput{
 			attest: ra, store: store, name: "bob", resumeEnabled: true,
 			verify: acceptVerify(nil, nil),
 		})
@@ -633,7 +633,7 @@ func TestHandshake_ReflectedSignature(t *testing.T) {
 	ic, rc := pipeConns(t)
 	errc := make(chan error, 1)
 	go func() {
-		_, e := runResponder(context.Background(), rc, nil, responderInput{
+		_, e := runResponder(context.Background(), rc, responderInput{
 			attest: ra, store: store, name: "bob", resumeEnabled: true,
 			verify: acceptVerify(nil, nil),
 		})

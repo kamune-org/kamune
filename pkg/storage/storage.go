@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/kamune-org/kamune/internal/clock"
@@ -132,6 +133,10 @@ type Storage struct {
 	timeout           time.Duration
 	idleSessionLimit  int
 	createDB          bool
+	// live counts transports that still hold a session, so a sweep does
+	// not expire it while the connection is open. Guarded by liveMu.
+	live   map[string]int
+	liveMu sync.Mutex
 }
 
 // OpenStorage opens the database, creating it unless [WithCreateDB] says

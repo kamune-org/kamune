@@ -74,7 +74,7 @@ func startInitiator(cn Conn, in initiatorInput) <-chan hsResult {
 func startResponder(cn Conn, in responderInput) <-chan hsResult {
 	ch := make(chan hsResult, 1)
 	go func() {
-		tr, err := runResponder(context.Background(), cn, nil, in)
+		tr, err := runResponder(context.Background(), cn, in)
 		ch <- hsResult{tr, err}
 	}()
 	return ch
@@ -126,7 +126,22 @@ func TestHandshake_Cold(t *testing.T) {
 	a.Empty(iReq.Peer.Name)
 	a.Equal("bob", gotI.tr.RemotePeer().Name)
 	a.Equal("ada", gotR.tr.RemotePeer().Name)
-	a.Equal("0.8.0", gotI.tr.RemotePeer().AppVersion)
+	a.Equal(AppVersion, gotI.tr.RemotePeer().AppVersion)
 	a.False(iReq.Pinned)
 	a.False(rReq.Pinned)
+	type recv struct {
+		md  *Metadata
+		err error
+	}
+	gotCh := make(chan recv, 1)
+	go func() {
+		md, err := gotR.tr.Receive(Bytes(nil))
+		gotCh <- recv{md, err}
+	}()
+	md, err := gotI.tr.Send(Bytes([]byte("hi")), RouteExchangeMessages)
+	a.NoError(err)
+	a.Equal(uint64(1), md.SequenceNum())
+	got := <-gotCh
+	a.NoError(got.err)
+	a.Equal(uint64(1), got.md.SequenceNum())
 }

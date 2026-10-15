@@ -1,11 +1,14 @@
 package kamune
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kamune-org/kamune/pkg/storage"
 )
 
 // persian is a Persian name with a zero-width non-joiner between two
@@ -346,4 +349,26 @@ func TestSanitizePeerNameIsValid(t *testing.T) {
 
 func TestViramasSorted(t *testing.T) {
 	require.New(t).IsIncreasing(viramas)
+}
+
+func TestNameOptionsRejectInvalidName(t *testing.T) {
+	a := require.New(t)
+	store := newTransportTestStorage(t)
+	accept := func(context.Context, *storage.Storage, VerifyRequest) error {
+		return nil
+	}
+	bad := "Bob\u202E"
+
+	_, err := NewDialer("", store, accept, DialWithClientName(bad))
+	a.ErrorIs(err, ErrInvalidPeerName)
+	_, err = NewServer(
+		"", nil, store, accept,
+		ServeWithServerName(bad),
+		ServeWithListener(newTestListener(nil)),
+	)
+	a.ErrorIs(err, ErrInvalidPeerName)
+
+	d, err := NewDialer("", store, accept, DialWithClientName("Bob"))
+	a.NoError(err)
+	a.Equal("Bob", d.clientName)
 }

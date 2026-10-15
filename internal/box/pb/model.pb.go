@@ -71,126 +71,6 @@ func (ResumeRole) EnumDescriptor() ([]byte, []int) {
 	return file_model_proto_rawDescGZIP(), []int{0}
 }
 
-type Introduce struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=Name,proto3" json:"Name,omitempty"`
-	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=PublicKey,proto3" json:"PublicKey,omitempty"`
-	AppVersion    string                 `protobuf:"bytes,3,opt,name=AppVersion,proto3" json:"AppVersion,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Introduce) Reset() {
-	*x = Introduce{}
-	mi := &file_model_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Introduce) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Introduce) ProtoMessage() {}
-
-func (x *Introduce) ProtoReflect() protoreflect.Message {
-	mi := &file_model_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Introduce.ProtoReflect.Descriptor instead.
-func (*Introduce) Descriptor() ([]byte, []int) {
-	return file_model_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *Introduce) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *Introduce) GetPublicKey() []byte {
-	if x != nil {
-		return x.PublicKey
-	}
-	return nil
-}
-
-func (x *Introduce) GetAppVersion() string {
-	if x != nil {
-		return x.AppVersion
-	}
-	return ""
-}
-
-type Handshake struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           []byte                 `protobuf:"bytes,1,opt,name=Key,proto3" json:"Key,omitempty"`
-	Salt          []byte                 `protobuf:"bytes,2,opt,name=Salt,proto3" json:"Salt,omitempty"`
-	SessionKey    string                 `protobuf:"bytes,3,opt,name=SessionKey,proto3" json:"SessionKey,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Handshake) Reset() {
-	*x = Handshake{}
-	mi := &file_model_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Handshake) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Handshake) ProtoMessage() {}
-
-func (x *Handshake) ProtoReflect() protoreflect.Message {
-	mi := &file_model_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Handshake.ProtoReflect.Descriptor instead.
-func (*Handshake) Descriptor() ([]byte, []int) {
-	return file_model_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *Handshake) GetKey() []byte {
-	if x != nil {
-		return x.Key
-	}
-	return nil
-}
-
-func (x *Handshake) GetSalt() []byte {
-	if x != nil {
-		return x.Salt
-	}
-	return nil
-}
-
-func (x *Handshake) GetSessionKey() string {
-	if x != nil {
-		return x.SessionKey
-	}
-	return ""
-}
-
 type Peer struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=Name,proto3" json:"Name,omitempty"`
@@ -204,7 +84,7 @@ type Peer struct {
 
 func (x *Peer) Reset() {
 	*x = Peer{}
-	mi := &file_model_proto_msgTypes[2]
+	mi := &file_model_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -216,7 +96,7 @@ func (x *Peer) String() string {
 func (*Peer) ProtoMessage() {}
 
 func (x *Peer) ProtoReflect() protoreflect.Message {
-	mi := &file_model_proto_msgTypes[2]
+	mi := &file_model_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -229,7 +109,7 @@ func (x *Peer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Peer.ProtoReflect.Descriptor instead.
 func (*Peer) Descriptor() ([]byte, []int) {
-	return file_model_proto_rawDescGZIP(), []int{2}
+	return file_model_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Peer) GetName() string {
@@ -267,110 +147,6 @@ func (x *Peer) GetAppVersion() string {
 	return ""
 }
 
-type ResumeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionID     string                 `protobuf:"bytes,1,opt,name=SessionID,proto3" json:"SessionID,omitempty"`
-	Token         []byte                 `protobuf:"bytes,2,opt,name=Token,proto3" json:"Token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ResumeRequest) Reset() {
-	*x = ResumeRequest{}
-	mi := &file_model_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ResumeRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ResumeRequest) ProtoMessage() {}
-
-func (x *ResumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_model_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ResumeRequest.ProtoReflect.Descriptor instead.
-func (*ResumeRequest) Descriptor() ([]byte, []int) {
-	return file_model_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *ResumeRequest) GetSessionID() string {
-	if x != nil {
-		return x.SessionID
-	}
-	return ""
-}
-
-func (x *ResumeRequest) GetToken() []byte {
-	if x != nil {
-		return x.Token
-	}
-	return nil
-}
-
-type ResumeAccept struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Accepted      bool                   `protobuf:"varint,1,opt,name=Accepted,proto3" json:"Accepted,omitempty"`
-	Reason        string                 `protobuf:"bytes,2,opt,name=Reason,proto3" json:"Reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ResumeAccept) Reset() {
-	*x = ResumeAccept{}
-	mi := &file_model_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ResumeAccept) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ResumeAccept) ProtoMessage() {}
-
-func (x *ResumeAccept) ProtoReflect() protoreflect.Message {
-	mi := &file_model_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ResumeAccept.ProtoReflect.Descriptor instead.
-func (*ResumeAccept) Descriptor() ([]byte, []int) {
-	return file_model_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *ResumeAccept) GetAccepted() bool {
-	if x != nil {
-		return x.Accepted
-	}
-	return false
-}
-
-func (x *ResumeAccept) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
 type SessionData struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Fields        map[string][]byte      `protobuf:"bytes,1,rep,name=Fields,proto3" json:"Fields,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
@@ -380,7 +156,7 @@ type SessionData struct {
 
 func (x *SessionData) Reset() {
 	*x = SessionData{}
-	mi := &file_model_proto_msgTypes[5]
+	mi := &file_model_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -392,7 +168,7 @@ func (x *SessionData) String() string {
 func (*SessionData) ProtoMessage() {}
 
 func (x *SessionData) ProtoReflect() protoreflect.Message {
-	mi := &file_model_proto_msgTypes[5]
+	mi := &file_model_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -405,7 +181,7 @@ func (x *SessionData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionData.ProtoReflect.Descriptor instead.
 func (*SessionData) Descriptor() ([]byte, []int) {
-	return file_model_proto_rawDescGZIP(), []int{5}
+	return file_model_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *SessionData) GetFields() map[string][]byte {
@@ -432,7 +208,7 @@ type ResumptionState struct {
 
 func (x *ResumptionState) Reset() {
 	*x = ResumptionState{}
-	mi := &file_model_proto_msgTypes[6]
+	mi := &file_model_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -444,7 +220,7 @@ func (x *ResumptionState) String() string {
 func (*ResumptionState) ProtoMessage() {}
 
 func (x *ResumptionState) ProtoReflect() protoreflect.Message {
-	mi := &file_model_proto_msgTypes[6]
+	mi := &file_model_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -457,7 +233,7 @@ func (x *ResumptionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumptionState.ProtoReflect.Descriptor instead.
 func (*ResumptionState) Descriptor() ([]byte, []int) {
-	return file_model_proto_rawDescGZIP(), []int{6}
+	return file_model_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ResumptionState) GetGeneration() uint64 {
@@ -513,19 +289,7 @@ var File_model_proto protoreflect.FileDescriptor
 
 const file_model_proto_rawDesc = "" +
 	"\n" +
-	"\vmodel.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"]\n" +
-	"\tIntroduce\x12\x12\n" +
-	"\x04Name\x18\x01 \x01(\tR\x04Name\x12\x1c\n" +
-	"\tPublicKey\x18\x02 \x01(\fR\tPublicKey\x12\x1e\n" +
-	"\n" +
-	"AppVersion\x18\x03 \x01(\tR\n" +
-	"AppVersion\"Q\n" +
-	"\tHandshake\x12\x10\n" +
-	"\x03Key\x18\x01 \x01(\fR\x03Key\x12\x12\n" +
-	"\x04Salt\x18\x02 \x01(\fR\x04Salt\x12\x1e\n" +
-	"\n" +
-	"SessionKey\x18\x03 \x01(\tR\n" +
-	"SessionKey\"\xca\x01\n" +
+	"\vmodel.proto\x12\x03box\x1a\x1fgoogle/protobuf/timestamp.proto\"\xca\x01\n" +
 	"\x04Peer\x12\x12\n" +
 	"\x04Name\x18\x01 \x01(\tR\x04Name\x12\x1c\n" +
 	"\tPublicKey\x18\x02 \x01(\fR\tPublicKey\x128\n" +
@@ -533,13 +297,7 @@ const file_model_proto_rawDesc = "" +
 	"\bLastSeen\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bLastSeen\x12\x1e\n" +
 	"\n" +
 	"AppVersion\x18\x05 \x01(\tR\n" +
-	"AppVersion\"C\n" +
-	"\rResumeRequest\x12\x1c\n" +
-	"\tSessionID\x18\x01 \x01(\tR\tSessionID\x12\x14\n" +
-	"\x05Token\x18\x02 \x01(\fR\x05Token\"B\n" +
-	"\fResumeAccept\x12\x1a\n" +
-	"\bAccepted\x18\x01 \x01(\bR\bAccepted\x12\x16\n" +
-	"\x06Reason\x18\x02 \x01(\tR\x06Reason\"~\n" +
+	"AppVersion\"~\n" +
 	"\vSessionData\x124\n" +
 	"\x06Fields\x18\x01 \x03(\v2\x1c.box.SessionData.FieldsEntryR\x06Fields\x1a9\n" +
 	"\vFieldsEntry\x12\x10\n" +
@@ -574,23 +332,19 @@ func file_model_proto_rawDescGZIP() []byte {
 }
 
 var file_model_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_model_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_model_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_model_proto_goTypes = []any{
 	(ResumeRole)(0),               // 0: box.ResumeRole
-	(*Introduce)(nil),             // 1: box.Introduce
-	(*Handshake)(nil),             // 2: box.Handshake
-	(*Peer)(nil),                  // 3: box.Peer
-	(*ResumeRequest)(nil),         // 4: box.ResumeRequest
-	(*ResumeAccept)(nil),          // 5: box.ResumeAccept
-	(*SessionData)(nil),           // 6: box.SessionData
-	(*ResumptionState)(nil),       // 7: box.ResumptionState
-	nil,                           // 8: box.SessionData.FieldsEntry
-	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
+	(*Peer)(nil),                  // 1: box.Peer
+	(*SessionData)(nil),           // 2: box.SessionData
+	(*ResumptionState)(nil),       // 3: box.ResumptionState
+	nil,                           // 4: box.SessionData.FieldsEntry
+	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
 }
 var file_model_proto_depIdxs = []int32{
-	9, // 0: box.Peer.FirstSeen:type_name -> google.protobuf.Timestamp
-	9, // 1: box.Peer.LastSeen:type_name -> google.protobuf.Timestamp
-	8, // 2: box.SessionData.Fields:type_name -> box.SessionData.FieldsEntry
+	5, // 0: box.Peer.FirstSeen:type_name -> google.protobuf.Timestamp
+	5, // 1: box.Peer.LastSeen:type_name -> google.protobuf.Timestamp
+	4, // 2: box.SessionData.Fields:type_name -> box.SessionData.FieldsEntry
 	0, // 3: box.ResumptionState.Role:type_name -> box.ResumeRole
 	4, // [4:4] is the sub-list for method output_type
 	4, // [4:4] is the sub-list for method input_type
@@ -610,7 +364,7 @@ func file_model_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_model_proto_rawDesc), len(file_model_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   8,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

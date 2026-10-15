@@ -977,7 +977,7 @@ func TestTerminateZerosExporter(t *testing.T) {
 	t.Cleanup(func() { _ = it.CloseAbort() })
 	held := rt.exporter
 	a.NotEmpty(held)
-	err := rt.terminate(ErrConnClosed)
+	err := rt.terminate(ErrConnClosed, true)
 	a.ErrorIs(err, ErrConnClosed)
 	a.Nil(rt.exporter)
 	for _, b := range held {

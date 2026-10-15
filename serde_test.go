@@ -188,11 +188,9 @@ func TestPadSignedTransport_LandsOnBucket(t *testing.T) {
 	for _, keySize := range sizes {
 		t.Run("", func(t *testing.T) {
 			a := require.New(t)
-			hs := &pb.Handshake{
-				Key:        make([]byte, keySize),
-				Salt:       make([]byte, handshakeSaltSize),
-				SessionKey: "0123456789",
-			}
+			hs := &pb.SessionData{Fields: map[string][]byte{
+				"k": make([]byte, keySize),
+			}}
 			msg, err := proto.Marshal(hs)
 			a.NoError(err)
 			a.LessOrEqual(len(msg), int(maxTransportSize))

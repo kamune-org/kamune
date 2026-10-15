@@ -2,6 +2,7 @@
 package kamune
 
 import (
+	"context"
 	"math"
 	"time"
 
@@ -44,29 +45,6 @@ const (
 
 	// sessionIDLength is the length of the session ID.
 	sessionIDLength = 24
-
-	// Handshake domain separation labels.
-	handshakeInfo    = "kamune/handshake/v1"
-	handshakeC2SInfo = "kamune/handshake/client-to-server/v1/"
-	handshakeS2CInfo = "kamune/handshake/server-to-client/v1/"
-
-	// Handshake constants.
-	handshakeSaltSize      = 16
-	handshakeChallengeSize = 32
-
-	// Transport signing domain separation label (RFC002).
-	transportSignInfo = "kamune/transport-sign/v1"
-
-	// Resumption domain separation labels.
-	resumptionRootInfo  = "kamune/resumption-root/v1"
-	resumptionTokenInfo = "kamune/resumption/token/v1/"
-
-	// Resumption constants. resumptionGracePeriod counts from a session's
-	// cold handshake, whose time storage keeps as established_at; resuming
-	// the session does not restart it.
-	resumptionGracePeriod = 24 * time.Hour
-	resumptionTokenCount  = 20
-	resumptionTokenSize   = 32
 )
 
 // Bucket sizes for the bucketed padding scheme (pre-encryption target sizes in
@@ -87,35 +65,32 @@ var paddingBuckets = []int{
 var bumpProbabilities = []int{80, 15, 4, 1}
 
 type (
-	// RemoteVerifier decides whether to accept a peer. It runs during the
-	// handshake, after the peer's introduction has arrived and before the
-	// session is established; an error rejects the peer. It is required:
+	// RemoteVerifier decides whether to accept an authenticated peer. It
+	// runs after the peer's signature and transcript MAC verify and before
+	// the session is committed. An error rejects the peer. It is required:
 	// [NewServer] and [NewDialer] return [ErrMissingVerifier] for a nil
 	// one, so an application that accepts every peer says so with a
 	// verifier that returns nil. It may wait for a user's decision for up
 	// to the verify timeout (see [ServeWithVerifyTimeout] and
-	// [DialWithVerifyTimeout]), and an accept that comes later counts as a
-	// rejection.
+	// [DialWithVerifyTimeout]). An accept that arrives after that timeout
+	// counts as a rejection.
 	//
-	// The handshake can still fail after the verifier accepts, for example
-	// when the peer gives up. A verifier should therefore not store the peer
-	// itself; store it once the session is established, in the [HandlerFunc]
-	// or after [Dialer.Dial] returns, from [Transport.RemotePeer].
+	// The handshake can still fail after the verifier accepts. A verifier
+	// should therefore not store the peer itself; store it once the session
+	// exists, in the [HandlerFunc] or after [Dialer.Dial] returns, from
+	// [Transport.RemotePeer].
 	//
-	// A [Server] runs the verifier for each introduction it receives and
-	// does not limit how many runs are in progress at once, apart from the
-	// per-source cap of [ServeWithMaxPendingPerSource]. A verifier that
-	// prompts a user should limit its open prompts itself, for example by
-	// rejecting an unknown peer while a prompt is open.
+	// A [Server] runs the verifier for each handshake and does not limit
+	// how many runs are in progress at once, apart from the per-source cap
+	// of [ServeWithMaxPendingPerSource]. A verifier that prompts a user
+	// should limit its open prompts itself.
 	//
-	// The verifier runs only in a cold handshake, the one with
-	// introductions. Neither side runs it when a session is resumed: the
-	// server then accepts a dialer that proves it holds the key stored for
-	// the session, as long as that peer is still in storage. An application
-	// that must verify every connection, for example by asking its user
-	// each time, should turn resumption off with [ServeWithResumeEnabled];
-	// see there for the details.
-	RemoteVerifier func(store *storage.Storage, peer *storage.Peer) error
+	// The verifier runs on every handshake, including a resumed one. The
+	// request says which. [ServeWithResumeEnabled] (false) answers every
+	// resume offer with a cold handshake and still runs the verifier.
+	RemoteVerifier func(
+		ctx context.Context, store *storage.Storage, req VerifyRequest,
+	) error
 
 	// HandlerFunc receives each session a [Server] establishes.
 	HandlerFunc func(t *Transport) error

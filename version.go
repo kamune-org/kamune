@@ -10,27 +10,27 @@ import (
 
 // AppVersion is the semantic version of the kamune protocol/library, in the
 // form major.minor.patch. A [Server] or [Dialer] advertises it in its
-// introduction and checks the peer's version against it.
+// handshake and checks the peer's version against it.
 //
 // It may be overridden with -ldflags "-X", or by assigning it before the
 // first [NewServer] or [NewDialer] call, for example in an init function.
 // Each server and dialer reads it once, when it is created, and keeps that
 // value; NewServer and NewDialer fail when it is not a valid version.
-var AppVersion = "0.8.0"
+var AppVersion = "0.9.0"
 
 // MaxAppVersionLength is the longest version, in bytes, that a peer may
-// introduce itself with. See [ValidateAppVersion].
+// send in a handshake. See [ValidateAppVersion].
 const MaxAppVersionLength = 32
 
-// ValidateAppVersion checks a version that a peer introduces itself with.
+// ValidateAppVersion checks a version that a peer sends in a handshake.
 // It returns an error wrapping [ErrInvalidAppVersion] unless version is at
 // most [MaxAppVersionLength] bytes of the form major.minor.patch: three
 // decimal numbers of ASCII digits, with no sign and no leading zeros, such
 // as 0.7.0.
 //
 // [AppVersion] must pass it, or [NewServer] and [NewDialer] fail. The
-// server and the dialer reject an introduction whose version fails it
-// before the [RemoteVerifier] runs, with an error that wraps both
+// server and the dialer reject a handshake whose version fails it before
+// the [RemoteVerifier] runs, with an error that wraps both
 // ErrInvalidAppVersion and [ErrVersionMismatch]. Applications can use it
 // to check a version stored by an older release before showing it.
 func ValidateAppVersion(version string) error {

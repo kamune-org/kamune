@@ -27,11 +27,8 @@ type VerifyRequest struct {
 	Resumed        bool
 }
 
-// verifyFunc is the handshake verifier. The exported RemoteVerifier stays as it
-// is until the v2 switch.
-type verifyFunc func(
-	ctx context.Context, store *storage.Storage, req VerifyRequest,
-) error
+// verifyFunc is [RemoteVerifier].
+type verifyFunc = RemoteVerifier
 
 // runVerifier runs v with a timeout. A nil error after the timeout context is
 // done is a rejection.

@@ -1,7 +1,6 @@
 package kamune
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -61,36 +60,29 @@ func isTimeout(err error) bool {
 
 // Transport handles encrypted message exchange with route-based dispatch.
 //
-// A Transport that receives a frame it must not process further (one that
-// fails decryption or signature verification, is out of sequence, carries a
-// route not allowed in the current phase, or is RouteCloseTransport) closes
-// its connection and invalidates the session's resumption tokens, so the
-// session cannot be resumed. Every later Receive returns the same error, and
-// Send fails with ErrConnClosed. Only RouteCloseTransport tells the peer; in
-// the other cases the peer sees the connection drop, and an attempt to resume
-// it fails.
+// A Transport that receives a frame it must not process further closes
+// its connection. A failed inner signature, a route that is not a session
+// route, or RouteCloseTransport deletes the resumption row. A decrypt
+// failure, a duplicate or a gap, and a connection drop touch the row and
+// leave it. A compare-and-swap conflict leaves a newer row in place.
+// Every later Receive returns the same error, and Send fails with
+// ErrConnClosed. Only RouteCloseTransport tells the peer. In the other
+// cases the peer sees the connection drop.
 //
-// A Transport invalidates only the tokens it is responsible for (see
-// [Transport.Close]). Once a resumption of its session on another
-// Transport has stored new tokens, ending this one leaves them alone. A
-// resumption without persistence ([ServeWithoutPersistence] or
-// [DialWithoutPersistence]) stores none; then ending a Transport that it
-// replaced still keeps the resumed session from being resumed again.
+// Closing a Transport deletes its resumption row. A compare-and-swap
+// conflict leaves a newer row in place. A session without persistence
+// stores no row.
 type Transport struct {
-	conn           Conn
-	acceptedMeta   any
-	termErr        error
-	serde          *signedSerde
-	encoder        *enigma.Enigma
-	decoder        *enigma.Enigma
-	mu             *sync.Mutex
-	remotePeer     *storage.Peer
-	storage        *storage.Storage
-	sessionID      string
-	resumptionRoot []byte
-	// tokens are the stored resumption tokens of the session that t
-	// invalidates when it ends (see [Transport.invalidateResumptionTokens]).
-	tokens       [][]byte
+	conn         Conn
+	acceptedMeta any
+	termErr      error
+	serde        *signedSerde
+	encoder      *enigma.Enigma
+	decoder      *enigma.Enigma
+	mu           *sync.Mutex
+	remotePeer   *storage.Peer
+	storage      *storage.Storage
+	sessionID    string
 	recvSequence uint64
 	sendSequence uint64
 	closeTimeout time.Duration
@@ -100,8 +92,9 @@ type Transport struct {
 	clock        clock.Clock
 	sendMu       sync.Mutex
 	recvMu       sync.Mutex
-	established  bool
 	resumed      bool
+	resHeld      bool
+	resRelease   sync.Once
 }
 
 func newTransport(
@@ -157,6 +150,7 @@ func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 	switch {
 	case err == nil: // continue
 	case isConnDrop(err):
+		t.touchResumption()
 		return nil, nil, ErrConnClosed
 	case isTimeout(err):
 		return nil, nil, ErrReceiveTimeout
@@ -167,13 +161,15 @@ func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 	decrypted, err := t.decoder.Decrypt(payload)
 	if err != nil {
 		return nil, nil, t.terminate(
-			fmt.Errorf("decrypting payload: %w", err),
+			fmt.Errorf("decrypting payload: %w", err), true,
 		)
 	}
 
 	metadata, message, err := t.serde.verify(decrypted)
 	if err != nil {
-		return nil, nil, t.terminate(fmt.Errorf("deserializing: %w", err))
+		return nil, nil, t.terminate(
+			fmt.Errorf("deserializing: %w", err), false,
+		)
 	}
 
 	// Validate per-message sequence number to detect duplicates, missing, or
@@ -190,27 +186,24 @@ func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 			return nil, nil, t.terminate(fmt.Errorf(
 				"%w: duplicate message seq %d, expected %d",
 				ErrOutOfSync, seq, expected,
-			))
+			), true)
 		}
 		return nil, nil, t.terminate(fmt.Errorf(
 			"%w: missing messages, got seq %d, expected %d",
 			ErrOutOfSync, seq, expected,
-		))
+		), true)
 	}
 	t.recvSequence = seq
 	t.mu.Unlock()
 
 	route := metadata.Route()
-	if !route.IsValid() {
-		return nil, nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
-	}
 	if err := t.checkRoute(route); err != nil {
-		return nil, nil, t.terminate(err)
+		return nil, nil, t.terminate(err, false)
 	}
 	if route == RouteCloseTransport {
 		// The peer will send nothing more; close the session so that no
 		// frame queued behind the close is processed.
-		return nil, nil, t.terminate(ErrPeerDisconnected)
+		return nil, nil, t.terminate(ErrPeerDisconnected, false)
 	}
 
 	return metadata, message, nil
@@ -254,28 +247,15 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 
 // Close ends the session and closes the transport connection. It sends a
 // RouteCloseTransport frame before closing (best-effort — if the send fails,
-// it closes directly) and invalidates the session's resumption tokens,
-// whether or not the frame could be sent, so neither side can resume the
-// session afterwards. To keep a session resumable after its connection
-// drops, as when Receive returns ErrConnClosed, use [Transport.CloseAbort]
-// instead. It returns nil when Receive has already closed the transport.
+// it closes directly) and deletes the session's resumption row, whether or
+// not the frame could be sent, so neither side can resume the session
+// afterwards. To keep a session resumable after its connection drops, as
+// when Receive returns ErrConnClosed, use [Transport.CloseAbort] instead.
+// It returns nil when Receive has already closed the transport.
 //
-// The tokens invalidated are those this transport stored, or, for a
-// resumed transport that stored none, those left of the session it
-// resumed. Once a resumption of the session on another transport has
-// stored new tokens, closing this one leaves them alone, so closing a
-// transport that a resumption replaced does not end the resumed session.
-//
-// Without persistence this does not hold. A resumption by a server built
-// with [ServeWithoutPersistence], or a dialer built with
-// [DialWithoutPersistence], stores no new tokens, so every transport of
-// the session on that side holds tokens that are still stored. Closing
-// any of them, including one that a later resumption replaced,
-// invalidates the session's tokens: the resumed transport keeps working,
-// but its session cannot be resumed again once it drops. End a replaced
-// transport with [Transport.CloseAbort] instead. That keeps the session
-// resumable only when the peer resumed it without persistence as well: a
-// peer that stores new tokens holds ones that this side does not know.
+// Closing a generation whose stored row is newer is a compare-and-swap
+// conflict and leaves that row in place. A session without persistence
+// stores no row.
 //
 // Close waits at most 5 seconds for the close frame to be sent, including
 // the wait for a Send already in progress, and then closes the connection
@@ -311,24 +291,17 @@ func (t *Transport) Close() error {
 	}
 	// The session is over even if the peer never got the close frame, so
 	// it must not be resumed.
-	t.invalidateResumptionTokens()
+	t.endResumption()
 	return t.conn.Close()
 }
 
-// CloseAbort closes the underlying connection abruptly without transmitting a
-// RouteCloseTransport frame or invalidating resumption tokens, so the session
-// can still be resumed. Used when a connection drops or fails keepalive.
+// CloseAbort closes the underlying connection abruptly without transmitting
+// a RouteCloseTransport frame or deleting the resumption row. It touches
+// the row, so the session can still be resumed. Used when a connection
+// drops or fails keepalive.
 func (t *Transport) CloseAbort() error {
 	t.zeroExporter()
-	if t.resGen > 0 && t.storage != nil {
-		at := time.Now()
-		if t.clock != nil {
-			at = t.clock.Now()
-		}
-		_ = t.storage.TouchResumption(
-			t.sessionID, t.resRole, t.resGen, at,
-		)
-	}
+	t.touchResumption()
 	return t.conn.Close()
 }
 
@@ -358,14 +331,12 @@ func (t *Transport) zeroExporter() {
 }
 
 // terminate records err as the terminal error of t, unless one is already
-// recorded, wipes the exporter, closes the connection and returns err. The
-// first call also invalidates the session's resumption tokens: the session
-// ended on a frame that must not be processed, so it must not be resumed
-// either.
-//
-// The exporter is wiped in this critical section. zeroExporter takes t.mu
-// itself, so calling it here would deadlock.
-func (t *Transport) terminate(err error) error {
+// recorded, wipes the exporter, closes the connection and returns err.
+// keepState false deletes the resumption row at t.resGen. keepState true
+// touches that row and leaves it, for a failure anyone on the path can
+// cause. The exporter is wiped in this critical section. zeroExporter
+// takes t.mu itself, so calling it here would deadlock.
+func (t *Transport) terminate(err error, keepState bool) error {
 	t.mu.Lock()
 	first := t.termErr == nil
 	if first {
@@ -378,9 +349,62 @@ func (t *Transport) terminate(err error) error {
 	t.mu.Unlock()
 	_ = t.conn.Close()
 	if first {
-		t.invalidateResumptionTokens()
+		if keepState {
+			t.touchResumption()
+		} else {
+			t.endResumption()
+		}
 	}
 	return err
+}
+
+// endResumption deletes the resumption row at t.resGen.
+func (t *Transport) endResumption() {
+	if t.storage == nil || t.sessionID == "" || t.resGen == 0 {
+		return
+	}
+	err := t.storage.DeleteResumption(t.sessionID, t.resRole, t.resGen)
+	if err != nil && !errors.Is(err, storage.ErrNoResumption) &&
+		!errors.Is(err, storage.ErrResumptionConflict) {
+		slog.Error("delete resumption", slog.Any("error", err))
+	}
+	t.releaseResumption()
+}
+
+// touchResumption slides the idle window of the row at t.resGen.
+func (t *Transport) touchResumption() {
+	if t.storage == nil || t.sessionID == "" || t.resGen == 0 {
+		return
+	}
+	at := time.Now()
+	if t.clock != nil {
+		at = t.clock.Now()
+	}
+	err := t.storage.TouchResumption(t.sessionID, t.resRole, t.resGen, at)
+	if err != nil && !errors.Is(err, storage.ErrNoResumption) &&
+		!errors.Is(err, storage.ErrResumptionConflict) {
+		slog.Error("touch resumption", slog.Any("error", err))
+	}
+	t.releaseResumption()
+}
+
+// holdResumption keeps this transport's row out of session sweeps.
+func (t *Transport) holdResumption() {
+	if t.storage == nil || t.sessionID == "" || t.resGen == 0 {
+		return
+	}
+	t.storage.HoldResumption(t.sessionID)
+	t.resHeld = true
+}
+
+// releaseResumption drops the hold from holdResumption, once.
+func (t *Transport) releaseResumption() {
+	if !t.resHeld {
+		return
+	}
+	t.resRelease.Do(func() {
+		t.storage.ReleaseResumption(t.sessionID)
+	})
 }
 
 // terminated returns the terminal error of t, or nil while t is usable.
@@ -391,71 +415,10 @@ func (t *Transport) terminated() error {
 }
 
 func (t *Transport) checkRoute(route Route) error {
-	ok := route.isChallengeRoute()
-	if t.established {
-		ok = route.isSessionRoute()
-	}
-	if !ok {
+	if !route.isSessionRoute() {
 		return fmt.Errorf("%w: %s", ErrUnexpectedRoute, route)
 	}
 	return nil
-}
-
-// invalidateResumptionTokens deletes the session's stored resumption tokens
-// if they are still those of t.tokens. A resumption of the session that
-// stored new tokens since replaced them, and they are left alone. It never
-// creates the session: when the session is not in storage, for example
-// because the user deleted it, there is nothing to invalidate.
-func (t *Transport) invalidateResumptionTokens() {
-	if t.storage == nil || t.sessionID == "" || len(t.tokens) == 0 {
-		return
-	}
-	_, err := t.storage.DeleteListIfContains(
-		t.sessionID, storage.ResumptionTokensKey, t.tokens,
-	)
-	if err != nil {
-		slog.Error(
-			"invalidate resumption tokens", slog.Any("error", err),
-		)
-	}
-}
-
-// remainingResumptionTokens returns the tokens left of the session
-// sessionID after one was used to resume it. The resumed transport
-// invalidates them when it ends, unless it stores new ones.
-func remainingResumptionTokens(
-	store *storage.Storage, sessionID string,
-) [][]byte {
-	tokens, err := store.GetList(sessionID, storage.ResumptionTokensKey)
-	if err != nil {
-		slog.Error("read resumption tokens", slog.Any("error", err))
-	}
-	return tokens
-}
-
-func persistEstablishedSession(
-	store *storage.Storage, t *Transport, setEstablished bool,
-) {
-	t.storage = store
-	if store == nil {
-		return
-	}
-	var peerKey []byte
-	if t.remotePeer != nil {
-		peerKey = t.remotePeer.PublicKey
-	}
-	tokens := t.deriveResumptionTokens()
-	err := store.PutSessionResumption(
-		t.sessionID,
-		peerKey,
-		tokens,
-		setEstablished,
-	)
-	if err != nil {
-		slog.Error("persist resumption state", slog.Any("error", err))
-		return
-	}
-	t.tokens = tokens
 }
 
 // SetDeadline sets the read and write deadlines on the underlying connection.
@@ -476,46 +439,5 @@ func (t *Transport) takeAcceptedMeta(cn Conn) {
 }
 
 // RemotePeer returns the remote peer's identity (name, public key, and app
-// version) as established during the introduction phase.
+// version) as authenticated in the handshake.
 func (t *Transport) RemotePeer() *storage.Peer { return t.remotePeer }
-
-// setResumptionRoot derives and stores the resumption root from the MLKEM
-// shared secret and session ID. Called after a successful Challenge Exchange.
-func (t *Transport) setResumptionRoot(sharedSecret []byte) {
-	root, err := enigma.Derive(
-		sharedSecret,
-		[]byte(t.sessionID),
-		[]byte(resumptionRootInfo),
-		resumptionTokenSize,
-	)
-	if err != nil {
-		// Derive only fails on invalid parameters; this should never happen.
-		slog.Error("derive resumption root", slog.Any("error", err))
-		return
-	}
-	t.resumptionRoot = root
-}
-
-// deriveResumptionTokens returns N resumption tokens derived from the session's
-// resumption root. Each token is a 32-byte HKDF-SHA512 output. Returns nil if
-// the resumption root has not been set (e.g. pre- Established).
-func (t *Transport) deriveResumptionTokens() [][]byte {
-	if t.resumptionRoot == nil {
-		return nil
-	}
-	tokens := make([][]byte, resumptionTokenCount)
-	for i := range tokens {
-		info := make([]byte, len(resumptionTokenInfo)+4)
-		copy(info, resumptionTokenInfo)
-		binary.BigEndian.PutUint32(info[len(resumptionTokenInfo):], uint32(i))
-		token, err := enigma.Derive(
-			t.resumptionRoot, nil, info, resumptionTokenSize,
-		)
-		if err != nil {
-			slog.Error("derive resumption token", slog.Any("error", err))
-			return nil
-		}
-		tokens[i] = token
-	}
-	return tokens
-}

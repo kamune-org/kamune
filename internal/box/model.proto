@@ -5,34 +5,12 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "./pb";
 
-message Introduce {
-  string Name = 1;
-  bytes PublicKey = 2;
-  string AppVersion = 3;
-}
-
-message Handshake {
-  bytes Key = 1;
-  bytes Salt = 2;
-  string SessionKey = 3;
-}
-
 message Peer {
   string Name = 1;
   bytes PublicKey = 2;
   google.protobuf.Timestamp FirstSeen = 3;
   google.protobuf.Timestamp LastSeen = 4;
   string AppVersion = 5;
-}
-
-message ResumeRequest {
-  string SessionID = 1;
-  bytes Token = 2;
-}
-
-message ResumeAccept {
-  bool Accepted = 1;
-  string Reason = 2;
 }
 
 message SessionData {

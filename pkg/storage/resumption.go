@@ -213,15 +213,64 @@ func (s *Storage) TouchResumption(
 	return nil
 }
 
+// HoldResumption keeps sessionID out of [SweepSessions] until the
+// matching [ReleaseResumption]. A live transport holds its row so the
+// idle window starts when the connection ends, not when it began.
+// Extra releases are ignored.
+func (s *Storage) HoldResumption(sessionID string) {
+	if s == nil || sessionID == "" {
+		return
+	}
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	if s.live == nil {
+		s.live = make(map[string]int)
+	}
+	s.live[sessionID]++
+}
+
+// ReleaseResumption drops one hold from [HoldResumption].
+func (s *Storage) ReleaseResumption(sessionID string) {
+	if s == nil || sessionID == "" {
+		return
+	}
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	n := s.live[sessionID]
+	if n <= 1 {
+		delete(s.live, sessionID)
+		return
+	}
+	s.live[sessionID] = n - 1
+}
+
+// heldSessions returns the namespace names of sessions a live transport
+// still holds. The caller must not use the map after the next hold change.
+func (s *Storage) heldSessions() map[string]struct{} {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	held := make(map[string]struct{}, len(s.live))
+	for id := range s.live {
+		held[string(s.sessionName(id))] = struct{}{}
+	}
+	return held
+}
+
 // SweepSessions deletes expired resumption rows and the idle unnamed
-// sessions they leave behind. It returns how many sessions were deleted.
+// sessions they leave behind. A session held by [HoldResumption] is left
+// in place, including one past the idle window or the maximum age. It
+// returns how many sessions were deleted.
 func (s *Storage) SweepSessions(
 	now time.Time, idle, maxAge time.Duration,
 ) (int, error) {
+	held := s.heldSessions()
 	deleted := 0
 	err := s.engine.Command(func(b engine.Namespace) error {
 		sessions := b.Sub([]byte(engine.SessionsNamespace))
 		for _, name := range sessions.ListSubNamespaces() {
+			if _, ok := held[string(name)]; ok {
+				continue
+			}
 			meta := sessions.Sub([]byte(name)).Sub([]byte("meta"))
 			if err := expireResumption(
 				meta, now, idle, maxAge,

@@ -240,6 +240,41 @@ func TestStorage_SweepUnconfirmedRows(t *testing.T) {
 	a.NoError(err)
 }
 
+func TestSweepSkipsHeldSession(t *testing.T) {
+	a := require.New(t)
+	now := time.Now().Truncate(time.Second)
+	old := now.Add(-8 * 24 * time.Hour)
+	s, err := OpenStorage(
+		WithDBPath(filepath.Join(t.TempDir(), "db")),
+		WithNoPassphrase(),
+	)
+	a.NoError(err)
+	defer func() { a.NoError(s.Close()) }()
+
+	held := testResumption(ResumeRoleResponder, 0x11)
+	held.ColdAt = old
+	held.RefreshedAt = old
+	a.NoError(s.SwapResumption("held", 0, held))
+	other := testResumption(ResumeRoleResponder, 0x22)
+	other.ColdAt = old
+	other.RefreshedAt = old
+	a.NoError(s.SwapResumption("other", 0, other))
+
+	s.HoldResumption("held")
+	_, err = s.SweepSessions(now, 24*time.Hour, 7*24*time.Hour)
+	a.NoError(err)
+	_, err = s.GetResumption("held", ResumeRoleResponder)
+	a.NoError(err)
+	_, err = s.GetResumption("other", ResumeRoleResponder)
+	a.ErrorIs(err, ErrNoResumption)
+
+	s.ReleaseResumption("held")
+	_, err = s.SweepSessions(now, 24*time.Hour, 7*24*time.Hour)
+	a.NoError(err)
+	_, err = s.GetResumption("held", ResumeRoleResponder)
+	a.ErrorIs(err, ErrNoResumption)
+}
+
 func TestResumption_NotInBoltPlaintext(t *testing.T) {
 	a := require.New(t)
 	path := filepath.Join(t.TempDir(), "db")

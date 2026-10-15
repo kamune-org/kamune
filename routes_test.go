@@ -16,19 +16,13 @@ func TestRouteString(t *testing.T) {
 		route    Route
 	}{
 		{"Invalid", RouteInvalid},
-		{"Identity", RouteIdentity},
-		{"RequestHandshake", RouteRequestHandshake},
-		{"AcceptHandshake", RouteAcceptHandshake},
-		{"FinalizeHandshake", RouteFinalizeHandshake},
-		{"SendChallenge", RouteSendChallenge},
-		{"VerifyChallenge", RouteVerifyChallenge},
 		{"ExchangeMessages", RouteExchangeMessages},
 		{"CloseTransport", RouteCloseTransport},
 		{"Ping", RoutePing},
 		{"Pong", RoutePong},
-		{"ResumeRequest", RouteResumeRequest},
-		{"ResumeAccept", RouteResumeAccept},
 		{"SessionData", RouteSessionData},
+		{"Invalid", Route(1)},
+		{"Invalid", Route(11)},
 		{"Invalid", Route(999)},
 	}
 
@@ -42,18 +36,10 @@ func TestRouteString(t *testing.T) {
 func TestRouteIsValid(t *testing.T) {
 	a := require.New(t)
 	validRoutes := []Route{
-		RouteIdentity,
-		RouteRequestHandshake,
-		RouteAcceptHandshake,
-		RouteFinalizeHandshake,
-		RouteSendChallenge,
-		RouteVerifyChallenge,
 		RouteExchangeMessages,
 		RouteCloseTransport,
 		RoutePing,
 		RoutePong,
-		RouteResumeRequest,
-		RouteResumeAccept,
 		RouteSessionData,
 	}
 
@@ -65,6 +51,10 @@ func TestRouteIsValid(t *testing.T) {
 
 	invalidRoutes := []Route{
 		RouteInvalid,
+		Route(1),
+		Route(6),
+		Route(11),
+		Route(12),
 		Route(-1),
 		Route(999),
 	}
@@ -82,31 +72,22 @@ func TestRouteProtoConversion(t *testing.T) {
 		route   Route
 		pbRoute pb.Route
 	}{
-		{RouteIdentity, pb.Route_ROUTE_IDENTITY},
-		{RouteRequestHandshake, pb.Route_ROUTE_REQUEST_HANDSHAKE},
-		{RouteAcceptHandshake, pb.Route_ROUTE_ACCEPT_HANDSHAKE},
-		{RouteFinalizeHandshake, pb.Route_ROUTE_FINALIZE_HANDSHAKE},
-		{RouteSendChallenge, pb.Route_ROUTE_SEND_CHALLENGE},
-		{RouteVerifyChallenge, pb.Route_ROUTE_VERIFY_CHALLENGE},
 		{RouteExchangeMessages, pb.Route_ROUTE_EXCHANGE_MESSAGES},
 		{RouteCloseTransport, pb.Route_ROUTE_CLOSE_TRANSPORT},
 		{RoutePing, pb.Route_ROUTE_PING},
 		{RoutePong, pb.Route_ROUTE_PONG},
-		{RouteResumeRequest, pb.Route_ROUTE_RESUME_REQUEST},
-		{RouteResumeAccept, pb.Route_ROUTE_RESUME_ACCEPT},
 		{RouteSessionData, pb.Route_ROUTE_SESSION_DATA},
 		{RouteInvalid, pb.Route_ROUTE_INVALID},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.route.String(), func(t *testing.T) {
-			// Test ToProto
 			a.Equal(tt.pbRoute, tt.route.ToProto())
-
-			// Test FromProto
 			a.Equal(tt.route, RouteFromProto(tt.pbRoute))
 		})
 	}
+	a.Equal(pb.Route_ROUTE_INVALID, Route(1).ToProto())
+	a.Equal(RouteInvalid, RouteFromProto(pb.Route(1)))
 }
 
 func TestBytesHelper(t *testing.T) {
@@ -117,7 +98,5 @@ func TestBytesHelper(t *testing.T) {
 	a.IsType(&wrapperspb.BytesValue{}, wrapper)
 	a.Equal(data, wrapper.GetValue())
 
-	// Nil case
-	nilWrapper := Bytes(nil)
-	a.Nil(nilWrapper.GetValue())
+	a.Nil(Bytes(nil).GetValue())
 }

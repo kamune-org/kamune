@@ -6,22 +6,17 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand/v2"
 	"net"
 	"net/netip"
 	"runtime/debug"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/xtaci/kcp-go/v5"
-	"google.golang.org/protobuf/proto"
 
-	"github.com/kamune-org/kamune/internal/box/pb"
 	"github.com/kamune-org/kamune/internal/clock"
 	"github.com/kamune-org/kamune/pkg/attest"
-	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -60,7 +55,7 @@ func (l *udpListener) Accept() (Conn, error) {
 
 const (
 	// defaultMaxPendingHandshakes is how many accepted connections may wait
-	// for the dialer's introduction at once, unless
+	// for the dialer's ClientHello at once, unless
 	// [ServeWithMaxPendingHandshakes] changes it.
 	defaultMaxPendingHandshakes = 256
 
@@ -69,9 +64,8 @@ const (
 	// changes it.
 	defaultMaxPendingPerSource = 16
 
-	// defaultIntroTimeout is how long an accepted connection has to complete
-	// the key exchange and send its introduction or resume request, unless
-	// [ServeWithIntroTimeout] changes it.
+	// defaultIntroTimeout is how long an accepted connection has to send
+	// ClientHello, unless [ServeWithIntroTimeout] changes it.
 	defaultIntroTimeout = 10 * time.Second
 
 	// ipv6SourceBits is the prefix length by which the per-source limit
@@ -90,6 +84,11 @@ const (
 	// on each consecutive error.
 	minAcceptDelay = 5 * time.Millisecond
 	maxAcceptDelay = time.Second
+
+	// sweepInterval is how often a persistence server sweeps resumption
+	// rows. The timestamp comes from the server clock; the wait is wall
+	// time, because clock.Clock has no ticker.
+	sweepInterval = time.Hour
 )
 
 // Server handles incoming connections and manages the handshake process.
@@ -100,18 +99,20 @@ type Server struct {
 	storage     *storage.Storage
 	handlerFunc HandlerFunc
 	listen      func() (Listener, error)
+	ctx         context.Context
+	cancel      context.CancelFunc
 	done        chan struct{}
 	// sources counts the connections from each source that are in the
 	// handshake, for the per-source cap.
 	sources map[string]int
-	// networks counts the waiting connections from each network, from
-	// which the cap on waiting connections picks one to drop.
-	networks      map[string]int
-	pending       map[*pendingConn]struct{}
+	pending map[*pendingConn]struct{}
+	// waiting and hello are the two pre-authentication stages. Each is
+	// capped by maxPending. A ClientHello flood can evict only hello.
+	waiting       stage
+	hello         stage
 	serverName    string
 	version       string
 	addr          string
-	waiting       []*pendingConn
 	connOpts      []ConnOption
 	handshakeOpts handshakeOpts
 	introTimeout  time.Duration
@@ -120,6 +121,7 @@ type Server struct {
 	wg            sync.WaitGroup
 	mu            sync.Mutex
 	resumeEnabled bool
+	sweepStarted  bool
 	closed        bool
 }
 
@@ -130,24 +132,21 @@ type pendingConn struct {
 	// source is the key under which the per-source cap counts the
 	// connection, or "" when that cap does not apply to it.
 	source string
-	// network is the key under which the connection counts while it waits
-	// for the dialer's introduction.
+	// network is the key under which the connection counts while it is on
+	// waiting or hello.
 	network string
+	// where is the pre-authentication list p is on, or admitNone.
+	where admitPlace // guarded by Server.mu
 	// forgeable is whether the connection's source address can be forged,
 	// as over UDP. The per-source cap then counts it only once the dialer
-	// has introduced itself, which needs the server's reply.
+	// has authenticated, which needs the server's reply.
 	forgeable bool
 	// counted is whether the per-source cap counts the connection.
 	counted bool // guarded by Server.mu
-	// waiting is whether the connection still waits for the dialer's
-	// introduction and holds one of the places that
-	// [ServeWithMaxPendingHandshakes] caps. Such a connection is in
-	// Server.waiting.
-	waiting bool // guarded by Server.mu
-	// introduced is whether the dialer has introduced itself.
-	introduced bool // guarded by Server.mu
+	// authenticated is whether sig_I and finished_I have verified.
+	authenticated bool // guarded by Server.mu
 	// dropped is whether the server closed the connection to make room
-	// for a newer one before the dialer introduced itself.
+	// for a newer one before the dialer authenticated.
 	dropped bool // guarded by Server.mu
 	ended   bool // guarded by Server.mu
 }
@@ -159,17 +158,17 @@ type pendingConn struct {
 // Other Accept errors, such as running out of file descriptors, are logged
 // and retried after a wait that starts at 5 ms and doubles up to 1 s.
 //
-// By default an accepted connection has 10 seconds to complete the key
-// exchange and send its introduction or resume request, and at most 256
-// connections may wait for that at once. ListenAndServe keeps accepting at
-// that cap: a new connection takes the place of a waiting one, which is
-// closed, from the networks that hold the most places. Idle connections
-// from fewer networks than the cap thus cannot keep out a dialer that
-// introduces itself within a few round trips. One source may have at most
-// 16 connections in the handshake at once; over UDP, whose source address
-// can be forged, only those whose dialer has introduced itself count. See
-// [ServeWithIntroTimeout], [ServeWithMaxPendingHandshakes] and
-// [ServeWithMaxPendingPerSource].
+// By default an accepted connection has 10 seconds to send ClientHello,
+// and at most 256 connections may wait for that at once. The same cap
+// applies again after ClientHello, until the dialer authenticates.
+// ListenAndServe keeps accepting at that cap: a new connection takes the
+// place of a waiting one, which is closed, from the networks that hold the
+// most places. Idle connections from fewer networks than the cap thus
+// cannot keep out a dialer that sends ClientHello within a few round
+// trips. One source may have at most 16 connections in the handshake at
+// once; over UDP, whose source address can be forged, only those whose
+// dialer has authenticated count. See [ServeWithIntroTimeout],
+// [ServeWithMaxPendingHandshakes] and [ServeWithMaxPendingPerSource].
 func (s *Server) ListenAndServe() error {
 	s.mu.Lock()
 	if s.closed {
@@ -186,6 +185,7 @@ func (s *Server) ListenAndServe() error {
 		s.listener = &tcpListener{Listener: l, connOpts: s.connOpts}
 	}
 	s.mu.Unlock()
+	s.startSweep()
 
 	slog.Info("server started", slog.String("addr", s.addr))
 
@@ -231,11 +231,11 @@ func (s *Server) ListenAndServe() error {
 			case err == nil:
 			case s.isClosed():
 				slog.Debug("serve conn after close", slog.Any("error", err))
-			case !s.wasIntroduced(p):
+			case !s.wasAuthenticated(p):
 				// Anyone can open a connection and let it time out or
 				// drop it, so these failures would flood the log.
 				slog.Debug(
-					"serve conn before introduction",
+					"serve conn before authentication",
 					slog.Any("error", err),
 				)
 			default:
@@ -246,19 +246,19 @@ func (s *Server) ListenAndServe() error {
 }
 
 // admit records cn as being in the handshake, so that Close can close it
-// and Shutdown waits for it, and as waiting for the dialer's introduction.
-// It reports false and records nothing when the server is closed or when
-// cn's source is at the per-source cap.
+// and Shutdown waits for it, and as waiting for ClientHello. It reports
+// false and records nothing when the server is closed or when cn's source
+// is at the per-source cap.
 //
 // When the waiting connections are at the cap already, admit drops one of
 // them to make room and returns its conn for the caller to close (see
-// dropCandidateLocked). A real dialer introduces itself within a few round
+// dropCandidate). A real dialer sends ClientHello within a few round
 // trips, so the connections from the networks that hold the most places
 // are the least likely to be real dialers.
 //
 // A connection over UDP is not checked against the per-source cap here:
 // its source address may be forged, and a sender could then use up the
-// places of the host it names. introduced checks it instead.
+// places of the host it names. authenticated checks it instead.
 func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 	p := &pendingConn{conn: cn}
 	if addr := connAddr(cn); addr != nil {
@@ -281,9 +281,9 @@ func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 
 	var dropped Conn
 	if s.maxPending > 0 {
-		if len(s.waiting) >= s.maxPending {
-			victim := s.dropCandidateLocked(p.network)
-			s.stopWaitingLocked(victim)
+		if s.waiting.len() >= s.maxPending {
+			victim := s.waiting.dropCandidate(p.network)
+			s.waiting.remove(victim)
 			victim.dropped = true
 			dropped = victim.conn
 			slog.Debug(
@@ -291,12 +291,7 @@ func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 				slog.String("network", victim.network),
 			)
 		}
-		p.waiting = true
-		s.waiting = append(s.waiting, p)
-		if s.networks == nil {
-			s.networks = make(map[string]int)
-		}
-		s.networks[p.network]++
+		s.waiting.add(p)
 	}
 	if s.pending == nil {
 		s.pending = make(map[*pendingConn]struct{})
@@ -304,51 +299,6 @@ func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 	s.pending[p] = struct{}{}
 	s.wg.Add(1)
 	return p, dropped, true
-}
-
-// dropCandidateLocked returns the waiting connection to drop for a new one
-// from network. It takes the networks with the most waiting connections,
-// the new one counted, picks one of them at random and returns its oldest
-// connection. s.waiting must not be empty.
-//
-// A tie is broken at random, not by age. When idle connections come from
-// more networks than the cap, every network ties at one, and dropping the
-// oldest would drop any dialer that has not introduced itself by the time
-// as many connections as the cap have arrived after it. At random, its
-// chance to keep its place falls only gradually with that number.
-func (s *Server) dropCandidateLocked(network string) *pendingConn {
-	waitingIn := func(n string) int {
-		if n == network {
-			return s.networks[n] + 1
-		}
-		return s.networks[n]
-	}
-	most := 0
-	for n := range s.networks {
-		most = max(most, waitingIn(n))
-	}
-
-	// s.waiting is in the order the connections were accepted, so the
-	// first one seen from a network is its oldest.
-	var victim *pendingConn
-	seen := make(map[string]struct{}, len(s.networks))
-	tied := 0
-	for _, p := range s.waiting {
-		if _, ok := seen[p.network]; ok {
-			continue
-		}
-		seen[p.network] = struct{}{}
-		if waitingIn(p.network) < most {
-			continue
-		}
-		// Each tied network's oldest replaces the pick with a chance of
-		// one in the number seen so far, so every one is equally likely.
-		tied++
-		if rand.IntN(tied) == 0 {
-			victim = p
-		}
-	}
-	return victim
 }
 
 // countSourceLocked counts p for the per-source cap, or reports false when
@@ -368,23 +318,6 @@ func (s *Server) countSourceLocked(p *pendingConn) bool {
 	s.sources[p.source]++
 	p.counted = true
 	return true
-}
-
-// stopWaitingLocked takes p off the list of connections that wait for the
-// dialer's introduction, if it is on it.
-func (s *Server) stopWaitingLocked(p *pendingConn) {
-	if !p.waiting {
-		return
-	}
-	p.waiting = false
-	if s.networks[p.network] <= 1 {
-		delete(s.networks, p.network)
-	} else {
-		s.networks[p.network]--
-	}
-	if i := slices.Index(s.waiting, p); i >= 0 {
-		s.waiting = slices.Delete(s.waiting, i, i+1)
-	}
 }
 
 // introduced records that the dialer on p has sent its introduction or
@@ -408,19 +341,12 @@ func (s *Server) introduced(p *pendingConn) error {
 			"dropped for a newer connection before the introduction",
 		)
 	}
-	s.stopWaitingLocked(p)
+	s.waiting.remove(p)
 	if p.source != "" && !p.counted && !s.countSourceLocked(p) {
-		return errors.New("too many pending handshakes from source")
+		return errTooManyFromSource
 	}
-	p.introduced = true
+	p.authenticated = true
 	return nil
-}
-
-// wasIntroduced reports whether the dialer on p introduced itself.
-func (s *Server) wasIntroduced(p *pendingConn) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return p.introduced
 }
 
 // endHandshake marks the handshake of p as over and frees its place among
@@ -436,7 +362,8 @@ func (s *Server) endHandshake(p *pendingConn) bool {
 		return open
 	}
 	p.ended = true
-	s.stopWaitingLocked(p)
+	s.waiting.remove(p)
+	s.hello.remove(p)
 	delete(s.pending, p)
 	if !p.counted {
 		return open
@@ -574,12 +501,16 @@ func (s *Server) Close() error {
 	if s.done != nil {
 		close(s.done)
 	}
+	cancel := s.cancel
 	l := s.listener
 	pending := make([]Conn, 0, len(s.pending))
 	for p := range s.pending {
 		pending = append(pending, p.conn)
 	}
 	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 
 	if l != nil {
 		_ = l.Close()
@@ -635,98 +566,92 @@ func (s *Server) serveConn(cn Conn, p *pendingConn) (err error) {
 		}
 	}()
 
-	t, cold, err := s.handshake(cn, p)
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	t, err := runResponder(ctx, cn, responderInput{
+		attest:        s.attest,
+		store:         s.storage,
+		verify:        s.handshakeOpts.remoteVerifier,
+		resumeEnabled: s.resumeEnabled,
+		noPersistence: s.handshakeOpts.noPersistence,
+		verifyTimeout: s.handshakeOpts.verifyTimeout,
+		introTimeout:  s.introLimit(),
+		name:          s.serverName,
+		version:       s.version,
+		clock:         s.clock,
+		onHello:       func() error { return s.helloReceived(p) },
+		onAuth:        func() error { return s.authenticated(p) },
+		dropped:       func() bool { return s.connDropped(p) },
+	})
 	open := s.endHandshake(p)
 	if err != nil {
 		return err
 	}
 	if !open {
-		// The server was closed during the handshake. End the session
-		// rather than start a handler the caller no longer expects. Its
-		// state is not written, so a cold session leaves no record; a
-		// resumed one, stored already, loses its remaining tokens as on
-		// any close.
-		if !cold {
-			t.storage = s.storage
-		}
 		_ = t.Close()
 		return ErrClosedServer
 	}
-	// Store the session only now that it goes to the handler, so that a
-	// session dropped above leaves nothing behind.
-	s.handshakeOpts.recordSession(s.storage, t, cold)
-
 	if err := s.handlerFunc(t); err != nil {
 		return fmt.Errorf("handler: %w", err)
 	}
 	return nil
 }
 
-// handshake runs the handshake on cn, a cold one or a resumption, and returns
-// the established transport, and whether the handshake was a cold one. The
-// session state is not stored yet. p is the record that ListenAndServe made
-// for cn, or nil.
-func (s *Server) handshake(cn Conn, p *pendingConn) (*Transport, bool, error) {
-	// The dialer sends its part of the exchange and then its introduction
-	// or resume request without waiting for anyone, so it gets only the
-	// short intro timeout for them. An idle connection is dropped quickly.
-	if err := cn.SetDeadline(time.Now().Add(s.introLimit())); err != nil {
-		return nil, false, fmt.Errorf("setting intro deadline: %w", err)
+// startSweep deletes expired resumption rows now and every sweepInterval
+// until Close. A server without persistence does not sweep.
+func (s *Server) startSweep() {
+	if s.handshakeOpts.noPersistence || s.storage == nil {
+		return
 	}
+	s.mu.Lock()
+	if s.sweepStarted || s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.sweepStarted = true
+	s.mu.Unlock()
 
-	// Step 0: Exchange HPKE keys to derive an encrypted connection for the
-	// handshake
-	ec, err := exchange.Accept(cn)
-	if err != nil {
-		return nil, false, fmt.Errorf("accepting exchange: %w", err)
-	}
-
-	// Step 1: Receive introduction
-	st, err := readSignedTransport(ec)
-	if err != nil {
-		return nil, false, fmt.Errorf("reading transport: %w", err)
-	}
-	if err := s.introduced(p); err != nil {
-		return nil, false, err
-	}
-	if err := cn.SetDeadline(
-		time.Now().Add(s.handshakeOpts.timeout),
-	); err != nil {
-		return nil, false, fmt.Errorf("setting handshake deadline: %w", err)
-	}
-
-	// Handle different routes at this stage
-	route, err := routeFromST(st)
-	if err != nil {
-		return nil, false, fmt.Errorf("extracting route: %w", err)
-	}
-	switch route {
-	case RouteIdentity:
-		t, err := s.handleNewConnection(cn, ec, st)
-		return t, true, err
-	case RouteResumeRequest:
-		if !s.resumeEnabled {
-			// Refuse it like any other resume request, so the dialer gets
-			// ErrResumptionRejected and stops retrying, rather than a
-			// closed connection that looks like a network error.
-			t, err := s.rejectResume(ec, "resumption not available")
-			return t, false, err
+	s.sweepOnce()
+	ticker := time.NewTicker(sweepInterval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.done:
+				return
+			case <-ticker.C:
+				s.sweepOnce()
+			}
 		}
-		t, err := s.handleResume(cn, ec, st)
-		return t, false, err
-	default:
-		return nil, false, fmt.Errorf(
-			"%w: expected %s, got %s",
-			ErrUnexpectedRoute,
-			RouteIdentity,
-			route,
-		)
+	}()
+}
+
+// sweepOnce runs one SweepSessions pass. The timestamp is the server
+// clock; the interval between passes is wall time.
+func (s *Server) sweepOnce() {
+	if s.storage == nil {
+		return
+	}
+	now := time.Now()
+	if s.clock != nil {
+		now = s.clock.Now()
+	}
+	n, err := s.storage.SweepSessions(
+		now, defaultResumeIdle, defaultResumeMaxAge,
+	)
+	if err != nil {
+		slog.Error("sweep sessions", slog.Any("error", err))
+		return
+	}
+	if n > 0 {
+		slog.Info("swept idle sessions", slog.Int("deleted", n))
 	}
 }
 
-// introLimit returns how long a dialer has to complete the key exchange and
-// send its introduction or resume request: the intro timeout, but no longer
-// than the handshake timeout.
+// introLimit is how long an accepted connection has to send ClientHello.
+// It is the shorter of the intro timeout and the handshake timeout.
 func (s *Server) introLimit() time.Duration {
 	limit := s.handshakeOpts.timeout
 	if s.introTimeout > 0 && s.introTimeout < limit {
@@ -735,139 +660,6 @@ func (s *Server) introLimit() time.Duration {
 	return limit
 }
 
-func (s *Server) handleNewConnection(
-	cn Conn, ec *exchange.Channel, st *pb.SignedTransport,
-) (*Transport, error) {
-	peer, remoteVersion, err := receiveIntroduction(st)
-	if err != nil {
-		return nil, fmt.Errorf("receiving introduction: %w", err)
-	}
-
-	if err := checkVersion(s.version, remoteVersion); err != nil {
-		return nil, fmt.Errorf("version check: %w", err)
-	}
-
-	// The dialer runs its own verifier once it has our introduction.
-	err = verifyPeer(cn, s.handshakeOpts, s.storage, peer, true)
-	if err != nil {
-		return nil, fmt.Errorf("verify remote: %w", err)
-	}
-
-	err = sendIntroduction(ec, s.attest, s.serverName, s.version)
-	if err != nil {
-		return nil, fmt.Errorf("sending introduction: %w", err)
-	}
-
-	serde := newSignedSerde(peer.PublicKey, s.attest)
-	t, err := acceptHandshake(ec, serde, s.handshakeOpts)
-	if err != nil {
-		return nil, fmt.Errorf("accepting handshake: %w", err)
-	}
-	if err := cn.SetDeadline(time.Time{}); err != nil {
-		return nil, fmt.Errorf("clearing handshake deadline: %w", err)
-	}
-
-	// Since from now on all communications are encrypted via the newly ciphers
-	// derived from the handshake, we can switch to the plain connection.
-	t.conn = cn
-	t.takeAcceptedMeta(cn)
-	t.remotePeer = peer
-
-	slog.Info(
-		"session established",
-		slog.String("session_id", t.SessionID()),
-		slog.String("peer", peer.Name),
-	)
-	return t, nil
-}
-
-// handleResume processes an incoming ResumeRequest.
-func (s *Server) handleResume(
-	cn Conn, ec *exchange.Channel, st *pb.SignedTransport,
-) (*Transport, error) {
-	// Parse the ResumeRequest.
-	var req pb.ResumeRequest
-	if err := proto.Unmarshal(st.GetData(), &req); err != nil {
-		return s.rejectResume(ec, "malformed request")
-	}
-
-	sessionID := req.GetSessionID()
-	token := req.GetToken()
-	if len(token) != resumptionTokenSize {
-		return s.rejectResume(ec, "token invalid")
-	}
-
-	peer, err := s.storage.GetPeer(sessionID)
-	if err != nil {
-		return s.rejectResume(ec, "unknown session")
-	}
-	establishedAt, err := s.storage.GetEstablishedAt(sessionID)
-	if err != nil {
-		return s.rejectResume(ec, "unknown session")
-	}
-
-	// Verify the signature against the stored peer key.
-	if !attest.Verify(
-		peer.PublicKey,
-		signingInput(st.GetMetadata(), st.GetData()),
-		st.GetSignature(),
-	) {
-		return s.rejectResume(ec, "invalid signature")
-	}
-
-	// Check the resumption window.
-	if s.clock.Now().Sub(establishedAt) > resumptionGracePeriod {
-		return s.rejectResume(ec, "session expired")
-	}
-
-	// Consume the single-use token only after authenticating the request and
-	// checking its session. A malformed request must not burn a valid token.
-	err = s.storage.RemoveListItem(sessionID, storage.ResumptionTokensKey, token)
-	if err != nil {
-		return s.rejectResume(ec, "token invalid")
-	}
-	remaining := remainingResumptionTokens(s.storage, sessionID)
-
-	// Resume accepted — send accept and proceed to handshake.
-	if err := sendResumeAccept(ec, s.attest, true); err != nil {
-		return nil, fmt.Errorf("sending resume accept: %w", err)
-	}
-
-	serde := newSignedSerde(peer.PublicKey, s.attest)
-
-	opts := s.handshakeOpts
-	opts.sessionID = sessionID
-	t, err := acceptHandshake(ec, serde, opts)
-	if err != nil {
-		return nil, fmt.Errorf("accepting handshake after resume: %w", err)
-	}
-	if err := cn.SetDeadline(time.Time{}); err != nil {
-		return nil, fmt.Errorf("clearing handshake deadline: %w", err)
-	}
-
-	t.conn = cn
-	t.takeAcceptedMeta(cn)
-	t.remotePeer = peer
-	t.tokens = remaining
-
-	slog.Info(
-		"session resumed",
-		slog.String("session_id", t.sessionID),
-		slog.String("peer", peer.Name),
-	)
-	return t, nil
-}
-
-func (s *Server) rejectResume(
-	ec *exchange.Channel, reason string,
-) (*Transport, error) {
-	if err := sendResumeAccept(ec, s.attest, false); err != nil {
-		return nil, fmt.Errorf("sending resume accept: %w", err)
-	}
-	return nil, fmt.Errorf("resume rejected: %s", reason)
-}
-
-// PublicKey returns the server's public key.
 func (s *Server) PublicKey() []byte {
 	return s.attest.MarshalPublicKey()
 }
@@ -894,10 +686,13 @@ func NewServer(
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
 		version:     version,
 		addr:        addr,
 		storage:     store,
+		ctx:         ctx,
+		cancel:      cancel,
 		handlerFunc: handler,
 		handshakeOpts: handshakeOpts{
 			remoteVerifier: rv,
@@ -906,6 +701,8 @@ func NewServer(
 		},
 		clock:         clock.Real(),
 		done:          make(chan struct{}),
+		waiting:       stage{place: admitWaiting},
+		hello:         stage{place: admitHello},
 		introTimeout:  defaultIntroTimeout,
 		maxPending:    defaultMaxPendingHandshakes,
 		maxPerSource:  defaultMaxPendingPerSource,
@@ -944,8 +741,8 @@ func NewServer(
 type ServerOptions func(*Server) error
 
 // ServeWithServerName sets the server's advertised name. The name must pass
-// [ValidatePeerName], or [NewServer] fails, since peers reject an
-// introduction with such a name. An empty name stands for the default, the
+// [ValidatePeerName], or [NewServer] fails, since peers reject a handshake
+// whose name fails it. An empty name stands for the default, the
 // [fingerprint.Sum] of the server's public key.
 func ServeWithServerName(name string) ServerOptions {
 	return func(s *Server) error {
@@ -1008,25 +805,14 @@ func ServeWithListener(l Listener) ServerOptions {
 	}
 }
 
-// ServeWithResumeEnabled controls whether the server accepts session resumption
-// requests. When disabled, the server refuses every ResumeRequest with the
-// same generic rejection it sends for an unknown session, so the dialer's
-// Dial returns [ErrResumptionRejected] at once and the dialer must start a
-// new session with a cold handshake. No token is consumed. Enabled by
-// default.
+// ServeWithResumeEnabled controls whether the server may continue a stored
+// session. When disabled, every resume offer is answered with a cold
+// handshake. The [RemoteVerifier] still runs. Enabled by default.
 //
-// A resumed session does not run the [RemoteVerifier]. The server accepts
-// a resume request that is signed by the peer key stored for the session
-// and carries one of the session's unused tokens, as long as that peer is
-// still in storage and the session's cold handshake, the one that ran the
-// verifier, was at most 24 hours ago. Resuming does not extend that
-// window: however often a session is resumed, 24 hours after its cold
-// handshake the dialer needs a new cold handshake. A peer the user
-// approved once can thus reconnect in that time without being asked
-// again. Disable resumption when every connection must be verified, for
-// example in a mode that promises to ask the user each time. To stop one
-// peer from resuming, delete it from storage with
-// [storage.Storage.DeletePeer], or delete its sessions with
+// A stored session can be resumed while its row is inside the idle window
+// (24 hours since it was last touched) and the maximum age (7 days since
+// the cold handshake). To stop one peer from resuming, delete it from
+// storage with [storage.Storage.DeletePeer], or delete its sessions with
 // [storage.Storage.DeleteSession].
 func ServeWithResumeEnabled(enabled bool) ServerOptions {
 	return func(s *Server) error {
@@ -1052,18 +838,12 @@ func ServeWithVerifyTimeout(d time.Duration) ServerOptions {
 }
 
 // ServeWithoutPersistence keeps the server from writing session state to
-// storage, for incognito use. Sessions it accepts leave no session record:
-// no peer key, established_at or resumption tokens are stored, and closing
-// such a session writes nothing either. Those sessions cannot be resumed.
+// storage, for incognito use. A session it accepts stores no resumption
+// row, and closing it writes nothing either. An offer is answered with a
+// cold handshake.
 //
 // The storage is still read for the server's identity and handed to the
-// [RemoteVerifier], which decides on its own whether to store the peer. The
-// option does not stop the server from resuming a session stored earlier,
-// which consumes one of that session's tokens and stores no new ones; the
-// session's remaining tokens are still invalidated when it ends, or when a
-// transport that it replaced is closed (see [Transport.Close]). Use it
-// together with [ServeWithResumeEnabled] (false) to refuse resumption as
-// well.
+// [RemoteVerifier], which decides on its own whether to store the peer.
 func ServeWithoutPersistence() ServerOptions {
 	return func(s *Server) error {
 		s.handshakeOpts.noPersistence = true
@@ -1072,29 +852,32 @@ func ServeWithoutPersistence() ServerOptions {
 }
 
 // ServeWithMaxPendingHandshakes caps how many accepted connections may wait
-// for the dialer's introduction or resume request at the same time.
-// [Server.ListenAndServe] keeps accepting at the cap: a new connection takes
-// the place of a waiting one, which is closed. To pick it, the server groups
-// the waiting connections by network, an IPv4 /24 or an IPv6 /48, takes the
-// networks with the most of them, the new connection counted, and closes
-// the oldest connection of one of those networks, picked at random. So idle
+// for ClientHello at the same time, and, separately, how many may sit in
+// the hello stage before the dialer authenticates. [Server.ListenAndServe]
+// keeps accepting at the cap: a new connection takes the place of one in
+// the same stage, which is closed. To pick it, the server groups those
+// connections by network, an IPv4 /24 or an IPv6 /48, takes the networks
+// with the most of them, the new connection counted, and closes the oldest
+// connection of one of those networks, picked at random. So idle
 // connections from one network lose their places first, and idle
-// connections from fewer networks than the cap never push out a dialer from
-// another network that introduces itself within a few round trips.
+// connections from fewer networks than the cap never push out a dialer
+// from another network that sends ClientHello within a few round trips.
 //
 // Idle connections from more networks than the cap can: each new one then
-// closes a waiting connection at random, so a dialer is more likely to lose
-// its place the more of them arrive before it introduces itself. That takes
-// many addresses on TCP, but over UDP, including KCP, a sender can forge as
-// many source addresses as it likes without receiving a reply. The cap
-// still applies there, since each KCP session costs a few hundred kilobytes
-// and without it such a sender could hold any number of them.
+// closes a connection in that stage at random, so a dialer is more likely
+// to lose its place the more of them arrive before it sends ClientHello.
+// That takes many addresses on TCP, but over UDP, including KCP, a sender
+// can forge as many source addresses as it likes without receiving a
+// reply. The cap still applies there, since each KCP session costs a few
+// hundred kilobytes and without it such a sender could hold any number of
+// them.
 //
-// A connection whose dialer has introduced itself, for example one waiting
-// for the [RemoteVerifier], no longer counts and is never closed this way,
-// and neither are sessions handed to the handler. [ServeWithIntroTimeout]
-// bounds how long an idle connection holds its place. The default is 256;
-// n == 0 removes the cap, and a negative n is an error.
+// A connection whose dialer has authenticated, for example one waiting for
+// the [RemoteVerifier], no longer counts and is never closed this way, and
+// neither are sessions handed to the handler. A full hello stage evicts a
+// hello connection and never a waiting one. [ServeWithIntroTimeout] bounds
+// how long an idle connection holds its place before ClientHello. The
+// default is 256; n == 0 removes the cap, and a negative n is an error.
 func ServeWithMaxPendingHandshakes(n int) ServerOptions {
 	return func(s *Server) error {
 		if n < 0 {
@@ -1115,8 +898,8 @@ func ServeWithMaxPendingHandshakes(n int) ServerOptions {
 // not report a remote address, such as a relay connection, is not limited.
 //
 // Over UDP, including KCP, a sender could forge another host's address and
-// use up that host's places, so there a connection counts only from the
-// dialer's introduction, which it cannot send without the server's reply,
+// use up that host's places, so there a connection counts only once the
+// dialer has authenticated, which it cannot do without the server's reply,
 // and one over the cap is closed then. The default is 16; n == 0 removes
 // the cap, and a negative n is an error.
 func ServeWithMaxPendingPerSource(n int) ServerOptions {
@@ -1129,13 +912,12 @@ func ServeWithMaxPendingPerSource(n int) ServerOptions {
 	}
 }
 
-// ServeWithIntroTimeout sets how long an accepted connection has to complete
-// the key exchange and send its introduction or resume request, the steps a
-// dialer takes without waiting for anyone. A connection that has not done
-// so in time is closed, which frees its place among the connections that
-// [ServeWithMaxPendingHandshakes] caps. Once the dialer has introduced
-// itself, the rest of the handshake has the usual handshake timeout. The
-// default is 10 seconds; d must be positive.
+// ServeWithIntroTimeout sets how long an accepted connection has to send
+// ClientHello. A connection that has not done so in time is closed, which
+// frees its place among the connections that
+// [ServeWithMaxPendingHandshakes] caps. Once ClientHello has arrived, the
+// rest of the handshake has the usual handshake timeout. The default is
+// 10 seconds; d must be positive.
 func ServeWithIntroTimeout(d time.Duration) ServerOptions {
 	return func(s *Server) error {
 		if d <= 0 {
