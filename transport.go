@@ -14,6 +14,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/kamune-org/kamune/internal/clock"
 	"github.com/kamune-org/kamune/internal/enigma"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
@@ -93,9 +94,14 @@ type Transport struct {
 	recvSequence uint64
 	sendSequence uint64
 	closeTimeout time.Duration
+	resGen       uint64
+	resRole      storage.ResumeRole
+	exporter     []byte
+	clock        clock.Clock
 	sendMu       sync.Mutex
 	recvMu       sync.Mutex
 	established  bool
+	resumed      bool
 }
 
 func newTransport(
@@ -283,6 +289,7 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 // which shares the listener's link to the relay, keeps that goroutine until
 // the pending write completes or the link fails.
 func (t *Transport) Close() error {
+	t.zeroExporter()
 	if t.terminated() != nil {
 		_ = t.conn.Close()
 		return nil
@@ -312,18 +319,61 @@ func (t *Transport) Close() error {
 // RouteCloseTransport frame or invalidating resumption tokens, so the session
 // can still be resumed. Used when a connection drops or fails keepalive.
 func (t *Transport) CloseAbort() error {
+	t.zeroExporter()
+	if t.resGen > 0 && t.storage != nil {
+		at := time.Now()
+		if t.clock != nil {
+			at = t.clock.Now()
+		}
+		_ = t.storage.TouchResumption(
+			t.sessionID, t.resRole, t.resGen, at,
+		)
+	}
 	return t.conn.Close()
 }
 
+// Resumed reports whether this session continued an earlier one.
+func (t *Transport) Resumed() bool { return t.resumed }
+
+// ExportKeyingMaterial derives length bytes for label and context.
+// After Close, CloseAbort, or termination it returns ErrConnClosed.
+func (t *Transport) ExportKeyingMaterial(
+	label string, context []byte, length int,
+) ([]byte, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.termErr != nil || len(t.exporter) == 0 {
+		return nil, ErrConnClosed
+	}
+	return exportKeyingMaterial(t.exporter, label, context, length)
+}
+
+func (t *Transport) zeroExporter() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i := range t.exporter {
+		t.exporter[i] = 0
+	}
+	t.exporter = nil
+}
+
 // terminate records err as the terminal error of t, unless one is already
-// recorded, closes the connection and returns err. The first call also
-// invalidates the session's resumption tokens: the session ended on a frame
-// that must not be processed, so it must not be resumed either.
+// recorded, wipes the exporter, closes the connection and returns err. The
+// first call also invalidates the session's resumption tokens: the session
+// ended on a frame that must not be processed, so it must not be resumed
+// either.
+//
+// The exporter is wiped in this critical section. zeroExporter takes t.mu
+// itself, so calling it here would deadlock.
 func (t *Transport) terminate(err error) error {
 	t.mu.Lock()
 	first := t.termErr == nil
 	if first {
 		t.termErr = err
+		for i := range t.exporter {
+			t.exporter[i] = 0
+		}
+		t.exporter = nil
 	}
 	t.mu.Unlock()
 	_ = t.conn.Close()
