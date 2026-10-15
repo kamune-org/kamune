@@ -2,6 +2,7 @@ package relayconn
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"net"
 	"os"
@@ -148,8 +149,10 @@ func dialEstablished(
 		})
 		return s
 	}
-	verify := func(st *storage.Storage, peer *storage.Peer) error {
-		return st.StorePeer(peer)
+	verify := func(
+		_ context.Context, st *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		return st.StorePeer(req.Peer)
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	a.NoError(err)
