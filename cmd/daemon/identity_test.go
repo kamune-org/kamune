@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -371,12 +372,12 @@ func TestPinPeer(t *testing.T) {
 				}
 			}
 			ran := false
-			rv := d.pinPeer(want, func(*storage.Storage, *storage.Peer) error {
+			rv := d.pinPeer(want, func(context.Context, *storage.Storage, kamune.VerifyRequest) error {
 				ran = true
 				return nil
 			})
 
-			err := rv(d.store(), peer)
+			err := rv(context.Background(), d.store(), kamune.VerifyRequest{Peer: peer})
 			if tt.wantErr != nil {
 				a.ErrorIs(err, tt.wantErr)
 			} else {

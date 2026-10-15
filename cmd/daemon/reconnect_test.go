@@ -312,7 +312,7 @@ func TestReconnectSessionStopsOnPermanentError(t *testing.T) {
 		{
 			name: "resumption rejected",
 			fail: func() error {
-				return fmt.Errorf("handshake: %w", kamune.ErrResumptionRejected)
+				return fmt.Errorf("handshake: %w", kamune.ErrNoResumptionState)
 			},
 			wantCalls: 1,
 		},

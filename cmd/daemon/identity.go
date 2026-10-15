@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -195,7 +196,10 @@ func (d *Daemon) pinPeer(
 	if want == nil {
 		return rv
 	}
-	return func(store *storage.Storage, peer *storage.Peer) error {
+	return func(
+		ctx context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		peer := req.Peer
 		if !bytes.Equal(peer.PublicKey, want) {
 			d.forgetAdmitted(peer.PublicKey)
 			d.addLogEntry("WARN", "Rejected peer "+
@@ -203,6 +207,6 @@ func (d *Daemon) pinPeer(
 				": its key is not the key of the peer that was dialed")
 			return errPeerKeyMismatch
 		}
-		return rv(store, peer)
+		return rv(ctx, store, req)
 	}
 }

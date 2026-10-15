@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/x509"
 	"fmt"
@@ -16,6 +17,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func callVerifier(
+	v kamune.RemoteVerifier, store *storage.Storage, peer *storage.Peer,
+) error {
+	return v(context.Background(), store, kamune.VerifyRequest{Peer: peer})
+}
+
 func TestAutoAcceptedPeerIsStillVerifiedInQuickMode(t *testing.T) {
 	a := require.New(t)
 	d, rec := newTestDaemon(t, VerificationModeAutoAccept, false)
@@ -26,7 +33,7 @@ func TestAutoAcceptedPeerIsStillVerifiedInQuickMode(t *testing.T) {
 		return &storage.Peer{Name: "stranger", PublicKey: pub}
 	}
 
-	a.NoError(d.inboundVerifier()(d.store(), peer()))
+	a.NoError(callVerifier(d.inboundVerifier(), d.store(), peer()))
 	_, err = d.store().FindPeer(pub)
 	a.Error(err, "auto-accepted peer was stored")
 
@@ -34,7 +41,7 @@ func TestAutoAcceptedPeerIsStillVerifiedInQuickMode(t *testing.T) {
 	d.verifMode = VerificationModeQuick
 	d.mu.Unlock()
 	verdict := make(chan error, 1)
-	go func() { verdict <- d.inboundVerifier()(d.store(), peer()) }()
+	go func() { verdict <- callVerifier(d.inboundVerifier(), d.store(), peer()) }()
 
 	evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
 	a.Equal(false, evt.Data["known"])
@@ -59,7 +66,7 @@ func TestUnknownVerificationModeIsStrict(t *testing.T) {
 			a.NoError(err)
 			verdict := make(chan error, 1)
 			go func() {
-				verdict <- d.inboundVerifier()(d.store(), &storage.Peer{
+				verdict <- callVerifier(d.inboundVerifier(), d.store(), &storage.Peer{
 					Name: "stranger", PublicKey: pub,
 				})
 			}()
@@ -148,7 +155,7 @@ func TestPendingVerificationsAreCappedAndDeduped(t *testing.T) {
 
 	verdicts := make(chan error, maxPendingVerifications)
 	for _, p := range peers[:maxPendingVerifications] {
-		go func() { verdicts <- d.inboundVerifier()(d.store(), p) }()
+		go func() { verdicts <- callVerifier(d.inboundVerifier(), d.store(), p) }()
 	}
 	var ids []int64
 	for _, p := range peers[:maxPendingVerifications] {
@@ -165,7 +172,7 @@ func TestPendingVerificationsAreCappedAndDeduped(t *testing.T) {
 
 	// A connection with a new key is rejected without a prompt once the
 	// cap is reached.
-	err := d.inboundVerifier()(d.store(), peers[maxPendingVerifications])
+	err := callVerifier(d.inboundVerifier(), d.store(), peers[maxPendingVerifications])
 	a.ErrorIs(err, errTooManyVerifications)
 	a.ErrorIs(err, kamune.ErrVerificationFailed)
 	a.Equal(maxPendingVerifications, countPrompts())
@@ -187,7 +194,7 @@ func TestPendingVerificationsAreCappedAndDeduped(t *testing.T) {
 
 	// The key is no longer pending, so it is asked about again.
 	verdict := make(chan error, 1)
-	go func() { verdict <- d.inboundVerifier()(d.store(), peers[0]) }()
+	go func() { verdict <- callVerifier(d.inboundVerifier(), d.store(), peers[0]) }()
 	last := slices.Max(ids)
 	rec.waitFor(t, func(e recordedEvent) bool {
 		id, _ := e.Data["request_id"].(float64)
@@ -218,7 +225,7 @@ func TestFullVerificationSlotsLeaveKnownAndDialedPeers(t *testing.T) {
 	verdicts := make(chan error, maxPendingVerifications+4)
 	prompt := func(v kamune.RemoteVerifier, p *storage.Peer) int64 {
 		t.Helper()
-		go func() { verdicts <- v(d.store(), p) }()
+		go func() { verdicts <- callVerifier(v, d.store(), p) }()
 		rejected := identifyPeer(d.store(), p).logName() +
 			" without asking"
 		evt := rec.waitFor(t, func(e recordedEvent) bool {
@@ -237,7 +244,7 @@ func TestFullVerificationSlotsLeaveKnownAndDialedPeers(t *testing.T) {
 	for _, p := range strangers {
 		ids = append(ids, prompt(d.inboundVerifier(), p))
 	}
-	err := d.inboundVerifier()(d.store(), &storage.Peer{
+	err := callVerifier(d.inboundVerifier(), d.store(), &storage.Peer{
 		Name: "one too many", PublicKey: newTestPeerKey(t),
 	})
 	a.ErrorIs(err, errTooManyVerifications)
@@ -473,7 +480,7 @@ func TestLateVerifyResponseIsRefused(t *testing.T) {
 				Name: "stranger", PublicKey: newTestPeerKey(t),
 			}
 			verdict := make(chan error, 1)
-			go func() { verdict <- d.inboundVerifier()(d.store(), peer) }()
+			go func() { verdict <- callVerifier(d.inboundVerifier(), d.store(), peer) }()
 			evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
 			id, ok := evt.Data["request_id"].(float64)
 			a.True(ok)
@@ -547,7 +554,7 @@ func TestVerifiersDoNotStorePeers(t *testing.T) {
 				Name: "carol", PublicKey: newTestPeerKey(t),
 			}
 			verdict := make(chan error, 1)
-			go func() { verdict <- d.inboundVerifier()(d.store(), peer) }()
+			go func() { verdict <- callVerifier(d.inboundVerifier(), d.store(), peer) }()
 			if tt.prompt {
 				evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
 				id, ok := evt.Data["request_id"].(float64)
@@ -586,7 +593,7 @@ func TestRememberPeerNeedsAnAcceptance(t *testing.T) {
 
 	// An acceptance that a later verdict on the key replaced is void.
 	d.noteAdmitted(peer.PublicKey)
-	a.NoError(d.createAutoAcceptVerifier()(d.store(), peer))
+	a.NoError(callVerifier(d.createAutoAcceptVerifier(), d.store(), peer))
 	d.rememberPeer(d.store(), peer, false)
 	_, err = d.store().FindPeer(peer.PublicKey)
 	a.Error(err, "a stale acceptance stored the peer")
@@ -690,7 +697,7 @@ func TestInboundPromptIsReplacedByTheSameKey(t *testing.T) {
 
 	first := make(chan error, 1)
 	go func() {
-		first <- d.inboundVerifier()(d.store(), &storage.Peer{
+		first <- callVerifier(d.inboundVerifier(), d.store(), &storage.Peer{
 			Name: "first try", PublicKey: key,
 		})
 	}()
@@ -698,7 +705,7 @@ func TestInboundPromptIsReplacedByTheSameKey(t *testing.T) {
 
 	second := make(chan error, 1)
 	go func() {
-		second <- d.inboundVerifier()(d.store(), &storage.Peer{
+		second <- callVerifier(d.inboundVerifier(), d.store(), &storage.Peer{
 			Name: "second try", PublicKey: key,
 		})
 	}()

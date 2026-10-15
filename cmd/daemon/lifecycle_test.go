@@ -691,7 +691,7 @@ func TestDialedSessionClosesItsConnWhenItEnds(t *testing.T) {
 			}
 		},
 		store,
-		func(*storage.Storage, *storage.Peer) error { return nil },
+		func(context.Context, *storage.Storage, kamune.VerifyRequest) error { return nil },
 		kamune.ServeWithListener(listener),
 	)
 	a.NoError(err)

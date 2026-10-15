@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -63,8 +64,10 @@ type pendingVerification struct {
 // in effect then, so set_verification_mode applies to a running server
 // without a restart.
 func (d *Daemon) inboundVerifier() kamune.RemoteVerifier {
-	return func(store *storage.Storage, peer *storage.Peer) error {
-		return d.getVerifier(true)(store, peer)
+	return func(
+		ctx context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		return d.getVerifier(true)(ctx, store, req)
 	}
 }
 
@@ -74,8 +77,10 @@ func (d *Daemon) inboundVerifier() kamune.RemoteVerifier {
 // stop the user from reaching a peer. Like inboundVerifier, it verifies
 // each peer in the mode in effect then.
 func (d *Daemon) outboundVerifier() kamune.RemoteVerifier {
-	return func(store *storage.Storage, peer *storage.Peer) error {
-		return d.getVerifier(false)(store, peer)
+	return func(
+		ctx context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		return d.getVerifier(false)(ctx, store, req)
 	}
 }
 
@@ -117,7 +122,10 @@ func parseVerificationMode(s string) (VerificationMode, bool) {
 
 // createStrictVerifier asks the user about every peer, known or not.
 func (d *Daemon) createStrictVerifier(inbound bool) kamune.RemoteVerifier {
-	return func(store *storage.Storage, peer *storage.Peer) error {
+	return func(
+		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		peer := req.Peer
 		d.forgetAdmitted(peer.PublicKey)
 		id := identifyPeer(store, peer)
 		if err := d.askUser(peer, id, inbound, "strict"); err != nil {
@@ -136,7 +144,10 @@ func (d *Daemon) createStrictVerifier(inbound bool) kamune.RemoteVerifier {
 // whatever name it claims, and an unknown key is asked about whatever
 // name it claims.
 func (d *Daemon) createQuickVerifier(inbound bool) kamune.RemoteVerifier {
-	return func(store *storage.Storage, peer *storage.Peer) error {
+	return func(
+		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		peer := req.Peer
 		d.forgetAdmitted(peer.PublicKey)
 		id := identifyPeer(store, peer)
 		if id.Known {
@@ -157,7 +168,10 @@ func (d *Daemon) createQuickVerifier(inbound bool) kamune.RemoteVerifier {
 // peer without asking. A session with a peer that is not stored cannot be
 // resumed.
 func (d *Daemon) createAutoAcceptVerifier() kamune.RemoteVerifier {
-	return func(store *storage.Storage, peer *storage.Peer) error {
+	return func(
+		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		peer := req.Peer
 		d.forgetAdmitted(peer.PublicKey)
 		d.addLogEntry("INFO",
 			"Auto-accepted peer: "+identifyPeer(store, peer).logName())

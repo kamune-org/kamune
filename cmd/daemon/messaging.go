@@ -557,7 +557,7 @@ func reconnectRetryable(err error) bool {
 		errNotResumable,
 		errReconnectPanic,
 		kamune.ErrMissingStorage,
-		kamune.ErrResumptionRejected,
+		kamune.ErrNoResumptionState,
 		storage.ErrNotFound,
 		storage.ErrSessionNotFound,
 		storage.ErrPeerExpired,
