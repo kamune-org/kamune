@@ -31,6 +31,13 @@ var (
 	ErrPeerMismatch = errors.New("stored peer does not match its key")
 )
 
+// IsPeerAbsent reports whether err is a missing peer or [ErrPeerExpired].
+// [ErrPeerMismatch] and a store failure are not absent: the row may still
+// be there, and the caller must not treat the lookup as "no such peer".
+func IsPeerAbsent(err error) bool {
+	return errors.Is(err, ErrPeerExpired) || isMissing(err)
+}
+
 // FindPeer returns the stored peer whose public key is claim. An expired
 // peer is removed and [ErrPeerExpired] returned. A record stored under
 // claim that holds another public key gives [ErrPeerMismatch].

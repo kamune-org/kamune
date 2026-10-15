@@ -1832,6 +1832,16 @@ func TestRemoveListItemUnequalLength(t *testing.T) {
 	a.Equal(tok, got)
 }
 
+func TestIsPeerAbsent(t *testing.T) {
+	a := require.New(t)
+	a.True(IsPeerAbsent(ErrPeerExpired))
+	a.True(IsPeerAbsent(fmt.Errorf(
+		"getting peer: %w", engine.ErrMissingItem,
+	)))
+	a.False(IsPeerAbsent(ErrPeerMismatch))
+	a.False(IsPeerAbsent(errors.New("disk")))
+}
+
 func openWithPass(path string, pass []byte) (*Storage, error) {
 	return OpenStorage(
 		WithDBPath(path),
