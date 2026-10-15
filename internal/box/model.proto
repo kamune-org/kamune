@@ -38,3 +38,21 @@ message ResumeAccept {
 message SessionData {
   map<string, bytes> Fields = 1;
 }
+
+// ResumptionState is the per-role resumption row stored on disk.
+// It is not a handshake message.
+message ResumptionState {
+  uint64 Generation = 1;
+  bytes Current = 2;
+  bytes Previous = 3;
+  bytes PeerPublicKey = 4;
+  int64 ColdAtUnixNano = 5;
+  int64 RefreshedAtUnixNano = 6;
+  ResumeRole Role = 7;
+}
+
+enum ResumeRole {
+  RESUME_ROLE_INVALID = 0;
+  RESUME_ROLE_INITIATOR = 1;
+  RESUME_ROLE_RESPONDER = 2;
+}
