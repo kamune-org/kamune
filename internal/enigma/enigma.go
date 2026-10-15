@@ -42,6 +42,41 @@ func NewEnigma(secret, salt, info []byte) (*Enigma, error) {
 	return &Enigma{aead: aead}, nil
 }
 
+// NewFromKey returns an Enigma keyed directly with a 32-byte key.
+func NewFromKey(key []byte) (*Enigma, error) {
+	if len(key) != chacha20poly1305.KeySize {
+		return nil, fmt.Errorf(
+			"enigma: key must be %d bytes", chacha20poly1305.KeySize,
+		)
+	}
+	aead, err := chacha20poly1305.NewX(key)
+	if err != nil {
+		return nil, fmt.Errorf("chacha20poly1305X: %w", err)
+	}
+	return &Enigma{aead: aead}, nil
+}
+
+// Seal seals plaintext under nonce and ad. nonce must be 24 bytes.
+// The result is the ciphertext and tag, without the nonce.
+func (e *Enigma) Seal(nonce, plaintext, ad []byte) ([]byte, error) {
+	if len(nonce) != nonceSize {
+		return nil, fmt.Errorf("enigma: nonce must be %d bytes", nonceSize)
+	}
+	return e.aead.Seal(nil, nonce, plaintext, ad), nil
+}
+
+// Open opens a ciphertext made by [Enigma.Seal] with the same nonce and ad.
+func (e *Enigma) Open(nonce, ciphertext, ad []byte) ([]byte, error) {
+	if len(nonce) != nonceSize {
+		return nil, fmt.Errorf("enigma: nonce must be %d bytes", nonceSize)
+	}
+	plaintext, err := e.aead.Open(nil, nonce, ciphertext, ad)
+	if err != nil {
+		return nil, fmt.Errorf("aead.Open: %w", err)
+	}
+	return plaintext, nil
+}
+
 // Encrypt seals plaintext under a random nonce with no associated data. The
 // result is the nonce followed by the ciphertext.
 func (e *Enigma) Encrypt(plaintext []byte) []byte {

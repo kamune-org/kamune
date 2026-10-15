@@ -1,6 +1,7 @@
 package enigma_test
 
 import (
+	"bytes"
 	"crypto/rand"
 	mathrand "math/rand/v2"
 	"testing"
@@ -11,6 +12,28 @@ import (
 )
 
 const benchSizePool = 1_000
+
+func TestNewFromKey_SealOpen(t *testing.T) {
+	a := require.New(t)
+	key := bytes.Repeat([]byte{0x07}, 32)
+	e, err := enigma.NewFromKey(key)
+	a.NoError(err)
+	nonce := bytes.Repeat([]byte{0x08}, 24)
+	ad := []byte("kamune/2 hs")
+	pt := []byte("plaintext")
+	ct, err := e.Seal(nonce, pt, ad)
+	a.NoError(err)
+	got, err := e.Open(nonce, ct, ad)
+	a.NoError(err)
+	a.Equal(pt, got)
+
+	_, err = enigma.NewFromKey(key[:31])
+	a.Error(err)
+	_, err = e.Seal(nonce[:23], pt, ad)
+	a.Error(err)
+	_, err = e.Open(nonce, ct, []byte("other"))
+	a.Error(err)
+}
 
 func TestChaCha20Poly1305(t *testing.T) {
 	var (
