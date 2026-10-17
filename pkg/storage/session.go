@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"time"
 
@@ -43,10 +42,9 @@ func (m Meta) Value() []byte { return m.value }
 
 // Exported metadata key constants for session meta namespaces.
 const (
-	PeerKey             = "peer"
-	EstablishedAtKey    = "established_at"
-	ResumptionTokensKey = "resumption_tokens"
-	RelayTokensKey      = "relay_tokens"
+	PeerKey          = "peer"
+	EstablishedAtKey = "established_at"
+	RelayTokensKey   = "relay_tokens"
 )
 
 var (
@@ -128,10 +126,10 @@ func (s *Storage) GetMeta(sessionID, key string) (Meta, error) {
 
 // SetMeta writes a Meta's key-value pair into a session's meta namespace.
 // The session must exist: it is created by [Storage.CreateSession] or
-// [Storage.PutSessionResumption]. Otherwise SetMeta returns
-// [ErrSessionNotFound] and writes nothing, so that a write after
-// [Storage.DeleteSession], such as clearing the resumption tokens of a
-// session that closes later, does not bring the session back.
+// [Storage.SwapResumption]. Otherwise SetMeta returns [ErrSessionNotFound]
+// and writes nothing, so that a write after [Storage.DeleteSession], such
+// as clearing the relay tokens of a session that closes later, does not
+// bring the session back.
 func (s *Storage) SetMeta(sessionID string, m Meta) error {
 	err := s.engine.Command(func(b engine.Namespace) error {
 		meta := s.session(b, sessionID).Ensure([]byte("meta"))
@@ -143,74 +141,6 @@ func (s *Storage) SetMeta(sessionID string, m Meta) error {
 	})
 	if err != nil {
 		return fmt.Errorf("set session meta %s/%s: %w", sessionID, m.Key(), err)
-	}
-	return nil
-}
-
-// PutSessionResumption writes resumption metadata, creating the session
-// namespace if needed. When setEstablished is true, established_at is stored
-// only if it is not already present so a resume cannot reset the window,
-// and, with a peer key, idle sessions with that peer beyond the limit of
-// [WithIdleSessionLimit] are deleted.
-//
-// It is called once a session is established or resumed, so with a peer
-// key it also sets the LastSeen of that peer, if it is stored, to now.
-func (s *Storage) PutSessionResumption(
-	sessionID string,
-	peerPublicKey []byte,
-	tokens [][]byte,
-	setEstablished bool,
-) error {
-	err := s.engine.Command(func(b engine.Namespace) error {
-		session, err := s.ensureSession(b, sessionID)
-		if err != nil {
-			return err
-		}
-		meta := session.Ensure([]byte("meta"))
-		if len(peerPublicKey) > 0 {
-			err := meta.PutEncrypted([]byte(PeerKey), peerPublicKey)
-			if err != nil {
-				return fmt.Errorf("store peer key: %w", err)
-			}
-			err = s.setPeerLastSeen(
-				b, s.peerKey(peerPublicKey), s.clock.Now(),
-			)
-			if err != nil {
-				// The session state matters more than the peer's
-				// last-seen time.
-				slog.Warn(
-					"could not update peer last seen",
-					slog.String("session_id", sessionID),
-					slog.Any("error", err),
-				)
-			}
-		}
-		if setEstablished {
-			existing, err := meta.GetEncrypted([]byte(EstablishedAtKey))
-			if err != nil && !isMissing(err) {
-				return fmt.Errorf("read established_at: %w", err)
-			}
-			if len(existing) < 8 {
-				var tsBuf [8]byte
-				binary.BigEndian.PutUint64(
-					tsBuf[:], uint64(s.clock.Now().UnixNano()),
-				)
-				err = meta.PutEncrypted([]byte(EstablishedAtKey), tsBuf[:])
-				if err != nil {
-					return fmt.Errorf("store established_at: %w", err)
-				}
-			}
-		}
-		err = meta.PutEncrypted(
-			[]byte(ResumptionTokensKey), serializeList(tokens),
-		)
-		if err != nil || !setEstablished || len(peerPublicKey) == 0 {
-			return err
-		}
-		return s.pruneIdleSessions(b, peerPublicKey, sessionID)
-	})
-	if err != nil {
-		return fmt.Errorf("put session resumption %s: %w", sessionID, err)
 	}
 	return nil
 }
@@ -313,18 +243,6 @@ func (s *Storage) GetPeer(sessionID string) (*Peer, error) {
 		return nil, fmt.Errorf("find peer for session %s: %w", sessionID, err)
 	}
 	return peer, nil
-}
-
-// GetEstablishedAt returns the establishment timestamp of a session.
-func (s *Storage) GetEstablishedAt(sessionID string) (time.Time, error) {
-	m, err := s.GetMeta(sessionID, EstablishedAtKey)
-	if err != nil {
-		return time.Time{}, err
-	}
-	if len(m.Value()) < 8 {
-		return time.Time{}, ErrSessionNotFound
-	}
-	return time.Unix(0, int64(binary.BigEndian.Uint64(m.Value()[:8]))), nil
 }
 
 // PopList removes and returns the first entry from the packed list stored under

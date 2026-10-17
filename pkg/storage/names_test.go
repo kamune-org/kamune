@@ -154,7 +154,7 @@ func writeLegacyLayout(
 		for k, v := range map[string][]byte{
 			PeerKey:                victim,
 			string(sessionMetaKey): []byte("work"),
-			ResumptionTokensKey:    serializeList(tokens),
+			"resumption_tokens":    serializeList(tokens),
 			EstablishedAtKey: binary.BigEndian.AppendUint64(
 				nil, uint64(time.Now().UnixNano()),
 			),
@@ -227,11 +227,14 @@ func TestOpenStorageKeysLegacyNames(t *testing.T) {
 	name, err := s.GetSessionName(sessionID)
 	a.NoError(err)
 	a.Equal("work", name)
-	tok, err := s.PopList(sessionID, ResumptionTokensKey)
+	legacy, err := s.GetMeta(sessionID, "resumption_tokens")
 	a.NoError(err)
-	a.Equal(tokens[0], tok)
-	_, err = s.GetEstablishedAt(sessionID)
+	a.Equal(serializeList(tokens), legacy.Value())
+	_, err = s.GetResumption(sessionID, ResumeRoleInitiator)
+	a.ErrorIs(err, ErrNoResumption)
+	established, err := s.GetMeta(sessionID, EstablishedAtKey)
 	a.NoError(err)
+	a.GreaterOrEqual(len(established.Value()), 8)
 	history, err := s.GetChatHistory(sessionID)
 	a.NoError(err)
 	a.Len(history, 2)

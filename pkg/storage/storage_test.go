@@ -224,7 +224,7 @@ func TestUpdatePeerLastSeenMissingPeer(t *testing.T) {
 
 // TestSessionUpdatesPeerLastSeen checks that a peer's LastSeen follows
 // the sessions established and resumed with it, which persist their state
-// through PutSessionResumption.
+// through SwapResumption.
 func TestSessionUpdatesPeerLastSeen(t *testing.T) {
 	a := require.New(t)
 	start := time.Unix(1_700_000_000, 0)
@@ -242,27 +242,30 @@ func TestSessionUpdatesPeerLastSeen(t *testing.T) {
 	pub := att.MarshalPublicKey()
 	a.NoError(s.StorePeer(&Peer{Name: "erin", PublicKey: pub}))
 
-	for _, tc := range []struct {
-		name           string
-		setEstablished bool
-	}{
-		{"established", true},
-		{"resumed", false},
-	} {
-		clk.Advance(time.Hour)
-		a.NoError(s.PutSessionResumption("sess", pub, nil, tc.setEstablished))
-		found, err := s.FindPeer(pub)
-		a.NoError(err, tc.name)
-		a.True(found.FirstSeen.Equal(start), tc.name)
-		a.True(found.LastSeen.Equal(clk.Now()), tc.name)
-	}
+	row := testResumption(ResumeRoleInitiator, 0x11)
+	row.PeerKey = pub
+	clk.Advance(time.Hour)
+	a.NoError(s.SwapResumption("sess", 0, row))
+	found, err := s.FindPeer(pub)
+	a.NoError(err)
+	a.True(found.FirstSeen.Equal(start))
+	a.True(found.LastSeen.Equal(clk.Now()))
+
+	clk.Advance(time.Hour)
+	row.Generation = 2
+	row.Current = bytes.Repeat([]byte{0x22}, 64)
+	a.NoError(s.SwapResumption("sess", 1, row))
+	found, err = s.FindPeer(pub)
+	a.NoError(err)
+	a.True(found.FirstSeen.Equal(start))
+	a.True(found.LastSeen.Equal(clk.Now()))
 
 	// A session with a peer that is not stored does not store it.
 	other, err := attest.New()
 	a.NoError(err)
-	a.NoError(s.PutSessionResumption(
-		"other", other.MarshalPublicKey(), nil, true,
-	))
+	otherRow := testResumption(ResumeRoleInitiator, 0x33)
+	otherRow.PeerKey = other.MarshalPublicKey()
+	a.NoError(s.SwapResumption("other", 0, otherRow))
 	_, err = s.FindPeer(other.MarshalPublicKey())
 	a.Error(err)
 }
@@ -562,8 +565,7 @@ func TestCreateAndGetSession(t *testing.T) {
 	a.Equal(att.MarshalPublicKey(), peer.PublicKey)
 	a.Equal("alice", peer.Name)
 
-	ts, err := storage.GetEstablishedAt("sess-1")
-	a.NoError(err)
+	ts := mustEstablishedAt(t, storage, "sess-1")
 	a.False(ts.Before(before))
 }
 
@@ -763,9 +765,9 @@ func TestAddChatEntryWithoutCreateSession(t *testing.T) {
 		{"resumption state only", func(a *require.Assertions, s *Storage, id string) {
 			att, err := attest.New()
 			a.NoError(err)
-			a.NoError(s.PutSessionResumption(
-				id, att.MarshalPublicKey(), nil, true,
-			))
+			row := testResumption(ResumeRoleInitiator, 0x11)
+			row.PeerKey = att.MarshalPublicKey()
+			a.NoError(s.SwapResumption(id, 0, row))
 		}},
 	}
 	for _, tc := range cases {
@@ -1353,8 +1355,19 @@ func FuzzPackedListCodec(f *testing.F) {
 }
 
 // ---------------------------------------------------------------------------
-// Resumption token tests
+// Packed list tests (relay tokens)
 // ---------------------------------------------------------------------------
+
+func mustEstablishedAt(
+	t *testing.T, s *Storage, sessionID string,
+) time.Time {
+	t.Helper()
+	a := require.New(t)
+	m, err := s.GetMeta(sessionID, EstablishedAtKey)
+	a.NoError(err)
+	a.GreaterOrEqual(len(m.Value()), 8)
+	return time.Unix(0, int64(binary.BigEndian.Uint64(m.Value()[:8])))
+}
 
 func makeToken(n byte, size int) []byte {
 	t := make([]byte, size)
@@ -1364,7 +1377,7 @@ func makeToken(n byte, size int) []byte {
 	return t
 }
 
-func TestStoreAndRetrieveResumptionTokens(t *testing.T) {
+func TestStoreAndRetrieveRelayTokens(t *testing.T) {
 	a := require.New(t)
 	storage, cleanup := newTestStorage(t)
 	defer cleanup()
@@ -1382,20 +1395,14 @@ func TestStoreAndRetrieveResumptionTokens(t *testing.T) {
 	for i := range tokens {
 		tokens[i] = makeToken(byte(i), 32)
 	}
-	err = storage.SetMeta("sess-tok", NewByteSlicesMeta(ResumptionTokensKey, tokens))
+	err = storage.SetMeta("sess-tok", NewByteSlicesMeta(RelayTokensKey, tokens))
 	a.NoError(err)
 
-	// Pop returns the first entry.
-	tok, err := storage.PopList(
-		"sess-tok", ResumptionTokensKey,
-	)
+	tok, err := storage.PopList("sess-tok", RelayTokensKey)
 	a.NoError(err)
 	a.Equal(tokens[0], tok)
 
-	// Second pop gets a different entry.
-	tok2, err := storage.PopList(
-		"sess-tok", ResumptionTokensKey,
-	)
+	tok2, err := storage.PopList("sess-tok", RelayTokensKey)
 	a.NoError(err)
 	a.NotNil(tok2)
 	a.NotEqual(tokens[0], tok2)
@@ -1435,21 +1442,26 @@ func TestDeleteListIfContains(t *testing.T) {
 			a := require.New(t)
 			s, cleanup := newTestStorage(t)
 			defer cleanup()
-			a.NoError(s.PutSessionResumption("sess-list", nil, stored, true))
+			a.NoError(s.SwapResumption(
+				"sess-list", 0, testResumption(ResumeRoleInitiator, 0x11),
+			))
+			a.NoError(s.SetMeta(
+				"sess-list", NewByteSlicesMeta(RelayTokensKey, stored),
+			))
 
 			deleted, err := s.DeleteListIfContains(
-				tc.session, ResumptionTokensKey, tc.entries,
+				tc.session, RelayTokensKey, tc.entries,
 			)
 			a.NoError(err)
 			a.Equal(tc.deleted, deleted)
-			list, err := s.GetList("sess-list", ResumptionTokensKey)
+			list, err := s.GetList("sess-list", RelayTokensKey)
 			a.NoError(err)
 			if tc.deleted {
 				a.Nil(list)
 				return
 			}
 			a.Equal(stored, list)
-			list, err = s.GetList("other", ResumptionTokensKey)
+			list, err = s.GetList("other", RelayTokensKey)
 			a.NoError(err)
 			a.Nil(list)
 		})
@@ -1474,20 +1486,16 @@ func TestPopSessionToken_Sequential(t *testing.T) {
 	for i := range tokens {
 		tokens[i] = makeToken(byte(i+10), 32)
 	}
-	err = storage.SetMeta("sess-seq", NewByteSlicesMeta(ResumptionTokensKey, tokens))
+	err = storage.SetMeta("sess-seq", NewByteSlicesMeta(RelayTokensKey, tokens))
 	a.NoError(err)
 
-	// Pop all three in order.
 	for i := 0; i < 3; i++ {
-		tok, err := storage.PopList(
-			"sess-seq", ResumptionTokensKey,
-		)
+		tok, err := storage.PopList("sess-seq", RelayTokensKey)
 		a.NoError(err)
 		a.Equal(tokens[i], tok)
 	}
 
-	// Fourth call returns empty list.
-	_, err = storage.PopList("sess-seq", ResumptionTokensKey)
+	_, err = storage.PopList("sess-seq", RelayTokensKey)
 	a.ErrorIs(err, ErrNotFound)
 }
 
@@ -1508,21 +1516,18 @@ func TestRemoveSessionToken_RemovesCorrectToken(t *testing.T) {
 	tA := makeToken(0xAA, 32)
 	tB := makeToken(0xBB, 32)
 	tC := makeToken(0xCC, 32)
-	err = storage.SetMeta("sess-mark", NewByteSlicesMeta(ResumptionTokensKey,
+	err = storage.SetMeta("sess-mark", NewByteSlicesMeta(RelayTokensKey,
 		[][]byte{tA, tB, tC}))
 	a.NoError(err)
 
-	// Remove B.
-	err = storage.RemoveListItem("sess-mark", ResumptionTokensKey, tB)
+	err = storage.RemoveListItem("sess-mark", RelayTokensKey, tB)
 	a.NoError(err)
 
-	// Pop should return A (first remaining).
-	tok, err := storage.PopList("sess-mark", ResumptionTokensKey)
+	tok, err := storage.PopList("sess-mark", RelayTokensKey)
 	a.NoError(err)
 	a.Equal(tA, tok)
 
-	// Next pop should be C.
-	tok, err = storage.PopList("sess-mark", ResumptionTokensKey)
+	tok, err = storage.PopList("sess-mark", RelayTokensKey)
 	a.NoError(err)
 	a.Equal(tC, tok)
 }
@@ -1541,14 +1546,14 @@ func TestRemoveSessionToken_RejectsUnknownToken(t *testing.T) {
 	}))
 	a.NoError(storage.CreateSession("sess-unk", att.MarshalPublicKey()))
 
-	err = storage.SetMeta("sess-unk", NewByteSlicesMeta(ResumptionTokensKey, [][]byte{
+	err = storage.SetMeta("sess-unk", NewByteSlicesMeta(RelayTokensKey, [][]byte{
 		makeToken(0x01, 32),
 		makeToken(0x02, 32),
 	}))
 	a.NoError(err)
 
 	err = storage.RemoveListItem(
-		"sess-unk", ResumptionTokensKey, makeToken(0xFF, 32),
+		"sess-unk", RelayTokensKey, makeToken(0xFF, 32),
 	)
 	a.ErrorIs(err, ErrNotFound)
 }
@@ -1568,22 +1573,20 @@ func TestRemoveSessionToken_RejectsAlreadyRemovedToken(t *testing.T) {
 	a.NoError(storage.CreateSession("sess-used", att.MarshalPublicKey()))
 
 	tok := makeToken(0x42, 32)
-	err = storage.SetMeta("sess-used", NewByteSlicesMeta(ResumptionTokensKey,
+	err = storage.SetMeta("sess-used", NewByteSlicesMeta(RelayTokensKey,
 		[][]byte{tok}))
 	a.NoError(err)
 
-	// First remove succeeds.
-	err = storage.RemoveListItem("sess-used", ResumptionTokensKey, tok)
+	err = storage.RemoveListItem("sess-used", RelayTokensKey, tok)
 	a.NoError(err)
 
-	// Second remove with same token fails.
-	err = storage.RemoveListItem("sess-used", ResumptionTokensKey, tok)
+	err = storage.RemoveListItem("sess-used", RelayTokensKey, tok)
 	a.ErrorIs(err, ErrNotFound)
 }
 
-// TestSetMetaDoesNotCreateSession checks that clearing the resumption
-// tokens of a session, as a transport does when it closes, does not bring
-// back a session that was deleted while it was live.
+// TestSetMetaDoesNotCreateSession checks that clearing the relay tokens of
+// a session, as a client does when it closes, does not bring back a
+// session that was deleted while it was live.
 func TestSetMetaDoesNotCreateSession(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -1591,8 +1594,8 @@ func TestSetMetaDoesNotCreateSession(t *testing.T) {
 	}{
 		{"never stored", func(*require.Assertions, *Storage, string) {}},
 		{"deleted", func(a *require.Assertions, s *Storage, id string) {
-			tok := makeToken(0x01, 32)
-			a.NoError(s.PutSessionResumption(id, nil, [][]byte{tok}, true))
+			row := testResumption(ResumeRoleInitiator, 0x11)
+			a.NoError(s.SwapResumption(id, 0, row))
 			a.NoError(s.DeleteSession(id))
 		}},
 	}
@@ -1604,12 +1607,10 @@ func TestSetMetaDoesNotCreateSession(t *testing.T) {
 			tc.setup(a, store, "sess")
 
 			err := store.SetMeta(
-				"sess", NewByteSlicesMeta(ResumptionTokensKey, nil),
+				"sess", NewByteSlicesMeta(RelayTokensKey, nil),
 			)
 			a.ErrorIs(err, ErrSessionNotFound)
-			// Transports clear the tokens with DeleteMeta, which must
-			// leave a missing session alone too.
-			err = store.DeleteMeta("sess", ResumptionTokensKey)
+			err = store.DeleteMeta("sess", RelayTokensKey)
 			a.ErrorIs(err, engine.ErrMissingNamespace)
 			sessions, err := store.ListSessions()
 			a.NoError(err)
@@ -1623,10 +1624,10 @@ func TestSetMetaUpdatesExistingSession(t *testing.T) {
 	store, cleanup := newTestStorage(t)
 	defer cleanup()
 
-	tok := makeToken(0x01, 32)
-	a.NoError(store.PutSessionResumption("sess", nil, [][]byte{tok}, true))
-	a.NoError(store.SetMeta("sess", NewByteSlicesMeta(ResumptionTokensKey, nil)))
-	_, err := store.PopList("sess", ResumptionTokensKey)
+	row := testResumption(ResumeRoleInitiator, 0x11)
+	a.NoError(store.SwapResumption("sess", 0, row))
+	a.NoError(store.SetMeta("sess", NewByteSlicesMeta(RelayTokensKey, nil)))
+	_, err := store.PopList("sess", RelayTokensKey)
 	a.ErrorIs(err, ErrNotFound)
 
 	relay := makeToken(0x02, 32)
@@ -1667,14 +1668,13 @@ func TestIdleSessionsAreBoundedPerPeer(t *testing.T) {
 			att, err := attest.New()
 			a.NoError(err)
 			pub := att.MarshalPublicKey()
-			tok := makeToken(0x01, 32)
 			var ids []string
 			for i := range 20 {
 				id := fmt.Sprintf("s%02d", i)
 				ids = append(ids, id)
-				a.NoError(s.PutSessionResumption(
-					id, pub, [][]byte{tok}, true,
-				))
+				row := testResumption(ResumeRoleInitiator, byte(i+1))
+				row.PeerKey = pub
+				a.NoError(s.SwapResumption(id, 0, row))
 				clk.Advance(time.Second)
 			}
 
@@ -1704,7 +1704,9 @@ func TestPruneIdleSessionsKeepsUsedSessions(t *testing.T) {
 	alicePK, bobPK := alice.MarshalPublicKey(), bob.MarshalPublicKey()
 	a.NoError(s.StorePeer(&Peer{Name: "alice", PublicKey: alicePK}))
 	establish := func(id string, pub []byte) {
-		a.NoError(s.PutSessionResumption(id, pub, nil, true))
+		row := testResumption(ResumeRoleInitiator, 0x11)
+		row.PeerKey = pub
+		a.NoError(s.SwapResumption(id, 0, row))
 		clk.Advance(time.Second)
 	}
 
@@ -1733,7 +1735,7 @@ func TestPruneIdleSessionsKeepsUsedSessions(t *testing.T) {
 	)
 }
 
-func TestPutSessionResumptionDoesNotResetEstablishedAt(t *testing.T) {
+func TestSwapResumptionDoesNotResetEstablishedAt(t *testing.T) {
 	a := require.New(t)
 	store, cleanup := newTestStorage(t)
 	defer cleanup()
@@ -1741,16 +1743,16 @@ func TestPutSessionResumptionDoesNotResetEstablishedAt(t *testing.T) {
 	att, err := attest.New()
 	a.NoError(err)
 	pub := att.MarshalPublicKey()
-	tok := makeToken(0x02, 32)
-	a.NoError(store.PutSessionResumption("sess-r", pub, [][]byte{tok}, true))
-	first, err := store.GetEstablishedAt("sess-r")
-	a.NoError(err)
+	row := testResumption(ResumeRoleInitiator, 0x02)
+	row.PeerKey = pub
+	a.NoError(store.SwapResumption("sess-r", 0, row))
+	first := mustEstablishedAt(t, store, "sess-r")
 
 	time.Sleep(2 * time.Millisecond)
-	tok2 := makeToken(0x03, 32)
-	a.NoError(store.PutSessionResumption("sess-r", pub, [][]byte{tok2}, true))
-	again, err := store.GetEstablishedAt("sess-r")
-	a.NoError(err)
+	row.Generation = 2
+	row.Current = bytes.Repeat([]byte{0x03}, 64)
+	a.NoError(store.SwapResumption("sess-r", 1, row))
+	again := mustEstablishedAt(t, store, "sess-r")
 	a.True(first.Equal(again))
 }
 
@@ -1767,13 +1769,11 @@ func TestCreateSessionDoesNotResetEstablishedAt(t *testing.T) {
 		FirstSeen: time.Now(),
 	}))
 	a.NoError(store.CreateSession("sess-c", att.MarshalPublicKey()))
-	first, err := store.GetEstablishedAt("sess-c")
-	a.NoError(err)
+	first := mustEstablishedAt(t, store, "sess-c")
 
 	time.Sleep(2 * time.Millisecond)
 	a.NoError(store.CreateSession("sess-c", att.MarshalPublicKey()))
-	again, err := store.GetEstablishedAt("sess-c")
-	a.NoError(err)
+	again := mustEstablishedAt(t, store, "sess-c")
 	a.True(first.Equal(again))
 }
 
@@ -1822,12 +1822,12 @@ func TestRemoveListItemUnequalLength(t *testing.T) {
 	a.NoError(store.CreateSession("sess-len", att.MarshalPublicKey()))
 	tok := makeToken(0xAB, 32)
 	a.NoError(store.SetMeta(
-		"sess-len", NewByteSlicesMeta(ResumptionTokensKey, [][]byte{tok}),
+		"sess-len", NewByteSlicesMeta(RelayTokensKey, [][]byte{tok}),
 	))
 
-	err = store.RemoveListItem("sess-len", ResumptionTokensKey, []byte{1})
+	err = store.RemoveListItem("sess-len", RelayTokensKey, []byte{1})
 	a.ErrorIs(err, ErrNotFound)
-	got, err := store.PopList("sess-len", ResumptionTokensKey)
+	got, err := store.PopList("sess-len", RelayTokensKey)
 	a.NoError(err)
 	a.Equal(tok, got)
 }

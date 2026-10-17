@@ -978,8 +978,8 @@ func WithCreateDB(v bool) StorageOption {
 
 // WithIdleSessionLimit sets how many idle sessions are kept for each peer.
 // A session is idle when it has no chat entries and no name. Every new
-// session, from [Storage.CreateSession] or [Storage.PutSessionResumption]
-// with setEstablished, counts as idle, and once a peer has more than n idle
+// session, from [Storage.CreateSession] or [Storage.SwapResumption] on a
+// first generation, counts as idle, and once a peer has more than n idle
 // sessions the ones established first are deleted. This bounds what a peer
 // adds to the database and the session list by connecting and closing over
 // and over, but not what it adds by sending one message in each session:

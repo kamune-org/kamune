@@ -805,9 +805,14 @@ func TestTransportCloseDoesNotRecreateSession(t *testing.T) {
 		{
 			name: "deleted while open",
 			setup: func(a *require.Assertions, store *storage.Storage, id string) {
-				a.NoError(store.PutSessionResumption(
-					id, nil, [][]byte{bytes.Repeat([]byte{0x33}, 32)}, true,
-				))
+				a.NoError(store.SwapResumption(id, 0, &storage.Resumption{
+					Generation:  1,
+					Current:     bytes.Repeat([]byte{0x33}, 64),
+					PeerKey:     bytes.Repeat([]byte{0x05}, 44),
+					ColdAt:      time.Unix(1_700_000_000, 0),
+					RefreshedAt: time.Unix(1_700_000_100, 0),
+					Role:        storage.ResumeRoleInitiator,
+				}))
 				a.NoError(store.DeleteSession(id))
 			},
 		},
