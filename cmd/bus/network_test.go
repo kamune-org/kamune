@@ -147,10 +147,42 @@ func TestConnectToServerRejectsOtherKnownPeer(t *testing.T) {
 		fingerprint.Base64(bobKey), "", false, false, "",
 	)
 	a.Error(err)
-	a.True(errors.Is(err, ErrPeerKeyMismatch), "got %v", err)
+	a.ErrorIs(err, kamune.ErrPeerKeyMismatch)
 	a.Equal("peer_key_mismatch", res.ErrorCode)
 	requireWindowErrorCode(t, err, "peer_key_mismatch")
 	a.Empty(app.GetSessions())
+	a.Empty(pendingIDs(app))
+}
+
+// TestConnectToServerPinsPeerKeyWithDialOption checks that a peer-list
+// dial with PeerPubB64 pins the key in the handshake (DialWithPeerKey),
+// so a stored peer answering under another name is rejected before the
+// verifier runs.
+func TestConnectToServerPinsPeerKeyWithDialOption(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	app.verifMode = VerificationModeAutoAccept
+	store := app.store()
+
+	addr, malloryKey := startTestServer(t, "Bob",
+		func(*kamune.Transport) error { return nil })
+	a.NoError(store.StorePeer(&storage.Peer{
+		Name: "Mallory", PublicKey: malloryKey,
+	}))
+	bobKey := newTestPubKey(t)
+	a.NoError(store.StorePeer(&storage.Peer{
+		Name: "Bob", PublicKey: bobKey,
+	}))
+	app.refreshPeersCache()
+
+	res, err := app.ConnectToServer(
+		addr, "tcp", "", "", "alice", "", "",
+		fingerprint.Base64(bobKey), "", false, false, "",
+	)
+	a.Error(err)
+	a.ErrorIs(err, kamune.ErrPeerKeyMismatch)
+	a.Equal("peer_key_mismatch", res.ErrorCode)
 	a.Empty(pendingIDs(app))
 }
 

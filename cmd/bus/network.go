@@ -682,7 +682,8 @@ func (e *connectError) MarshalJSON() ([]byte, error) {
 // down, shows that the punch worked.
 func dialErrorCode(err error, punched *punchSession) string {
 	switch {
-	case errors.Is(err, ErrPeerKeyMismatch):
+	case errors.Is(err, ErrPeerKeyMismatch),
+		errors.Is(err, kamune.ErrPeerKeyMismatch):
 		return "peer_key_mismatch"
 	case errors.Is(err, kamune.ErrVerificationFailed),
 		errors.Is(err, ErrVerificationCancelled):
@@ -914,9 +915,12 @@ func (a *App) ConnectToServer(
 	}
 
 	verifMode := a.currentVerifMode()
+	if len(wantKey) > 0 {
+		opts = append(opts, kamune.DialWithPeerKey(wantKey))
+	}
 	dialer, err := kamune.NewDialer(
 		addr, store,
-		a.pinPeer(wantKey, a.verifierWithin(attempt.ctx, verifMode, false)),
+		a.verifierWithin(attempt.ctx, verifMode, false),
 		opts...,
 	)
 	if err != nil {
@@ -1036,10 +1040,11 @@ func (a *App) ConnectToServer(
 				resumeOpts = append(resumeOpts, kamune.DialWithFunc(fn))
 			}
 
-			// A reconnect must reach the same peer.
+			if len(peerKey) > 0 {
+				resumeOpts = append(resumeOpts, kamune.DialWithPeerKey(peerKey))
+			}
 			d, err := kamune.NewDialer(
-				targetAddr, store,
-				a.pinPeer(peerKey, a.getVerifier()), resumeOpts...,
+				targetAddr, store, a.getVerifier(), resumeOpts...,
 			)
 			if err != nil {
 				return nil, err
