@@ -124,10 +124,7 @@ func TestP2PDialReachesServer(t *testing.T) {
 			P2PToken: tokens[0].Token,
 		}),
 	})
-	evt = crec.waitFor(t, func(e recordedEvent) bool {
-		return e.ID == "dial" &&
-			(e.Evt == EvtSessionStarted || e.Evt == EvtError)
-	})
+	evt = waitDialResult(t, client, crec, "dial")
 	a.Equal(EvtSessionStarted, evt.Evt, "dial failed: %v", evt.Data)
 	srec.waitFor(t, isEvent(EvtSessionStarted))
 }

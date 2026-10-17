@@ -133,6 +133,9 @@ type Daemon struct {
 	verifMu        sync.Mutex
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
+	// promptTimes holds, under verifMu, the times of verify_peer prompts
+	// opened in the last minute (RFC007 §20.1).
+	promptTimes []time.Time
 	// verifTimeout is how long a verify_peer prompt waits for an answer.
 	verifTimeout time.Duration
 	// admitted holds, under verifMu, the keys of unknown peers that the
@@ -237,7 +240,7 @@ func NewDaemon() *Daemon {
 		logBufferSize:     200,
 		logEntries:        make([]LogEntryInfo, 0, 200),
 		logLevel:          "INFO",
-		fingerprintFmt:    "hex",
+		fingerprintFmt:    "numeric",
 	}
 }
 

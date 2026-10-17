@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/x509"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,6 +20,31 @@ func callVerifier(
 	v kamune.RemoteVerifier, store *storage.Storage, peer *storage.Peer,
 ) error {
 	return v(context.Background(), store, kamune.VerifyRequest{Peer: peer})
+}
+
+func callVerifierReq(
+	v kamune.RemoteVerifier, store *storage.Storage, req kamune.VerifyRequest,
+) error {
+	return v(context.Background(), store, req)
+}
+
+func policyReq(
+	t *testing.T, d *Daemon, role kamune.Role, known bool,
+) kamune.VerifyRequest {
+	t.Helper()
+	peer := &storage.Peer{Name: "Bob", PublicKey: newTestPeerKey(t)}
+	if known {
+		peer.FirstSeen = time.Now()
+		require.New(t).NoError(d.store().StorePeer(peer))
+	}
+	local, err := d.store().PublicKey()
+	require.New(t).NoError(err)
+	return kamune.VerifyRequest{
+		Peer:           peer,
+		LocalPublicKey: local,
+		Role:           role,
+		SessionID:      "SIDTEST",
+	}
 }
 
 func TestAutoAcceptedPeerIsStillVerifiedInQuickMode(t *testing.T) {
@@ -135,56 +159,26 @@ func TestPendingVerificationsAreCappedAndDeduped(t *testing.T) {
 	d, rec := newTestDaemon(t, VerificationModeQuick, false)
 	d.setStatus(StatusConnected, "Server running")
 
-	peers := make([]*storage.Peer, maxPendingVerifications+1)
-	for i := range peers {
-		peers[i] = &storage.Peer{
-			Name: fmt.Sprintf("peer-%d", i), PublicKey: newTestPeerKey(t),
-		}
-	}
-	countPrompts := func() int {
-		rec.mu.Lock()
-		defer rec.mu.Unlock()
-		n := 0
-		for _, e := range rec.events {
-			if e.Evt == EvtVerifyPeer {
-				n++
-			}
-		}
-		return n
-	}
-
-	verdicts := make(chan error, maxPendingVerifications)
-	for _, p := range peers[:maxPendingVerifications] {
-		go func() { verdicts <- callVerifier(d.inboundVerifier(), d.store(), p) }()
-	}
-	var ids []int64
-	for _, p := range peers[:maxPendingVerifications] {
-		evt := rec.waitFor(t, func(e recordedEvent) bool {
-			return e.Evt == EvtVerifyPeer && e.Data["claimed_name"] == p.Name
-		})
-		id, ok := evt.Data["request_id"].(float64)
-		a.True(ok)
-		ids = append(ids, int64(id))
-	}
+	first := &storage.Peer{Name: "peer-0", PublicKey: newTestPeerKey(t)}
+	second := &storage.Peer{Name: "peer-1", PublicKey: newTestPeerKey(t)}
+	verdict := make(chan error, 1)
+	go func() {
+		verdict <- callVerifier(d.inboundVerifier(), d.store(), first)
+	}()
+	evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
+	id, ok := evt.Data["request_id"].(float64)
+	a.True(ok)
 	d.mu.RLock()
 	a.Equal(StatusVerifying, d.status)
 	d.mu.RUnlock()
 
-	// A connection with a new key is rejected without a prompt once the
-	// cap is reached.
-	err := callVerifier(d.inboundVerifier(), d.store(), peers[maxPendingVerifications])
-	a.ErrorIs(err, errTooManyVerifications)
-	a.ErrorIs(err, kamune.ErrVerificationFailed)
-	a.Equal(maxPendingVerifications, countPrompts())
+	err := callVerifier(d.inboundVerifier(), d.store(), second)
+	a.ErrorIs(err, errVerifierBusy)
 
-	for _, id := range ids {
-		d.handleVerifyResponse(Command{
-			Params: mustJSON(VerifyResponseParams{RequestID: id}),
-		})
-	}
-	for range ids {
-		a.ErrorIs(<-verdicts, kamune.ErrVerificationFailed)
-	}
+	d.handleVerifyResponse(Command{
+		Params: mustJSON(VerifyResponseParams{RequestID: int64(id)}),
+	})
+	a.ErrorIs(<-verdict, kamune.ErrVerificationFailed)
 
 	d.mu.RLock()
 	status, msg := d.status, d.statusMsg
@@ -192,89 +186,46 @@ func TestPendingVerificationsAreCappedAndDeduped(t *testing.T) {
 	a.Equal(StatusConnected, status, "status was not put back")
 	a.Equal("Server running", msg)
 
-	// The key is no longer pending, so it is asked about again.
-	verdict := make(chan error, 1)
-	go func() { verdict <- callVerifier(d.inboundVerifier(), d.store(), peers[0]) }()
-	last := slices.Max(ids)
+	again := make(chan error, 1)
+	go func() {
+		again <- callVerifier(d.inboundVerifier(), d.store(), first)
+	}()
 	rec.waitFor(t, func(e recordedEvent) bool {
-		id, _ := e.Data["request_id"].(float64)
-		return e.Evt == EvtVerifyPeer && int64(id) > last
+		rid, _ := e.Data["request_id"].(float64)
+		return e.Evt == EvtVerifyPeer && int64(rid) != int64(id)
 	})
-	a.Equal(maxPendingVerifications+1, countPrompts())
 	d.cancel()
-	a.Error(<-verdict)
+	a.Error(<-again)
 }
 
 func TestFullVerificationSlotsLeaveKnownAndDialedPeers(t *testing.T) {
 	a := require.New(t)
 	d, rec := newTestDaemon(t, VerificationModeStrict, false)
-
-	strangers := make([]*storage.Peer, maxPendingVerifications)
-	for i := range strangers {
-		strangers[i] = &storage.Peer{
-			Name: fmt.Sprintf("stranger-%d", i), PublicKey: newTestPeerKey(t),
-		}
+	open := &storage.Peer{
+		Name: "open", PublicKey: newTestPeerKey(t),
 	}
+	verdict := make(chan error, 1)
+	go func() {
+		verdict <- callVerifier(d.inboundVerifier(), d.store(), open)
+	}()
+	rec.waitFor(t, isEvent(EvtVerifyPeer))
+
 	friend := &storage.Peer{
 		Name: "friend", PublicKey: newTestPeerKey(t), FirstSeen: time.Now(),
 	}
 	a.NoError(d.store().StorePeer(friend))
-
-	// prompt runs v on p and returns the request ID of its prompt. Each
-	// peer it gets has a name of its own.
-	verdicts := make(chan error, maxPendingVerifications+4)
-	prompt := func(v kamune.RemoteVerifier, p *storage.Peer) int64 {
-		t.Helper()
-		go func() { verdicts <- callVerifier(v, d.store(), p) }()
-		rejected := identifyPeer(d.store(), p).logName() +
-			" without asking"
-		evt := rec.waitFor(t, func(e recordedEvent) bool {
-			msg, _ := e.Data["message"].(string)
-			return e.Evt == EvtVerifyPeer &&
-				e.Data["claimed_name"] == p.Name ||
-				e.Evt == EvtLogEntry && strings.Contains(msg, rejected)
-		})
-		a.Equal(EvtVerifyPeer, evt.Evt, "%s got no prompt", p.Name)
-		id, ok := evt.Data["request_id"].(float64)
-		a.True(ok)
-		return int64(id)
-	}
-
-	var ids []int64
-	for _, p := range strangers {
-		ids = append(ids, prompt(d.inboundVerifier(), p))
-	}
-	err := callVerifier(d.inboundVerifier(), d.store(), &storage.Peer{
-		Name: "one too many", PublicKey: newTestPeerKey(t),
-	})
-	a.ErrorIs(err, errTooManyVerifications)
-
-	// A known peer that connects is still asked about, once per key: a
-	// new connection with its key replaces its prompt.
-	prompt(d.inboundVerifier(), friend)
-	ids = append(ids, prompt(d.inboundVerifier(), &storage.Peer{
-		Name: "friend again", PublicKey: friend.PublicKey,
-	}))
-	a.ErrorIs(<-verdicts, errVerificationReplaced)
-
-	// So is every peer the user dials, known or not, even one whose key
-	// is pending on an inbound connection.
-	for _, p := range []*storage.Peer{
-		{Name: "dialed friend", PublicKey: friend.PublicKey},
-		{Name: "dialed", PublicKey: newTestPeerKey(t)},
-		{Name: "dialed stranger", PublicKey: strangers[0].PublicKey},
-	} {
-		ids = append(ids, prompt(d.outboundVerifier(), p))
-	}
-
-	for _, id := range ids {
-		d.handleVerifyResponse(Command{
-			Params: mustJSON(VerifyResponseParams{RequestID: id}),
-		})
-	}
-	for range ids {
-		a.ErrorIs(<-verdicts, kamune.ErrVerificationFailed)
-	}
+	a.ErrorIs(
+		callVerifier(d.inboundVerifier(), d.store(), friend),
+		errVerifierBusy,
+	)
+	a.ErrorIs(
+		callVerifier(d.outboundVerifier(), d.store(), &storage.Peer{
+			Name: "dialed", PublicKey: newTestPeerKey(t),
+		}),
+		errVerifierBusy,
+	)
+	d.cancel()
+	a.Error(<-verdict)
 }
 
 func TestVerificationRestoresTheLatestStatus(t *testing.T) {
@@ -297,16 +248,11 @@ func TestVerificationRestoresTheLatestStatus(t *testing.T) {
 
 	d.setStatus(StatusConnected, "Server running")
 	first := begin("first")
-	second := begin("second")
-	d.endVerification(first)
-	// The first peer's session starts while the second is pending.
-	d.setStatus(StatusConnected, "Connected to first")
-	third := begin("third")
 	s, _ := status()
 	a.Equal(StatusVerifying, s)
 
-	d.endVerification(second)
-	d.endVerification(third)
+	d.setStatus(StatusConnected, "Connected to first")
+	d.endVerification(first)
 	s, msg := status()
 	a.Equal(StatusConnected, s)
 	a.Equal("Connected to first", msg)
@@ -353,6 +299,7 @@ func TestSetVerificationModeKeepsSessions(t *testing.T) {
 	client.handleDial(Command{
 		ID: "dial2", Params: mustJSON(DialParams{Addr: addr}),
 	})
+	acceptNextVerify(t, client, clientRec)
 	evt = serverRec.waitFor(t, isEvent(EvtVerifyPeer))
 	a.Equal("strict", evt.Data["mode"])
 	a.Equal(true, evt.Data["known"])
@@ -411,9 +358,10 @@ func TestVerifyUnknownPeer(t *testing.T) {
 			client.handleDial(Command{
 				ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
 			})
+			acceptNextVerify(t, client, clientRec)
 			evt := serverRec.waitFor(t, isEvent(EvtVerifyPeer))
 			a.Equal(false, evt.Data["known"])
-			a.Equal(fingerprint.Numeric(clientPub), evt.Data["numeric"])
+			a.Equal(fingerprint.Numeric(clientPub), evt.Data["peer_code"])
 			wantMode := map[VerificationMode]string{
 				VerificationModeStrict: "strict",
 				VerificationModeQuick:  "quick",
@@ -438,7 +386,7 @@ func TestVerifyUnknownPeer(t *testing.T) {
 			})
 			if !tt.accept {
 				a.Equal(EvtError, evt.Evt, "rejected peer got a session")
-				a.Equal("dial_failed", evt.Data["code"])
+				a.Equal("handshake_rejected", evt.Data["code"])
 				server.mu.RLock()
 				a.Empty(server.sessions)
 				server.mu.RUnlock()
@@ -651,6 +599,7 @@ func TestStopServerEndsPendingVerifications(t *testing.T) {
 	client.handleDial(Command{
 		ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
 	})
+	acceptNextVerify(t, client, clientRec)
 	evt := serverRec.waitFor(t, isEvent(EvtVerifyPeer))
 	id, ok := evt.Data["request_id"].(float64)
 	a.True(ok)
@@ -678,22 +627,12 @@ func TestStopServerEndsPendingVerifications(t *testing.T) {
 	a.Equal(EvtError, evt.Evt, "the dial got a session")
 }
 
-// A peer that connects to the server again while its prompt is open, as
-// after it gave up or its connection dropped, is asked about again: the
-// new prompt replaces the old one, which can no longer be answered.
+// A second handshake that needs a prompt while one is open is rejected
+// at once, including a reconnect of the same key (RFC007 §20.1).
 func TestInboundPromptIsReplacedByTheSameKey(t *testing.T) {
 	a := require.New(t)
 	d, rec := newTestDaemon(t, VerificationModeStrict, false)
 	key := newTestPeerKey(t)
-	promptOf := func(name string) int64 {
-		t.Helper()
-		evt := rec.waitFor(t, func(e recordedEvent) bool {
-			return e.Evt == EvtVerifyPeer && e.Data["claimed_name"] == name
-		})
-		id, ok := evt.Data["request_id"].(float64)
-		a.True(ok)
-		return int64(id)
-	}
 
 	first := make(chan error, 1)
 	go func() {
@@ -701,37 +640,317 @@ func TestInboundPromptIsReplacedByTheSameKey(t *testing.T) {
 			Name: "first try", PublicKey: key,
 		})
 	}()
-	firstID := promptOf("first try")
+	evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
+	id, ok := evt.Data["request_id"].(float64)
+	a.True(ok)
 
-	second := make(chan error, 1)
-	go func() {
-		second <- callVerifier(d.inboundVerifier(), d.store(), &storage.Peer{
-			Name: "second try", PublicKey: key,
+	err := callVerifier(d.inboundVerifier(), d.store(), &storage.Peer{
+		Name: "second try", PublicKey: key,
+	})
+	a.ErrorIs(err, errVerifierBusy)
+
+	d.handleVerifyResponse(Command{
+		Params: mustJSON(VerifyResponseParams{
+			RequestID: int64(id), Accepted: true,
+		}),
+	})
+	a.NoError(<-first)
+}
+
+func TestVerifierPolicyTable(t *testing.T) {
+	tests := []struct {
+		name          string
+		mode          VerificationMode
+		role          kamune.Role
+		pinned        bool
+		resumeOffered bool
+		resumed       bool
+		known         bool
+		wantPrompt    bool
+	}{
+		{
+			name: "strict initiator cold", mode: VerificationModeStrict,
+			role: kamune.RoleInitiator, wantPrompt: true,
+		},
+		{
+			name: "strict initiator pinned resume",
+			mode: VerificationModeStrict, role: kamune.RoleInitiator,
+			pinned: true, resumeOffered: true, known: true,
+		},
+		{
+			name: "strict initiator pinned cold",
+			mode: VerificationModeStrict, role: kamune.RoleInitiator,
+			pinned: true, known: true, wantPrompt: true,
+		},
+		{
+			name: "strict responder resumed", mode: VerificationModeStrict,
+			role: kamune.RoleResponder, resumed: true, known: true,
+			wantPrompt: true,
+		},
+		{
+			name: "strict responder cold", mode: VerificationModeStrict,
+			role: kamune.RoleResponder, wantPrompt: true,
+		},
+		{
+			name: "quick initiator pinned", mode: VerificationModeQuick,
+			role: kamune.RoleInitiator, pinned: true,
+		},
+		{
+			name: "quick initiator unpinned stored",
+			mode: VerificationModeQuick, role: kamune.RoleInitiator,
+			known: true, wantPrompt: true,
+		},
+		{
+			name: "quick initiator unknown", mode: VerificationModeQuick,
+			role: kamune.RoleInitiator, wantPrompt: true,
+		},
+		{
+			name: "quick responder resumed", mode: VerificationModeQuick,
+			role: kamune.RoleResponder, resumed: true, known: true,
+		},
+		{
+			name: "quick responder pinned", mode: VerificationModeQuick,
+			role: kamune.RoleResponder, pinned: true,
+		},
+		{
+			name: "quick responder stored", mode: VerificationModeQuick,
+			role: kamune.RoleResponder, known: true,
+		},
+		{
+			name: "quick responder unknown", mode: VerificationModeQuick,
+			role: kamune.RoleResponder, wantPrompt: true,
+		},
+		{
+			name: "auto initiator", mode: VerificationModeAutoAccept,
+			role: kamune.RoleInitiator,
+		},
+		{
+			name: "auto responder", mode: VerificationModeAutoAccept,
+			role: kamune.RoleResponder,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			d, rec := newTestDaemon(t, tt.mode, false)
+			req := policyReq(t, d, tt.role, tt.known)
+			req.Pinned = tt.pinned
+			req.ResumeOffered = tt.resumeOffered
+			req.Resumed = tt.resumed
+
+			verdict := make(chan error, 1)
+			go func() {
+				verdict <- callVerifierReq(
+					d.inboundVerifier(), d.store(), req,
+				)
+			}()
+			if !tt.wantPrompt {
+				select {
+				case err := <-verdict:
+					a.NoError(err)
+				case <-time.After(testEventTimeout):
+					a.FailNow("verifier prompted")
+				}
+				return
+			}
+			evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
+			id, ok := evt.Data["request_id"].(float64)
+			a.True(ok)
+			d.handleVerifyResponse(Command{
+				Params: mustJSON(VerifyResponseParams{
+					RequestID: int64(id), Accepted: true,
+				}),
+			})
+			a.NoError(<-verdict)
 		})
+	}
+}
+
+func TestStrictResponderPromptsOnResume(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeStrict, false)
+	req := policyReq(t, d, kamune.RoleResponder, true)
+	req.Resumed = true
+	req.SessionID = "SIDRESUME"
+
+	verdict := make(chan error, 1)
+	go func() {
+		verdict <- callVerifierReq(d.inboundVerifier(), d.store(), req)
 	}()
-	secondID := promptOf("second try")
-	a.NotEqual(firstID, secondID)
-	err := <-first
-	a.ErrorIs(err, errVerificationReplaced)
-	a.ErrorIs(err, kamune.ErrVerificationFailed)
-
+	evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
+	a.Equal("responder", evt.Data["role"])
+	a.Equal(req.Peer.Name, evt.Data["peer_name"])
+	a.Equal(true, evt.Data["resumed"])
+	a.Equal("SIDRESUME", evt.Data["session_id"])
+	a.Equal(fingerprint.Numeric(req.LocalPublicKey), evt.Data["own_code"])
+	a.Equal(fingerprint.Numeric(req.Peer.PublicKey), evt.Data["peer_code"])
+	a.Equal(
+		fingerprint.SafetyNumber(req.LocalPublicKey, req.Peer.PublicKey),
+		evt.Data["safety_number"],
+	)
+	_, hasEmoji := evt.Data["emoji"]
+	_, hasHex := evt.Data["hex"]
+	_, hasNumeric := evt.Data["numeric"]
+	a.False(hasEmoji)
+	a.False(hasHex)
+	a.False(hasNumeric)
+	id, ok := evt.Data["request_id"].(float64)
+	a.True(ok)
 	d.handleVerifyResponse(Command{
-		ID: "old",
 		Params: mustJSON(VerifyResponseParams{
-			RequestID: firstID, Accepted: true,
+			RequestID: int64(id), Accepted: true,
 		}),
 	})
-	evt := rec.waitFor(t, func(e recordedEvent) bool { return e.ID == "old" })
-	a.Equal(EvtError, evt.Evt)
-	a.Equal("verification_not_found", evt.Data["code"])
-	d.mu.RLock()
-	a.Equal(StatusVerifying, d.status)
-	d.mu.RUnlock()
+	a.NoError(<-verdict)
+}
 
+func TestStrictInitiatorPinnedResumeDoesNotPrompt(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeStrict, false)
+	req := policyReq(t, d, kamune.RoleInitiator, true)
+	req.Pinned = true
+	req.ResumeOffered = true
+
+	a.NoError(callVerifierReq(d.outboundVerifier(), d.store(), req))
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	for _, e := range rec.events {
+		a.NotEqual(EvtVerifyPeer, e.Evt)
+	}
+}
+
+func TestVerifierBusyRejectsSecondPrompt(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeStrict, false)
+	first := policyReq(t, d, kamune.RoleResponder, false)
+	second := policyReq(t, d, kamune.RoleInitiator, false)
+
+	verdict := make(chan error, 1)
+	go func() {
+		verdict <- callVerifierReq(d.inboundVerifier(), d.store(), first)
+	}()
+	rec.waitFor(t, isEvent(EvtVerifyPeer))
+
+	err := callVerifierReq(d.outboundVerifier(), d.store(), second)
+	a.ErrorIs(err, errVerifierBusy)
+}
+
+func TestSeventhPromptInAMinuteIsRejected(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	var lastID int64
+	prompt := func() {
+		t.Helper()
+		req := policyReq(t, d, kamune.RoleResponder, false)
+		verdict := make(chan error, 1)
+		go func() {
+			verdict <- callVerifierReq(d.inboundVerifier(), d.store(), req)
+		}()
+		evt := rec.waitFor(t, func(e recordedEvent) bool {
+			rid, _ := e.Data["request_id"].(float64)
+			return e.Evt == EvtVerifyPeer && int64(rid) > lastID
+		})
+		id, ok := evt.Data["request_id"].(float64)
+		a.True(ok)
+		lastID = int64(id)
+		d.handleVerifyResponse(Command{
+			Params: mustJSON(VerifyResponseParams{
+				RequestID: int64(id), Accepted: false,
+			}),
+		})
+		a.ErrorIs(<-verdict, kamune.ErrVerificationFailed)
+	}
+	for range 6 {
+		prompt()
+	}
+	req := policyReq(t, d, kamune.RoleResponder, false)
+	err := callVerifierReq(d.inboundVerifier(), d.store(), req)
+	a.Error(err)
+	a.NotErrorIs(err, errVerifierBusy)
+	rec.mu.Lock()
+	n := 0
+	for _, e := range rec.events {
+		if e.Evt == EvtVerifyPeer {
+			n++
+		}
+	}
+	rec.mu.Unlock()
+	a.Equal(6, n)
+}
+
+func TestNameCollisionFlagsUnknownKey(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	a.NoError(d.store().StorePeer(&storage.Peer{
+		Name: "Bob", PublicKey: newTestPeerKey(t), FirstSeen: time.Now(),
+	}))
+	req := policyReq(t, d, kamune.RoleResponder, false)
+	req.Peer.Name = "bob"
+
+	verdict := make(chan error, 1)
+	go func() {
+		verdict <- callVerifierReq(d.inboundVerifier(), d.store(), req)
+	}()
+	evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
+	a.Equal(true, evt.Data["name_collision"])
+	a.Equal("Bob", evt.Data["stored_name"])
+	a.Equal("bob", evt.Data["peer_name"])
+	id, ok := evt.Data["request_id"].(float64)
+	a.True(ok)
 	d.handleVerifyResponse(Command{
-		Params: mustJSON(VerifyResponseParams{
-			RequestID: secondID, Accepted: true,
-		}),
+		Params: mustJSON(VerifyResponseParams{RequestID: int64(id)}),
 	})
-	a.NoError(<-second)
+	a.Error(<-verdict)
+}
+
+func TestInitiatorPromptHasEmptyPeerName(t *testing.T) {
+	a := require.New(t)
+	d, rec := newTestDaemon(t, VerificationModeStrict, false)
+	req := policyReq(t, d, kamune.RoleInitiator, false)
+	req.Peer.Name = "should-not-show"
+
+	verdict := make(chan error, 1)
+	go func() {
+		verdict <- callVerifierReq(d.outboundVerifier(), d.store(), req)
+	}()
+	evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
+	a.Equal("initiator", evt.Data["role"])
+	a.Equal("", evt.Data["peer_name"])
+	id, ok := evt.Data["request_id"].(float64)
+	a.True(ok)
+	d.handleVerifyResponse(Command{
+		Params: mustJSON(VerifyResponseParams{RequestID: int64(id)}),
+	})
+	a.Error(<-verdict)
+}
+
+func TestHandshakeErrorCode(t *testing.T) {
+	tests := []struct {
+		err  error
+		code string
+	}{
+		{kamune.ErrSelfConnection, "self_connection"},
+		{kamune.ErrHandshakeRejected, "handshake_rejected"},
+		{
+			fmt.Errorf("%w: %w", kamune.ErrHandshakeRejected, kamune.ErrVersionMismatch),
+			"version_mismatch",
+		},
+		{kamune.ErrUnsupportedProtocol, "unsupported_protocol"},
+		{kamune.ErrVerificationFailed, "verification_failed"},
+		{kamune.ErrResumeRefused, "resume_refused"},
+		{kamune.ErrPeerKeyMismatch, "peer_key_mismatch"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			a := require.New(t)
+			a.Equal(tt.code, handshakeErrorCode(tt.err))
+		})
+	}
+}
+
+func TestDefaultFingerprintFormatIsNumeric(t *testing.T) {
+	a := require.New(t)
+	d := NewDaemon()
+	t.Cleanup(d.cancel)
+	a.Equal("numeric", d.fingerprintFmt)
 }

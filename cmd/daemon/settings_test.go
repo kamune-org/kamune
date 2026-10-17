@@ -76,7 +76,7 @@ func TestSettingsDoNotCarryOverToAnotherStorage(t *testing.T) {
 
 			a.Equal(tt.wantMode, d.verifMode)
 			a.False(d.incognito)
-			a.Equal("hex", d.fingerprintFmt)
+			a.Equal("numeric", d.fingerprintFmt)
 			a.Equal("INFO", d.logLevel)
 			a.Equal(slog.LevelInfo, daemonLogLevel.Level())
 			a.NotEqual(testName, d.myName)

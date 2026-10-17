@@ -53,10 +53,7 @@ func dialRelay(
 			Transport: "relay", RelayAddr: relay.addr(), Token: token,
 		}),
 	})
-	evt := rec.waitFor(t, func(e recordedEvent) bool {
-		return e.ID == "dial" &&
-			(e.Evt == EvtSessionStarted || e.Evt == EvtError)
-	})
+	evt := waitDialResult(t, d, rec, "dial")
 	a.Equal(EvtSessionStarted, evt.Evt, "dial failed: %v", evt.Data)
 	id, _ := evt.Data["session_id"].(string)
 	a.NotEmpty(id)

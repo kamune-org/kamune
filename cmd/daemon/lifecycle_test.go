@@ -586,7 +586,7 @@ func TestStoppingServerReportsClosedSessions(t *testing.T) {
 func TestDialDoneDuringShutdownClosesSession(t *testing.T) {
 	a := require.New(t)
 	server, serverRec := newTestDaemon(t, VerificationModeStrict, false)
-	client, _ := newTestDaemon(t, VerificationModeQuick, false)
+	client, clientRec := newTestDaemon(t, VerificationModeQuick, false)
 	trustPeer(t, server, client)
 	trustPeer(t, client, server)
 	addr := startTestServer(t, server, serverRec)
@@ -594,6 +594,9 @@ func TestDialDoneDuringShutdownClosesSession(t *testing.T) {
 	client.handleDial(Command{
 		ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
 	})
+	// Quick initiator prompts unless pinned (RFC007 §16.1). Accept that
+	// first so the handshake reaches the Strict responder prompt.
+	acceptNextVerify(t, client, clientRec)
 	// The dial waits for the server's verification now. Hold the client's
 	// storage lock, so that the dial stops once the session is up, when
 	// it loads the session's history, before it adds the session.

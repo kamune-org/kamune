@@ -138,6 +138,57 @@ func startTestServer(t *testing.T, d *Daemon, rec *eventRecorder) string {
 	}
 }
 
+// waitDialResult waits until rec records a session_started or error
+// event with command ID id. It auto-accepts any verify_peer prompts on
+// rec so Quick unpinned initiators (RFC007 §16.1) can finish.
+func waitDialResult(
+	t *testing.T, d *Daemon, rec *eventRecorder, id ID,
+) recordedEvent {
+	t.Helper()
+	accepted := map[int64]struct{}{}
+	deadline := time.After(testEventTimeout)
+	for {
+		rec.mu.Lock()
+		var result recordedEvent
+		found := false
+		var toAccept []int64
+		for _, e := range rec.events {
+			if e.Evt == EvtVerifyPeer {
+				rid, ok := e.Data["request_id"].(float64)
+				if !ok {
+					continue
+				}
+				n := int64(rid)
+				if _, done := accepted[n]; !done {
+					toAccept = append(toAccept, n)
+				}
+			}
+			if e.ID == id &&
+				(e.Evt == EvtSessionStarted || e.Evt == EvtError) {
+				result = e
+				found = true
+			}
+		}
+		rec.mu.Unlock()
+		for _, n := range toAccept {
+			accepted[n] = struct{}{}
+			d.handleVerifyResponse(Command{
+				Params: mustJSON(VerifyResponseParams{
+					RequestID: n, Accepted: true,
+				}),
+			})
+		}
+		if found {
+			return result
+		}
+		select {
+		case <-rec.changed:
+		case <-deadline:
+			t.Fatal("timed out waiting for an event")
+		}
+	}
+}
+
 // dialTestServer dials addr from d and returns the new session's ID.
 func dialTestServer(
 	t *testing.T, d *Daemon, rec *eventRecorder, addr string,
@@ -146,14 +197,47 @@ func dialTestServer(
 	d.handleDial(Command{
 		ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
 	})
-	evt := rec.waitFor(t, func(e recordedEvent) bool {
-		return e.ID == "dial" &&
-			(e.Evt == EvtSessionStarted || e.Evt == EvtError)
-	})
-	a.Equal(EvtSessionStarted, evt.Evt, "dial failed: %v", evt.Data)
-	id, _ := evt.Data["session_id"].(string)
+	started := waitDialResult(t, d, rec, "dial")
+	a.Equal(EvtSessionStarted, started.Evt, "dial failed: %v", started.Data)
+	id, _ := started.Data["session_id"].(string)
 	a.NotEmpty(id)
 	return id
+}
+
+// acceptNextVerify accepts the next verify_peer prompt on rec that has
+// not already been recorded.
+func acceptNextVerify(t *testing.T, d *Daemon, rec *eventRecorder) {
+	t.Helper()
+	rec.mu.Lock()
+	seen := map[int64]struct{}{}
+	for _, e := range rec.events {
+		if e.Evt != EvtVerifyPeer {
+			continue
+		}
+		id, ok := e.Data["request_id"].(float64)
+		if ok {
+			seen[int64(id)] = struct{}{}
+		}
+	}
+	rec.mu.Unlock()
+	evt := rec.waitFor(t, func(e recordedEvent) bool {
+		if e.Evt != EvtVerifyPeer {
+			return false
+		}
+		id, ok := e.Data["request_id"].(float64)
+		if !ok {
+			return false
+		}
+		_, old := seen[int64(id)]
+		return !old
+	})
+	id, ok := evt.Data["request_id"].(float64)
+	require.New(t).True(ok)
+	d.handleVerifyResponse(Command{
+		Params: mustJSON(VerifyResponseParams{
+			RequestID: int64(id), Accepted: true,
+		}),
+	})
 }
 
 // dropServerSession cuts the connection of the server's live session id
@@ -310,6 +394,13 @@ func TestReconnectSessionStopsOnPermanentError(t *testing.T) {
 			wantCalls: 1,
 		},
 		{
+			name: "handshake rejected",
+			fail: func() error {
+				return fmt.Errorf("handshake: %w", kamune.ErrHandshakeRejected)
+			},
+			wantCalls: 1,
+		},
+		{
 			name: "resumption rejected",
 			fail: func() error {
 				return fmt.Errorf("handshake: %w", kamune.ErrNoResumptionState)
@@ -416,6 +507,50 @@ func TestCloseSessionLeavesNoResumptionTokens(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReconnectStopsOnHandshakeRejected(t *testing.T) {
+	a := require.New(t)
+	d := newQuietDaemon()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	session := &liveSession{
+		ID:           "session",
+		reconnectCtx: ctx,
+		reconnectFn: func(string) (*kamune.Transport, error) {
+			calls++
+			return nil, kamune.ErrHandshakeRejected
+		},
+	}
+	a.False(d.reconnectSession(session))
+	a.Equal(1, calls)
+}
+
+func TestReconnectColdFallbackEmitsCloseThenStart(t *testing.T) {
+	a := require.New(t)
+	server, serverRec := newTestDaemon(t, VerificationModeQuick, false)
+	client, clientRec := newTestDaemon(t, VerificationModeQuick, false)
+	trustPeer(t, server, client)
+	trustPeer(t, client, server)
+
+	addr := startTestServer(t, server, serverRec)
+	id := dialTestServer(t, client, clientRec, addr)
+	waitForSession(t, server, id)
+	a.NoError(server.store().DeleteResumptionAll(id))
+	dropServerSession(t, server, id)
+
+	closed := clientRec.waitFor(t, func(e recordedEvent) bool {
+		return e.Evt == EvtSessionClosed && e.Data["session_id"] == id ||
+			e.Evt == EvtError
+	})
+	a.Equal(EvtSessionClosed, closed.Evt, "got %v", closed.Data)
+	started := clientRec.waitFor(t, func(e recordedEvent) bool {
+		return e.Evt == EvtSessionStarted && e.Data["session_id"] != id
+	})
+	newID, _ := started.Data["session_id"].(string)
+	a.NotEmpty(newID)
+	a.NotEqual(id, newID)
 }
 
 // A session that started in incognito mode stays out of storage after

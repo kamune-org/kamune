@@ -251,6 +251,14 @@ func TestQuickSessionIsNamedByStoredName(t *testing.T) {
 	alice.handleDial(Command{
 		ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
 	})
+	prompt := aliceRec.waitFor(t, isEvent(EvtVerifyPeer))
+	id, ok := prompt.Data["request_id"].(float64)
+	a.True(ok)
+	alice.handleVerifyResponse(Command{
+		Params: mustJSON(VerifyResponseParams{
+			RequestID: int64(id), Accepted: true,
+		}),
+	})
 	evt := aliceRec.waitFor(t, func(e recordedEvent) bool {
 		return e.ID == "dial" &&
 			(e.Evt == EvtSessionStarted || e.Evt == EvtError)
@@ -273,7 +281,7 @@ func TestStrictPromptShowsStoredName(t *testing.T) {
 		t, VerificationModeAutoAccept, false,
 	)
 	alice, aliceRec := newTestDaemon(t, VerificationModeStrict, false)
-	malloryKey := storeAs(t, alice, mallory, "Mallory")
+	storeAs(t, alice, mallory, "Mallory")
 	a.NoError(alice.store().StorePeer(&storage.Peer{
 		Name: "Bob", PublicKey: newTestPeerKey(t),
 	}))
@@ -283,12 +291,11 @@ func TestStrictPromptShowsStoredName(t *testing.T) {
 		ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
 	})
 	evt := aliceRec.waitFor(t, isEvent(EvtVerifyPeer))
-	a.Equal("Mallory", evt.Data["peer_name"])
-	a.Equal("Bob", evt.Data["claimed_name"])
-	a.Equal(fingerprint.Base64(malloryKey), evt.Data["peer_key"])
+	a.Equal("", evt.Data["peer_name"])
+	a.Equal("Mallory", evt.Data["stored_name"])
+	a.Equal("initiator", evt.Data["role"])
 	a.Equal(true, evt.Data["known"])
-	a.Equal(true, evt.Data["name_mismatch"])
-	a.Equal(true, evt.Data["name_conflict"])
+	a.Equal(false, evt.Data["name_collision"])
 	id, ok := evt.Data["request_id"].(float64)
 	a.True(ok)
 	alice.handleVerifyResponse(Command{
@@ -321,11 +328,10 @@ func TestUnknownPeerClaimingStoredName(t *testing.T) {
 		ID: "dial", Params: mustJSON(DialParams{Addr: addr}),
 	})
 	evt := aliceRec.waitFor(t, isEvent(EvtVerifyPeer))
-	a.Equal(unknownPeerLabel(malloryKey), evt.Data["peer_name"])
-	a.Equal("Bob", evt.Data["claimed_name"])
+	a.Equal("", evt.Data["peer_name"])
+	a.Equal("initiator", evt.Data["role"])
 	a.Equal(false, evt.Data["known"])
-	a.Equal(false, evt.Data["name_mismatch"])
-	a.Equal(true, evt.Data["name_conflict"])
+	a.Equal(false, evt.Data["name_collision"])
 	id, ok := evt.Data["request_id"].(float64)
 	a.True(ok)
 	alice.handleVerifyResponse(Command{

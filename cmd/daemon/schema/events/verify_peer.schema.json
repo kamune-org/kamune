@@ -2,20 +2,23 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "kamune-daemon-evt-verify-peer",
   "title": "verify_peer data",
-  "description": "Emitted when a new peer needs verification (Strict or Quick mode). Client must respond with verify_response within 2 minutes. A peer that connects to the server again while a prompt for its key from an earlier connection is pending gets a new prompt, which replaces the earlier one: that request_id then fails with verification_not_found, and its handshake ends. An unknown peer that connects is rejected without this event while 8 other unknown peers that connected are pending. Known peers do not count toward the 8, and a peer the user dials (dial or a reconnect) is never rejected this way. stop_server and restart_server reject the pending prompts of peers that connected to the server; verify_response then fails with verification_not_found.",
+  "description": "Emitted when a handshake needs a user prompt (Strict or Quick mode per RFC007 §16.1). Client must respond with verify_response within 2 minutes. At most one prompt is open; a second handshake that needs a prompt is rejected without this event (busy). Unknown keys are also rejected without this event after 6 prompts in a rolling minute. stop_server and restart_server reject the pending prompts of peers that connected to the server; verify_response then fails with verification_not_found. peer_name is empty on the initiator. Name collision (unknown key, EqualFold with a stored name) sets name_collision and stored_name; the default button is Reject.",
   "type": "object",
   "properties": {
     "request_id": { "type": "integer" },
-    "peer_name":  { "type": "string", "description": "The name stored for the peer's key, or \"Unknown peer\" and the first ten digits of its numeric fingerprint for a key that is not stored. Never the name the peer introduced itself with, which is claimed_name." },
-    "claimed_name": { "type": "string", "description": "The name the peer introduced itself with. Any peer can claim any name, so show it only as the peer's claim." },
-    "peer_key":   { "type": "string", "description": "The peer's public key, base64 as list_peers gives it." },
-    "numeric":    { "type": "string", "description": "Numeric fingerprint of the peer's key: 40 digits in eight groups of five. This is the code to compare with the peer over a trusted channel before accepting; the emoji fingerprint is too short to rely on alone." },
-    "emoji":      { "type": "array", "items": { "type": "string" }, "description": "Array of emoji strings for fingerprint display." },
-    "hex":        { "type": "string" },
-    "known":      { "type": "boolean", "description": "Whether this peer is already in the known-peers list." },
-    "name_mismatch": { "type": "boolean", "description": "The peer is stored, and the name it claimed is not the name stored for its key." },
-    "name_conflict": { "type": "boolean", "description": "The peer claimed, or is stored under, the name of another stored peer. Names that differ only in case, white space or characters that do not show count as the same. An unknown peer accepted with such a claim is stored under the pseudonym of its key." },
-    "mode":       { "type": "string", "enum": ["strict", "quick"] }
+    "role": { "type": "string", "enum": ["initiator", "responder"] },
+    "peer_name": { "type": "string", "description": "The name the peer claimed. Empty on the initiator, who has not received a name yet." },
+    "stored_name": { "type": "string", "description": "The name stored for this key, or the stored contact whose name the unknown key collides with." },
+    "name_collision": { "type": "boolean", "description": "An unknown key claimed a stored peer's name (EqualFold)." },
+    "own_code": { "type": "string", "description": "Numeric fingerprint of the local identity key: 40 digits in eight groups of five." },
+    "peer_code": { "type": "string", "description": "Numeric fingerprint of the peer's key: 40 digits in eight groups of five. This is the code to compare with the peer over a trusted channel." },
+    "safety_number": { "type": "string", "description": "Pairwise SafetyNumber of both keys, for copy and paste." },
+    "known": { "type": "boolean", "description": "Whether this peer is already in the known-peers list." },
+    "mode": { "type": "string", "enum": ["strict", "quick"] },
+    "pinned": { "type": "boolean" },
+    "resume_offered": { "type": "boolean" },
+    "resumed": { "type": "boolean" },
+    "session_id": { "type": "string" }
   },
-  "required": ["request_id", "peer_name", "claimed_name", "peer_key", "numeric", "emoji", "hex", "known", "name_mismatch", "name_conflict", "mode"]
+  "required": ["request_id", "role", "peer_name", "stored_name", "name_collision", "own_code", "peer_code", "safety_number", "known", "mode", "pinned", "resume_offered", "resumed", "session_id"]
 }

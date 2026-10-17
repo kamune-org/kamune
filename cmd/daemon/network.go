@@ -730,7 +730,7 @@ func (d *Daemon) handleDial(cmd Command) {
 // which handleDial checked, the session must reach that key: the static
 // relay and broker tokens are hashes of both peers' public keys, so
 // anyone who knows them can answer, and the relay or broker picks who
-// does. The verifier rejects any other key; see pinPeer.
+// does. DialWithPeerKey rejects any other key before the verifier runs.
 func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 	connected := false
 	defer func() {
@@ -841,12 +841,12 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		return
 	}
 
-	var wantKey []byte
 	if params.PeerPubB64 != "" {
-		wantKey, _ = decodeValidPeerKey(params.PeerPubB64)
+		wantKey, _ := decodeValidPeerKey(params.PeerPubB64)
+		opts = append(opts, kamune.DialWithPeerKey(wantKey))
 	}
 	dialer, err := kamune.NewDialer(
-		params.Addr, store, d.pinPeer(wantKey, d.outboundVerifier()),
+		params.Addr, store, d.outboundVerifier(),
 		opts...,
 	)
 	if err != nil {
@@ -865,8 +865,8 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		d.setStatus(StatusError, "Connection failed")
 		d.addLogEntry("ERROR", "Dial failed: "+err.Error())
 		code := "dial_failed"
-		if errors.Is(err, errPeerKeyMismatch) {
-			code = "peer_key_mismatch"
+		if c := handshakeErrorCode(err); c != "" {
+			code = c
 		}
 		d.emitError(cmd.ID, code, fmt.Sprintf("dial: %v", err))
 		return
@@ -1314,7 +1314,7 @@ func (d *Daemon) finishRelayToken(session *liveSession, payload []byte) {
 // cmd/bus/network.go:687-723). The function fails with an error wrapping
 // errNotResumable, without dialing, when store has no peer for the session.
 // A reconnect must reach peerKey, the key of the session's peer; see
-// pinPeer.
+// DialWithPeerKey.
 func (d *Daemon) makeReconnectFn(
 	ctx context.Context,
 	session *liveSession,
@@ -1344,6 +1344,9 @@ func (d *Daemon) makeReconnectFn(
 		resumeOpts := append(
 			[]kamune.DialOption{kamune.DialWithResume(sessionID)}, opts...,
 		)
+		if len(peerKey) > 0 {
+			resumeOpts = append(resumeOpts, kamune.DialWithPeerKey(peerKey))
+		}
 		if isDirectP2P {
 			pConn, err := directP2PDial(directPeerAddr)
 			if err != nil {
@@ -1372,7 +1375,7 @@ func (d *Daemon) makeReconnectFn(
 			}
 		}
 		dl, err := kamune.NewDialer(
-			addr, store, d.pinPeer(peerKey, d.outboundVerifier()),
+			addr, store, d.outboundVerifier(),
 			resumeOpts...,
 		)
 		if err != nil {

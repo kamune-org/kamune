@@ -551,13 +551,22 @@ func tryReconnect(
 
 // reconnectRetryable reports whether a failed reconnect may succeed on a
 // later attempt. Missing storage or resumption state, a resume the peer
-// rejected and a panic do not change between attempts.
+// rejected, a handshake the peer or the user refused, and a panic do not
+// change between attempts (RFC007 §20.1).
 func reconnectRetryable(err error) bool {
 	for _, target := range []error{
 		errNotResumable,
 		errReconnectPanic,
 		kamune.ErrMissingStorage,
 		kamune.ErrNoResumptionState,
+		kamune.ErrVerificationFailed,
+		kamune.ErrHandshakeRejected,
+		kamune.ErrPeerKeyMismatch,
+		kamune.ErrSelfConnection,
+		kamune.ErrVersionMismatch,
+		kamune.ErrUnsupportedProtocol,
+		kamune.ErrResumeInProgress,
+		kamune.ErrResumeRefused,
 		storage.ErrNotFound,
 		storage.ErrSessionNotFound,
 		storage.ErrPeerExpired,
@@ -626,20 +635,83 @@ func (d *Daemon) reconnectSession(session *liveSession) bool {
 			t.Close()
 			return false
 		}
-		session.Transport = t
-		session.pingFailures = 0
-		session.pongCh = make(chan []byte, 1)
-		closeSignal(session.keepAliveDone)
-		session.keepAliveDone = make(chan struct{})
-		keepAliveDone := session.keepAliveDone
-		session.mu.Unlock()
+		if t.Resumed() {
+			session.Transport = t
+			session.pingFailures = 0
+			session.pongCh = make(chan []byte, 1)
+			closeSignal(session.keepAliveDone)
+			session.keepAliveDone = make(chan struct{})
+			keepAliveDone := session.keepAliveDone
+			session.mu.Unlock()
 
-		d.addLogEntry("INFO", "Reconnected session "+session.ID)
-		d.emit(EvtSessionReconnected, "", MapS{"session_id": session.ID})
-		go d.keepAliveLoop(session, keepAliveDone)
+			d.addLogEntry("INFO", "Reconnected session "+session.ID)
+			d.emit(EvtSessionReconnected, "", MapS{"session_id": session.ID})
+			go d.keepAliveLoop(session, keepAliveDone)
+			return true
+		}
+		session.mu.Unlock()
+		d.addLogEntry("INFO",
+			"Reconnect fell back to a cold session for "+session.ID)
+		d.replaceSessionWithCold(session, t)
 		return true
 	}
 
 	d.addLogEntry("WARN", "Reconnect failed after "+strconv.Itoa(maxAttempts)+" attempts: "+session.ID)
 	return false
+}
+
+// replaceSessionWithCold ends the dropped session through the existing
+// close path and starts a new live session for a reconnect that fell
+// back to a cold handshake (RFC007 §20.1).
+func (d *Daemon) replaceSessionWithCold(
+	old *liveSession, t *kamune.Transport,
+) {
+	closedInfo := d.sessionInfo(old)
+	oldID := old.ID
+
+	d.mu.Lock()
+	if current, ok := d.sessions[oldID]; ok && current == old {
+		delete(d.sessions, oldID)
+	}
+	d.mu.Unlock()
+
+	d.dropRelayPool(oldID)
+	d.emit(EvtSessionClosed, "", closedInfo)
+
+	store := d.store()
+	peer := t.RemotePeer()
+	d.rememberPeer(store, peer, old.incognito)
+	identity := identifyPeer(store, peer)
+	newID := t.SessionID()
+
+	old.mu.Lock()
+	old.ID = newID
+	old.PeerName = identity.Label
+	old.Identity = identity
+	old.RemoteVersion = peer.AppVersion
+	old.Transport = t
+	old.pingFailures = 0
+	old.pongCh = make(chan []byte, 1)
+	closeSignal(old.keepAliveDone)
+	old.keepAliveDone = make(chan struct{})
+	keepAliveDone := old.keepAliveDone
+	old.SessionStartedAt = time.Now()
+	old.LastActivity = time.Now()
+	old.mu.Unlock()
+
+	if store != nil && !old.incognito {
+		if err := store.CreateSession(newID, peer.PublicKey); err != nil {
+			d.addLogEntry("WARN",
+				"Failed to create session record: "+err.Error())
+		}
+		d.deriveAndStoreRelayTokens(t, old)
+	}
+
+	d.mu.Lock()
+	d.sessions[newID] = old
+	d.mu.Unlock()
+
+	d.emit(EvtSessionStarted, "", d.sessionInfo(old))
+	d.addLogEntry("INFO", "New session after cold reconnect: "+newID)
+	go d.keepAliveLoop(old, keepAliveDone)
 }

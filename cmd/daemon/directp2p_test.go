@@ -49,7 +49,9 @@ func acceptedAddrs(l kamune.Listener) <-chan net.Addr {
 func TestDirectP2PListenerAcceptsOnlyItsPeer(t *testing.T) {
 	a := require.New(t)
 	l, err := newDirectP2PListener("127.0.0.2:0", "127.0.0.4:9")
-	a.NoError(err)
+	if err != nil {
+		t.Skipf("no second loopback address: %v", err)
+	}
 	t.Cleanup(func() { _ = l.Close() })
 
 	sendKCPOpen(t, "127.0.0.1", l.Addr(), 1)

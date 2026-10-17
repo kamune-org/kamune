@@ -82,10 +82,7 @@ func TestRelayPin(t *testing.T) {
 				Token: token, RelayPin: pin,
 			}),
 		})
-		return clientRec.waitFor(t, func(e recordedEvent) bool {
-			return e.ID == id &&
-				(e.Evt == EvtSessionStarted || e.Evt == EvtError)
-		})
+		return waitDialResult(t, client, clientRec, id)
 	}
 
 	t.Run("refused", func(t *testing.T) {

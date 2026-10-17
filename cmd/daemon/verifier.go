@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -17,26 +18,24 @@ const (
 	// defaultVerifTimeout is how long a verify_peer prompt waits for
 	// verify_response before the peer is rejected.
 	defaultVerifTimeout = 2 * time.Minute
-	// maxPendingVerifications caps the verify_peer prompts for unknown
-	// peers that connect to the server and may be open at once.
-	maxPendingVerifications = 8
+	// maxPromptsPerMinute caps how many verify_peer prompts may open in
+	// any rolling minute. Further unknown keys are rejected with no
+	// prompt (RFC007 §20.1).
+	maxPromptsPerMinute = 6
 )
 
 var (
-	// errVerificationReplaced ends the pending verification of a peer
-	// that connected to the server when the same key connects again: the
-	// newer connection is asked about instead. The kamune library does
-	// not tell a verifier that its connection went away, so the older
-	// one may be dead, and the peer would otherwise be locked out until
-	// its prompt timed out.
-	errVerificationReplaced = fmt.Errorf(
-		"%w: the peer connected again", kamune.ErrVerificationFailed,
+	// errVerifierBusy rejects a handshake that needs a prompt while
+	// another prompt is already open. RFC007 §20.1: one open prompt,
+	// including the user's own dials.
+	errVerifierBusy = fmt.Errorf(
+		"%w: a verification prompt is already open",
+		kamune.ErrVerificationFailed,
 	)
-	// errTooManyVerifications rejects an unknown peer that connects to
-	// the server, without asking the user, while maxPendingVerifications
-	// such peers are pending.
-	errTooManyVerifications = fmt.Errorf(
-		"%w: too many verifications are pending",
+	// errPromptRateLimited rejects an unknown key that needs a prompt
+	// after maxPromptsPerMinute prompts in the last minute.
+	errPromptRateLimited = fmt.Errorf(
+		"%w: too many verification prompts",
 		kamune.ErrVerificationFailed,
 	)
 	// errServerStopped rejects a peer that connected to the server while
@@ -47,10 +46,10 @@ var (
 )
 
 type pendingVerification struct {
-	result chan error
-	peerID string
-	hex    string
-	key    string
+	result   chan error
+	peerID   string
+	peerCode string
+	key      string
 	// inbound is true for a peer that connected to the server, and false
 	// for one the user dialed.
 	inbound bool
@@ -59,47 +58,75 @@ type pendingVerification struct {
 }
 
 // inboundVerifier returns the verifier for peers that connect to the
-// server. Anyone who can reach the server can open its prompts, so it
-// limits them: see beginVerification. It verifies each peer in the mode
-// in effect then, so set_verification_mode applies to a running server
-// without a restart.
+// server. It verifies each peer in the mode in effect then, so
+// set_verification_mode applies to a running server without a restart.
 func (d *Daemon) inboundVerifier() kamune.RemoteVerifier {
-	return func(
-		ctx context.Context, store *storage.Storage, req kamune.VerifyRequest,
-	) error {
-		return d.getVerifier(true)(ctx, store, req)
-	}
+	return d.peerVerifier(true)
 }
 
 // outboundVerifier returns the verifier for peers the user dials, by the
-// dial command or a reconnect. These are never rejected for the prompts
-// that inbound peers hold open, so a flood of inbound connections cannot
-// stop the user from reaching a peer. Like inboundVerifier, it verifies
-// each peer in the mode in effect then.
+// dial command or a reconnect. The one-open-prompt and per-minute caps
+// apply here too (RFC007 §20.1).
 func (d *Daemon) outboundVerifier() kamune.RemoteVerifier {
+	return d.peerVerifier(false)
+}
+
+// peerVerifier returns a kamune.RemoteVerifier for the current mode.
+// inbound tells whether the peer connected to the server.
+func (d *Daemon) peerVerifier(inbound bool) kamune.RemoteVerifier {
 	return func(
 		ctx context.Context, store *storage.Storage, req kamune.VerifyRequest,
 	) error {
-		return d.getVerifier(false)(ctx, store, req)
+		d.mu.RLock()
+		mode := d.verifMode
+		d.mu.RUnlock()
+		if mode < VerificationModeStrict ||
+			mode > VerificationModeAutoAccept {
+			mode = VerificationModeStrict
+		}
+		return d.verifyPeer(ctx, store, req, mode, inbound)
 	}
 }
 
-// getVerifier returns a kamune.RemoteVerifier for the current mode. An
-// unknown mode gets the Strict verifier. inbound tells whether it checks
-// peers that connect to the server or peers the user dials.
-func (d *Daemon) getVerifier(inbound bool) kamune.RemoteVerifier {
-	d.mu.RLock()
-	mode := d.verifMode
-	d.mu.RUnlock()
+// verifierShouldPrompt reports whether mode and req require a user prompt
+// (RFC007 §16.1). known is whether the authenticated key is a stored,
+// unexpired peer.
+func verifierShouldPrompt(
+	mode VerificationMode, req kamune.VerifyRequest, known bool,
+) bool {
+	switch mode {
+	case VerificationModeAutoAccept:
+		return false
+	case VerificationModeQuick:
+		if req.Role == kamune.RoleInitiator {
+			return !req.Pinned
+		}
+		return !req.Resumed && !req.Pinned && !known
+	default:
+		if req.Role == kamune.RoleInitiator &&
+			req.Pinned && req.ResumeOffered {
+			return false
+		}
+		return true
+	}
+}
 
+func verificationModeName(mode VerificationMode) string {
 	switch mode {
 	case VerificationModeQuick:
-		return d.createQuickVerifier(inbound)
+		return "quick"
 	case VerificationModeAutoAccept:
-		return d.createAutoAcceptVerifier()
+		return "auto"
 	default:
-		return d.createStrictVerifier(inbound)
+		return "strict"
 	}
+}
+
+func verifyRoleName(role kamune.Role) string {
+	if role == kamune.RoleInitiator {
+		return "initiator"
+	}
+	return "responder"
 }
 
 // parseVerificationMode returns the mode a stored setting names, and false
@@ -120,47 +147,27 @@ func parseVerificationMode(s string) (VerificationMode, bool) {
 // peer that the user accepted, and rememberPeer stores it once its
 // session is established.
 
-// createStrictVerifier asks the user about every peer, known or not.
-func (d *Daemon) createStrictVerifier(inbound bool) kamune.RemoteVerifier {
-	return func(
-		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
-	) error {
-		peer := req.Peer
-		d.forgetAdmitted(peer.PublicKey)
-		id := identifyPeer(store, peer)
-		if err := d.askUser(peer, id, inbound, "strict"); err != nil {
-			return err
-		}
-		if !id.Known {
-			d.noteAdmitted(peer.PublicKey)
-		}
+func (d *Daemon) verifyPeer(
+	ctx context.Context,
+	store *storage.Storage,
+	req kamune.VerifyRequest,
+	mode VerificationMode,
+	inbound bool,
+) error {
+	peer := req.Peer
+	d.forgetAdmitted(peer.PublicKey)
+	id := identifyPeer(store, peer)
+	if !verifierShouldPrompt(mode, req, id.Known) {
+		d.addLogEntry("INFO", "Auto-accepted peer: "+id.logName())
 		return nil
 	}
-}
-
-// createQuickVerifier admits a stored peer without asking and asks the
-// user about any other peer. The name a peer claims plays no part: a
-// stored key is admitted, and its session named by its stored name,
-// whatever name it claims, and an unknown key is asked about whatever
-// name it claims.
-func (d *Daemon) createQuickVerifier(inbound bool) kamune.RemoteVerifier {
-	return func(
-		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
-	) error {
-		peer := req.Peer
-		d.forgetAdmitted(peer.PublicKey)
-		id := identifyPeer(store, peer)
-		if id.Known {
-			d.addLogEntry("INFO", "Auto-accepted known peer: "+id.logName())
-			return nil
-		}
-
-		if err := d.askUser(peer, id, inbound, "quick"); err != nil {
-			return err
-		}
+	if err := d.askUser(ctx, req, id, inbound, mode); err != nil {
+		return err
+	}
+	if !id.Known {
 		d.noteAdmitted(peer.PublicKey)
-		return nil
 	}
+	return nil
 }
 
 // createAutoAcceptVerifier accepts every peer without asking. Its peers
@@ -240,90 +247,119 @@ func (d *Daemon) rememberPeer(
 	}
 }
 
-// askUser emits verify_peer for peer, which id describes, and waits for
-// the user's verdict, for at most d.verifTimeout. For a peer that
-// connected to the server it fails closed when beginVerification says
-// so: the peer is rejected at once without asking.
-//
-// The prompt names the peer by id.Label, its stored name or a label made
-// from its key, and gives the name the peer claimed apart, with flags for
-// a claim that is not the stored name or that is another peer's name.
-func (d *Daemon) askUser(
-	peer *storage.Peer, id peerIdentity, inbound bool, mode string,
-) error {
-	key := peer.PublicKey
-	hexFP := fingerprint.Hex(key)
-
-	reqID, result, err := d.beginVerification(peer, id, hexFP, inbound)
+// collidingStoredName returns the stored name that EqualFold-matches the
+// unknown peer's claimed name, if any (RFC007 §20.1).
+func collidingStoredName(
+	store *storage.Storage, peer *storage.Peer, known bool,
+) string {
+	if known || store == nil || peer == nil {
+		return ""
+	}
+	name := strings.TrimSpace(peer.Name)
+	if name == "" {
+		return ""
+	}
+	peers, err := store.ListPeers()
 	if err != nil {
-		d.addLogEntry("WARN",
-			"Rejected peer "+id.logName()+" without asking: "+err.Error())
+		return ""
+	}
+	for _, p := range peers {
+		if strings.EqualFold(p.Name, name) {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+// askUser emits verify_peer for req, which id describes, and waits for
+// the user's verdict, for at most d.verifTimeout. It fails closed when
+// beginVerification says so: the peer is rejected at once without asking.
+func (d *Daemon) askUser(
+	ctx context.Context,
+	req kamune.VerifyRequest,
+	id peerIdentity,
+	inbound bool,
+	mode VerificationMode,
+) error {
+	peer := req.Peer
+	peerCode := fingerprint.Numeric(peer.PublicKey)
+
+	reqID, result, err := d.beginVerification(
+		peer, id, peerCode, inbound,
+	)
+	if err != nil {
 		return err
 	}
 	defer d.endVerification(reqID)
 
+	peerName := ""
+	if req.Role != kamune.RoleInitiator {
+		peerName = peer.Name
+	}
+	storedName := ""
+	if id.Known {
+		storedName = id.Label
+	}
+	collisionName := collidingStoredName(d.store(), peer, id.Known)
+	if collisionName != "" {
+		storedName = collisionName
+		d.addLogEntry("INFO",
+			"A NEW key is using the name of your contact "+collisionName)
+	}
+
 	d.addLogEntry("INFO", "Verifying peer: "+id.logName())
 	d.emit(EvtVerifyPeer, "", MapA{
-		"request_id":    reqID,
-		"peer_name":     id.Label,
-		"claimed_name":  id.ClaimedName,
-		"peer_key":      id.KeyB64,
-		"numeric":       id.Numeric,
-		"emoji":         fingerprint.Emoji(key),
-		"hex":           hexFP,
-		"known":         id.Known,
-		"name_mismatch": id.NameMismatch,
-		"name_conflict": id.NameConflict,
-		"mode":          mode,
+		"request_id":     reqID,
+		"role":           verifyRoleName(req.Role),
+		"peer_name":      peerName,
+		"stored_name":    storedName,
+		"name_collision": collisionName != "",
+		"own_code":       fingerprint.Numeric(req.LocalPublicKey),
+		"peer_code":      peerCode,
+		"safety_number": fingerprint.SafetyNumber(
+			req.LocalPublicKey, peer.PublicKey,
+		),
+		"known":          id.Known,
+		"mode":           verificationModeName(mode),
+		"pinned":         req.Pinned,
+		"resume_offered": req.ResumeOffered,
+		"resumed":        req.Resumed,
+		"session_id":     req.SessionID,
 	})
 
-	return d.awaitVerification(reqID, result)
+	return d.awaitVerification(ctx, reqID, result)
 }
 
 // beginVerification records a pending verification of peer and returns its
-// request ID and the channel its verdict arrives on. While verifications
-// are pending the status is verifying; endVerification puts back the last
-// other status that was current when one of them began.
+// request ID and the channel its verdict arrives on. While a verification
+// is pending the status is verifying; endVerification puts back the last
+// other status that was current when it began.
 //
-// Only a peer that connected to the server (inbound) can be rejected,
-// because anyone who reaches the server can open these prompts: when it
-// is unknown, it gets errTooManyVerifications while
-// maxPendingVerifications other unknown inbound peers are pending, and
-// nothing is recorded. A known peer is not capped, so a flood of unknown
-// keys cannot lock it out. Each key has at most one inbound prompt: a
-// verification of the same key from an earlier inbound connection ends
-// with errVerificationReplaced, and the new connection is asked about.
-// A peer the user dials is never rejected here, and replaces no prompt.
+// At most one prompt may be open. A second handshake that needs a prompt
+// gets errVerifierBusy. Unknown keys that need a prompt after
+// maxPromptsPerMinute prompts in the last minute get errPromptRateLimited.
 func (d *Daemon) beginVerification(
-	peer *storage.Peer, id peerIdentity, hexFP string, inbound bool,
+	peer *storage.Peer, id peerIdentity, peerCode string, inbound bool,
 ) (int64, chan error, error) {
 	key := string(peer.PublicKey)
-	known := id.Known
 
 	d.verifMu.Lock()
 	defer d.verifMu.Unlock()
-	if inbound {
-		unknown := 0
-		var earlier []int64
-		for reqID, p := range d.verifRequests {
-			if !p.inbound {
-				continue
-			}
-			if p.key == key {
-				earlier = append(earlier, reqID)
-				continue
-			}
-			if !p.known {
-				unknown++
-			}
-		}
-		if !known && unknown >= maxPendingVerifications {
-			return 0, nil, errTooManyVerifications
-		}
-		for _, reqID := range earlier {
-			d.replaceVerificationLocked(reqID)
-		}
+	if len(d.verifRequests) > 0 {
+		d.addLogEntry("DEBUG",
+			"Rejected peer "+id.logName()+" without asking: "+
+				errVerifierBusy.Error())
+		return 0, nil, errVerifierBusy
 	}
+	now := time.Now()
+	d.prunePromptTimesLocked(now)
+	if !id.Known && len(d.promptTimes) >= maxPromptsPerMinute {
+		d.addLogEntry("WARN",
+			"Rejected unknown peer "+id.logName()+
+				" without asking: too many prompts this minute")
+		return 0, nil, errPromptRateLimited
+	}
+
 	d.mu.RLock()
 	if d.status != StatusVerifying {
 		d.verifPrevStatus = d.status
@@ -334,35 +370,27 @@ func (d *Daemon) beginVerification(
 	reqID := d.verifIDCounter.Add(1)
 	result := make(chan error, 1)
 	d.verifRequests[reqID] = &pendingVerification{
-		result:  result,
-		peerID:  id.Label,
-		hex:     hexFP,
-		key:     key,
-		inbound: inbound,
-		known:   known,
+		result:   result,
+		peerID:   id.Label,
+		peerCode: peerCode,
+		key:      key,
+		inbound:  inbound,
+		known:    id.Known,
 	}
+	d.promptTimes = append(d.promptTimes, now)
 	d.setStatus(StatusVerifying, "Verifying fingerprint of "+id.Label+"...")
 	return reqID, result, nil
 }
 
-// replaceVerificationLocked ends the pending verification reqID with
-// errVerificationReplaced and removes it, so that verify_response no
-// longer finds it. The caller holds d.verifMu and records the
-// verification that replaces it, so the status stays verifying.
-func (d *Daemon) replaceVerificationLocked(reqID int64) {
-	p, ok := d.verifRequests[reqID]
-	if !ok {
-		return
+func (d *Daemon) prunePromptTimesLocked(now time.Time) {
+	cut := now.Add(-time.Minute)
+	i := 0
+	for i < len(d.promptTimes) && !d.promptTimes[i].After(cut) {
+		i++
 	}
-	delete(d.verifRequests, reqID)
-	select {
-	case p.result <- errVerificationReplaced:
-	default:
+	if i > 0 {
+		d.promptTimes = d.promptTimes[i:]
 	}
-	d.addLogEntry("INFO", fmt.Sprintf(
-		"Verification request %d of %s replaced: the peer connected again",
-		reqID, p.peerID,
-	))
 }
 
 // endVerification removes the pending verification reqID. When no other
@@ -412,7 +440,9 @@ func (d *Daemon) rejectInboundVerifications() {
 // awaitVerification waits for the verdict on reqID, for at most
 // d.verifTimeout. A verification that times out leaves the status alone:
 // one peer's prompt does not decide the daemon's status.
-func (d *Daemon) awaitVerification(reqID int64, result chan error) error {
+func (d *Daemon) awaitVerification(
+	ctx context.Context, reqID int64, result chan error,
+) error {
 	timer := time.NewTimer(d.verifTimeout)
 	defer timer.Stop()
 
@@ -423,6 +453,8 @@ func (d *Daemon) awaitVerification(reqID int64, result chan error) error {
 		d.addLogEntry("WARN",
 			fmt.Sprintf("Verification timed out for request: %d", reqID))
 		return fmt.Errorf("verification timed out after %v", d.verifTimeout)
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-d.ctx.Done():
 		return d.ctx.Err()
 	}
@@ -508,4 +540,29 @@ func truncateSessionID(id string) string {
 		return id
 	}
 	return id[:8] + "..." + id[len(id)-4:]
+}
+
+// handshakeErrorCode maps a handshake error to a daemon error code
+// (RFC007 §6). Match sentinels by identity so kamune.ErrHandshakeRejected
+// does not collide with a later relayleg.ErrHandshakeRejected.
+func handshakeErrorCode(err error) string {
+	switch {
+	case errors.Is(err, kamune.ErrVersionMismatch):
+		return "version_mismatch"
+	case errors.Is(err, kamune.ErrSelfConnection):
+		return "self_connection"
+	case errors.Is(err, kamune.ErrPeerKeyMismatch),
+		errors.Is(err, errPeerKeyMismatch):
+		return "peer_key_mismatch"
+	case errors.Is(err, kamune.ErrUnsupportedProtocol):
+		return "unsupported_protocol"
+	case errors.Is(err, kamune.ErrVerificationFailed):
+		return "verification_failed"
+	case errors.Is(err, kamune.ErrResumeRefused):
+		return "resume_refused"
+	case errors.Is(err, kamune.ErrHandshakeRejected):
+		return "handshake_rejected"
+	default:
+		return ""
+	}
 }
