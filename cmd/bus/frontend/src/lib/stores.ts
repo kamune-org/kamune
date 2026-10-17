@@ -9,6 +9,7 @@ import type {
   StatusInfo,
   P2PToken,
   RelayToken,
+  VerificationRequest,
 } from './models';
 
 export type SidebarTab = 'sessions' | 'peers' | 'history';
@@ -17,22 +18,6 @@ export interface ToastInfo {
   message: string;
   token?: string;
   type: 'error' | 'warning' | 'token' | 'info';
-}
-
-export interface VerificationRequest {
-  requestID: number;
-  // peerName is the stored name for a saved key and a key-derived label
-  // otherwise; claimedName is the name the peer introduced itself with.
-  peerName: string;
-  claimedName: string;
-  known: boolean;
-  nameMismatch: boolean;
-  nameConflict: boolean;
-  // numeric is the fingerprint to compare; emoji is a quick visual check
-  // and hex is for peers whose app shows no numeric fingerprint.
-  numeric: string;
-  emoji: string;
-  hex: string;
 }
 
 export interface FingerprintInfo {
@@ -154,9 +139,8 @@ export const relayToken = writable('');
 export const relayTokens = writable<RelayToken[]>([]);
 export const p2pTokens = writable<P2PToken[]>([]);
 
-// verificationQueue holds the open verification requests, oldest first.
-// The dialog shows the first one; a new request joins the end and never
-// replaces the request the user is looking at.
+// verificationQueue holds the open verification request. RFC007 §20.1
+// allows one prompt at a time.
 export const verificationQueue = writable<VerificationRequest[]>([]);
 export const shareDialog = writable<ShareInfo | null>(null);
 export const versionWarnings = writable<Record<string, string>>({});

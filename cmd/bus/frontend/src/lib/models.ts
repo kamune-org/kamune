@@ -69,6 +69,25 @@ export interface SessionInfo {
   sessionStartedAt: string;
 }
 
+export interface VerificationRequest {
+  requestID: number;
+  role: string;
+  // peerName is empty for the initiator. storedName is the saved name
+  // of this key, or the colliding contact when nameCollision is set.
+  peerName: string;
+  storedName: string;
+  nameCollision: boolean;
+  ownCode: string;
+  peerCode: string;
+  safetyNumber: string;
+  known: boolean;
+  mode: string;
+  pinned: boolean;
+  resumeOffered: boolean;
+  resumed: boolean;
+  sessionID: string;
+}
+
 export interface ShareRelayInfo {
   address: string;
   scheme: string;

@@ -1,10 +1,8 @@
 <script>
   import { VerifyResponse, CopyToClipboard } from './go.js';
-  import { fingerprint } from './stores';
 
   // data is one verification request; App keys this component by its
-  // requestID, so a new request always mounts a fresh dialog. waiting is
-  // how many more requests are queued behind it.
+  // requestID, so a new request always mounts a fresh dialog.
   let { data, waiting = 0, onClose } = $props();
 
   // Accept stays disabled for a moment after the dialog appears, so a
@@ -31,17 +29,23 @@
   const accept = () => answer(true);
   const reject = () => answer(false);
 
-  // The numeric fingerprint is eight groups of five digits, shown four
-  // to a row so that people can read it out group by group.
-  const groups = $derived((data.numeric || '').split(' ').filter(Boolean));
+  function groups(code) {
+    return (code || '').split(' ').filter(Boolean);
+  }
 
-  let copiedField = $state('');
-  async function copy(text, field) {
+  const ownGroups = $derived(groups(data.ownCode));
+  const peerGroups = $derived(groups(data.peerCode));
+  const peerLabel = $derived(
+    data.peerName || data.storedName || 'Peer'
+  );
+
+  let copied = $state(false);
+  async function copySafetyNumber() {
     try {
-      await CopyToClipboard(text);
-      copiedField = field;
+      await CopyToClipboard(data.safetyNumber);
+      copied = true;
       setTimeout(() => {
-        if (copiedField === field) copiedField = '';
+        copied = false;
       }, 1500);
     } catch (e) {}
   }
@@ -78,108 +82,65 @@
     </div>
 
     <div class="dialog-body">
+      {#if data.resumed}
+        <div class="verify-banner">
+          Reconnecting session {data.sessionID}
+        </div>
+      {/if}
+
       <div class="verify-peer-info">
         <div class="verify-label">
           {data.known ? 'Saved peer' : 'Connection request'}
         </div>
-        <div class="verify-peer-name">{data.peerName}</div>
-        <div class="verify-claim">
-          Introduces itself as
-          <span class="verify-claimed-name">“{data.claimedName || 'no name'}”</span>
-        </div>
+        {#if data.peerName}
+          <div class="verify-peer-name">{data.peerName}</div>
+        {:else if data.storedName}
+          <div class="verify-peer-name">{data.storedName}</div>
+        {/if}
         <div class="verify-status" class:known={data.known} class:unknown={!data.known}>
           {#if data.known}
-            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"
-              ><path
-                fill-rule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                clip-rule="evenodd"
-              /></svg
-            >
             <span>Key is saved</span>
           {:else}
-            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"
-              ><path
-                fill-rule="evenodd"
-                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                clip-rule="evenodd"
-              /></svg
-            >
             <span>Key is not saved</span>
           {/if}
         </div>
-        <p class="verify-hint">
-          {data.known
-            ? 'This key is in your peer list under the name shown above. The name it introduces itself with is its own claim.'
-            : 'This key is not in your peer list. The name it introduces itself with is its own claim and proves nothing.'}
-        </p>
-        {#if data.nameConflict}
+        {#if data.nameCollision}
           <div class="verify-warning verify-danger">
-            Another saved peer has the name this peer uses, but a different key. This peer may be
-            impersonating them. Compare the numeric fingerprint with them before accepting.
-          </div>
-        {:else if data.nameMismatch}
-          <div class="verify-warning">
-            This key is saved as “{data.peerName}”, but the peer introduces itself as “{data.claimedName}”.
+            A NEW key is using the name of your contact {data.storedName}.
+            Compare both codes with them before accepting.
           </div>
         {/if}
       </div>
 
       <div class="verify-section">
-        <div class="verify-section-title">Numeric fingerprint</div>
+        <div class="verify-code-block">
+          <div class="verify-code-line">
+            <div class="verify-code-label">Your code:</div>
+            <div class="verify-numeric" aria-label={data.ownCode}>
+              {#each ownGroups as group}
+                <span class="verify-numeric-group">{group}</span>
+              {/each}
+            </div>
+          </div>
+          <div class="verify-code-line">
+            <div class="verify-code-label">{peerLabel}'s code:</div>
+            <div class="verify-numeric" aria-label={data.peerCode}>
+              {#each peerGroups as group}
+                <span class="verify-numeric-group">{group}</span>
+              {/each}
+            </div>
+          </div>
+        </div>
         <div class="verify-numeric-row">
-          <div class="verify-numeric" aria-label={data.numeric}>
-            {#each groups as group}
-              <span class="verify-numeric-group">{group}</span>
-            {/each}
-          </div>
-          <button class="verify-copy-btn" onclick={() => copy(data.numeric, 'numeric')}>
-            {copiedField === 'numeric' ? 'Copied' : 'Copy'}
+          <p class="verify-hint">
+            Read your code to your contact and have them read theirs. Every digit
+            of both codes must match.
+          </p>
+          <button class="verify-copy-btn" onclick={copySafetyNumber}>
+            {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
-        {#if $fingerprint.numeric}
-          <div class="verify-own">
-            Yours: <span class="verify-own-numeric">{$fingerprint.numeric}</span>
-          </div>
-        {/if}
-        <p class="verify-hint">
-          Over a channel you trust, ask the peer to read out the numeric fingerprint of its own key
-          and check it against the number above. If their app shows no numeric fingerprint, compare
-          the hex fingerprint below instead.
-        </p>
       </div>
-
-      <div class="verify-section">
-        <div class="verify-section-title">Emoji fingerprint</div>
-        <div class="verify-emoji">{data.emoji}</div>
-        <p class="verify-hint">
-          A quick visual check only: another key can be found with the same emojis.
-        </p>
-      </div>
-
-      <details class="verify-section">
-        <summary class="verify-section-title verify-summary">Hex fingerprint</summary>
-        <div class="verify-hex-row">
-          <input type="text" readonly value={data.hex} class="verify-hex-input" />
-          <button class="verify-copy-btn" onclick={() => copy(data.hex, 'hex')}>
-            {copiedField === 'hex' ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-      </details>
-
-      {#if !data.known}
-        <div class="verify-warning">
-          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-            <path
-              fill-rule="evenodd"
-              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-              clip-rule="evenodd"
-            />
-          </svg>
-          This peer is not in your trusted list. Compare its numeric fingerprint with the peer over a
-          channel you trust before accepting.
-        </div>
-      {/if}
     </div>
 
     <div class="dialog-actions">
@@ -209,8 +170,7 @@
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-xl);
     min-width: 440px;
-    max-width: 500px;
-    /* Keep the actions on screen whatever the body holds. */
+    max-width: 520px;
     max-height: calc(100vh - 32px);
     display: flex;
     flex-direction: column;
@@ -287,6 +247,15 @@
     color: var(--text-primary);
   }
 
+  .verify-banner {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 10px;
+    margin-bottom: 12px;
+    border-radius: var(--border-radius);
+    color: var(--accent-primary);
+    background: var(--accent-primary-dim);
+  }
   .verify-peer-info {
     margin-bottom: 16px;
   }
@@ -298,22 +267,11 @@
     font-weight: 600;
     margin-bottom: 6px;
   }
-  .verify-peer-name,
-  .verify-claim {
-    overflow-wrap: anywhere;
-  }
   .verify-peer-name {
+    overflow-wrap: anywhere;
     font-size: 15px;
     font-weight: 600;
     margin-bottom: 6px;
-  }
-  .verify-claim {
-    font-size: 12px;
-    color: var(--text-secondary);
-    margin-bottom: 8px;
-  }
-  .verify-claimed-name {
-    font-style: italic;
   }
   .verify-status {
     display: inline-flex;
@@ -337,36 +295,34 @@
     font-size: 12px;
     color: var(--text-muted);
     line-height: 1.5;
+    flex: 1;
   }
 
   .verify-section {
     margin-bottom: 14px;
   }
-  .verify-section-title {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-muted);
-    font-weight: 600;
-    margin-bottom: 6px;
+  .verify-code-block {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
-  .verify-emoji {
-    font-size: 18px;
-    letter-spacing: 4px;
-    padding: 8px 12px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    text-align: center;
-    color: var(--text-primary);
+  .verify-code-line {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .verify-code-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
   }
   .verify-numeric-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
+    margin-top: 10px;
   }
   .verify-numeric {
-    flex: 1;
     display: grid;
     grid-template-columns: repeat(4, auto);
     justify-content: space-around;
@@ -382,36 +338,6 @@
     color: var(--text-primary);
     user-select: all;
   }
-  .verify-own {
-    margin-top: 6px;
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-  .verify-own-numeric {
-    font-family: var(--font-mono);
-    color: var(--text-secondary);
-    user-select: all;
-  }
-  .verify-section .verify-hint {
-    margin-top: 6px;
-  }
-  .verify-summary {
-    cursor: pointer;
-  }
-  .verify-hex-row {
-    display: flex;
-    gap: 6px;
-  }
-  .verify-hex-input {
-    flex: 1;
-    padding: 8px 10px;
-    background: var(--bg-input);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    font-size: 10px;
-  }
   .verify-copy-btn {
     display: flex;
     align-items: center;
@@ -423,6 +349,7 @@
     font-size: 11px;
     font-weight: 500;
     transition: all 0.15s;
+    flex-shrink: 0;
   }
   .verify-copy-btn:hover {
     background: var(--border-color);
@@ -448,9 +375,5 @@
     color: var(--danger);
     background: var(--danger-dim);
     font-weight: 600;
-  }
-  .verify-warning svg {
-    flex-shrink: 0;
-    margin-top: 1px;
   }
 </style>
