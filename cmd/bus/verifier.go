@@ -26,21 +26,28 @@ var ErrVerificationCancelled = errors.New(
 	"the verification was cancelled before it was answered",
 )
 
-// ErrTooManyVerifications rejects a peer that connects to a server of the
-// app and would need a prompt while maxPendingVerifications prompts for
-// such peers are already open.
-var ErrTooManyVerifications = errors.New(
-	"too many verification requests are waiting for an answer",
+const (
+	// maxPromptsPerMinute caps how many verify-peer prompts may open in
+	// any rolling minute. Further unknown keys are rejected with no
+	// prompt (RFC007 §20.1).
+	maxPromptsPerMinute = 6
 )
 
-// maxPendingVerifications caps the prompts for peers that connect to a
-// server of the app that may wait for the user at once. Anyone who can
-// reach a listener can start a handshake with a new key, and each prompt
-// holds a server goroutine until the user answers or verificationTimeout
-// passes. The prompts for peers the user dials neither count toward the
-// cap nor are refused for it, so that peers which connect to the app
-// cannot keep the user from reaching a peer.
-const maxPendingVerifications = 3
+var (
+	// errVerifierBusy rejects a handshake that needs a prompt while
+	// another prompt is already open. RFC007 §20.1: one open prompt,
+	// including the user's own dials.
+	errVerifierBusy = fmt.Errorf(
+		"%w: a verification prompt is already open",
+		kamune.ErrVerificationFailed,
+	)
+	// errPromptRateLimited rejects an unknown key that needs a prompt
+	// after maxPromptsPerMinute prompts in the last minute.
+	errPromptRateLimited = fmt.Errorf(
+		"%w: too many verification prompts",
+		kamune.ErrVerificationFailed,
+	)
+)
 
 // currentVerifMode returns the verification mode that new servers and
 // dialers use.
@@ -67,25 +74,23 @@ func (a *App) verifierFor(mode VerificationMode) kamune.RemoteVerifier {
 // reject their peer, once ctx ends: ctx is the lifetime of the server or
 // the dial that the verifier is for. inbound is set for the verifier of
 // a server, whose peers connect to the app, and clear for one whose
-// peers the user dials, by ConnectToServer or a session's reconnect;
-// see maxPendingVerifications.
+// peers the user dials.
 func (a *App) verifierWithin(
 	ctx context.Context, mode VerificationMode, inbound bool,
 ) kamune.RemoteVerifier {
-	switch mode {
-	case VerificationModeQuick:
-		return a.createQuickVerifier(ctx, inbound)
-	case VerificationModeAutoAccept:
-		return a.createAutoAcceptVerifier()
-	default:
-		return a.createStrictVerifier(ctx, inbound)
+	if mode < VerificationModeStrict || mode > VerificationModeAutoAccept {
+		mode = VerificationModeStrict
+	}
+	return func(
+		vctx context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		return a.verifyPeer(ctx, store, req, mode, inbound)
 	}
 }
 
 // pinPeer returns a verifier that rejects a peer whose key is not want
-// before rv sees it, so a peer that answers a connection meant for
-// another peer is neither prompted for nor admitted, whatever name it
-// claims and whether or not its key is stored. A nil want returns rv.
+// before rv sees it. Listener gates still use this; dials pin with
+// DialWithPeerKey instead (RFC007 §20.3).
 func (a *App) pinPeer(
 	want []byte, rv kamune.RemoteVerifier,
 ) kamune.RemoteVerifier {
@@ -109,133 +114,214 @@ func (a *App) pinPeer(
 // The verifiers below only decide whether to admit a peer. None of them
 // saves the peer: rememberPeer does that once the session is established.
 
-// createStrictVerifier asks the user about every peer, known or not.
-func (a *App) createStrictVerifier(
-	ctx context.Context, inbound bool,
-) kamune.RemoteVerifier {
-	return func(
-		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
-	) error {
-		peer := req.Peer
-		id := a.identifyPeer(store, peer)
-		return a.promptVerification(
-			ctx, id, peer.PublicKey, "strict", inbound,
-		)
-	}
-}
-
-// createQuickVerifier admits a peer whose key is stored without asking
-// and asks the user about any other peer. The name a peer claims plays
-// no part: a stored peer is shown under its stored name whatever it
-// claims, and an unknown peer is asked about whatever name it claims.
-func (a *App) createQuickVerifier(
-	ctx context.Context, inbound bool,
-) kamune.RemoteVerifier {
-	return func(
-		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
-	) error {
-		peer := req.Peer
-		id := a.identifyPeer(store, peer)
-		if id.Known {
-			a.addLogEntry("INFO", "Auto-accepted known peer: "+id.logName())
-			return nil
+// verifierShouldPrompt reports whether mode and req require a user prompt
+// (RFC007 §16.1). known is whether the authenticated key is a stored,
+// unexpired peer.
+func verifierShouldPrompt(
+	mode VerificationMode, req kamune.VerifyRequest, known bool,
+) bool {
+	switch mode {
+	case VerificationModeAutoAccept:
+		return false
+	case VerificationModeQuick:
+		if req.Role == kamune.RoleInitiator {
+			return !req.Pinned
 		}
-		return a.promptVerification(
-			ctx, id, peer.PublicKey, "quick", inbound,
-		)
+		return !req.Resumed && !req.Pinned && !known
+	default:
+		if req.Role == kamune.RoleInitiator &&
+			req.Pinned && req.ResumeOffered {
+			return false
+		}
+		return true
 	}
 }
 
-// promptVerification asks the user whether to admit the peer id, whose
-// key is key, and waits for the answer. Once ctx ends, the prompt closes
-// and the peer is rejected with ErrVerificationCancelled.
-//
-// Each request gets its own ID, and the frontend queues requests and
-// shows them one at a time, so a new request never replaces the one the
-// user is looking at. At most maxPendingVerifications inbound requests,
-// for peers that connected to a server of the app, wait at once; an
-// inbound peer that would need another is rejected without a prompt. A
-// request for a peer the user dials is never rejected for that cap.
-// Every request ends with a verify-peer-closed event, whether it was
-// answered or timed out, so the frontend can drop it from its queue.
-func (a *App) promptVerification(
-	ctx context.Context, id peerIdentity, key []byte, mode string,
+func verificationModeName(mode VerificationMode) string {
+	switch mode {
+	case VerificationModeQuick:
+		return "quick"
+	case VerificationModeAutoAccept:
+		return "auto"
+	default:
+		return "strict"
+	}
+}
+
+func verifyRoleName(role kamune.Role) string {
+	if role == kamune.RoleInitiator {
+		return "initiator"
+	}
+	return "responder"
+}
+
+func (a *App) verifyPeer(
+	ctx context.Context,
+	store *storage.Storage,
+	req kamune.VerifyRequest,
+	mode VerificationMode,
 	inbound bool,
+) error {
+	peer := req.Peer
+	id := a.identifyPeer(store, peer)
+	if !verifierShouldPrompt(mode, req, id.Known) {
+		a.addLogEntry("INFO", "Auto-accepted peer: "+id.logName())
+		return nil
+	}
+	return a.askUser(ctx, req, id, inbound, mode)
+}
+
+// createAutoAcceptVerifier admits every peer without asking.
+func (a *App) createAutoAcceptVerifier() kamune.RemoteVerifier {
+	return func(
+		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
+	) error {
+		peer := req.Peer
+		a.addLogEntry("INFO",
+			"Auto-accepted peer: "+a.identifyPeer(store, peer).logName())
+		return nil
+	}
+}
+
+// collidingStoredName returns the stored name that EqualFold-matches the
+// unknown peer's claimed name, if any (RFC007 §20.1).
+func collidingStoredName(
+	store *storage.Storage, peer *storage.Peer, known bool,
+) string {
+	if known || store == nil || peer == nil {
+		return ""
+	}
+	name := strings.TrimSpace(peer.Name)
+	if name == "" {
+		return ""
+	}
+	peers, err := store.ListPeers()
+	if err != nil {
+		return ""
+	}
+	for _, p := range peers {
+		if strings.EqualFold(p.Name, name) {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+// askUser emits verify-peer for req, which id describes, and waits for
+// the user's verdict. It fails closed when beginVerification says so.
+func (a *App) askUser(
+	ctx context.Context,
+	req kamune.VerifyRequest,
+	id peerIdentity,
+	inbound bool,
+	mode VerificationMode,
 ) error {
 	if ctx.Err() != nil {
 		return ErrVerificationCancelled
 	}
-	emoji := strings.Join(fingerprint.Emoji(key), " • ")
-	numeric := fingerprint.Numeric(key)
-	hex := fingerprint.Hex(key)
-
-	result := make(chan error, 1)
-
-	a.verifMu.Lock()
-	if inbound && a.inboundPromptsLocked() >= maxPendingVerifications {
-		a.verifMu.Unlock()
-		a.addLogEntry("WARN", fmt.Sprintf(
-			"Rejected incoming peer %s: %d verification requests for "+
-				"incoming connections are already waiting",
-			id.logName(), maxPendingVerifications,
-		))
-		return ErrTooManyVerifications
+	peer := req.Peer
+	reqID, result, err := a.beginVerification(id, inbound)
+	if err != nil {
+		return err
 	}
-	if len(a.verifRequests) == 0 {
-		// The first open prompt saves the status to restore once the
-		// last one closes.
-		a.verifPrevStatus = a.GetStatus()
-	}
-	reqID := a.verifIDCounter.Add(1)
-	a.verifRequests[reqID] = &pendingVerification{
-		result:  result,
-		label:   id.Label,
-		inbound: inbound,
-	}
-	a.verifMu.Unlock()
 	defer a.endVerification(reqID)
+
+	peerName := ""
+	if req.Role != kamune.RoleInitiator {
+		peerName = peer.Name
+	}
+	storedName := ""
+	if id.Known {
+		storedName = id.Label
+	}
+	collisionName := collidingStoredName(a.store(), peer, id.Known)
+	if collisionName != "" {
+		storedName = collisionName
+		a.addLogEntry("INFO",
+			"A NEW key is using the name of your contact "+collisionName)
+	}
 
 	a.setStatus(StatusVerifying, verifyingStatus(id.Label))
 	a.addLogEntry("INFO", "Verifying peer: "+id.logName())
 
 	a.emitEvent("verify-peer", map[string]any{
-		"requestID":    reqID,
-		"peerID":       id.KeyB64,
-		"peerName":     id.Label,
-		"claimedName":  id.ClaimedName,
-		"numeric":      numeric,
-		"emoji":        emoji,
-		"hex":          hex,
-		"known":        id.Known,
-		"nameMismatch": id.NameMismatch,
-		"nameConflict": id.NameConflict,
-		"mode":         mode,
+		"requestID":     reqID,
+		"role":          verifyRoleName(req.Role),
+		"peerName":      peerName,
+		"storedName":    storedName,
+		"nameCollision": collisionName != "",
+		"ownCode":       fingerprint.Numeric(req.LocalPublicKey),
+		"peerCode":      fingerprint.Numeric(peer.PublicKey),
+		"safetyNumber": fingerprint.SafetyNumber(
+			req.LocalPublicKey, peer.PublicKey,
+		),
+		"known":         id.Known,
+		"mode":          verificationModeName(mode),
+		"pinned":        req.Pinned,
+		"resumeOffered": req.ResumeOffered,
+		"resumed":       req.Resumed,
+		"sessionID":     req.SessionID,
 	})
 
 	return a.awaitVerification(ctx, reqID, result)
-}
-
-// inboundPromptsLocked counts the open prompts for peers that connected
-// to a server of the app. The caller holds a.verifMu.
-func (a *App) inboundPromptsLocked() int {
-	n := 0
-	for _, p := range a.verifRequests {
-		if p.inbound {
-			n++
-		}
-	}
-	return n
 }
 
 func verifyingStatus(label string) string {
 	return "Verifying fingerprint of " + label + "..."
 }
 
-// endVerification closes request reqID, on every way a prompt ends, and
-// emits verify-peer-closed. While other prompts stay open the status
-// names the oldest of them. When the last one closes, the status from
-// before the first one opened comes back, unless something else, such as
-// a failed dial, has changed the status in the meantime.
+// beginVerification records a pending verification and returns its
+// request ID and the channel its verdict arrives on. At most one prompt
+// may be open. Unknown keys that need a prompt after
+// maxPromptsPerMinute prompts in the last minute get errPromptRateLimited.
+func (a *App) beginVerification(
+	id peerIdentity, inbound bool,
+) (int64, chan error, error) {
+	a.verifMu.Lock()
+	defer a.verifMu.Unlock()
+	if len(a.verifRequests) > 0 {
+		a.addLogEntry("DEBUG",
+			"Rejected peer "+id.logName()+" without asking: "+
+				errVerifierBusy.Error())
+		return 0, nil, errVerifierBusy
+	}
+	now := time.Now()
+	a.prunePromptTimesLocked(now)
+	if !id.Known && len(a.promptTimes) >= maxPromptsPerMinute {
+		a.addLogEntry("WARN",
+			"Rejected unknown peer "+id.logName()+
+				" without asking: too many prompts this minute")
+		return 0, nil, errPromptRateLimited
+	}
+
+	if len(a.verifRequests) == 0 {
+		a.verifPrevStatus = a.GetStatus()
+	}
+	reqID := a.verifIDCounter.Add(1)
+	result := make(chan error, 1)
+	a.verifRequests[reqID] = &pendingVerification{
+		result:  result,
+		label:   id.Label,
+		inbound: inbound,
+	}
+	a.promptTimes = append(a.promptTimes, now)
+	return reqID, result, nil
+}
+
+func (a *App) prunePromptTimesLocked(now time.Time) {
+	cut := now.Add(-time.Minute)
+	i := 0
+	for i < len(a.promptTimes) && !a.promptTimes[i].After(cut) {
+		i++
+	}
+	if i > 0 {
+		a.promptTimes = a.promptTimes[i:]
+	}
+}
+
+// endVerification closes request reqID and emits verify-peer-closed.
+// When the last prompt closes, the status from before it opened comes
+// back, unless something else has changed the status in the meantime.
 func (a *App) endVerification(reqID int64) {
 	a.verifMu.Lock()
 	delete(a.verifRequests, reqID)
@@ -256,18 +342,6 @@ func (a *App) endVerification(reqID int64) {
 		return
 	}
 	a.replaceStatus(StatusVerifying, prev.Status, prev.Message)
-}
-
-// createAutoAcceptVerifier admits every peer without asking.
-func (a *App) createAutoAcceptVerifier() kamune.RemoteVerifier {
-	return func(
-		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
-	) error {
-		peer := req.Peer
-		a.addLogEntry("INFO",
-			"Auto-accepted peer: "+a.identifyPeer(store, peer).logName())
-		return nil
-	}
 }
 
 // verificationTimeout is how long a prompt waits for the user. It stays

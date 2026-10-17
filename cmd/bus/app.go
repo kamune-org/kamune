@@ -268,7 +268,7 @@ type pendingVerification struct {
 	// label names the peer in log entries; see peerIdentity.Label.
 	label string
 	// inbound is set for a peer that connected to a server of the app,
-	// and clear for one the user dialed; see maxPendingVerifications.
+	// and clear for one the user dialed.
 	inbound bool
 }
 
@@ -424,6 +424,9 @@ type App struct {
 	verifMu        sync.Mutex
 	verifRequests  map[int64]*pendingVerification
 	verifIDCounter atomic.Int64
+	// promptTimes are the times of verify-peer prompts in the last
+	// minute; see maxPromptsPerMinute.
+	promptTimes []time.Time
 	// verifTimeout overrides verificationTimeout when positive.
 	verifTimeout time.Duration
 	// verifPrevStatus is the status from before the open prompts.
@@ -468,7 +471,7 @@ func NewApp() *App {
 		statusMsg:      "Not connected",
 		verifMode:      defaultVerificationMode,
 		appVersion:     appVersion,
-		fingerprintFmt: "hex",
+		fingerprintFmt: "numeric",
 		logBufferSize:  200,
 		logEntries:     make([]LogEntryInfo, 0, 200),
 		logLevel:       defaultLogLevel,
