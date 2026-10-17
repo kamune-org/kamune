@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -401,15 +402,21 @@ func sendPing(t *kamune.Transport, pongCh <-chan []byte, timeout time.Duration) 
 }
 
 // reconnectRetryable reports whether a failed reconnect may succeed on a
-// later attempt. A resumption that the peer rejected
-// (kamune.ErrNoResumptionState), as it does once the session is past its
-// resumption window or the peer has deleted it, and missing storage or
-// resumption state do not change between attempts, so retrying them would
-// only keep a dead session listed.
+// later attempt. Missing storage or resumption state, a resume the peer
+// rejected, a handshake the peer or the user refused, and a panic do not
+// change between attempts (RFC007 §20.1).
 func reconnectRetryable(err error) bool {
 	for _, target := range []error{
 		kamune.ErrNoResumptionState,
 		kamune.ErrMissingStorage,
+		kamune.ErrVerificationFailed,
+		kamune.ErrHandshakeRejected,
+		kamune.ErrPeerKeyMismatch,
+		kamune.ErrSelfConnection,
+		kamune.ErrVersionMismatch,
+		kamune.ErrUnsupportedProtocol,
+		kamune.ErrResumeInProgress,
+		kamune.ErrResumeRefused,
 		storage.ErrNotFound,
 		storage.ErrSessionNotFound,
 		storage.ErrPeerExpired,
@@ -468,26 +475,96 @@ func (a *App) reconnectSession(session *liveSession) bool {
 			continue
 		}
 
-		newStopCh := make(chan struct{})
-		session.mu.Lock()
 		if session.reconnectCtx.Err() != nil {
-			session.mu.Unlock()
 			_ = t.Close()
 			return false
 		}
-		session.Transport = t
-		session.pingFailures = 0
-		session.pongCh = make(chan []byte, 1)
-		close(session.keepAliveDone)
-		session.keepAliveDone = newStopCh
-		session.mu.Unlock()
 
-		a.addLogEntry("INFO", "Reconnected session "+session.ID)
-		a.emitEvent("session-reconnected", session.ID)
-		go a.keepAliveLoop(session, newStopCh)
+		if t.Resumed() {
+			newStopCh := make(chan struct{})
+			session.mu.Lock()
+			if session.reconnectCtx.Err() != nil {
+				session.mu.Unlock()
+				_ = t.Close()
+				return false
+			}
+			session.Transport = t
+			session.pingFailures = 0
+			session.pongCh = make(chan []byte, 1)
+			close(session.keepAliveDone)
+			session.keepAliveDone = newStopCh
+			session.mu.Unlock()
+
+			a.addLogEntry("INFO", "Reconnected session "+session.ID)
+			a.emitEvent("session-reconnected", session.ID)
+			go a.keepAliveLoop(session, newStopCh)
+			return true
+		}
+
+		a.addLogEntry("INFO",
+			"Reconnect fell back to a cold session for "+session.ID)
+		a.replaceSessionWithCold(session, t)
 		return true
 	}
 
 	a.addLogEntry("WARN", "Reconnect failed after "+strconv.Itoa(maxAttempts)+" attempts: "+session.ID)
 	return false
+}
+
+// replaceSessionWithCold ends the dropped session through the existing
+// close path and starts a new live session for a reconnect that fell
+// back to a cold handshake (RFC007 §20.1).
+func (a *App) replaceSessionWithCold(
+	old *liveSession, t *kamune.Transport,
+) {
+	oldID := old.ID
+	a.mu.Lock()
+	i := slices.Index(a.sessions, old)
+	if i >= 0 {
+		a.sessions = slices.Delete(a.sessions, i, i+1)
+	}
+	a.mu.Unlock()
+
+	if !old.incognito {
+		a.dropRelayPool(oldID)
+	}
+	a.emitEvent("session-closed", oldID)
+
+	store := a.store()
+	peer := t.RemotePeer()
+	a.rememberPeer(store, peer, a.currentVerifMode(), old.incognito)
+	identity := a.identifyPeer(store, peer)
+	newID := t.SessionID()
+
+	newStopCh := make(chan struct{})
+	old.mu.Lock()
+	old.ID = newID
+	old.PeerName = identity.Label
+	old.Identity = identity
+	old.RemoteVersion = peer.AppVersion
+	old.Transport = t
+	old.pingFailures = 0
+	old.pongCh = make(chan []byte, 1)
+	close(old.keepAliveDone)
+	old.keepAliveDone = newStopCh
+	old.SessionStartedAt = time.Now()
+	old.LastActivity = time.Now()
+	old.mu.Unlock()
+
+	if store != nil && !old.incognito {
+		if err := store.CreateSession(newID, peer.PublicKey); err != nil {
+			a.addLogEntry("WARN",
+				"Failed to create session record: "+err.Error())
+		}
+		a.deriveAndStoreRelayTokens(t, old)
+	}
+
+	a.mu.Lock()
+	a.sessions = append(a.sessions, old)
+	info := old.info()
+	a.mu.Unlock()
+
+	a.emitEvent("session-new", info)
+	a.addLogEntry("INFO", "New session after cold reconnect: "+newID)
+	go a.keepAliveLoop(old, newStopCh)
 }

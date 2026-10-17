@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune"
-	"github.com/kamune-org/kamune/pkg/exchange"
 	"github.com/kamune-org/kamune/pkg/relayconn"
 )
 
@@ -313,11 +312,11 @@ func TestRelayResumeRenewsAfterLateFailedJoin(t *testing.T) {
 		context.Background(), relay.ln.Addr().String(), raw,
 	)
 	a.NoError(err)
-	// Open the handshake, so that the server accepts the conn, and then
-	// stall it.
-	_, err = exchange.Initiate(conn)
-	a.NoError(err)
-	// A used token leaves the list a few seconds after the join.
+	// Accept waits for the first kamune frame. A short payload
+	// consumes the token; the handshake then fails on that frame
+	// without a session. A used token leaves the list a few seconds
+	// later, or at once when the handshake has already ended.
+	a.NoError(conn.WriteBytes([]byte{0x02, 0x01}))
 	a.Eventually(func() bool {
 		return !relayTokenListed(server, resume)
 	}, testWait, 50*time.Millisecond)

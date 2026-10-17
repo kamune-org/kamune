@@ -169,14 +169,19 @@ func stampRelaySession(meta any, sessionID string) {
 }
 
 // relayResumable reports whether the session sessionID may still be
-// resumed: it has resumption tokens left. Closing a session, on either
-// side, deletes them.
+// resumed: a local initiator or responder row is still stored. Closing
+// a session, on either side, deletes it.
 func relayResumable(store *storage.Storage, sessionID string) bool {
 	if store == nil || sessionID == "" {
 		return false
 	}
-	m, err := store.GetMeta(sessionID, storage.ResumptionTokensKey)
-	return err == nil && len(decodeTokenList(m.Value())) > 0
+	if _, err := store.GetResumption(
+		sessionID, storage.ResumeRoleInitiator,
+	); err == nil {
+		return true
+	}
+	_, err := store.GetResumption(sessionID, storage.ResumeRoleResponder)
+	return err == nil
 }
 
 // loadRelayPool returns the relay reconnect tokens stored for sessionID.

@@ -365,6 +365,14 @@ func TestReconnectStopsOnPermanentError(t *testing.T) {
 			storage.ErrSessionNotFound), false},
 		{"peer expired", storage.ErrPeerExpired, false},
 		{"no storage", kamune.ErrMissingStorage, false},
+		{"handshake rejected", kamune.ErrHandshakeRejected, false},
+		{"verification failed", kamune.ErrVerificationFailed, false},
+		{"peer key mismatch", kamune.ErrPeerKeyMismatch, false},
+		{"self connection", kamune.ErrSelfConnection, false},
+		{"version mismatch", kamune.ErrVersionMismatch, false},
+		{"unsupported protocol", kamune.ErrUnsupportedProtocol, false},
+		{"resume in progress", kamune.ErrResumeInProgress, false},
+		{"resume refused", kamune.ErrResumeRefused, false},
 		{"network error", &net.OpError{
 			Op: "dial", Net: "tcp",
 			Err: os.NewSyscallError("connect", syscall.ECONNREFUSED),
@@ -474,19 +482,18 @@ func TestDisconnectSessionEndsResumption(t *testing.T) {
 			a.NoError(err)
 			store := app.store()
 			if !tc.incognito {
-				m, err := store.GetMeta(
-					res.SessionID, storage.ResumptionTokensKey,
+				_, err := store.GetResumption(
+					res.SessionID, storage.ResumeRoleInitiator,
 				)
-				a.NoError(err)
-				a.NotEmpty(m.Value(), "a saved session has tokens")
+				a.NoError(err, "a saved session has a resumption row")
 			}
 
 			a.NoError(app.DisconnectSession(res.SessionID))
 
-			m, err := store.GetMeta(res.SessionID, storage.ResumptionTokensKey)
-			if err == nil {
-				a.Empty(m.Value(), "a closed session keeps no tokens")
-			}
+			_, err = store.GetResumption(
+				res.SessionID, storage.ResumeRoleInitiator,
+			)
+			a.ErrorIs(err, storage.ErrNoResumption)
 			for _, e := range app.GetLogEntries() {
 				a.NotContains(e.Message, "resumption tokens", e.Level)
 			}
