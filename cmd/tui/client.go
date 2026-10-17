@@ -58,7 +58,7 @@ func dialBound(
 	if err != nil {
 		return nil, fmt.Errorf("create dialer: %w", err)
 	}
-	t, err := dialer.Dial()
+	t, err := dialer.DialContext(ctx)
 	if !stop() {
 		// ctx ended, and the connection was closed or is closing.
 		if t != nil {

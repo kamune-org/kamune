@@ -68,28 +68,30 @@ func TestViewVerify_PeerClaimsComeAfterFingerprints(t *testing.T) {
 		},
 		numericFP:      "11111 22222",
 		localNumericFP: "33333 44444",
-		emojiFP:        "E1 E2",
-		hexFP:          "AA:BB",
 		isNew:          true,
 	}
 
 	view := m.viewVerify()
 	requireNoTerminalControls(a, view)
-	var headings int
 	for _, ln := range strings.Split(view, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(ln), "Hex fingerprint:") {
-			headings++
+		if strings.Contains(ln, "Claimed name (unverified):") {
+			continue
 		}
+		a.NotContains(ln, "Emoji fingerprint:")
+		a.NotContains(ln, "Hex fingerprint:")
 	}
-	a.Equal(1, headings)
-	numericAt := strings.Index(view, "11111 22222")
-	hexAt := strings.Index(view, "AA:BB")
+	ownAt := strings.Index(view, "Your code:")
+	peerAt := strings.Index(view, "Alice's code:")
 	claimAt := strings.Index(view, "Claimed name (unverified): Alice")
-	a.Positive(numericAt)
-	a.Less(numericAt, strings.Index(view, "33333 44444"))
-	a.Less(numericAt, strings.Index(view, "E1 E2"))
-	a.Greater(hexAt, numericAt)
-	a.Greater(claimAt, hexAt)
+	a.Positive(ownAt)
+	a.Greater(peerAt, ownAt)
+	a.Contains(view, "33333 44444")
+	a.Contains(view, "11111 22222")
+	a.Less(ownAt, strings.Index(view, "33333 44444"))
+	a.Less(peerAt, strings.Index(view, "11111 22222"))
+	a.Greater(claimAt, peerAt)
+	a.Contains(view, "Read your code to your contact and have them read theirs.")
+	a.Contains(view, "Every digit")
 	a.Less(strings.Index(view, "not known"), claimAt)
 	for _, ln := range strings.Split(view, "\n") {
 		if strings.Contains(ln, "FAKE") {
@@ -107,15 +109,18 @@ func TestViewVerify_KnownPeerShowsStoredName(t *testing.T) {
 	m := newTestModel()
 	m.state = stateVerify
 	m.verifyReq = &verifyRequest{
-		peer:      &storage.Peer{Name: "Mallory"},
-		knownName: "Alice",
-		emojiFP:   "E1 E2",
-		hexFP:     "AA:BB",
+		peer:           &storage.Peer{Name: "Mallory"},
+		knownName:      "Alice",
+		numericFP:      "11111 22222",
+		localNumericFP: "33333 44444",
 	}
 
 	view := m.viewVerify()
-	a.Contains(view, "If its app shows no numeric fingerprint, compare")
-	a.Contains(view, "the hex fingerprint instead.")
+	a.Contains(view, "Your code:")
+	a.Contains(view, "Mallory's code:")
+	a.Contains(view, "Read your code to your contact and have them read theirs.")
+	a.NotContains(view, "Emoji fingerprint:")
+	a.NotContains(view, "Hex fingerprint:")
 	for _, ln := range strings.Split(view, "\n") {
 		ln = strings.TrimRight(ln, " ")
 		a.LessOrEqual(lipgloss.Width(ln), 80, "line %q", ln)
@@ -123,6 +128,25 @@ func TestViewVerify_KnownPeerShowsStoredName(t *testing.T) {
 	a.Contains(view, "connected before")
 	a.Contains(view, "Stored name: Alice")
 	a.Contains(view, "Claimed name (unverified): Mallory")
+}
+
+func TestViewVerify_ResumedShowsBanner(t *testing.T) {
+	a := require.New(t)
+	m := newTestModel()
+	m.state = stateVerify
+	m.verifyReq = &verifyRequest{
+		peer:           &storage.Peer{Name: "Bob"},
+		knownName:      "Bob",
+		numericFP:      "11111 22222",
+		localNumericFP: "33333 44444",
+		resumed:        true,
+		sessionID:      "SIDRESUME",
+	}
+
+	view := m.viewVerify()
+	a.Contains(view, "Reconnecting session SIDRESUME")
+	a.Contains(view, "Your code:")
+	a.Contains(view, "Bob's code:")
 }
 
 func TestUpdateVerify_Keys(t *testing.T) {
@@ -200,9 +224,15 @@ func promptModel(t *testing.T) (*model, chan tea.Msg, *storage.Peer) {
 func runVerifier(
 	vfn kamune.RemoteVerifier, store *storage.Storage, peer *storage.Peer,
 ) <-chan error {
+	return runVerifierReq(vfn, store, kamune.VerifyRequest{Peer: peer})
+}
+
+func runVerifierReq(
+	vfn kamune.RemoteVerifier, store *storage.Storage, req kamune.VerifyRequest,
+) <-chan error {
 	done := make(chan error, 1)
 	go func() {
-		done <- vfn(context.Background(), store, kamune.VerifyRequest{Peer: peer})
+		done <- vfn(context.Background(), store, req)
 	}()
 	return done
 }
@@ -295,6 +325,105 @@ func TestVerifier_OnePromptAtATime(t *testing.T) {
 	a.Equal(stateVerify, m.state)
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
 	a.Error(waitFor(t, next))
+}
+
+func tuiTestPeer(t *testing.T, name string) *storage.Peer {
+	t.Helper()
+	key, err := openTestStore(t).PublicKey()
+	require.New(t).NoError(err)
+	return &storage.Peer{Name: name, PublicKey: key}
+}
+
+func TestVerifierPolicyTable(t *testing.T) {
+	tests := []struct {
+		name          string
+		role          kamune.Role
+		pinned        bool
+		resumeOffered bool
+		resumed       bool
+		known         bool
+		wantPrompt    bool
+	}{
+		{name: "strict initiator cold", role: kamune.RoleInitiator,
+			wantPrompt: true},
+		{name: "strict initiator pinned resume",
+			role: kamune.RoleInitiator, pinned: true, resumeOffered: true,
+			known: true},
+		{name: "strict initiator pinned cold",
+			role: kamune.RoleInitiator, pinned: true, known: true,
+			wantPrompt: true},
+		{name: "strict responder resumed", role: kamune.RoleResponder,
+			resumed: true, known: true, wantPrompt: true},
+		{name: "strict responder cold", role: kamune.RoleResponder,
+			wantPrompt: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := require.New(t)
+			m, msgs, _ := promptModel(t)
+			m.state = stateConnecting
+			peer := tuiTestPeer(t, "alice")
+			if tt.known {
+				a.NoError(m.store.StorePeer(&storage.Peer{
+					Name: peer.Name, PublicKey: peer.PublicKey,
+					FirstSeen: time.Now(),
+				}))
+			}
+			req := kamune.VerifyRequest{
+				Peer: peer, Role: tt.role, Pinned: tt.pinned,
+				ResumeOffered: tt.resumeOffered, Resumed: tt.resumed,
+				SessionID: "SIDRESUME",
+			}
+			done := runVerifierReq(m.mkVerifier(m.att), m.store, req)
+			if !tt.wantPrompt {
+				select {
+				case err := <-done:
+					a.NoError(err)
+				case <-time.After(time.Second):
+					a.FailNow("verifier prompted")
+				}
+				select {
+				case msg := <-msgs:
+					a.Failf("unexpected prompt", "%T", msg)
+				default:
+				}
+				return
+			}
+			vr := waitFor(t, msgs).(verifyRequest)
+			a.Equal(tt.resumed, vr.resumed)
+			m.Update(vr)
+			a.Equal(stateVerify, m.state)
+			m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+			a.NoError(waitFor(t, done))
+		})
+	}
+}
+
+func TestSeventhPromptInAMinuteIsRejected(t *testing.T) {
+	a := require.New(t)
+	m, msgs, _ := promptModel(t)
+	m.state = stateConnecting
+	m.mode = modeDirectServe
+	vfn := m.mkVerifier(m.att)
+	prompt := func() {
+		t.Helper()
+		peer := tuiTestPeer(t, "stranger")
+		done := runVerifier(vfn, m.store, peer)
+		m.Update(waitFor(t, msgs))
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+		a.Error(waitFor(t, done))
+	}
+	for range 6 {
+		prompt()
+	}
+	err := waitFor(t, runVerifier(vfn, m.store, tuiTestPeer(t, "seventh")))
+	a.ErrorIs(err, errPromptRateLimited)
+	a.ErrorIs(err, kamune.ErrVerificationFailed)
+	select {
+	case msg := <-msgs:
+		a.Failf("seventh unknown key prompted", "%T", msg)
+	default:
+	}
 }
 
 func TestEnterChat_StopsDirectServer(t *testing.T) {
@@ -499,23 +628,78 @@ func TestEnterChat_SaysWhenASessionResumed(t *testing.T) {
 	_ = cold.transport.CloseAbort()
 	close(cold.release)
 
-	// It comes back while the TUI waits for a peer, and resumes.
+	// It comes back while the TUI waits for a peer. Strict responder
+	// prompts on the resume; the skip-notice is gone.
 	m := newTestModel()
 	m.store = serverStore
 	m.mode = modeDirectServe
 	m.state = stateConnecting
 	m.att = newAttempt()
+	msgs := make(chan tea.Msg, 8)
+	m.send = func(msg tea.Msg) { msgs <- msg }
 	t.Cleanup(func() { m.shutdown(time.Minute) })
-	dial(kamune.DialWithResume(first.SessionID()))
-	resumed := waitFor(t, sessions)
+	_ = srv.Close()
+	l2 := &pipeListener{
+		conns:  make(chan kamune.Conn, 2),
+		closed: make(chan struct{}),
+	}
+	sessions2 := make(chan connectedMsg, 1)
+	srv2, err := serve("", serverStore, m.mkVerifier(m.att),
+		func(t *kamune.Transport, release chan struct{}) {
+			sessions2 <- connectedMsg{transport: t, release: release}
+			<-release
+		},
+		func(error) {}, kamune.ServeWithListener(l2),
+	)
+	a.NoError(err)
+	t.Cleanup(func() { _ = srv2.Close() })
+
+	clientCh := make(chan *kamune.Transport, 1)
+	go func() {
+		clientNet, serverNet := net.Pipe()
+		l2.conns <- kamune.NewConn(serverNet)
+		dialer, err := kamune.NewDialer("", dialerStore, accept,
+			kamune.DialWithFunc(func(string) (kamune.Conn, error) {
+				return kamune.NewConn(clientNet), nil
+			}),
+			kamune.DialWithResume(first.SessionID()),
+		)
+		if err != nil {
+			clientCh <- nil
+			return
+		}
+		client, err := dialer.Dial()
+		if err != nil {
+			clientCh <- nil
+			return
+		}
+		clientCh <- client
+	}()
+
+	req := waitFor(t, msgs)
+	vr, ok := req.(verifyRequest)
+	a.True(ok)
+	a.True(vr.resumed)
+	m.Update(vr)
+	a.Equal(stateVerify, m.state)
+	a.Contains(m.viewVerify(), "Reconnecting session "+first.SessionID())
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+
+	resumed := waitFor(t, sessions2)
 	resumed.att = m.att
 	m.Update(resumed)
 	a.Equal(stateChat, m.state)
 	a.Equal(first.SessionID(), m.sess.t.SessionID())
 
+	client := waitFor(t, clientCh)
+	a.NotNil(client)
+	t.Cleanup(func() { _ = client.CloseAbort() })
+
 	key, err := dialerStore.PublicKey()
 	a.NoError(err)
 	notices := peerNotices(m, fingerprint.Numeric(key))
 	a.Len(notices, 1)
-	a.Contains(notices[0], "No verify prompt: this session resumes one")
+	a.Contains(notices[0], "Chatting with")
+	a.NotContains(notices[0], "No verify prompt")
+	a.NotContains(notices[0], "resumes")
 }

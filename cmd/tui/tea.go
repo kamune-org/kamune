@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -86,10 +84,12 @@ type verifyRequest struct {
 	// peer's key and of the local identity key.
 	numericFP      string
 	localNumericFP string
-	emojiFP        string
-	hexFP          string
 	responseCh     chan<- error
 	isNew          bool
+	// resumed and sessionID are set when this handshake resumes a
+	// stored session (RFC007 §16.1 Strict responder banner).
+	resumed   bool
+	sessionID string
 	// claimedNameTaken and knownNameTaken report that another stored
 	// peer, with a different key, has a name that reads the same as the
 	// name the peer claims, or as the name stored for its key.
@@ -114,11 +114,23 @@ type verifyEndedMsg struct {
 // the verifier a little longer.
 const verifyPromptTimeout = 2 * time.Minute
 
+const (
+	// maxPromptsPerMinute caps how many verify prompts may open in any
+	// rolling minute. Further unknown keys are rejected with no prompt
+	// (RFC007 §20.1).
+	maxPromptsPerMinute = 6
+)
+
 var (
 	// errPromptOpen rejects a peer that arrives while the prompt for
 	// another peer is open.
 	errPromptOpen = fmt.Errorf(
 		"%w: another peer is being verified", kamune.ErrVerificationFailed,
+	)
+	// errPromptRateLimited rejects an unknown key that needs a prompt
+	// after maxPromptsPerMinute prompts in the last minute.
+	errPromptRateLimited = fmt.Errorf(
+		"%w: too many verification prompts", kamune.ErrVerificationFailed,
 	)
 	// errPromptNotShown rejects a peer whose prompt cannot be shown, as
 	// when a chat has started already.
@@ -256,6 +268,9 @@ type model struct {
 	accepted [][]byte
 	// promptTimeout overrides verifyPromptTimeout when it is positive.
 	promptTimeout time.Duration
+	// promptTimes is when verify prompts opened, for the §20.1 cap.
+	promptMu    sync.Mutex
+	promptTimes []time.Time
 
 	// Chat
 	sess     *chatSession
@@ -664,6 +679,15 @@ func (m *model) refreshHistory() {
 	m.histVP.SetContent(m.s.renderLines(m.histMsgs, contentWidth(m.histVP)))
 }
 
+// verifierShouldPrompt is RFC007 §16.1 Strict: prompt on every handshake
+// except a pinned initiator resume offer. The TUI has no mode field.
+func verifierShouldPrompt(req kamune.VerifyRequest) bool {
+	if req.Role == kamune.RoleInitiator && req.Pinned && req.ResumeOffered {
+		return false
+	}
+	return true
+}
+
 // mkVerifier returns the verifier for the connection attempt att. It shows
 // one prompt at a time and rejects a peer that arrives while a prompt is
 // open. It waits for the user's answer for at most the prompt timeout, and
@@ -680,11 +704,6 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
 	) error {
 		peer := req.Peer
-		if !prompting.CompareAndSwap(false, true) {
-			return errPromptOpen
-		}
-		defer prompting.Store(false)
-
 		var isNew bool
 		var knownName string
 		if known, err := store.FindPeer(peer.PublicKey); err != nil {
@@ -692,6 +711,36 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 		} else {
 			knownName = known.Name
 		}
+		if !verifierShouldPrompt(req) {
+			return nil
+		}
+
+		if !prompting.CompareAndSwap(false, true) {
+			slog.Debug("rejected peer without asking: a verification " +
+				"prompt is already open")
+			return errPromptOpen
+		}
+		defer prompting.Store(false)
+
+		m.promptMu.Lock()
+		now := time.Now()
+		cut := now.Add(-time.Minute)
+		i := 0
+		for i < len(m.promptTimes) && !m.promptTimes[i].After(cut) {
+			i++
+		}
+		if i > 0 {
+			m.promptTimes = m.promptTimes[i:]
+		}
+		if isNew && len(m.promptTimes) >= maxPromptsPerMinute {
+			m.promptMu.Unlock()
+			slog.Warn("rejected unknown peer without asking: too many " +
+				"prompts this minute")
+			return errPromptRateLimited
+		}
+		m.promptTimes = append(m.promptTimes, now)
+		m.promptMu.Unlock()
+
 		key := peer.PublicKey
 		// Without the stored peers there is no warning, but a new peer is
 		// then stored under its pseudonym, and the prompt says so.
@@ -716,9 +765,9 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 			knownName:      knownName,
 			numericFP:      fingerprint.Numeric(key),
 			localNumericFP: localFP,
-			emojiFP:        strings.Join(fingerprint.Emoji(key), " • "),
-			hexFP:          fingerprint.Hex(key),
 			responseCh:     respCh,
+			resumed:        req.Resumed,
+			sessionID:      req.SessionID,
 
 			claimedNameTaken: others[nameKey(peer.Name)],
 			knownNameTaken:   !isNew && others[nameKey(knownName)],
@@ -968,9 +1017,7 @@ func chatScrollKeys() viewport.KeyMap {
 // peerNotice returns the notice that names peer, the peer of the chat
 // that starts, with its stored name and its numeric fingerprint. The name
 // the peer claims is never used: a peer that could not be stored is named
-// by the pseudonym of its key. A peer that the user did not accept at a
-// prompt of this attempt resumed an earlier session, which does not run
-// the verifier, and the notice says so.
+// by the pseudonym of its key.
 func (m *model) peerNotice(peer *storage.Peer) chatLine {
 	name := fingerprint.Pseudonym(peer.PublicKey)
 	if known, err := m.store.FindPeer(peer.PublicKey); err == nil {
@@ -978,16 +1025,8 @@ func (m *model) peerNotice(peer *storage.Peer) chatLine {
 	}
 	name = displayName(name)
 	fp := fingerprint.Numeric(peer.PublicKey)
-	if slices.ContainsFunc(m.accepted, func(k []byte) bool {
-		return bytes.Equal(k, peer.PublicKey)
-	}) {
-		return noticeLine(m.s.muted, fmt.Sprintf(
-			"Chatting with %s (numeric fingerprint %s).", name, fp,
-		))
-	}
-	return noticeLine(m.s.highlight, fmt.Sprintf(
-		"⚠ No verify prompt: this session resumes one with %s "+
-			"(numeric fingerprint %s) that was accepted before.", name, fp,
+	return noticeLine(m.s.muted, fmt.Sprintf(
+		"Chatting with %s (numeric fingerprint %s).", name, fp,
 	))
 }
 
