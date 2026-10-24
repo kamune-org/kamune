@@ -181,19 +181,15 @@ func DialWithFunc(fn func(addr string) (Conn, error)) DialOption {
 	}
 }
 
-// DialWithTCP configures the dialer to use TCP connections. This is the default
-// behavior, so this option is only needed for explicitness or to set connection
-// options. The dialer will fail at [NewDialer] time if the TCP dialer cannot be
-// created.
+// DialWithTCP configures the dialer to use TCP connections. This is the
+// default, so the option is only needed to say so or to set connection
+// options. It clears a custom dial function. [DialContext] then uses
+// net.Dialer.DialContext and can cancel the connect. A later
+// [DialWithFunc] or [DialWithUDP] replaces that dial.
 func DialWithTCP(opts ...ConnOption) DialOption {
 	return func(d *Dialer) error {
-		d.dialFunc = func(addr string) (Conn, error) {
-			c, err := net.DialTimeout("tcp", addr, d.dialTimeout)
-			if err != nil {
-				return nil, fmt.Errorf("dialing tcp: %w", err)
-			}
-			return newConn(c, opts...), nil
-		}
+		d.connOpts = append(d.connOpts, opts...)
+		d.dialFunc = nil
 		return nil
 	}
 }
