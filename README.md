@@ -18,7 +18,9 @@ suite.
 ## Features
 
 - Message signing and verification using **Ed25519**
-- Encrypted handshake using **HPKE** ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180))
+- Hybrid key establishment with **HPKE** export-only mode
+  ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180)), over **ML-KEM-768**
+  and X25519
 - Ephemeral, quantum-resistant key encapsulation with **ML-KEM-768**, providing
   **Forward secrecy**.
 - End-to-End, bidirectional symmetric encryption using **ChaCha20-Poly1305X**
@@ -55,44 +57,34 @@ suite.
 
 ## How does it work?
 
-Communication happens in five phases:
+A connection runs four flights:
 
-1. **Exchange**: Parties set up an HPKE channel, with the hybrid
-   MLKEM768-X25519 KEM, that encrypts the messages of the next three phases.
-2. **Introduction**: Each peer sends its name, Ed25519 identity public key and
-   version, signed with that key. The application's verifier decides whether
-   to accept the peer.
-3. **Handshake**: An ephemeral ML-KEM-768 key exchange gives a shared secret,
-   from which both sides derive the session keys. Each side contributes half
-   of the session ID.
-4. **Challenge**: Each side sends a challenge under the new keys and checks
-   that the other echoes it back, which confirms that both derived the same
-   keys.
-5. **Communication**: Signed, encrypted, and sequenced message frames with
-   replay protection.
+1. **ClientHello.** The dialer sends a fresh hybrid public key (ML-KEM-768
+   and X25519) and a nonce, in the clear.
+2. **ServerHello and ResponderAuth.** The listener encapsulates to that key
+   and proves its identity under the resulting handshake keys. The dialer's
+   verifier accepts that key before the dialer sends its own identity.
+3. **InitiatorAuth.** The dialer sends its identity, and may offer to resume
+   a session. The listener checks the proof, decides whether to resume, and
+   runs its verifier.
+4. **Confirm.** The listener sends its name and version, and says whether
+   the session resumed. Both sides then derive the session keys.
 
-A dialer can resume a session within 24 hours of its first handshake. The
-resumption skips the Introduction and the verifier, and runs the Handshake and
-Challenge again with new keys (see
+Later frames are signed, encrypted and sequenced. The first one is
+sequence 1.
+
+A later dial can resume the same session within 24 hours of the
+refreshed time and within 7 days of the cold handshake. That time
+moves on every successful handshake, and when a transport ends
+without deleting state. Resumption runs the handshake again, with
+new keys, and still runs the verifier (see
 [SPEC §6.8](docs/SPEC.md#68-session-resumption)).
 
-For a comprehensive technical specification, see [SPEC.md](docs/SPEC.md).
-
-<picture>
-  <img alt="Cipher Suite Architecture" src="assets/diagrams/cipher-suite.svg">
-</picture>
-
-<details>
-<summary>Handshake flow diagram</summary>
-
-<picture>
-  <img alt="Handshake Flow" src="assets/diagrams/handshake-flow.svg">
-</picture>
-</details>
+For the full specification, see [SPEC.md](docs/SPEC.md).
 
 ## Verifying a peer
 
-Kamune checks that a peer holds the identity key it introduces, but not whose
+Kamune checks that a peer holds the identity key it claims, but not whose
 key it is. The application's verifier decides that, for example by asking the
 user to compare a fingerprint of the key with the peer over another channel.
 `pkg/fingerprint` computes these from the key's PKIX encoding, which both
@@ -109,9 +101,10 @@ peers see:
   nickname for display, not a fingerprint, and must not be used to verify a
   key.
 
-The bus and tui clients in this repository show `Numeric` first when they ask
-the user to verify a peer, with `Emoji` and `Hex` below it as secondary forms.
-The daemon sends all three in its `verify_peer` event and returns the user's
-own `numeric` from `get_fingerprint`.
+Bus, the TUI and the daemon show two labelled numeric codes on a verify
+prompt: yours and the peer's. Emoji and hex are not on that prompt. The
+daemon's `verify_peer` event carries `own_code`, `peer_code` and
+`safety_number`. An unpinned Auto-Accept dial sends its identity to any
+key that answers.
 
-See [SPEC §6.2.1](docs/SPEC.md#621-key-fingerprints).
+See [SPEC §6.2.1](docs/SPEC.md#621-fingerprints).

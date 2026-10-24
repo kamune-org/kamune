@@ -113,17 +113,20 @@ README.
 
 ## Verifying a peer
 
-Every new connection, in any mode, opens a verify screen before the chat,
-also for a peer you have chatted with before, unless it resumes an earlier
-session (see [Resumed sessions](#resumed-sessions)). From the top, it
-shows:
+The TUI prompts on every handshake, including one that resumes a session
+(see [Resumed sessions](#resumed-sessions)). The only handshake it accepts
+without a prompt is a dial that already pinned the peer key and is offering
+to resume that session. The TUI does not offer resumption when you dial.
+From the top, the screen shows:
 
-1. The numeric fingerprint of the peer's key, 40 digits in eight groups of
-   five, and that of your own key.
-2. The emoji and hex fingerprints of the peer's key.
-3. Whether the peer's key is stored from an earlier session, and if so the
+1. "Your code" and the peer's code. Each is 40 digits in eight groups of
+   five. Read yours to your contact and have them read theirs. Every digit
+   of both codes must match.
+2. Whether the peer's key is stored from an earlier session, and if so the
    name stored for it.
-4. The name and app version that the peer claims, which are not verified.
+3. On a listener, the name the peer gives itself. That name is not a code.
+   A resumed session shows "Reconnecting session" and the session id above
+   the codes.
 
 When the name that the peer claims, or the name stored for its key, reads
 the same as the name of a stored peer with a different key, a warning
@@ -134,20 +137,15 @@ zero-width joiner. Names that only look alike, such as one with a
 Cyrillic letter in place of a Latin one, do not; only the fingerprint
 tells peers apart.
 
-Over a channel you trust, such as a phone call, ask the peer to read out
-the numeric fingerprint of its own key, and check it against the peer's
-number on the screen; then read yours out in turn. The numeric fingerprint
-carries about 132.9 bits. Do not rely on the emoji fingerprint: it carries
-about 52.7 bits, few enough that a well-funded attacker can make a key with
-the same emojis. If the peer's app shows no numeric fingerprint, compare
-the whole hex fingerprint; its first 12 bytes are the same for every key.
+Each code carries about 132.9 bits. Emoji and hex are not on this screen.
 
 Press `y` to accept the peer, or `n` or Esc to reject it. Every other key,
 Enter included, is ignored, so an Enter meant for the previous screen
 cannot accept a key you have not checked. A prompt left unanswered for two
 minutes rejects the peer, and a peer that connects while a prompt is open
-is rejected at once. After a rejection, Start Server goes on waiting for
-another peer; the other modes end and return to the menu.
+is rejected at once. An unknown key is also rejected with no screen after
+6 prompts in a rolling minute. After a rejection, Start Server goes on
+waiting for another peer; the other modes end and return to the menu.
 
 The TUI stores a peer you accept once its session is established, under
 the name it claims. A peer that claims no name, or a name that reads the
@@ -160,15 +158,11 @@ stored name and gives its numeric fingerprint.
 ### Resumed sessions
 
 A peer whose app resumes dropped sessions, as bus and the daemon do, can
-resume a session it had with a TUI Start Server (TCP) within 24 hours of
-that session's first, cold handshake; resuming does not extend the 24
-hours. Resumption does not run the verifier on either side
-([SPEC §6.8.4](../../docs/SPEC.md#684-resumption-asymmetry)), so no verify
-screen appears and the chat opens at once. A line in the chat then warns
-that no prompt was shown, and gives the peer's stored name and numeric
-fingerprint. Check that it is the peer you expect, and press Esc if it is
-not. A resumed session that arrives while a prompt is open starts its
-chat, and the peer of the prompt is rejected.
+resume a session it had with a TUI Start Server (TCP). The window is 24
+hours from the refreshed time and 7 days from the cold handshake
+([SPEC §6.8.5](../../docs/SPEC.md#685-window)). The verify screen still
+opens. It shows "Reconnecting session" and the session id, then the two
+codes. A resumed session that arrives while a prompt is open is rejected.
 
 A session can be resumed only if the TUI did not close it: leaving its
 chat with Esc, or quitting with Ctrl+C, ends it for good, even after the

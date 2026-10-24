@@ -288,11 +288,12 @@ shows it, in the tooltip of the message's time, and orders nothing by it.
   it (see [Resumed Sessions](#resumed-sessions)) up to 10 times, waiting 1
   second before the second try and twice as long before each next one, up
   to 30 seconds. The session header shows "reconnecting (n/10)". Bus stops
-  at once, and closes the session, when the peer rejects the resumption,
-  as it does past the 24-hour window or after it deleted the session, or
-  when no resumption token is left. A session that the peer closed, or
-  whose traffic failed to decrypt, is not resumed. When a peer resumes a
-  session with your server, the session takes the place of its old entry.
+  at once, and closes the session, when the handshake is rejected, the
+  keys or versions do not match, or the resumption state is gone. A session
+  the peer closed is not resumed. A frame that fails to decrypt ends the
+  live session without a retry; the resumption state stays, so a later
+  connection can resume it. When a peer resumes a session with your server,
+  the session takes the place of its old entry.
 
 ### Viewing Session History
 
@@ -481,11 +482,11 @@ The verification mode decides which peers Bus admits without asking you.
 The handshake authenticates a peer's public key, not its name, so every
 decision rests on the key.
 
-| Mode | Description |
-|------|-------------|
-| **Strict** | Shows a verification dialog for every new session, whether or not the peer's key is saved. A resumed session gets none (see [Resumed Sessions](#resumed-sessions)) |
-| **Quick** | The default. Admits a peer whose key is saved without a dialog, whatever name it claims, and shows a dialog for any other key |
-| **Auto-Accept** | Admits every peer without a dialog and, outside incognito mode, saves new ones (testing only) |
+| Mode | Dialer | Listener |
+|------|--------|----------|
+| **Strict** | Dialog, except when the key was pinned and this dial is offering resumption | Dialog on every handshake. A resumed session shows "Reconnecting session" and the session id |
+| **Quick** | The default. Dialog unless the key was pinned. An unpinned saved key is labelled with its saved name | Accept when the session resumed, when the key was pinned, or when the key is saved. Otherwise a dialog |
+| **Auto-Accept** | Accept, and send your identity to whatever key answers if you did not pin one. Testing only | Accept. Outside incognito mode, new keys are saved |
 
 Choose the mode under **Connection > Verification Mode** (`Ctrl+0`,
 `Ctrl+1`, `Ctrl+2`). Bus saves it in the database, so it changes only once
@@ -499,24 +500,20 @@ not verifying peers" badge.
 
 ### Verifying Peers
 
-1. A verification dialog shows the peer's label (see
-   [Peer Names](#peer-names)), the name it introduces itself with, and
-   whether its key is saved
-2. Over a channel you trust, such as a call, ask the peer to read out its
-   own numeric fingerprint: 40 digits in eight groups of five, shown under
-   the emojis in its sidebar and on its share card, and copied by
-   **Identity > Copy Numeric Fingerprint**. The Kamune TUI and daemon show
-   the same value. Check it against the number in the dialog, which also
-   shows yours for the peer to check
+1. A verification dialog shows two codes, each 40 digits in eight groups of
+   five: "Your code" and the peer's. It also shows whether the key is saved
+   (see [Peer Names](#peer-names)). On a listener it shows the name the peer
+   gives itself, as a claim, not as a code. A resumed session adds
+   "Reconnecting session" and the session id
+2. Over a channel you trust, such as a call, read your code and have the
+   peer read theirs. Every digit of both codes must match. The TUI and the
+   daemon show the same two codes. **Copy** copies the safety number, both
+   codes with the bytewise-smaller key first
 3. Click **Accept** only if they match, otherwise **Reject**
 
-The numeric fingerprint comes from the SHA-512 of the peer's public key and
-carries about 132.9 bits: finding another key with the same number takes
-about 2^132 hashes. The eight emojis carry about 52.7 bits, so another key
-with the same emojis takes about 2^52.7 attempts to find, which a
-well-funded attacker can afford; they are a quick visual check only. The hex
-fingerprint, folded away in the dialog, is for peers whose app shows no
-numeric fingerprint.
+Each code comes from the SHA-512 of one public key and carries about 132.9
+bits. Emoji and hex are not in the dialog. Emoji on a share card or a peer
+list carries about 52.7 bits and is not a verification code.
 
 ### Saved Peers
 
@@ -526,8 +523,9 @@ you added there by hand (the peer's **Identity > Copy as Base64**). Bus
 saves a newly admitted peer only once its session is established. It keeps
 the name the peer introduced itself with when you accepted it in a dialog
 and no other saved peer has that name; otherwise, and for every peer that
-Auto-Accept admitted, it uses a pseudonym derived from the key. Quick mode
-admits every saved key without asking, including those Auto-Accept saved.
+Auto-Accept admitted, it uses a pseudonym derived from the key. On a
+listener, Quick admits a saved key without asking. A Quick dialer
+still asks unless that key was pinned.
 
 ### Peer Names
 
@@ -562,32 +560,32 @@ alone does not show who connects.
 
 A dialog waits 2 minutes for an answer and then rejects the peer.
 **Accept** stays disabled for 1 second after a dialog appears, and a click
-outside the dialog rejects the peer. Dialogs queue rather than replace each
-other. At most 3 dialogs for peers that connect to your server wait at
-once, and such a peer that would need another is rejected without one.
-Dialogs for peers you connect to, or that Bus reconnects to, do not count
-toward that limit and are never refused for it, so peers that connect to
-your server cannot keep you from connecting. Stopping or restarting the
-server, or cancelling a connect, closes its open dialogs and rejects their
-peers.
+outside the dialog rejects the peer. At most one dialog is open. A handshake
+that needs another is rejected at once. After 6 dialogs in a rolling minute,
+an unknown key is rejected with no dialog until that minute passes. Stopping
+or restarting the server, or cancelling a connect, closes the open dialog
+and rejects its peer.
 
 ### Resumed Sessions
 
-A session whose connection drops can be resumed on a new connection with
-tokens from its handshake. A resumption runs no verifier on either side, in
-any mode, Strict included ([SPEC §6.8.4](../../docs/SPEC.md#684-resumption-asymmetry)).
-The server accepts a resumption signed with the key stored for the session
-until 24 hours after the session's first handshake; resuming does not extend
-that window. Bus resumes a session it dialed when its connection drops,
-except a P2P session through a broker or an incognito one, and its server
-accepts resumptions unless it runs in incognito mode. Bus does not turn
-resumption off in Strict mode, so a peer you accepted once can reconnect
-within that window without a new dialog. A resumption that Bus dials must
-reach the key stored for the session.
+A session whose connection drops can be resumed on a new connection. The
+verifier still runs ([SPEC §6.2](../../docs/SPEC.md#62-authentication)).
+Strict shows the dialog, with a reconnecting banner. Quick accepts a
+resumed listener handshake when the key is still saved. The window is 24
+hours from the refreshed time and 7 days from the cold handshake
+([SPEC §6.8.5](../../docs/SPEC.md#685-window)). Bus resumes a session it
+dialed when its connection drops, except a P2P session through a broker or
+an incognito one, and its server accepts resumptions unless it runs in
+incognito mode. A resumed dial must reach the key stored for the session.
 
-To make a peer pass the verifier again, disconnect the session (a session
-closed on purpose, by either side, cannot be resumed), or delete the peer in
-the Peers tab or the session in the History tab.
+If the peer answers with a new session instead, Bus closes the old one and
+opens the new one. It stops retrying when the user or the peer rejects the
+handshake, the keys do not match, the version or protocol does not match,
+or the resumption state is gone.
+
+To stop a peer from resuming, disconnect the session (a session closed on
+purpose, by either side, cannot be resumed), or delete the peer in the
+Peers tab or the session in the History tab.
 
 ## Incognito Mode
 
@@ -596,7 +594,7 @@ confirmation, or off. Bus saves the setting in the database. While it is
 on:
 
 - A new session leaves no record in the database: no session entry, peer
-  key, start time, resumption tokens or relay reconnect tokens.
+  key, start time, resumption state or relay reconnect tokens.
 - No session saves its messages, not even one started outside incognito
   mode, whose history then has a gap. A session started in incognito mode
   saves none until it ends, even after the mode is turned off.
@@ -648,17 +646,17 @@ empties the panel and the buffer.
 
 ## Security Notes
 
-- Messages are end-to-end encrypted with the Kamune protocol. The key
-  exchange before the handshake authenticates neither side, so a man in the
-  middle is caught only by checking the peer's key: compare its numeric
-  fingerprint over a channel you trust, since the emoji fingerprint alone is
-  not enough
+- Messages are end-to-end encrypted with the Kamune protocol. The
+  hybrid KEM alone does not authenticate a key, so a man in the
+  middle is caught only by checking the peer's key: compare its
+  numeric fingerprint over a channel you trust. The emoji
+  fingerprint alone is not enough
 - The database is encrypted at rest under a key derived from its passphrase
   with Argon2id. A database without a passphrase is not protected: anyone
   who can read its file can read your identity key, peers and history
-- Use **Strict** mode to be asked about every new session, saved peer or
-  not; a resumed session is not verified again within 24 hours of its first
-  handshake
+- Use **Strict** mode to be asked on every handshake, including a
+  resumed one. The only skip is a dial that already pinned the key
+  and is offering resumption
 - Never use **Auto-Accept** mode in production or untrusted networks
 - Use `wss` or `tls` relay addresses, with a pin for a relay whose
   certificate is self-signed; over `tcp` or `ws`, or with TLS verification

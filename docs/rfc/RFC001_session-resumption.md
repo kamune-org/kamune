@@ -1,6 +1,9 @@
 # RFC: Session Resumption
 
-**Status:** Merged
+> **Superseded by RFC007.** The session mechanism in this document is
+> historical. The current one is [SPEC §6.8](../SPEC.md#68-session-resumption).
+
+**Status:** Superseded by RFC007
 
 **Target:** Kamune Protocol Specification v0.6.0
 

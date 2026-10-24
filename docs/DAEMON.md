@@ -723,10 +723,11 @@ connection from the other ways a session ends.
 #### `close_session`
 
 Closes a live session, incoming or dialed, for good. The daemon sends the peer
-a close frame and deletes the session's resumption and relay reconnect tokens,
-so neither side can resume it, and waits up to 5 seconds for the session's
-receive loop to end. The kamune library waits at most 5 seconds for the close
-frame to go out; a peer that does not get it sees the connection drop, and
+a close frame and deletes the session's resumption state and its relay
+reconnect tokens, so neither side can resume it, and waits up to 5 seconds
+for the session's receive loop to end. The kamune library waits at most 5
+seconds for the close frame to go out. A peer that does not get it sees the
+connection drop, and
 cannot resume the session either. Fails with `session_not_found` for a session
 that is not live.
 
@@ -981,11 +982,12 @@ peers derived when the session started, so that the peer can resume the
 session through the relay. Such a listener is listed with mode `ecdh`. Each
 reconnect token is registered once and then deleted. When a listener ends
 unused, the server registers the next token, until the session has resumed,
-its reconnect tokens or its resumption tokens run out, the server stops, or 10
-minutes have passed since the drop. `remove_relay_token` on the listener's
-token, or `delete_history_session` of the session, ends this and deletes the
-session's reconnect tokens. A session that ends with `close_session`, a
-graceful close by the peer, or any way other than a dropped connection gets no
+its reconnect tokens run out, its resumption state is gone, the server
+stops, or 10 minutes have passed since the drop. `remove_relay_token`
+on the listener's token, or `delete_history_session` of the session, ends
+this and deletes the session's reconnect tokens. A session that ends with
+`close_session`, a graceful close by the peer, or any way other than a
+dropped connection gets no
 such listener, and its reconnect tokens are deleted.
 
 **Input:** (no params)
@@ -1295,14 +1297,13 @@ list. A session ID that is neither fails with `session_not_found`.
 
 ### Verification
 
-Modes: `0` = Strict (prompt for every peer, known or not), `1` = Quick
-(accept known peers without a prompt, prompt for others), `2` = Auto-Accept
-(accept every peer, and store none of them as a known peer). Only the key
-decides whether a peer is known, never the name it claims, and sessions and
-prompts name a known peer by its stored name. Without a saved
-mode the daemon uses Quick, unless the client set a mode before it opened
-the first storage. No mode prompts for a peer that resumes a session, Strict
-included. See [Verification Flow](#verification-flow).
+Modes: `0` = Strict, `1` = Quick, `2` = Auto-Accept. Only the key decides
+whether a peer is known, never the name it claims, and sessions and prompts
+name a known peer by its stored name. Without a saved mode the daemon uses
+Quick, unless the client set a mode before it opened the first storage.
+Which handshakes prompt, including a resumed one, is in
+[Verification Flow](#verification-flow). An unpinned Auto-Accept dial sends
+the daemon's identity to whatever key answers.
 
 #### `set_verification_mode`
 
@@ -1390,7 +1391,7 @@ When incognito mode is enabled:
 - Sessions leave no record in the storage. The daemon creates no session
   record and stores no relay reconnect tokens, and the kamune library
   (`ServeWithoutPersistence`, `DialWithoutPersistence`) stores neither the
-  peer's key, the session's start time nor resumption tokens, and leaves the
+  peer's key, the session's start time nor resumption state, and leaves the
   last-seen time of a stored peer alone.
 - Accepted peers are not stored.
 - Sessions cannot be resumed. A dialed session whose connection drops ends with
@@ -1417,7 +1418,7 @@ mode is turned off. A running server keeps what it started with until
 `restart_server`: its name, and whether the kamune library stores its
 sessions and lets peers resume them, and so new sessions on a server started
 in incognito mode are incognito too. A server started with incognito mode off
-still has the library store the peer's key, start time and resumption tokens
+still has the library store the peer's key, start time and resumption state
 of each new session, and update a stored peer's last-seen time. A dialed
 session likewise keeps what was chosen when it was dialed. Changing the flag
 while a server runs logs a warning.
@@ -2004,12 +2005,12 @@ cannot, which includes when no passphrase is saved.
 
 ### Fingerprint Format
 
-The daemon can display fingerprints in different formats: `"hex"` (the
-default), `"emoji"`, `"b64"`, `"sum"` or `"numeric"`. The format chooses what
+The daemon can display fingerprints in different formats: `"numeric"` (the
+default), `"emoji"`, `"b64"`, `"sum"` or `"hex"`. The format chooses what
 `get_fingerprint` puts in `display`. It is saved in the open storage and
 applied when that storage is opened. It does not change what to compare to
-verify a key, which is `numeric` in every format; the eight emoji are too few
-to rely on (see [`verify_peer`](#verify_peer)).
+verify a key, which is the numeric code in every format; the eight emoji are
+too few to rely on (see [`verify_peer`](#verify_peer)).
 
 #### `get_fingerprint_format`
 
@@ -2024,7 +2025,7 @@ Returns the current fingerprint format.
 **Output:**
 
 ```json
-{ "type": "evt", "evt": "response", "id": "1", "data": { "format": "hex" } }
+{ "type": "evt", "evt": "response", "id": "1", "data": { "format": "numeric" } }
 ```
 
 #### `set_fingerprint_format`
@@ -2406,12 +2407,16 @@ second and twice as long before each next one, at most 30 seconds. p2p and
 incognito sessions are never resumed, and get no such event. A resume needs
 the session's peer to be a stored peer and its resumption state to be in the
 storage, so a session with a peer accepted in Auto-Accept mode gets one
-attempt that fails. A resume that the server rejects, missing storage or
-resumption state, or a panic ends the attempts at once; other errors are
-retried. A server that refuses resumption, as one started in incognito mode
-does, closes the connection instead of rejecting the resume, so the attempts
-go on until they run out. Through a relay, each attempt tries the session's
-stored reconnect tokens in turn, all within 15 seconds. When the attempts end
+attempt that fails. The attempts stop at once on `verification_failed`,
+`handshake_rejected`, `peer_key_mismatch`, `self_connection`,
+`version_mismatch`, `unsupported_protocol`, `resume_refused`, a resume
+already in progress, missing storage or resumption state, a missing or
+expired peer, or a panic. Other errors are retried. When the handshake
+succeeds and the session resumed, `session_reconnected` follows. When it
+succeeds as a new session, because the peer answered cold, the daemon emits
+`session_closed` for the old id and `session_started` for the new one, and
+does not retry. Through a relay, each attempt tries the session's stored
+reconnect tokens in turn, all within 15 seconds. When the attempts end
 without success, `session_closed` follows.
 
 ```json
@@ -2476,42 +2481,42 @@ Emitted when a peer has a different minor version.
 
 ### `verify_peer`
 
-Emitted when a peer needs the user's verdict: every peer in Strict mode, and a
-peer that is not known in Quick mode. The client must answer with
-`verify_response` within 2 minutes; the peer is rejected otherwise.
+Emitted when a handshake needs the user's verdict. The client must answer
+with `verify_response` within 2 minutes; the peer is rejected otherwise.
+Which peers prompt is in [Verification Flow](#verification-flow).
 
-Ask the user to compare `numeric`, 40 digits in eight groups of five, with the
-peer over a trusted channel before accepting. It carries about 132.9 bits. The
-eight `emoji` carry about 52.7 bits, few enough that an attacker can search for
-a key that shows the same emoji, so they must not be relied on alone. `hex` is
-the whole PKIX key, whose first 12 bytes are the same for every Ed25519 key.
-`peer_name` is the name stored for the peer's key, or, for a key that is not
-stored, `Unknown peer` and the first ten digits of `numeric`. `claimed_name`
-is the name the peer chose for itself, and proves nothing: show it only as
-the peer's claim. `peer_key` is the peer's public key, base64 as `list_peers`
-gives it. The default names that the daemon derives from a key, its
-pseudonym (two adjectives, a noun and a number, such as `brave misty otter
-42`), are nicknames of about 29.6 bits, not fingerprints: anyone can make a
-key with a given pseudonym. `known` tells whether the key is a stored peer,
-and `mode` is `strict` or `quick`. `name_mismatch` flags a stored peer whose
-claimed name is not its stored name, and `name_conflict` a peer that claims,
-or is stored under, the name of another stored peer; names that differ only in
-case, white space or characters that do not show count as the same. Warn the
-user about either.
+Ask the user to compare two codes over a trusted channel before accepting.
+`own_code` is the numeric fingerprint of the daemon's key, and `peer_code`
+is the peer's: each is 40 digits in eight groups of five, about 132.9 bits.
+Every digit of both must match what the other party reads from their own
+screen. `safety_number` is the two codes, the bytewise-smaller key first,
+joined by a newline, for copy and paste. Emoji and hex are not in this
+event. A pseudonym (two adjectives, a noun and a number, such as
+`brave misty otter 42`) is a nickname of about 29.6 bits, not a code.
 
-A peer that connects to the server again while a prompt for its key from an
-earlier connection is open, as after it gave up or its connection dropped,
-gets a new `verify_peer`, which replaces the earlier one: the earlier
-`request_id` is no longer pending, so `verify_response` fails for it with
-`verification_not_found`, and the earlier handshake ends. A client should
-show one prompt per `peer_key`, the latest. The kamune library does not tell
+`role` is `initiator` or `responder`. On the initiator, `peer_name` is
+empty: the responder has not sent its name yet. On the responder,
+`peer_name` is the name the peer claims, and it proves nothing. Show it
+only as that claim. `stored_name` is the name stored for the key, when
+there is one. `known` tells whether the key is a stored peer. `mode` is
+`strict`, `quick` or `auto`. `pinned` is true when the key was required
+before the identity was sent. `resume_offered` (initiator) and `resumed`
+(responder) say whether this handshake is offering or accepting a resumed
+session, and `session_id` is that session when either is true.
+`name_collision` is true when an unknown key uses the name of a stored
+contact; `stored_name` is then that contact and `stored_code` is the
+contact's numeric code. The default action is reject. Names that differ
+only in case count as the same.
+
+At most one prompt is open. A handshake that needs a prompt while one is
+open is rejected at once, with no event. An unknown key is also rejected
+with no event after 6 prompts in the last minute, until that minute passes.
+Known keys count toward the one open prompt, not toward the 6. A peer the
+user dials is subject to the same one-prompt rule. The library does not tell
 the daemon when the connection of a prompt goes away, so a prompt can
-outlive its connection; accepting it then admits nobody. An unknown peer
-that connects is rejected at once, without this event, while 8 other unknown
-peers that connected have prompts open. Known peers do not count toward the
-8, and a peer the user dials (`dial` or a reconnect) is never rejected this
-way and replaces no prompt. While prompts are open the status is `verifying`;
-when the last one ends, the status before them comes back.
+outlive its connection; accepting it then admits nobody. While a prompt is
+open the status is `verifying`; when it ends, the status before it comes
+back.
 
 ```json
 {
@@ -2519,16 +2524,20 @@ when the last one ends, the status before them comes back.
   "evt": "verify_peer",
   "data": {
     "request_id": 42,
-    "peer_name": "Unknown peer 12345 67890",
-    "claimed_name": "CrimsonOtter",
-    "peer_key": "MCowBQYDK2VwAyEAXd...",
-    "numeric": "12345 67890 13579 24680 11223 34455 66778 89900",
-    "emoji": ["🦊", "🐱", "🌵", "🔑", "🚀", "🍀", "🎲", "🐙"],
-    "hex": "30:2A:30:05:06:03:2B:65:70:03:21:00:5D:...",
+    "role": "responder",
+    "peer_name": "CrimsonOtter",
+    "stored_name": "",
+    "stored_code": "",
+    "name_collision": false,
+    "own_code": "12345 67890 13579 24680 11223 34455 66778 89900",
+    "peer_code": "09876 54321 08642 97531 12121 34343 56565 78787",
+    "safety_number": "09876 54321 08642 97531 12121 34343 56565 78787\n12345 67890 13579 24680 11223 34455 66778 89900",
     "known": false,
-    "name_mismatch": false,
-    "name_conflict": false,
-    "mode": "quick"
+    "mode": "quick",
+    "pinned": false,
+    "resume_offered": false,
+    "resumed": false,
+    "session_id": ""
   }
 }
 ```
@@ -2639,6 +2648,7 @@ programs, and `reason`, on some errors, tells apart failures that share a code:
 | `export_file_failed`           | `export_logs`                                                                                                         | The file could not be created or put in place.                                                                                           |
 | `export_write_failed`          | `export_logs`                                                                                                         | The entries could not be written.                                                                                                        |
 | `goroutine_panic`              | `dial`, `send_message`                                                                                                | The dial or the send panicked.                                                                                                           |
+| `handshake_rejected`           | `dial`                                                                                                                | The peer rejected the handshake, and the rejection is not a version mismatch. A version rejection is `version_mismatch`.                 |
 | `hole_punch_failed`            | `dial`                                                                                                                | No packet could be sent to the matched p2p server.                                                                                       |
 | `history_fetch_failed`         | `get_history_messages`                                                                                                | The messages could not be read.                                                                                                          |
 | `history_not_found`            | `load_history`                                                                                                        | The session is not in the history list.                                                                                                  |
@@ -2679,6 +2689,7 @@ programs, and `reason`, on some errors, tells apart failures that share a code:
 | `relay_listen_failed`          | `start_server`, `generate_relay_token`                                                                                | Registering with the relay failed or took over 15 seconds.                                                                               |
 | `relay_not_configured`         | `generate_relay_token`                                                                                                | No relay server runs.                                                                                                                    |
 | `relay_token_failed`           | `generate_relay_token`, `get_share_info`                                                                              | The static token could not be derived, or the card's token could not be registered.                                                      |
+| `resume_refused`               | `dial`                                                                                                                | The dial required resumption and the peer answered with a new session.                                                                   |
 | `rename_failed`                | `rename_history_session`                                                                                              | The name could not be saved.                                                                                                             |
 | `send_message_failed`          | `send_message`                                                                                                        | The send failed; see its `reason`.                                                                                                       |
 | `server_already_running`       | `start_server`                                                                                                        | A server runs.                                                                                                                           |
@@ -2691,6 +2702,7 @@ programs, and `reason`, on some errors, tells apart failures that share a code:
 | `session_active`               | `delete_history_session`                                                                                              | The session is live.                                                                                                                     |
 | `session_id_required`          | `send_message`                                                                                                        | `session_id` is empty.                                                                                                                   |
 | `session_not_found`            | `close_session`, `rename_session`, `send_message`, `get_session_info`                                                 | No such session.                                                                                                                         |
+| `self_connection`              | `dial`                                                                                                                | The peer key is the daemon's own key.                                                                                                    |
 | `storage_busy`                 | `open_storage`, `submit_passphrase`, `change_passphrase`                                                              | A server runs, a server start or a dial is under way, or a session is open.                                                              |
 | `storage_not_opened`           | `start_server`, `dial`, `submit_passphrase`, `change_passphrase`                                                      | No storage is open, nor a path for `submit_passphrase`.                                                                                  |
 | `storage_open_failed`          | `open_storage`, `submit_passphrase`                                                                                   | The storage did not open; see its `reason`.                                                                                              |
@@ -2701,7 +2713,10 @@ programs, and `reason`, on some errors, tells apart failures that share a code:
 | `unknown_command`              | any line                                                                                                              | An unknown `cmd`.                                                                                                                        |
 | `unknown_message_type`         | any line                                                                                                              | A `type` other than `"cmd"`.                                                                                                             |
 | `unknown_transport`            | `get_share_info`                                                                                                      | The server's transport has no share card.                                                                                                |
+| `unsupported_protocol`         | `dial`                                                                                                                | The peer's handshake version is not 0x02.                                                                                                |
+| `verification_failed`          | `dial`                                                                                                                | A handshake proof failed, or the user rejected the peer.                                                                                 |
 | `verification_not_found`       | `verify_response`                                                                                                     | No prompt with that `request_id` is pending.                                                                                             |
+| `version_mismatch`             | `dial`                                                                                                                | The peer's application version is incompatible.                                                                                          |
 | `wrong_passphrase`             | `change_passphrase`                                                                                                   | `old_passphrase` does not open the storage.                                                                                              |
 
 ## Storage Model
@@ -2751,73 +2766,43 @@ daemon uses Quick, or the mode that the client set before it opened the
 first storage. A saved value that names no mode means Strict, and a warning
 is logged.
 
-```
-                  ┌─────────────────────────────────────────────────────────┐
-                  │ A peer connects to the server, or the user dials one    │
-                  │ (cold handshake; a resumed session skips all this)      │
-                  └────────────────────────────┬────────────────────────────┘
-                                               │
-                  ┌────────────────────────────▼────────────────────────────┐
-                  │ Mode = Auto-Accept?                                     │
-                  │ → accept; the peer is not stored                        │
-                  └────────────────────────────┬────────────────────────────┘
-                                               │ no
-                  ┌────────────────────────────▼────────────────────────────┐
-                  │ Mode = Quick and the peer is known?                     │
-                  │ → accept                                                │
-                  └────────────────────────────┬────────────────────────────┘
-                                               │ no
-                  ┌────────────────────────────▼────────────────────────────┐
-                  │ Unknown inbound peer while 8 other unknown inbound      │
-                  │ peers have prompts open?                                │
-                  │ → reject without a prompt                               │
-                  │ Inbound peer whose key has a prompt open?               │
-                  │ → end that prompt; this connection is asked instead     │
-                  └────────────────────────────┬────────────────────────────┘
-                                               │ no
-                  ┌────────────────────────────▼────────────────────────────┐
-                  │ Emit verify_peer (request_id)                           │
-                  │ Wait for verify_response or the 2-minute timeout        │
-                  └────────────────────────────┬────────────────────────────┘
-                                               │
-                  ┌────────────────────────────▼────────────────────────────┐
-                  │ accept  → continue; an unknown peer is stored once      │
-                  │           its session is established (not in incognito) │
-                  │ reject  → kamune.ErrVerificationFailed                  │
-                  │ timeout → error, but the status is not set to error     │
-                  └─────────────────────────────────────────────────────────┘
-```
+The library runs the verifier on every handshake, cold or resumed
+([SPEC §6.2](SPEC.md#62-authentication)). The daemon prompts as follows.
 
-The verifier runs only on a cold handshake. The kamune library does not run it
-when a peer resumes a session
-([SPEC §6.8.4](SPEC.md#684-resumption-asymmetry)), which it allows within 24
-hours of the session's cold handshake (a resume does not extend that). So in
-every mode, Strict included, a peer that resumes a session is not prompted,
-and the daemon resumes dropped dialed sessions on its own.
+| Mode | Dialer (initiator) | Listener (responder) |
+| ---- | ------------------ | -------------------- |
+| Strict | Prompt, except when the peer key was pinned and this dial is offering resumption. | Prompt on every handshake. `resumed` is true when the peer proved resumption state. |
+| Quick | Prompt unless the peer key was pinned. | Accept when the session resumed, when the key was pinned, or when the key is a stored peer. Otherwise prompt. |
+| Auto-Accept | Accept. An unpinned dial reveals the daemon's identity to any key. | Accept. Peers are not stored, so their sessions are not resumed later. |
 
-The daemon does not turn resumption off in Strict mode, although SPEC §6.8.4
-recommends that for a verifier that must run on every connection: Strict mode
-prompts on every cold handshake, not on every connection. A session can be
-resumed only while its peer is a stored peer and the session has resumption
-tokens left, so a session with an unknown peer that Auto-Accept mode let in,
-without storing it, is never resumed. To keep a peer from resuming without a
-prompt:
+A prompt waits at most 2 minutes, which is inside the library's 150-second
+verifier limit. `stop_server` and `restart_server` reject the open prompt of
+a peer that connected to the server.
+
+At most one prompt is open. A second handshake that needs one is rejected
+at once. After 6 prompts in a rolling minute, unknown keys are rejected
+with no prompt until the minute passes.
+
+A session can be resumed only while its peer is stored and its resumption
+row is inside the window: 24 hours from the last refresh, and 7 days from
+the cold handshake ([SPEC §6.8.5](SPEC.md#685-window)). Auto-Accept does
+not store the peer, so those sessions are never resumed. To stop a peer
+from resuming:
 
 - `close_session` ends a live session for good;
 - `delete_history_session` deletes a session that is not live, and its
-  resumption tokens with it;
+  resumption state with it;
 - `delete_peer` keeps every session with the peer from being resumed, until
   the peer is stored again;
 - a server started in incognito mode refuses resumption.
 
-A prompt that waits for the user holds the handshake open. The kamune library
-allows the verifier 150 seconds, so the daemon's 2-minute timeout ends the
-prompt first. `stop_server` and `restart_server` reject the open prompts of
-peers that connected to the server.
-
 `request_id` is distinct from the command `id` correlation field because
 verification is triggered by the protocol, not by a client command. Match
 `verify_response.request_id` to the `request_id` in the `verify_peer` event.
+
+When the peer rejects the handshake, `dial` fails with `handshake_rejected`.
+When the local verifier rejects the peer, it fails with `verification_failed`.
+The other `dial` codes are in the error table.
 
 ## Connection Drops
 
@@ -2832,20 +2817,21 @@ returns an error, and the error decides what becomes of the session:
   and incognito sessions (see [`session_reconnecting`](#session_reconnecting)),
   and ends with `session_closed` when it cannot. A session on the server ends
   with `session_closed`, and its peer may resume it (see
-  [Verification Flow](#verification-flow)): the resumed session is reported
-  with a new `session_started` for the same `session_id`, without
-  `verify_peer`. For a session that came through the relay, the server
+  [Verification Flow](#verification-flow)). Strict emits `verify_peer`
+  before that handshake is accepted. Quick accepts a resumed handshake
+  with no prompt. For a session that came through the relay, the server
   registers a reconnect listener for the peer to resume through (see
   [`list_relay_tokens`](#list_relay_tokens)).
-- Any other error, such as a message that fails decryption or its signature
-  check, comes out of sequence or carries a route that is not allowed at that
-  point: the kamune library closes the connection and deletes the session's
-  resumption tokens, and the session ends with `session_closed`. The peer sees
-  the connection drop, and an attempt to resume the session fails. After an
-  error that leaves the connection open, such as a message with an unknown
-  route, the daemon closes a dialed session with a close frame, which deletes
-  its tokens too, while a session on the server has its connection closed
-  without one, so that its peer sees a dropped connection.
+- A frame that fails decryption, or a sequence that is a duplicate or a gap:
+  the library ends the connection and keeps the resumption state
+  ([SPEC §6.6](SPEC.md#66-session-teardown)). The daemon does not retry the
+  live session on that error. A later dial can still resume it. The peer
+  sees the connection drop.
+- A frame whose signature fails, or whose route is not allowed: the library
+  ends the connection and deletes the resumption state. The session ends
+  with `session_closed`, and a later resume fails. The daemon then closes a
+  dialed session with a close frame. A session on the server has its
+  connection closed without one, so the peer sees a drop.
 
 The daemon pings the peer of each live session every 30 seconds. When 3 pings
 in a row cannot be sent or get no answer within 10 seconds, it closes the
@@ -2855,7 +2841,7 @@ session goes on as after any dropped connection.
 The kamune library waits at most 5 seconds for a close frame to go out. When
 the peer's close frame does not get through in that time, the daemon sees a
 dropped connection, and the session cannot be resumed, since the peer deleted
-its resumption tokens when it closed the session.
+its resumption state when it closed the session.
 
 ## Transports
 

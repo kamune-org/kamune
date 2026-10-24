@@ -1,5 +1,10 @@
 # RFC: Extend Signature Coverage to Metadata
 
+> **Handshake messages removed.** The Introduce and Resume messages named
+> below no longer exist. Handshake v2 (RFC007) authenticates peers in the
+> flights of [SPEC §6](../SPEC.md#6-protocol-flow). Session frames still
+> sign their metadata, as this RFC specifies.
+
 **Status:** Merged
 
 **Target:** Kamune Protocol Specification v0.7.0
