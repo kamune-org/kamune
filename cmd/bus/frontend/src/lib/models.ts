@@ -75,6 +75,8 @@ export interface VerificationRequest {
   // peerName is empty for the initiator. storedName is the saved name
   // of this key, or the colliding contact when nameCollision is set.
   peerName: string;
+  // nickname is the pseudonym of the peer key. It is not a code.
+  nickname: string;
   storedName: string;
   // storedCode is the saved contact's numeric code when nameCollision
   // is set, and empty otherwise.

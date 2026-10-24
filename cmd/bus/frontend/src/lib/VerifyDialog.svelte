@@ -35,8 +35,15 @@
 
   const ownGroups = $derived(groups(data.ownCode));
   const peerGroups = $derived(groups(data.peerCode));
-  const peerLabel = $derived(
-    data.peerName || data.storedName || 'Peer'
+  const showClaim = $derived(
+    data.role === 'responder' && !!data.peerName
+  );
+  const showReached = $derived(
+    data.mode === 'quick' &&
+      data.role === 'initiator' &&
+      !data.pinned &&
+      data.known &&
+      !!data.storedName
   );
 
   let copied = $state(false);
@@ -87,10 +94,14 @@
         <div class="verify-label">
           {data.known ? 'Saved peer' : 'Connection request'}
         </div>
-        {#if data.peerName}
-          <div class="verify-peer-name">{data.peerName}</div>
-        {:else if data.storedName}
-          <div class="verify-peer-name">{data.storedName}</div>
+        {#if data.nickname}
+          <div class="verify-peer-name">Nickname: {data.nickname}</div>
+        {/if}
+        {#if showClaim}
+          <div class="verify-peer-name">Name it gives itself: {data.peerName}</div>
+        {/if}
+        {#if showReached}
+          <div class="verify-peer-name">You reached {data.storedName}.</div>
         {/if}
         <div class="verify-status" class:known={data.known} class:unknown={!data.known}>
           {#if data.known}
@@ -128,7 +139,7 @@
             </div>
           </div>
           <div class="verify-code-line">
-            <div class="verify-code-label">{peerLabel}'s code:</div>
+            <div class="verify-code-label">Peer's code:</div>
             <div class="verify-numeric" aria-label={data.peerCode}>
               {#each peerGroups as group}
                 <span class="verify-numeric-group">{group}</span>

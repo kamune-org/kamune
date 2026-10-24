@@ -485,7 +485,7 @@ decision rests on the key.
 | Mode | Dialer | Listener |
 |------|--------|----------|
 | **Strict** | Dialog, except when the key was pinned and this dial is offering resumption | Dialog on every handshake. A resumed session shows "Reconnecting session" and the session id |
-| **Quick** | The default. Dialog unless the key was pinned. An unpinned saved key is labelled with its saved name | Accept when the session resumed, when the key was pinned, or when the key is saved. Otherwise a dialog |
+| **Quick** | The default. Dialog unless the key was pinned. An unpinned saved key says "You reached <saved name>." | Accept when the session resumed, when the key was pinned, or when the key is saved. Otherwise a dialog |
 | **Auto-Accept** | Accept, and send your identity to whatever key answers if you did not pin one. Testing only | Accept. Outside incognito mode, new keys are saved |
 
 Choose the mode under **Connection > Verification Mode** (`Ctrl+0`,
@@ -501,10 +501,11 @@ not verifying peers" badge.
 ### Verifying Peers
 
 1. A verification dialog shows two codes, each 40 digits in eight groups of
-   five: "Your code" and the peer's. It also shows whether the key is saved
+   five: "Your code" and "Peer's code". It labels the key's pseudonym
+   "Nickname". It also shows whether the key is saved
    (see [Peer Names](#peer-names)). On a listener it shows the name the peer
-   gives itself, as a claim, not as a code. A resumed session adds
-   "Reconnecting session" and the session id
+   gives itself as "Name it gives itself", not as a code. A resumed session
+   adds "Reconnecting session" and the session id
 2. Over a channel you trust, such as a call, read your code and have the
    peer read theirs. Every digit of both codes must match. The TUI and the
    daemon show the same two codes. **Copy** copies the safety number, both

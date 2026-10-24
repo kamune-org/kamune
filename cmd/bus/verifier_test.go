@@ -871,6 +871,51 @@ func TestVerifierPolicyTable(t *testing.T) {
 	}
 }
 
+func TestVerifyPeerEvent_PromptFields(t *testing.T) {
+	t.Run("quick initiator stored", func(t *testing.T) {
+		a := require.New(t)
+		app, cleanup := newTestAppWithStorage(t)
+		defer cleanup()
+		app.verifMode = VerificationModeQuick
+		events := recordEvents(app)
+		req := policyReq(t, app, kamune.RoleInitiator, true)
+
+		errCh := runVerifierReq(app, app.verifierWithin(
+			app.lifeCtx(), VerificationModeQuick, false,
+		), req)
+		ids := waitPending(t, app, 1)
+		data := events.named("verify-peer")[0][0].(map[string]any)
+		a.Equal(fingerprint.Pseudonym(req.Peer.PublicKey), data["nickname"])
+		a.Equal("", data["peerName"])
+		a.Equal(true, data["known"])
+		a.Equal(false, data["pinned"])
+		a.Equal("quick", data["mode"])
+		a.Equal("Bob", data["storedName"])
+		app.VerifyResponse(ids[0], true)
+		a.NoError(waitVerdict(t, errCh))
+	})
+
+	t.Run("strict responder", func(t *testing.T) {
+		a := require.New(t)
+		app, cleanup := newTestAppWithStorage(t)
+		defer cleanup()
+		app.verifMode = VerificationModeStrict
+		events := recordEvents(app)
+		req := policyReq(t, app, kamune.RoleResponder, false)
+		req.Peer.Name = "Mallory"
+
+		errCh := runVerifierReq(app, app.verifierWithin(
+			app.lifeCtx(), VerificationModeStrict, true,
+		), req)
+		ids := waitPending(t, app, 1)
+		data := events.named("verify-peer")[0][0].(map[string]any)
+		a.Equal(fingerprint.Pseudonym(req.Peer.PublicKey), data["nickname"])
+		a.Equal("Mallory", data["peerName"])
+		app.VerifyResponse(ids[0], false)
+		a.Error(waitVerdict(t, errCh))
+	})
+}
+
 func TestStrictResponderPromptCarriesTwoCodes(t *testing.T) {
 	a := require.New(t)
 	app, cleanup := newTestAppWithStorage(t)

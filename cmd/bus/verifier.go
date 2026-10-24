@@ -251,6 +251,7 @@ func (a *App) askUser(
 		"requestID":     reqID,
 		"role":          verifyRoleName(req.Role),
 		"peerName":      peerName,
+		"nickname":      fingerprint.Pseudonym(peer.PublicKey),
 		"storedName":    storedName,
 		"storedCode":    storedCode,
 		"nameCollision": hit != nil,
