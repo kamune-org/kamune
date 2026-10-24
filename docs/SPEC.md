@@ -1749,7 +1749,6 @@ sections it affects. Draft or withdrawn RFCs are not listed here.
 | ------ | ---------------------------- | -------------- | ----------------------------------------------------------------------------- |
 | RFC001 | Session Resumption           | v0.6.0         | Superseded by RFC007. The mechanism is §6.8.                                  |
 | RFC002 | Extend Signature to Metadata | v0.7.0         | §4.2, §6.5, §8.1, §8.4, §12.2. The old handshake messages no longer exist.    |
-| RFC007 | Handshake v2                 | v0.9.0         | §2–§8, §9.4, §10–§15, Appendix A.                                             |
 
 ## Appendix A: Key-schedule vector
 
