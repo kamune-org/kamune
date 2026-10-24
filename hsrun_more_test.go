@@ -1419,3 +1419,161 @@ func TestResume_ServerCancelKeepsRows(t *testing.T) {
 	a.NoError(err)
 }
 
+type captureConn struct {
+	Conn
+	dst *[]byte
+}
+
+func (c *captureConn) WriteBytes(p []byte) error {
+	*c.dst = bytes.Clone(p)
+	return c.Conn.WriteBytes(p)
+}
+
+type skipWriteConn struct {
+	Conn
+	skip int
+}
+
+func (c *skipWriteConn) WriteBytes(p []byte) error {
+	if c.skip > 0 {
+		c.skip--
+		return nil
+	}
+	return c.Conn.WriteBytes(p)
+}
+
+func releasePair(it, rt *Transport) {
+	if it != nil {
+		_ = it.CloseAbort()
+	}
+	if rt != nil {
+		_ = rt.CloseAbort()
+	}
+}
+
+func resumeAfter(t *testing.T, store *storage.Storage, ia, ra *attest.Attest, sid string) {
+	t.Helper()
+	a := require.New(t)
+	_, err := store.GetResumption(sid, storage.ResumeRoleInitiator)
+	a.NoError(err)
+	_, err = store.GetResumption(sid, storage.ResumeRoleResponder)
+	a.NoError(err)
+	gi, gr := resumeBoth(t, store, ia, ra, sid, nil, nil, nil, nil, nil)
+	a.NoError(gi.err)
+	a.NoError(gr.err)
+	a.True(gi.tr.Resumed())
+	a.True(gr.tr.Resumed())
+	a.NoError(gi.tr.CloseAbort())
+	a.NoError(gr.tr.CloseAbort())
+}
+
+func TestResume_SurvivesInjectedGarbage(t *testing.T) {
+	a := require.New(t)
+	store := openStore(t)
+	it, rt, ia, ra := coldPair(t, store, nil)
+	sid := it.SessionID()
+	remember(t, store, ia)
+	remember(t, store, ra)
+	got := make(chan error, 1)
+	go func() {
+		_, _, err := rt.ReceivePayload()
+		got <- err
+	}()
+	a.NoError(it.conn.WriteBytes(bytes.Repeat([]byte{0x5a}, 64)))
+	a.Error(<-got)
+	releasePair(it, rt)
+	resumeAfter(t, store, ia, ra, sid)
+}
+
+func TestResume_SurvivesReplayedFrame(t *testing.T) {
+	a := require.New(t)
+	store := openStore(t)
+	it, rt, ia, ra := coldPair(t, store, nil)
+	sid := it.SessionID()
+	remember(t, store, ia)
+	remember(t, store, ra)
+	var frame []byte
+	inner := it.conn
+	it.conn = &captureConn{Conn: inner, dst: &frame}
+	got := make(chan error, 1)
+	go func() {
+		_, _, err := rt.ReceivePayload()
+		got <- err
+	}()
+	a.NoError(mustSend(it, []byte("hi")))
+	a.NoError(<-got)
+	go func() { _ = inner.WriteBytes(frame) }()
+	_, _, err := rt.ReceivePayload()
+	a.Error(err)
+	releasePair(it, rt)
+	resumeAfter(t, store, ia, ra, sid)
+}
+
+func TestResume_SurvivesDroppedFrame(t *testing.T) {
+	a := require.New(t)
+	store := openStore(t)
+	it, rt, ia, ra := coldPair(t, store, nil)
+	sid := it.SessionID()
+	remember(t, store, ia)
+	remember(t, store, ra)
+	it.conn = &skipWriteConn{Conn: it.conn, skip: 1}
+	a.NoError(mustSend(it, []byte("one")))
+	got := make(chan error, 1)
+	go func() {
+		_, _, err := rt.ReceivePayload()
+		got <- err
+	}()
+	a.NoError(mustSend(it, []byte("two")))
+	a.ErrorIs(<-got, ErrOutOfSync)
+	releasePair(it, rt)
+	resumeAfter(t, store, ia, ra, sid)
+}
+
+func TestResume_PeerCloseEndsIt(t *testing.T) {
+	a := require.New(t)
+	store := openStore(t)
+	it, rt, ia, ra := coldPair(t, store, nil)
+	sid := it.SessionID()
+	remember(t, store, ia)
+	remember(t, store, ra)
+	a.NoError(it.Close())
+	_ = rt.CloseAbort()
+	_, err := store.GetResumption(sid, storage.ResumeRoleInitiator)
+	a.ErrorIs(err, storage.ErrNoResumption)
+	ic, _ := pipeConns(t)
+	gi := <-startInitiator(ic, initiatorInput{
+		attest: ia, store: store, name: "ada", resumeSID: sid,
+		verify: acceptVerify(nil, nil),
+	})
+	a.ErrorIs(gi.err, ErrNoResumptionState)
+}
+
+func TestResume_StaleClose(t *testing.T) {
+	a := require.New(t)
+	store := openStore(t)
+	it, rt, ia, ra := coldPair(t, store, nil)
+	sid := it.SessionID()
+	remember(t, store, ia)
+	remember(t, store, ra)
+	gen1 := it.resGen
+	a.NoError(it.CloseAbort())
+	a.NoError(rt.CloseAbort())
+	gi, gr := resumeBoth(t, store, ia, ra, sid, nil, nil, nil, nil, nil)
+	a.NoError(gi.err)
+	a.NoError(gr.err)
+	a.True(gi.tr.Resumed())
+	a.Greater(gi.tr.resGen, gen1)
+	// CloseAbort already closed the pipe. Close still deletes this
+	// generation, and the second Close reports the closed conn.
+	a.ErrorIs(it.Close(), ErrConnClosed)
+	row, err := store.GetResumption(sid, storage.ResumeRoleInitiator)
+	a.NoError(err)
+	a.Equal(gi.tr.resGen, row.Generation)
+	a.NoError(gi.tr.CloseAbort())
+	a.NoError(gr.tr.CloseAbort())
+}
+
+func mustSend(tr *Transport, body []byte) error {
+	_, err := tr.Send(Bytes(body), RouteExchangeMessages)
+	return err
+}
