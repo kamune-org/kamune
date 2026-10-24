@@ -897,6 +897,7 @@ func TestNameCollisionFlagsUnknownKey(t *testing.T) {
 	a.Equal("Bob", evt.Data["stored_name"])
 	a.Equal(fingerprint.Numeric(storedKey), evt.Data["stored_code"])
 	a.Equal("bob", evt.Data["peer_name"])
+	a.Equal(fingerprint.Pseudonym(req.Peer.PublicKey), evt.Data["nickname"])
 	id, ok := evt.Data["request_id"].(float64)
 	a.True(ok)
 	d.handleVerifyResponse(Command{
@@ -918,6 +919,7 @@ func TestInitiatorPromptHasEmptyPeerName(t *testing.T) {
 	evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
 	a.Equal("initiator", evt.Data["role"])
 	a.Equal("", evt.Data["peer_name"])
+	a.Equal(fingerprint.Pseudonym(req.Peer.PublicKey), evt.Data["nickname"])
 	id, ok := evt.Data["request_id"].(float64)
 	a.True(ok)
 	d.handleVerifyResponse(Command{

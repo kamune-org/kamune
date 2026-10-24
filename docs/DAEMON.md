@@ -2491,13 +2491,15 @@ is the peer's: each is 40 digits in eight groups of five, about 132.9 bits.
 Every digit of both must match what the other party reads from their own
 screen. `safety_number` is the two codes, the bytewise-smaller key first,
 joined by a newline, for copy and paste. Emoji and hex are not in this
-event. A pseudonym (two adjectives, a noun and a number, such as
-`brave misty otter 42`) is a nickname of about 29.6 bits, not a code.
+event. `nickname` is the pseudonym of the peer key (two adjectives, a
+noun and a number, such as `brave misty otter 42`). It is a nickname of
+about 29.6 bits, not a code. Show it as `Nickname:`.
 
 `role` is `initiator` or `responder`. On the initiator, `peer_name` is
-empty: the responder has not sent its name yet. On the responder,
-`peer_name` is the name the peer claims, and it proves nothing. Show it
-only as that claim. `stored_name` is the name stored for the key, when
+empty: the responder has not sent its name yet. Do not show a name the
+responder has not sent. On the responder, `peer_name` is the name the
+peer claims, and it proves nothing. Show it only as `Name it gives itself:`
+plus `peer_name`. `stored_name` is the name stored for the key, when
 there is one. `known` tells whether the key is a stored peer. `mode` is
 `strict`, `quick` or `auto`. `pinned` is true when the key was required
 before the identity was sent. `resume_offered` (initiator) and `resumed`
@@ -2526,6 +2528,7 @@ back.
     "request_id": 42,
     "role": "responder",
     "peer_name": "CrimsonOtter",
+    "nickname": "brave misty otter 42",
     "stored_name": "",
     "stored_code": "",
     "name_collision": false,
@@ -2772,7 +2775,7 @@ The library runs the verifier on every handshake, cold or resumed
 | Mode | Dialer (initiator) | Listener (responder) |
 | ---- | ------------------ | -------------------- |
 | Strict | Prompt, except when the peer key was pinned and this dial is offering resumption. | Prompt on every handshake. `resumed` is true when the peer proved resumption state. |
-| Quick | Prompt unless the peer key was pinned. | Accept when the session resumed, when the key was pinned, or when the key is a stored peer. Otherwise prompt. |
+| Quick | Prompt unless the peer key was pinned. When `pinned` is false and `known` is true, the prompt says `You reached <stored_name>.` | Accept when the session resumed, when the key was pinned, or when the key is a stored peer. Otherwise prompt. |
 | Auto-Accept | Accept. An unpinned dial reveals the daemon's identity to any key. | Accept. Peers are not stored, so their sessions are not resumed later. |
 
 A prompt waits at most 2 minutes, which is inside the library's 150-second

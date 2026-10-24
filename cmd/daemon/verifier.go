@@ -316,6 +316,7 @@ func (d *Daemon) askUser(
 		"request_id":     reqID,
 		"role":           verifyRoleName(req.Role),
 		"peer_name":      peerName,
+		"nickname":       fingerprint.Pseudonym(peer.PublicKey),
 		"stored_name":    storedName,
 		"stored_code":    storedCode,
 		"name_collision": hit != nil,
