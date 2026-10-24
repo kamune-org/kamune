@@ -284,6 +284,74 @@ func TestHandshake_PinnedDialer(t *testing.T) {
 	a.False(gi.tr.Resumed())
 }
 
+// quickInitiatorDecision is RFC007 §16.1 for the initiator. A stored key
+// does not accept an unpinned Quick dial.
+func quickInitiatorDecision(pinned bool) string {
+	if pinned {
+		return "accept"
+	}
+	return "prompt"
+}
+
+func TestQuick_SpliceToOtherKnownPeer(t *testing.T) {
+	a := require.New(t)
+	dialerStore := openStore(t)
+	serverStore := openStore(t)
+	ia, ra := hsIdent(t), hsIdent(t)
+	other := hsIdent(t)
+	now := time.Now()
+	storePeer := func(name string, pub []byte) {
+		t.Helper()
+		a.NoError(dialerStore.StorePeer(&storage.Peer{
+			PublicKey: pub, Name: name, AppVersion: AppVersion,
+			FirstSeen: now, LastSeen: now,
+		}))
+	}
+	storePeer("Ada", other.MarshalPublicKey())
+	storePeer("Bob", ra.MarshalPublicKey())
+
+	ic, rc := pipeConns(t)
+	var (
+		seen       int
+		req        VerifyRequest
+		storedName string
+	)
+	iCh := startInitiator(ic, initiatorInput{
+		attest: ia, store: dialerStore, name: "ada",
+		verify: func(
+			_ context.Context, st *storage.Storage, got VerifyRequest,
+		) error {
+			seen++
+			req = got
+			peer, err := st.FindPeer(got.Peer.PublicKey)
+			if err != nil {
+				return err
+			}
+			storedName = peer.Name
+			return nil
+		},
+	})
+	rCh := startResponder(rc, responderInput{
+		attest: ra, store: serverStore, name: "Mallory",
+		resumeEnabled: true,
+		verify:        acceptVerify(nil, nil),
+	})
+	gi, gr := <-iCh, <-rCh
+	a.NoError(gi.err)
+	a.NoError(gr.err)
+	a.Equal(1, seen)
+	a.Equal(RoleInitiator, req.Role)
+	a.False(req.Pinned)
+	a.Empty(req.Peer.Name)
+	a.Equal(ra.MarshalPublicKey(), req.Peer.PublicKey)
+	a.Equal("Bob", storedName)
+	ada, err := dialerStore.FindPeer(other.MarshalPublicKey())
+	a.NoError(err)
+	a.Equal("Ada", ada.Name)
+	a.Equal("prompt", quickInitiatorDecision(req.Pinned))
+	a.Equal("Mallory", gi.tr.RemotePeer().Name)
+}
+
 func TestResume_Success(t *testing.T) {
 	a := require.New(t)
 	store := openStore(t)
