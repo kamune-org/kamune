@@ -1310,8 +1310,8 @@ local persistence profile and is not required for protocol interoperability.
   <img alt="Storage Key Hierarchy" src="../assets/diagrams/storage-hierarchy.svg">
 </picture>
 
-The diagram does not show the resumption rows. Each session's `meta` bucket
-holds `resumption_i` and `resumption_r` (§11.3).
+The diagram shows each session's `resumption_i` and `resumption_r` rows
+under `meta` (§11.3).
 
 ### 11.1 Database
 
