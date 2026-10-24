@@ -506,3 +506,110 @@ func TestDisconnectSessionEndsResumption(t *testing.T) {
 		})
 	}
 }
+
+type onceListener struct {
+	ch   chan kamune.Conn
+	once sync.Once
+}
+
+func (l *onceListener) Accept() (kamune.Conn, error) {
+	c, ok := <-l.ch
+	if !ok {
+		return nil, net.ErrClosed
+	}
+	return c, nil
+}
+
+func (l *onceListener) Close() error {
+	l.once.Do(func() { close(l.ch) })
+	return nil
+}
+
+func liveTransport(t *testing.T) *kamune.Transport {
+	t.Helper()
+	a := require.New(t)
+	serverStore := openTestStorage(t)
+	clientStore := openTestStorage(t)
+	left, right := net.Pipe()
+	conns := make(chan kamune.Conn, 1)
+	conns <- kamune.NewConn(right)
+	release := make(chan struct{})
+	var server *kamune.Server
+	var client *kamune.Transport
+	t.Cleanup(func() {
+		close(release)
+		if server != nil {
+			_ = server.Close()
+		}
+		if client != nil {
+			_ = client.CloseAbort()
+		}
+	})
+	got := make(chan *kamune.Transport, 1)
+	var err error
+	server, err = kamune.NewServer(
+		"",
+		func(tr *kamune.Transport) error {
+			got <- tr
+			<-release
+			return nil
+		},
+		serverStore,
+		acceptAll,
+		kamune.ServeWithListener(&onceListener{ch: conns}),
+	)
+	a.NoError(err)
+	go func() { _ = server.ListenAndServe() }()
+	dialer, err := kamune.NewDialer(
+		"pipe", clientStore, acceptAll, kamune.DialWithFunc(
+			func(string) (kamune.Conn, error) {
+				return kamune.NewConn(left), nil
+			},
+		),
+	)
+	a.NoError(err)
+	client, err = dialer.Dial()
+	a.NoError(err)
+	go func() {
+		for {
+			if _, _, err := client.ReceivePayload(); err != nil {
+				return
+			}
+		}
+	}()
+	select {
+	case tr := <-got:
+		return tr
+	case <-time.After(5 * time.Second):
+		t.Fatal("handshake did not finish")
+		return nil
+	}
+}
+
+func TestReplaceSessionWithColdDropsClosed(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	tr := liveTransport(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	old := &liveSession{
+		ID:            "old",
+		reconnectFn:   nil,
+		reconnectCtx:  ctx,
+		keepAliveDone: make(chan struct{}),
+		pongCh:        make(chan []byte, 1),
+	}
+	app.mu.Lock()
+	app.sessions = []*liveSession{old}
+	app.mu.Unlock()
+
+	app.replaceSessionWithCold(old, tr)
+
+	app.mu.RLock()
+	left := len(app.sessions)
+	app.mu.RUnlock()
+	a.Equal(0, left)
+	_, _, err := tr.ReceivePayload()
+	a.Error(err)
+}

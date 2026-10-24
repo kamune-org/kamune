@@ -1177,12 +1177,13 @@ func (a *App) DisconnectSession(sessionID string) error {
 		a.dropRelayPool(sessionID)
 	}
 
-	// Cancel any active reconnect loop.
+	// Cancel any active reconnect loop. Clear reconnectFn under the
+	// session lock so a cold reconnect cannot put the session back.
 	if session.reconnectCancel != nil {
 		session.reconnectCancel()
 	}
-
 	session.mu.Lock()
+	session.reconnectFn = nil
 	transport := session.Transport
 	session.mu.Unlock()
 	transport.Close()

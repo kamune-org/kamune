@@ -560,8 +560,18 @@ func (a *App) replaceSessionWithCold(
 	}
 
 	a.mu.Lock()
+	old.mu.Lock()
+	stopped := old.reconnectFn == nil || old.reconnectCtx == nil ||
+		old.reconnectCtx.Err() != nil
+	if stopped {
+		old.mu.Unlock()
+		a.mu.Unlock()
+		_ = t.Close()
+		return
+	}
 	a.sessions = append(a.sessions, old)
 	info := old.info()
+	old.mu.Unlock()
 	a.mu.Unlock()
 
 	a.emitEvent("session-new", info)
