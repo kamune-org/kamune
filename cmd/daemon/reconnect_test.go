@@ -621,3 +621,126 @@ func TestIncognitoSessionStaysIncognito(t *testing.T) {
 		})
 	}
 }
+
+type onceListener struct {
+	ch   chan kamune.Conn
+	once sync.Once
+}
+
+func (l *onceListener) Accept() (kamune.Conn, error) {
+	c, ok := <-l.ch
+	if !ok {
+		return nil, net.ErrClosed
+	}
+	return c, nil
+}
+
+func (l *onceListener) Close() error {
+	l.once.Do(func() { close(l.ch) })
+	return nil
+}
+
+func liveTransport(t *testing.T) *kamune.Transport {
+	t.Helper()
+	a := require.New(t)
+	open := func() *storage.Storage {
+		t.Helper()
+		s, err := storage.OpenStorage(
+			storage.WithDBPath(filepath.Join(t.TempDir(), "db")),
+			storage.WithNoPassphrase(),
+		)
+		a.NoError(err)
+		t.Cleanup(func() { _ = s.Close() })
+		return s
+	}
+	serverStore := open()
+	clientStore := open()
+	accept := func(
+		context.Context, *storage.Storage, kamune.VerifyRequest,
+	) error {
+		return nil
+	}
+	left, right := net.Pipe()
+	conns := make(chan kamune.Conn, 1)
+	conns <- kamune.NewConn(right)
+	release := make(chan struct{})
+	var server *kamune.Server
+	var client *kamune.Transport
+	t.Cleanup(func() {
+		close(release)
+		if server != nil {
+			_ = server.Close()
+		}
+		if client != nil {
+			_ = client.CloseAbort()
+		}
+	})
+	got := make(chan *kamune.Transport, 1)
+	var err error
+	server, err = kamune.NewServer(
+		"",
+		func(tr *kamune.Transport) error {
+			got <- tr
+			<-release
+			return nil
+		},
+		serverStore,
+		accept,
+		kamune.ServeWithListener(&onceListener{ch: conns}),
+	)
+	a.NoError(err)
+	go func() { _ = server.ListenAndServe() }()
+	dialer, err := kamune.NewDialer(
+		"pipe", clientStore, accept, kamune.DialWithFunc(
+			func(string) (kamune.Conn, error) {
+				return kamune.NewConn(left), nil
+			},
+		),
+	)
+	a.NoError(err)
+	client, err = dialer.Dial()
+	a.NoError(err)
+	go func() {
+		for {
+			if _, _, err := client.ReceivePayload(); err != nil {
+				return
+			}
+		}
+	}()
+	select {
+	case tr := <-got:
+		return tr
+	case <-time.After(5 * time.Second):
+		t.Fatal("handshake did not finish")
+		return nil
+	}
+}
+
+func TestReplaceSessionWithColdDropsClosed(t *testing.T) {
+	a := require.New(t)
+	d, _ := newTestDaemon(t, VerificationModeStrict, false)
+	tr := liveTransport(t)
+	ctx, cancel := context.WithCancel(d.ctx)
+	cancel()
+	old := &liveSession{
+		ID:            "old",
+		reconnectFn:   nil,
+		reconnectCtx:  ctx,
+		keepAliveDone: make(chan struct{}),
+		pongCh:        make(chan []byte, 1),
+	}
+	d.mu.Lock()
+	d.sessions[old.ID] = old
+	d.mu.Unlock()
+
+	d.replaceSessionWithCold(old, tr)
+
+	d.mu.RLock()
+	_, alive := d.sessions[tr.SessionID()]
+	_, oldAlive := d.sessions[old.ID]
+	d.mu.RUnlock()
+	a.False(alive)
+	a.False(oldAlive)
+	_, _, err := tr.ReceivePayload()
+	a.Error(err)
+}

@@ -708,10 +708,21 @@ func (d *Daemon) replaceSessionWithCold(
 	}
 
 	d.mu.Lock()
+	old.mu.Lock()
+	stopped := old.reconnectFn == nil || old.reconnectCtx == nil ||
+		old.reconnectCtx.Err() != nil
+	if stopped {
+		old.mu.Unlock()
+		d.mu.Unlock()
+		_ = t.Close()
+		return
+	}
 	d.sessions[newID] = old
+	started := d.sessionInfoLocked(old)
+	old.mu.Unlock()
 	d.mu.Unlock()
 
-	d.emit(EvtSessionStarted, "", d.sessionInfo(old))
+	d.emit(EvtSessionStarted, "", started)
 	d.addLogEntry("INFO", "New session after cold reconnect: "+newID)
 	go d.keepAliveLoop(old, keepAliveDone)
 }
