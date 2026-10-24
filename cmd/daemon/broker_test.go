@@ -801,7 +801,10 @@ func TestP2PTokensAreCapped(t *testing.T) {
 	}
 	a.Len(d.GetP2PTokens(), maxP2PTokens)
 	// distinct counts the tokens the broker got a REGISTER for; a
-	// refresh only sends those again.
+	// refresh only sends those again. The response is emitted once
+	// WriteToUDP returns, which is before this broker reads, so wait
+	// for the reads. A count taken earlier is short, and the late
+	// REGISTER then looks like a token past the cap.
 	distinct := func() int {
 		var seen []string
 		for _, r := range broker.registrations() {
@@ -811,7 +814,23 @@ func TestP2PTokensAreCapped(t *testing.T) {
 		}
 		return len(seen)
 	}
-	registered := distinct()
+	deadline := time.After(testEventTimeout)
+	var registered int
+	for {
+		registered = distinct()
+		if registered >= maxP2PTokens {
+			break
+		}
+		select {
+		case <-broker.changed:
+		case <-deadline:
+			t.Fatalf(
+				"broker registered %d of %d tokens",
+				registered, maxP2PTokens,
+			)
+		}
+	}
+	a.Equal(maxP2PTokens, registered)
 
 	evt = generate()
 	a.Equal(EvtError, evt.Evt)
