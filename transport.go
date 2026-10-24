@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -95,6 +96,7 @@ type Transport struct {
 	resumed      bool
 	resHeld      bool
 	resRelease   sync.Once
+	resDropped   atomic.Bool
 }
 
 func newTransport(
@@ -404,7 +406,19 @@ func (t *Transport) releaseResumption() {
 	}
 	t.resRelease.Do(func() {
 		t.storage.ReleaseResumption(t.sessionID)
+		t.resDropped.Store(true)
 	})
+}
+
+// dropIfUnreleased closes a transport whose handler returned without
+// Close, CloseAbort, or terminate. The hold would otherwise pin the row
+// past idle and max age. A release that already ran is left alone, so a
+// Close that deleted the row is not followed by a touch.
+func (t *Transport) dropIfUnreleased() {
+	if t == nil || !t.resHeld || t.resDropped.Load() {
+		return
+	}
+	_ = t.CloseAbort()
 }
 
 // terminated returns the terminal error of t, or nil while t is usable.

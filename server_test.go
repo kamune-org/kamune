@@ -1514,6 +1514,63 @@ func TestPendingCapsByTransport(t *testing.T) {
 	}
 }
 
+func TestHandlerReturnReleasesResumptionHold(t *testing.T) {
+	a := require.New(t)
+	serverStore := openStore(t)
+	clientStore := openStore(t)
+	verifier := func(
+		context.Context, *storage.Storage, VerifyRequest,
+	) error {
+		return nil
+	}
+	entered := make(chan struct{})
+	finished := make(chan struct{})
+	server, err := NewServer(
+		"",
+		func(*Transport) error {
+			close(entered)
+			return nil
+		},
+		serverStore,
+		verifier,
+		ServeWithListener(newTestListener(net.ErrClosed)),
+	)
+	a.NoError(err)
+	left, right := net.Pipe()
+	go func() {
+		_ = server.serve(NewConn(right))
+		close(finished)
+	}()
+	dialer, err := NewDialer(
+		"pipe", clientStore, verifier, DialWithFunc(
+			func(string) (Conn, error) { return NewConn(left), nil },
+		),
+	)
+	a.NoError(err)
+	tr, err := dialer.Dial()
+	a.NoError(err)
+	t.Cleanup(func() { _ = tr.CloseAbort() })
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler did not run")
+	}
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not return")
+	}
+	sid := tr.SessionID()
+	_, err = serverStore.GetResumption(sid, storage.ResumeRoleResponder)
+	a.NoError(err)
+	_, err = serverStore.SweepSessions(
+		time.Now().Add(8*24*time.Hour), time.Hour, 7*24*time.Hour,
+	)
+	a.NoError(err)
+	_, err = serverStore.GetResumption(sid, storage.ResumeRoleResponder)
+	a.ErrorIs(err, storage.ErrNoResumption)
+}
+
 // kcpPush returns a KCP segment that pushes one byte on conversation conv.
 // It is all a kcp-go listener needs to accept a new session from the
 // datagram's source address.

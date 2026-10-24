@@ -564,8 +564,10 @@ func (s *Server) serveConn(cn Conn, p *pendingConn) (err error) {
 		_ = t.Close()
 		return ErrClosedServer
 	}
-	if err := s.handlerFunc(t); err != nil {
-		return fmt.Errorf("handler: %w", err)
+	herr := s.handlerFunc(t)
+	t.dropIfUnreleased()
+	if herr != nil {
+		return fmt.Errorf("handler: %w", herr)
 	}
 	return nil
 }
