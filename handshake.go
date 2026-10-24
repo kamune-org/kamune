@@ -643,8 +643,14 @@ func decideResume(
 		return d, nil
 	}
 	if _, err = in.store.FindPeer(keyI); err != nil {
+		// §15.3 continues cold whenever resumed is false, including
+		// when the peer row cannot be read.
 		if !storage.IsPeerAbsent(err) {
-			return d, err
+			slog.Warn(
+				"peer lookup failed",
+				slog.String("session_id", sid),
+				slog.Any("error", err),
+			)
 		}
 		return d, nil
 	}

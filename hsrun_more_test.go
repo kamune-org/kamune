@@ -1123,7 +1123,7 @@ func TestDecideResume_PeerLookupError(t *testing.T) {
 	d, err := decideResume(responderInput{
 		store: store, resumeEnabled: true,
 	}, sid, nil, ia.MarshalPublicKey(), nil)
-	a.ErrorIs(err, disk)
+	a.NoError(err)
 	a.False(d.resumed)
 	_, err = store.GetResumption(sid, storage.ResumeRoleResponder)
 	a.NoError(err)
@@ -1161,7 +1161,7 @@ func TestResume_ResponderReadErrorContinuesCold(t *testing.T) {
 	a.False(gr.tr.Resumed())
 }
 
-func TestResume_ResponderPeerLookupKeepsOffer(t *testing.T) {
+func TestResume_ResponderPeerLookupContinuesCold(t *testing.T) {
 	a := require.New(t)
 	store, wrap := openFailStore(t)
 	it, rt, ia, ra := coldPair(t, store, nil)
@@ -1170,7 +1170,7 @@ func TestResume_ResponderPeerLookupKeepsOffer(t *testing.T) {
 	remember(t, store, ra)
 	a.NoError(it.CloseAbort())
 	a.NoError(rt.CloseAbort())
-	before, err := store.GetResumption(sid, storage.ResumeRoleInitiator)
+	before, err := store.GetResumption(sid, storage.ResumeRoleResponder)
 	a.NoError(err)
 	ic, rc := pipeConns(t)
 	wrote := make(chan struct{})
@@ -1190,12 +1190,17 @@ func TestResume_ResponderPeerLookupKeepsOffer(t *testing.T) {
 		verify: acceptVerify(nil, nil),
 	})
 	gi, gr := <-iCh, <-rCh
-	a.Error(gi.err)
-	a.ErrorIs(gr.err, disk)
-	kept, err := store.GetResumption(sid, storage.ResumeRoleInitiator)
+	a.NoError(gi.err)
+	a.NoError(gr.err)
+	a.False(gi.tr.Resumed())
+	a.False(gr.tr.Resumed())
+	a.NotEqual(sid, gi.tr.SessionID())
+	a.Equal(gi.tr.SessionID(), gr.tr.SessionID())
+	_, err = store.GetResumption(sid, storage.ResumeRoleInitiator)
+	a.ErrorIs(err, storage.ErrNoResumption)
+	kept, err := store.GetResumption(sid, storage.ResumeRoleResponder)
 	a.NoError(err)
 	a.Equal(before.Generation, kept.Generation)
-	a.Equal(before.Current, kept.Current)
 }
 
 func TestConfirm_BadMACBeforeStatus(t *testing.T) {
