@@ -1,47 +1,121 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 900" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<svg class="kamune-diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 900" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<style>
+  .kamune-diagram {
+    color-scheme: dark;
+    --km-canvas-0: var(--km-canvas-0-override, var(--km-canvas-0-auto, #0d1117));
+    --km-canvas-1: var(--km-canvas-1-override, var(--km-canvas-1-auto, #161b22));
+    --km-card: var(--km-card-override, var(--km-card-auto, #0d1117));
+    --km-band: var(--km-band-override, var(--km-band-auto, #161b22));
+    --km-inset: var(--km-inset-override, var(--km-inset-auto, #21262d));
+    --km-border: var(--km-border-override, var(--km-border-auto, #30363d));
+    --km-shadow: var(--km-shadow-override, var(--km-shadow-auto, #000));
+    --km-title: var(--km-title-override, var(--km-title-auto, #e6edf3));
+    --km-body: var(--km-body-override, var(--km-body-auto, #c9d1d9));
+    --km-muted: var(--km-muted-override, var(--km-muted-auto, #8b949e));
+    --km-faint: var(--km-faint-override, var(--km-faint-auto, #6e7681));
+    --km-dim: var(--km-dim-override, var(--km-dim-auto, #484f58));
+    --km-info: var(--km-info-override, var(--km-info-auto, #79c0ff));
+    --km-orange: var(--km-orange-override, var(--km-orange-auto, #f0883e));
+    --km-orange-2: var(--km-orange-2-override, var(--km-orange-2-auto, #da6d25));
+    --km-blue: var(--km-blue-override, var(--km-blue-auto, #58a6ff));
+    --km-blue-2: var(--km-blue-2-override, var(--km-blue-2-auto, #1f6feb));
+    --km-purple: var(--km-purple-override, var(--km-purple-auto, #d2a8ff));
+    --km-purple-2: var(--km-purple-2-override, var(--km-purple-2-auto, #8b5cf6));
+    --km-purple-3: var(--km-purple-3-override, var(--km-purple-3-auto, #a371f7));
+    --km-green: var(--km-green-override, var(--km-green-auto, #7ee787));
+    --km-green-2: var(--km-green-2-override, var(--km-green-2-auto, #238636));
+    --km-green-3: var(--km-green-3-override, var(--km-green-3-auto, #3fb950));
+    --km-yellow: var(--km-yellow-override, var(--km-yellow-auto, #e3b341));
+    --km-yellow-2: var(--km-yellow-2-override, var(--km-yellow-2-auto, #9e6a03));
+    --km-yellow-3: var(--km-yellow-3-override, var(--km-yellow-3-auto, #d29922));
+    --km-red: var(--km-red-override, var(--km-red-auto, #f85149));
+    --km-red-2: var(--km-red-2-override, var(--km-red-2-auto, #da3633));
+    --km-pink: var(--km-pink-override, var(--km-pink-auto, #f778ba));
+    --km-pink-2: var(--km-pink-2-override, var(--km-pink-2-auto, #db61a2));
+    --km-teal: var(--km-teal-override, var(--km-teal-auto, #56d4dd));
+    --km-teal-2: var(--km-teal-2-override, var(--km-teal-2-auto, #1b7c83));
+  }
+  @media (prefers-color-scheme: light) {
+    .kamune-diagram {
+      color-scheme: light;
+      --km-canvas-0-auto: #f6f8fa;
+      --km-canvas-1-auto: #ffffff;
+      --km-card-auto: #ffffff;
+      --km-band-auto: #eef2f6;
+      --km-inset-auto: #f6f8fa;
+      --km-border-auto: #d0d7de;
+      --km-shadow-auto: #1f2328;
+      --km-title-auto: #1f2328;
+      --km-body-auto: #59636e;
+      --km-muted-auto: #656d76;
+      --km-faint-auto: #6e7781;
+      --km-dim-auto: #818b98;
+      --km-info-auto: #0969da;
+      --km-orange-auto: #bc4c00;
+      --km-orange-2-auto: #9a3e00;
+      --km-blue-auto: #0969da;
+      --km-blue-2-auto: #0550ae;
+      --km-purple-auto: #8250df;
+      --km-purple-2-auto: #6639ba;
+      --km-purple-3-auto: #8250df;
+      --km-green-auto: #1a7f37;
+      --km-green-2-auto: #116329;
+      --km-green-3-auto: #1a7f37;
+      --km-yellow-auto: #9a6700;
+      --km-yellow-2-auto: #7d4e00;
+      --km-yellow-3-auto: #9a6700;
+      --km-red-auto: #d1242f;
+      --km-red-2-auto: #a40e26;
+      --km-pink-auto: #bf3989;
+      --km-pink-2-auto: #99286e;
+      --km-teal-auto: #0e7c86;
+      --km-teal-2-auto: #115e67;
+    }
+  }
+</style>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
+      <stop offset="0%" stop-color="var(--km-canvas-0, #0d1117)"/>
+      <stop offset="100%" stop-color="var(--km-canvas-1, #161b22)"/>
     </linearGradient>
     <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#d2a8ff"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
+      <stop offset="0%" stop-color="var(--km-purple, #d2a8ff)"/>
+      <stop offset="100%" stop-color="var(--km-purple-2, #8b5cf6)"/>
     </linearGradient>
     <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#58a6ff"/>
-      <stop offset="100%" stop-color="#1f6feb"/>
+      <stop offset="0%" stop-color="var(--km-blue, #58a6ff)"/>
+      <stop offset="100%" stop-color="var(--km-blue-2, #1f6feb)"/>
     </linearGradient>
     <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#7ee787"/>
-      <stop offset="100%" stop-color="#238636"/>
+      <stop offset="0%" stop-color="var(--km-green, #7ee787)"/>
+      <stop offset="100%" stop-color="var(--km-green-2, #238636)"/>
     </linearGradient>
     <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f0883e"/>
-      <stop offset="100%" stop-color="#da6d25"/>
+      <stop offset="0%" stop-color="var(--km-orange, #f0883e)"/>
+      <stop offset="100%" stop-color="var(--km-orange-2, #da6d25)"/>
     </linearGradient>
     <linearGradient id="gPink" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f778ba"/>
-      <stop offset="100%" stop-color="#db61a2"/>
+      <stop offset="0%" stop-color="var(--km-pink, #f778ba)"/>
+      <stop offset="100%" stop-color="var(--km-pink-2, #db61a2)"/>
     </linearGradient>
     <linearGradient id="gTeal" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#56d4dd"/>
-      <stop offset="100%" stop-color="#1b7c83"/>
+      <stop offset="0%" stop-color="var(--km-teal, #56d4dd)"/>
+      <stop offset="100%" stop-color="var(--km-teal-2, #1b7c83)"/>
     </linearGradient>
     <linearGradient id="gYellow" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#e3b341"/>
-      <stop offset="100%" stop-color="#d29922"/>
+      <stop offset="0%" stop-color="var(--km-yellow, #e3b341)"/>
+      <stop offset="100%" stop-color="var(--km-yellow-3, #d29922)"/>
     </linearGradient>
     <linearGradient id="gRed" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f85149"/>
-      <stop offset="100%" stop-color="#da3633"/>
+      <stop offset="0%" stop-color="var(--km-red, #f85149)"/>
+      <stop offset="100%" stop-color="var(--km-red-2, #da3633)"/>
     </linearGradient>
     <linearGradient id="gGray" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#8b949e"/>
-      <stop offset="100%" stop-color="#484f58"/>
+      <stop offset="0%" stop-color="var(--km-muted, #8b949e)"/>
+      <stop offset="100%" stop-color="var(--km-dim, #484f58)"/>
     </linearGradient>
     <filter id="shadow">
-      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.5"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="var(--km-shadow, #000)" flood-opacity="0.5"/>
     </filter>
     <filter id="glow">
       <feGaussianBlur stdDeviation="3" result="blur"/>
@@ -51,267 +125,267 @@
       </feMerge>
     </filter>
     <marker id="arrowGray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 8 3, 0 6" fill="#8b949e"/>
+      <polygon points="0 0, 8 3, 0 6" fill="var(--km-muted, #8b949e)"/>
     </marker>
     <marker id="arrowPurple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 8 3, 0 6" fill="#d2a8ff"/>
+      <polygon points="0 0, 8 3, 0 6" fill="var(--km-purple, #d2a8ff)"/>
     </marker>
     <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
+      <polygon points="0 0, 8 3, 0 6" fill="var(--km-blue, #58a6ff)"/>
     </marker>
     <marker id="arrowOrange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 8 3, 0 6" fill="#f0883e"/>
+      <polygon points="0 0, 8 3, 0 6" fill="var(--km-orange, #f0883e)"/>
     </marker>
     <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 8 3, 0 6" fill="#7ee787"/>
+      <polygon points="0 0, 8 3, 0 6" fill="var(--km-green, #7ee787)"/>
     </marker>
     <marker id="arrowTeal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 8 3, 0 6" fill="#56d4dd"/>
+      <polygon points="0 0, 8 3, 0 6" fill="var(--km-teal, #56d4dd)"/>
     </marker>
     <marker id="arrowDownGray" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 7 3.5, 0 7" fill="#8b949e"/>
+      <polygon points="0 0, 7 3.5, 0 7" fill="var(--km-muted, #8b949e)"/>
     </marker>
     <marker id="arrowDownPurple" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 7 3.5, 0 7" fill="#d2a8ff"/>
+      <polygon points="0 0, 7 3.5, 0 7" fill="var(--km-purple, #d2a8ff)"/>
     </marker>
     <marker id="arrowDownBlue" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 7 3.5, 0 7" fill="#58a6ff"/>
+      <polygon points="0 0, 7 3.5, 0 7" fill="var(--km-blue, #58a6ff)"/>
     </marker>
     <marker id="arrowDownOrange" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 7 3.5, 0 7" fill="#f0883e"/>
+      <polygon points="0 0, 7 3.5, 0 7" fill="var(--km-orange, #f0883e)"/>
     </marker>
     <marker id="arrowDownGreen" markerWidth="7" markerHeight="10" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 7 3.5, 0 7" fill="#7ee787"/>
+      <polygon points="0 0, 7 3.5, 0 7" fill="var(--km-green, #7ee787)"/>
     </marker>
     <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-      <line x1="0" y1="0" x2="0" y2="6" stroke="#30363d" stroke-width="0.8"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="var(--km-border, #30363d)" stroke-width="0.8"/>
     </pattern>
   </defs>
 
   <!-- Background -->
   <rect width="900" height="900" rx="12" fill="url(#bg)"/>
-  <rect x="1" y="1" width="898" height="898" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+  <rect x="1" y="1" width="898" height="898" rx="11" fill="none" stroke="var(--km-border, #30363d)" stroke-width="1"/>
 
   <!-- Title -->
-  <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.5">Storage Key Hierarchy</text>
-  <text x="450" y="60" text-anchor="middle" fill="#8b949e" font-size="11">Passphrase-derived encryption for BoltDB at-rest protection</text>
+  <text x="450" y="38" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="20" font-weight="700" letter-spacing="0.5">Storage Key Hierarchy</text>
+  <text x="450" y="60" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="11">Passphrase-derived encryption for BoltDB at-rest protection</text>
 
   <!-- ══════════════════════════════════════════════════════════════ -->
   <!-- SECTION 1: Key Derivation Chain                               -->
   <!-- ══════════════════════════════════════════════════════════════ -->
-  <rect x="30" y="76" width="840" height="340" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="1.2" filter="url(#shadow)"/>
+  <rect x="30" y="76" width="840" height="340" rx="12" fill="var(--km-card, #0d1117)" stroke="var(--km-border, #30363d)" stroke-width="1.2" filter="url(#shadow)"/>
   <!-- Header -->
   <rect x="30" y="76" width="840" height="30" rx="12" fill="url(#gPurple)" opacity="0.1"/>
   <rect x="30" y="96" width="840" height="10" fill="url(#gPurple)" opacity="0.1"/>
   <circle cx="52" cy="91" r="5.5" fill="url(#gPurple)"/>
-  <text x="68" y="96" fill="#d2a8ff" font-size="13" font-weight="700" letter-spacing="1">KEY DERIVATION CHAIN</text>
-  <text x="855" y="96" text-anchor="end" fill="#8b949e" font-size="10">Passphrase → KEK → DEK</text>
+  <text x="68" y="96" fill="var(--km-purple, #d2a8ff)" font-size="13" font-weight="700" letter-spacing="1">KEY DERIVATION CHAIN</text>
+  <text x="855" y="96" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="10">Passphrase → KEK → DEK</text>
 
   <!-- ════════ Step 1: Passphrase ════════ -->
-  <rect x="345" y="118" width="210" height="52" rx="10" fill="#21262d" stroke="#f0883e" stroke-width="2" filter="url(#shadow)"/>
-  <rect x="343" y="116" width="214" height="56" rx="12" fill="none" stroke="#f0883e" stroke-width="1" opacity="0.2" filter="url(#glow)"/>
+  <rect x="345" y="118" width="210" height="52" rx="10" fill="var(--km-inset, #21262d)" stroke="var(--km-orange, #f0883e)" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="343" y="116" width="214" height="56" rx="12" fill="none" stroke="var(--km-orange, #f0883e)" stroke-width="1" opacity="0.2" filter="url(#glow)"/>
   <rect x="345" y="118" width="210" height="5" rx="3" fill="url(#gOrange)"/>
-  <text x="450" y="142" text-anchor="middle" fill="#f0883e" font-size="14" font-weight="700">User Passphrase</text>
-  <text x="450" y="160" text-anchor="middle" fill="#8b949e" font-size="9">Prompt or KAMUNE_DB_PASSPHRASE</text>
+  <text x="450" y="142" text-anchor="middle" fill="var(--km-orange, #f0883e)" font-size="14" font-weight="700">User Passphrase</text>
+  <text x="450" y="160" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">Prompt or KAMUNE_DB_PASSPHRASE</text>
 
   <!-- deriveSalt label (left of passphrase) -->
-  <rect x="100" y="126" width="120" height="36" rx="7" fill="#21262d" stroke="#56d4dd" stroke-width="1"/>
+  <rect x="100" y="126" width="120" height="36" rx="7" fill="var(--km-inset, #21262d)" stroke="var(--km-teal, #56d4dd)" stroke-width="1"/>
   <rect x="100" y="126" width="120" height="3" rx="2" fill="url(#gTeal)"/>
-  <text x="160" y="146" text-anchor="middle" fill="#56d4dd" font-size="10" font-weight="600">deriveSalt</text>
-  <text x="160" y="158" text-anchor="middle" fill="#6e7681" font-size="8">32 random bytes</text>
+  <text x="160" y="146" text-anchor="middle" fill="var(--km-teal, #56d4dd)" font-size="10" font-weight="600">deriveSalt</text>
+  <text x="160" y="158" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="8">32 random bytes</text>
 
   <!-- Arrow: deriveSalt → Argon2id -->
-  <path d="M 220 144 C 260 144, 280 192, 330 192" fill="none" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
-  <text x="268" y="165" fill="#56d4dd" font-size="7.5" font-weight="600">salt</text>
+  <path d="M 220 144 C 260 144, 280 192, 330 192" fill="none" stroke="var(--km-teal, #56d4dd)" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
+  <text x="268" y="165" fill="var(--km-teal, #56d4dd)" font-size="7.5" font-weight="600">salt</text>
 
   <!-- Arrow: Passphrase → Argon2id -->
-  <line x1="450" y1="172" x2="450" y2="182" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowDownOrange)"/>
-  <text x="462" y="180" fill="#f0883e" font-size="7.5" font-weight="600">password</text>
+  <line x1="450" y1="172" x2="450" y2="182" stroke="var(--km-orange, #f0883e)" stroke-width="1.5" marker-end="url(#arrowDownOrange)"/>
+  <text x="462" y="180" fill="var(--km-orange, #f0883e)" font-size="7.5" font-weight="600">password</text>
 
   <!-- Argon2id Step 1 -->
-  <rect x="335" y="188" width="230" height="36" rx="8" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="335" y="188" width="230" height="36" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue, #58a6ff)" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="335" y="188" width="230" height="4" rx="2" fill="url(#gBlue)"/>
-  <text x="450" y="208" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">Argon2id</text>
-  <text x="450" y="220" text-anchor="middle" fill="#8b949e" font-size="8" font-family="'SF Mono','Fira Code',monospace">t=3, m=64 MiB, p=4, 32 bytes</text>
+  <text x="450" y="208" text-anchor="middle" fill="var(--km-blue, #58a6ff)" font-size="11" font-weight="700">Argon2id</text>
+  <text x="450" y="220" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8" font-family="'SF Mono','Fira Code',monospace">t=3, m=64 MiB, p=4, 32 bytes</text>
 
   <!-- Step 1 output label -->
-  <text x="385" y="238" fill="#484f58" font-size="8">Step 1</text>
+  <text x="385" y="238" fill="var(--km-dim, #484f58)" font-size="8">Step 1</text>
 
   <!-- Arrow down to derivedPass -->
-  <line x1="450" y1="226" x2="450" y2="246" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowDownGray)"/>
+  <line x1="450" y1="226" x2="450" y2="246" stroke="var(--km-muted, #8b949e)" stroke-width="1.2" marker-end="url(#arrowDownGray)"/>
 
   <!-- derivedPass (intermediate) -->
-  <rect x="375" y="250" width="150" height="30" rx="7" fill="#21262d" stroke="#d2a8ff" stroke-width="1"/>
+  <rect x="375" y="250" width="150" height="30" rx="7" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)" stroke-width="1"/>
   <rect x="375" y="250" width="150" height="3" rx="2" fill="url(#gPurple)"/>
-  <text x="450" y="270" text-anchor="middle" fill="#d2a8ff" font-size="10" font-weight="600">derivedPass (32B)</text>
+  <text x="450" y="270" text-anchor="middle" fill="var(--km-purple, #d2a8ff)" font-size="10" font-weight="600">derivedPass (32B)</text>
 
   <!-- wrappedSalt label (left) -->
-  <rect x="100" y="248" width="120" height="36" rx="7" fill="#21262d" stroke="#56d4dd" stroke-width="1"/>
+  <rect x="100" y="248" width="120" height="36" rx="7" fill="var(--km-inset, #21262d)" stroke="var(--km-teal, #56d4dd)" stroke-width="1"/>
   <rect x="100" y="248" width="120" height="3" rx="2" fill="url(#gTeal)"/>
-  <text x="160" y="268" text-anchor="middle" fill="#56d4dd" font-size="10" font-weight="600">wrappedSalt</text>
-  <text x="160" y="280" text-anchor="middle" fill="#6e7681" font-size="8">32 random bytes</text>
+  <text x="160" y="268" text-anchor="middle" fill="var(--km-teal, #56d4dd)" font-size="10" font-weight="600">wrappedSalt</text>
+  <text x="160" y="280" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="8">32 random bytes</text>
 
   <!-- Arrow: wrappedSalt → Enigma KEK -->
-  <path d="M 220 266 C 260 266, 280 302, 330 302" fill="none" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
-  <text x="268" y="282" fill="#56d4dd" font-size="7.5" font-weight="600">salt</text>
+  <path d="M 220 266 C 260 266, 280 302, 330 302" fill="none" stroke="var(--km-teal, #56d4dd)" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
+  <text x="268" y="282" fill="var(--km-teal, #56d4dd)" font-size="7.5" font-weight="600">salt</text>
 
   <!-- Arrow down to Enigma KEK -->
-  <line x1="450" y1="282" x2="450" y2="292" stroke="#d2a8ff" stroke-width="1.2" marker-end="url(#arrowDownPurple)"/>
+  <line x1="450" y1="282" x2="450" y2="292" stroke="var(--km-purple, #d2a8ff)" stroke-width="1.2" marker-end="url(#arrowDownPurple)"/>
 
   <!-- Enigma KEK cipher creation -->
-  <rect x="335" y="296" width="230" height="36" rx="8" fill="#0d1117" stroke="#d2a8ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="335" y="296" width="230" height="36" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-purple, #d2a8ff)" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="335" y="296" width="230" height="4" rx="2" fill="url(#gPurple)"/>
-  <text x="450" y="316" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">Enigma (KEK Cipher)</text>
-  <text x="450" y="328" text-anchor="middle" fill="#8b949e" font-size="8" font-family="'SF Mono','Fira Code',monospace">info: "key-encryption-key"</text>
+  <text x="450" y="316" text-anchor="middle" fill="var(--km-purple, #d2a8ff)" font-size="11" font-weight="700">Enigma (KEK Cipher)</text>
+  <text x="450" y="328" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8" font-family="'SF Mono','Fira Code',monospace">info: "key-encryption-key"</text>
 
   <!-- Step 2 output label -->
-  <text x="385" y="346" fill="#484f58" font-size="8">Step 2</text>
+  <text x="385" y="346" fill="var(--km-dim, #484f58)" font-size="8">Step 2</text>
 
   <!-- Arrow down from KEK -->
-  <line x1="450" y1="334" x2="450" y2="346" stroke="#d2a8ff" stroke-width="1.2" marker-end="url(#arrowDownPurple)"/>
+  <line x1="450" y1="334" x2="450" y2="346" stroke="var(--km-purple, #d2a8ff)" stroke-width="1.2" marker-end="url(#arrowDownPurple)"/>
 
   <!-- KEK operation: Decrypt wrapped-key -->
-  <rect x="340" y="350" width="220" height="50" rx="8" fill="#21262d" stroke="#e3b341" stroke-width="1.5"/>
+  <rect x="340" y="350" width="220" height="50" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-yellow, #e3b341)" stroke-width="1.5"/>
   <rect x="340" y="350" width="220" height="4" rx="2" fill="url(#gYellow)"/>
-  <text x="450" y="369" text-anchor="middle" fill="#e3b341" font-size="10" font-weight="700">KEK.Decrypt(wrapped-key)</text>
-  <text x="450" y="382" text-anchor="middle" fill="#8b949e" font-size="8">Unwraps the random 32-byte master secret</text>
-  <text x="450" y="393" text-anchor="middle" fill="#6e7681" font-size="8">wrapped-key is stored in DB as ciphertext</text>
+  <text x="450" y="369" text-anchor="middle" fill="var(--km-yellow, #e3b341)" font-size="10" font-weight="700">KEK.Decrypt(wrapped-key)</text>
+  <text x="450" y="382" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">Unwraps the random 32-byte master secret</text>
+  <text x="450" y="393" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="8">wrapped-key is stored in DB as ciphertext</text>
 
   <!-- Arrow from wrapped-key storage to KEK -->
-  <rect x="660" y="340" width="160" height="50" rx="7" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+  <rect x="660" y="340" width="160" height="50" rx="7" fill="var(--km-inset, #21262d)" stroke="var(--km-border, #30363d)" stroke-width="1"/>
   <rect x="660" y="340" width="160" height="50" rx="7" fill="url(#hatch)" opacity="0.2"/>
-  <rect x="660" y="340" width="160" height="3" rx="2" fill="#484f58" opacity="0.5"/>
-  <text x="740" y="362" text-anchor="middle" fill="#8b949e" font-size="10" font-weight="600">wrapped-key</text>
-  <text x="740" y="376" text-anchor="middle" fill="#6e7681" font-size="8">Stored in the default bucket</text>
-  <text x="740" y="388" text-anchor="middle" fill="#6e7681" font-size="8">Encrypted by KEK</text>
+  <rect x="660" y="340" width="160" height="3" rx="2" fill="var(--km-dim, #484f58)" opacity="0.5"/>
+  <text x="740" y="362" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="10" font-weight="600">wrapped-key</text>
+  <text x="740" y="376" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="8">Stored in the default bucket</text>
+  <text x="740" y="388" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="8">Encrypted by KEK</text>
 
   <!-- Arrow from DB to KEK operation -->
-  <line x1="660" y1="365" x2="562" y2="365" stroke="#8b949e" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrowGray)"/>
-  <text x="610" y="360" fill="#6e7681" font-size="7.5">input</text>
+  <line x1="660" y1="365" x2="562" y2="365" stroke="var(--km-muted, #8b949e)" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrowGray)"/>
+  <text x="610" y="360" fill="var(--km-faint, #6e7681)" font-size="7.5">input</text>
 
   <!-- ══════════════════════════════════════════════════════════════ -->
   <!-- SECTION 2: DEK Derivation                                     -->
   <!-- ══════════════════════════════════════════════════════════════ -->
 
   <!-- Arrow down from KEK decrypt to secret -->
-  <line x1="450" y1="402" x2="450" y2="424" stroke="#e3b341" stroke-width="1.2" stroke-dasharray="4,3"/>
+  <line x1="450" y1="402" x2="450" y2="424" stroke="var(--km-yellow, #e3b341)" stroke-width="1.2" stroke-dasharray="4,3"/>
 
   <!-- Secret (unwrapped) -->
-  <rect x="355" y="428" width="190" height="44" rx="10" fill="#0d1117" stroke="#7ee787" stroke-width="2" filter="url(#shadow)"/>
-  <rect x="353" y="426" width="194" height="48" rx="12" fill="none" stroke="#7ee787" stroke-width="1" opacity="0.2" filter="url(#glow)"/>
+  <rect x="355" y="428" width="190" height="44" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="353" y="426" width="194" height="48" rx="12" fill="none" stroke="var(--km-green, #7ee787)" stroke-width="1" opacity="0.2" filter="url(#glow)"/>
   <rect x="355" y="428" width="190" height="5" rx="3" fill="url(#gGreen)"/>
-  <text x="450" y="452" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="700">Master Secret</text>
-  <text x="450" y="466" text-anchor="middle" fill="#8b949e" font-size="9">32 random bytes</text>
+  <text x="450" y="452" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="13" font-weight="700">Master Secret</text>
+  <text x="450" y="466" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">32 random bytes</text>
 
   <!-- secretSalt label (left) -->
-  <rect x="100" y="438" width="120" height="36" rx="7" fill="#21262d" stroke="#56d4dd" stroke-width="1"/>
+  <rect x="100" y="438" width="120" height="36" rx="7" fill="var(--km-inset, #21262d)" stroke="var(--km-teal, #56d4dd)" stroke-width="1"/>
   <rect x="100" y="438" width="120" height="3" rx="2" fill="url(#gTeal)"/>
-  <text x="160" y="458" text-anchor="middle" fill="#56d4dd" font-size="10" font-weight="600">secretSalt</text>
-  <text x="160" y="470" text-anchor="middle" fill="#6e7681" font-size="8">32 random bytes</text>
+  <text x="160" y="458" text-anchor="middle" fill="var(--km-teal, #56d4dd)" font-size="10" font-weight="600">secretSalt</text>
+  <text x="160" y="470" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="8">32 random bytes</text>
 
   <!-- Arrow: secretSalt → Enigma DEK -->
-  <path d="M 220 456 C 260 456, 280 498, 330 498" fill="none" stroke="#56d4dd" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
-  <text x="268" y="475" fill="#56d4dd" font-size="7.5" font-weight="600">salt</text>
+  <path d="M 220 456 C 260 456, 280 498, 330 498" fill="none" stroke="var(--km-teal, #56d4dd)" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrowTeal)"/>
+  <text x="268" y="475" fill="var(--km-teal, #56d4dd)" font-size="7.5" font-weight="600">salt</text>
 
   <!-- Arrow down from secret to DEK -->
-  <line x1="450" y1="474" x2="450" y2="488" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrowDownGreen)"/>
-  <text x="462" y="485" fill="#7ee787" font-size="7.5" font-weight="600">IKM</text>
+  <line x1="450" y1="474" x2="450" y2="488" stroke="var(--km-green, #7ee787)" stroke-width="1.5" marker-end="url(#arrowDownGreen)"/>
+  <text x="462" y="485" fill="var(--km-green, #7ee787)" font-size="7.5" font-weight="600">IKM</text>
 
   <!-- Enigma DEK cipher creation -->
-  <rect x="335" y="492" width="230" height="36" rx="8" fill="#0d1117" stroke="#7ee787" stroke-width="2" filter="url(#shadow)"/>
-  <rect x="333" y="490" width="234" height="40" rx="10" fill="none" stroke="#7ee787" stroke-width="1" opacity="0.15" filter="url(#glow)"/>
+  <rect x="335" y="492" width="230" height="36" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="333" y="490" width="234" height="40" rx="10" fill="none" stroke="var(--km-green, #7ee787)" stroke-width="1" opacity="0.15" filter="url(#glow)"/>
   <rect x="335" y="492" width="230" height="4" rx="2" fill="url(#gGreen)"/>
-  <text x="450" y="512" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">Enigma (DEK Cipher)</text>
-  <text x="450" y="524" text-anchor="middle" fill="#8b949e" font-size="8" font-family="'SF Mono','Fira Code',monospace">info: "data-encryption-key"</text>
+  <text x="450" y="512" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">Enigma (DEK Cipher)</text>
+  <text x="450" y="524" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8" font-family="'SF Mono','Fira Code',monospace">info: "data-encryption-key"</text>
 
   <!-- Step 3 output label -->
-  <text x="385" y="544" fill="#484f58" font-size="8">Step 3</text>
+  <text x="385" y="544" fill="var(--km-dim, #484f58)" font-size="8">Step 3</text>
 
   <!-- ══════════════════════════════════════════════════════════════ -->
   <!-- SECTION 3: What the DEK encrypts — Bucket Map                 -->
   <!-- ══════════════════════════════════════════════════════════════ -->
 
   <!-- Fan-out arrows from DEK to buckets -->
-  <line x1="450" y1="530" x2="450" y2="558" stroke="#7ee787" stroke-width="1.5"/>
+  <line x1="450" y1="530" x2="450" y2="558" stroke="var(--km-green, #7ee787)" stroke-width="1.5"/>
 
   <!-- Horizontal distribution line -->
-  <line x1="135" y1="558" x2="765" y2="558" stroke="#7ee787" stroke-width="1.5"/>
+  <line x1="135" y1="558" x2="765" y2="558" stroke="var(--km-green, #7ee787)" stroke-width="1.5"/>
 
   <!-- Vertical drops to each bucket -->
-  <line x1="135" y1="558" x2="135" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
-  <line x1="345" y1="558" x2="345" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
-  <line x1="555" y1="558" x2="555" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
-  <line x1="765" y1="558" x2="765" y2="580" stroke="#7ee787" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="135" y1="558" x2="135" y2="580" stroke="var(--km-green, #7ee787)" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="345" y1="558" x2="345" y2="580" stroke="var(--km-green, #7ee787)" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="555" y1="558" x2="555" y2="580" stroke="var(--km-green, #7ee787)" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
+  <line x1="765" y1="558" x2="765" y2="580" stroke="var(--km-green, #7ee787)" stroke-width="1.2" marker-end="url(#arrowDownGreen)"/>
 
   <!-- "encrypts" label -->
-  <rect x="410" y="546" width="80" height="16" rx="4" fill="#0d1117"/>
-  <text x="450" y="558" text-anchor="middle" fill="#7ee787" font-size="8.5" font-weight="600">encrypts ↓</text>
+  <rect x="410" y="546" width="80" height="16" rx="4" fill="var(--km-card, #0d1117)"/>
+  <text x="450" y="558" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="8.5" font-weight="600">encrypts ↓</text>
 
   <!-- ═══════ Bucket 1: Local Identity ═══════ -->
-  <rect x="40" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#f778ba" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="40" y="586" width="190" height="90" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-pink, #f778ba)" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="40" y="586" width="190" height="4" rx="2" fill="url(#gPink)"/>
-  <text x="135" y="608" text-anchor="middle" fill="#f778ba" font-size="11" font-weight="700">kamune-store</text>
-  <text x="135" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: attest</text>
-  <text x="135" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Ed25519 private key</text>
-  <text x="135" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">PKCS #8 (local identity)</text>
-  <text x="135" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">Encrypted with DEK</text>
+  <text x="135" y="608" text-anchor="middle" fill="var(--km-pink, #f778ba)" font-size="11" font-weight="700">kamune-store</text>
+  <text x="135" y="626" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">Key: attest</text>
+  <text x="135" y="640" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">Val: Ed25519 private key</text>
+  <text x="135" y="656" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="7.5">PKCS #8 (local identity)</text>
+  <text x="135" y="668" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="7.5">Encrypted with DEK</text>
 
   <!-- ═══════ Bucket 2: Peers ═══════ -->
-  <rect x="250" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="250" y="586" width="190" height="90" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-blue, #58a6ff)" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="250" y="586" width="190" height="4" rx="2" fill="url(#gBlue)"/>
-  <text x="345" y="608" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">peers</text>
-  <text x="345" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: &lt;name&gt; of the public key</text>
-  <text x="345" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: Protobuf Peer</text>
-  <text x="345" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">Name, PubKey, AppVersion</text>
-  <text x="345" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">FirstSeen, LastSeen</text>
+  <text x="345" y="608" text-anchor="middle" fill="var(--km-blue, #58a6ff)" font-size="11" font-weight="700">peers</text>
+  <text x="345" y="626" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">Key: &lt;name&gt; of the public key</text>
+  <text x="345" y="640" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">Val: Protobuf Peer</text>
+  <text x="345" y="656" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="7.5">Name, PubKey, AppVersion</text>
+  <text x="345" y="668" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="7.5">FirstSeen, LastSeen</text>
 
   <!-- ═══════ Bucket 3: Session Metadata ═══════ -->
-  <rect x="460" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="460" y="586" width="190" height="90" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="460" y="586" width="190" height="4" rx="2" fill="url(#gPurple)"/>
-  <text x="555" y="608" text-anchor="middle" fill="#d2a8ff" font-size="11" font-weight="700">sessions/&lt;name&gt;/meta</text>
-  <text x="555" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: entry name</text>
-  <text x="555" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: one sealed value per entry</text>
-  <text x="555" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">session_id, peer, name,</text>
-  <text x="555" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">message_count, established_at</text>
+  <text x="555" y="608" text-anchor="middle" fill="var(--km-purple, #d2a8ff)" font-size="11" font-weight="700">sessions/&lt;name&gt;/meta</text>
+  <text x="555" y="626" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">Key: entry name</text>
+  <text x="555" y="640" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">Val: one sealed value per entry</text>
+  <text x="555" y="656" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="7.5">session_id, peer, name,</text>
+  <text x="555" y="668" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="7.5">message_count, established_at</text>
 
   <!-- ═══════ Bucket 4: Chat History ═══════ -->
-  <rect x="670" y="586" width="190" height="90" rx="8" fill="#21262d" stroke="#e3b341" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="670" y="586" width="190" height="90" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-yellow, #e3b341)" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="670" y="586" width="190" height="4" rx="2" fill="url(#gYellow)"/>
-  <text x="765" y="608" text-anchor="middle" fill="#e3b341" font-size="11" font-weight="700">sessions/&lt;name&gt;/chat</text>
-  <text x="765" y="626" text-anchor="middle" fill="#8b949e" font-size="8">Key: 0xff + 8-byte index</text>
-  <text x="765" y="640" text-anchor="middle" fill="#8b949e" font-size="8">Val: padded message entry</text>
-  <text x="765" y="656" text-anchor="middle" fill="#6e7681" font-size="7.5">receive time, sender's time,</text>
-  <text x="765" y="668" text-anchor="middle" fill="#6e7681" font-size="7.5">sender, payload</text>
+  <text x="765" y="608" text-anchor="middle" fill="var(--km-yellow, #e3b341)" font-size="11" font-weight="700">sessions/&lt;name&gt;/chat</text>
+  <text x="765" y="626" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">Key: 0xff + 8-byte index</text>
+  <text x="765" y="640" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">Val: padded message entry</text>
+  <text x="765" y="656" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="7.5">receive time, sender's time,</text>
+  <text x="765" y="668" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="7.5">sender, payload</text>
 
-  <rect x="40" y="692" width="400" height="116" rx="8" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="40" y="692" width="400" height="116" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="40" y="692" width="400" height="4" rx="2" fill="url(#gPurple)"/>
-  <text x="240" y="716" text-anchor="middle" fill="#d2a8ff" font-size="12" font-weight="700">resumption_i</text>
-  <text x="240" y="734" text-anchor="middle" fill="#8b949e" font-size="9">ResumptionState · session meta · initiator · DEK</text>
-  <text x="240" y="752" text-anchor="middle" fill="#6e7681" font-size="9">generation · 64-byte current secret · previous secret</text>
-  <text x="240" y="768" text-anchor="middle" fill="#6e7681" font-size="9">peer key · cold time · refreshed time · role</text>
-  <text x="240" y="786" text-anchor="middle" fill="#6e7681" font-size="8">Previous is empty on the initiator row</text>
+  <text x="240" y="716" text-anchor="middle" fill="var(--km-purple, #d2a8ff)" font-size="12" font-weight="700">resumption_i</text>
+  <text x="240" y="734" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">ResumptionState · session meta · initiator · DEK</text>
+  <text x="240" y="752" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">generation · 64-byte current secret · previous secret</text>
+  <text x="240" y="768" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">peer key · cold time · refreshed time · role</text>
+  <text x="240" y="786" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="8">Previous is empty on the initiator row</text>
 
-  <rect x="460" y="692" width="400" height="116" rx="8" fill="#21262d" stroke="#d2a8ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="460" y="692" width="400" height="116" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="460" y="692" width="400" height="4" rx="2" fill="url(#gPurple)"/>
-  <text x="660" y="716" text-anchor="middle" fill="#d2a8ff" font-size="12" font-weight="700">resumption_r</text>
-  <text x="660" y="734" text-anchor="middle" fill="#8b949e" font-size="9">ResumptionState · session meta · responder · DEK</text>
-  <text x="660" y="752" text-anchor="middle" fill="#6e7681" font-size="9">generation · 64-byte current secret · previous secret</text>
-  <text x="660" y="768" text-anchor="middle" fill="#6e7681" font-size="9">peer key · cold time · refreshed time · role</text>
-  <text x="660" y="786" text-anchor="middle" fill="#6e7681" font-size="8">Previous is the prior secret, or empty</text>
+  <text x="660" y="716" text-anchor="middle" fill="var(--km-purple, #d2a8ff)" font-size="12" font-weight="700">resumption_r</text>
+  <text x="660" y="734" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">ResumptionState · session meta · responder · DEK</text>
+  <text x="660" y="752" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">generation · 64-byte current secret · previous secret</text>
+  <text x="660" y="768" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">peer key · cold time · refreshed time · role</text>
+  <text x="660" y="786" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="8">Previous is the prior secret, or empty</text>
 
-  <rect x="30" y="824" width="840" height="52" rx="8" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+  <rect x="30" y="824" width="840" height="52" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-border, #30363d)" stroke-width="1"/>
 
   <rect x="50" y="836" width="10" height="10" rx="2" fill="url(#gOrange)"/>
-  <text x="66" y="846" fill="#8b949e" font-size="9">User passphrase (not in the DB)</text>
+  <text x="66" y="846" fill="var(--km-muted, #8b949e)" font-size="9">User passphrase (not in the DB)</text>
 
   <rect x="250" y="836" width="10" height="10" rx="2" fill="url(#gTeal)"/>
-  <text x="266" y="846" fill="#8b949e" font-size="9">Salts (stored plaintext in DB)</text>
+  <text x="266" y="846" fill="var(--km-muted, #8b949e)" font-size="9">Salts (stored plaintext in DB)</text>
 
   <rect x="440" y="836" width="10" height="10" rx="2" fill="url(#gPurple)"/>
-  <text x="456" y="846" fill="#8b949e" font-size="9">KEK (wraps master secret)</text>
+  <text x="456" y="846" fill="var(--km-muted, #8b949e)" font-size="9">KEK (wraps master secret)</text>
 
   <rect x="620" y="836" width="10" height="10" rx="2" fill="url(#gGreen)"/>
-  <text x="636" y="846" fill="#8b949e" font-size="9">DEK (encrypts all data)</text>
+  <text x="636" y="846" fill="var(--km-muted, #8b949e)" font-size="9">DEK (encrypts all data)</text>
 
-  <text x="50" y="866" fill="#6e7681" font-size="9">BoltDB at ~/.config/kamune/db · Values sealed with the DEK · &lt;name&gt; = HMAC-SHA256(nameKey, label ‖ 0x00 ‖ id) · SPEC §11.2, §11.3</text>
+  <text x="50" y="866" fill="var(--km-faint, #6e7681)" font-size="9">BoltDB at ~/.config/kamune/db · Values sealed with the DEK · &lt;name&gt; = HMAC-SHA256(nameKey, label ‖ 0x00 ‖ id) · SPEC §11.2, §11.3</text>
 </svg>

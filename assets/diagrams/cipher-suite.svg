@@ -1,72 +1,146 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<svg class="kamune-diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<style>
+  .kamune-diagram {
+    color-scheme: dark;
+    --km-canvas-0: var(--km-canvas-0-override, var(--km-canvas-0-auto, #0d1117));
+    --km-canvas-1: var(--km-canvas-1-override, var(--km-canvas-1-auto, #161b22));
+    --km-card: var(--km-card-override, var(--km-card-auto, #0d1117));
+    --km-band: var(--km-band-override, var(--km-band-auto, #161b22));
+    --km-inset: var(--km-inset-override, var(--km-inset-auto, #21262d));
+    --km-border: var(--km-border-override, var(--km-border-auto, #30363d));
+    --km-shadow: var(--km-shadow-override, var(--km-shadow-auto, #000));
+    --km-title: var(--km-title-override, var(--km-title-auto, #e6edf3));
+    --km-body: var(--km-body-override, var(--km-body-auto, #c9d1d9));
+    --km-muted: var(--km-muted-override, var(--km-muted-auto, #8b949e));
+    --km-faint: var(--km-faint-override, var(--km-faint-auto, #6e7681));
+    --km-dim: var(--km-dim-override, var(--km-dim-auto, #484f58));
+    --km-info: var(--km-info-override, var(--km-info-auto, #79c0ff));
+    --km-orange: var(--km-orange-override, var(--km-orange-auto, #f0883e));
+    --km-orange-2: var(--km-orange-2-override, var(--km-orange-2-auto, #da6d25));
+    --km-blue: var(--km-blue-override, var(--km-blue-auto, #58a6ff));
+    --km-blue-2: var(--km-blue-2-override, var(--km-blue-2-auto, #1f6feb));
+    --km-purple: var(--km-purple-override, var(--km-purple-auto, #d2a8ff));
+    --km-purple-2: var(--km-purple-2-override, var(--km-purple-2-auto, #8b5cf6));
+    --km-purple-3: var(--km-purple-3-override, var(--km-purple-3-auto, #a371f7));
+    --km-green: var(--km-green-override, var(--km-green-auto, #7ee787));
+    --km-green-2: var(--km-green-2-override, var(--km-green-2-auto, #238636));
+    --km-green-3: var(--km-green-3-override, var(--km-green-3-auto, #3fb950));
+    --km-yellow: var(--km-yellow-override, var(--km-yellow-auto, #e3b341));
+    --km-yellow-2: var(--km-yellow-2-override, var(--km-yellow-2-auto, #9e6a03));
+    --km-yellow-3: var(--km-yellow-3-override, var(--km-yellow-3-auto, #d29922));
+    --km-red: var(--km-red-override, var(--km-red-auto, #f85149));
+    --km-red-2: var(--km-red-2-override, var(--km-red-2-auto, #da3633));
+    --km-pink: var(--km-pink-override, var(--km-pink-auto, #f778ba));
+    --km-pink-2: var(--km-pink-2-override, var(--km-pink-2-auto, #db61a2));
+    --km-teal: var(--km-teal-override, var(--km-teal-auto, #56d4dd));
+    --km-teal-2: var(--km-teal-2-override, var(--km-teal-2-auto, #1b7c83));
+  }
+  @media (prefers-color-scheme: light) {
+    .kamune-diagram {
+      color-scheme: light;
+      --km-canvas-0-auto: #f6f8fa;
+      --km-canvas-1-auto: #ffffff;
+      --km-card-auto: #ffffff;
+      --km-band-auto: #eef2f6;
+      --km-inset-auto: #f6f8fa;
+      --km-border-auto: #d0d7de;
+      --km-shadow-auto: #1f2328;
+      --km-title-auto: #1f2328;
+      --km-body-auto: #59636e;
+      --km-muted-auto: #656d76;
+      --km-faint-auto: #6e7781;
+      --km-dim-auto: #818b98;
+      --km-info-auto: #0969da;
+      --km-orange-auto: #bc4c00;
+      --km-orange-2-auto: #9a3e00;
+      --km-blue-auto: #0969da;
+      --km-blue-2-auto: #0550ae;
+      --km-purple-auto: #8250df;
+      --km-purple-2-auto: #6639ba;
+      --km-purple-3-auto: #8250df;
+      --km-green-auto: #1a7f37;
+      --km-green-2-auto: #116329;
+      --km-green-3-auto: #1a7f37;
+      --km-yellow-auto: #9a6700;
+      --km-yellow-2-auto: #7d4e00;
+      --km-yellow-3-auto: #9a6700;
+      --km-red-auto: #d1242f;
+      --km-red-2-auto: #a40e26;
+      --km-pink-auto: #bf3989;
+      --km-pink-2-auto: #99286e;
+      --km-teal-auto: #0e7c86;
+      --km-teal-2-auto: #115e67;
+    }
+  }
+</style>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
+      <stop offset="0%" stop-color="var(--km-canvas-0, #0d1117)"/>
+      <stop offset="100%" stop-color="var(--km-canvas-1, #161b22)"/>
     </linearGradient>
     <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#f0883e"/>
-      <stop offset="100%" stop-color="#da6d25"/>
+      <stop offset="0%" stop-color="var(--km-orange, #f0883e)"/>
+      <stop offset="100%" stop-color="var(--km-orange-2, #da6d25)"/>
     </linearGradient>
     <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#d2a8ff"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
+      <stop offset="0%" stop-color="var(--km-purple, #d2a8ff)"/>
+      <stop offset="100%" stop-color="var(--km-purple-2, #8b5cf6)"/>
     </linearGradient>
     <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#58a6ff"/>
-      <stop offset="100%" stop-color="#1f6feb"/>
+      <stop offset="0%" stop-color="var(--km-blue, #58a6ff)"/>
+      <stop offset="100%" stop-color="var(--km-blue-2, #1f6feb)"/>
     </linearGradient>
     <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#7ee787"/>
-      <stop offset="100%" stop-color="#238636"/>
+      <stop offset="0%" stop-color="var(--km-green, #7ee787)"/>
+      <stop offset="100%" stop-color="var(--km-green-2, #238636)"/>
     </linearGradient>
     <filter id="shadow">
-      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.35"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="var(--km-shadow, #000)" flood-opacity="0.35"/>
     </filter>
   </defs>
 
   <rect width="900" height="640" rx="12" fill="url(#bg)"/>
-  <rect x="1" y="1" width="898" height="638" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+  <rect x="1" y="1" width="898" height="638" rx="11" fill="none" stroke="var(--km-border, #30363d)" stroke-width="1"/>
 
-  <text x="450" y="36" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.4">Cipher Suite</text>
-  <text x="450" y="58" text-anchor="middle" fill="#8b949e" font-size="12" font-family="'SF Mono','Fira Code',monospace">Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X</text>
+  <text x="450" y="36" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="20" font-weight="700" letter-spacing="0.4">Cipher Suite</text>
+  <text x="450" y="58" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="12" font-family="'SF Mono','Fira Code',monospace">Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X</text>
 
-  <rect x="36" y="84" width="828" height="86" rx="10" fill="#0d1117" stroke="#da6d25" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="84" width="828" height="86" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-orange-2, #da6d25)" stroke-width="1.3" filter="url(#shadow)"/>
   <rect x="36" y="84" width="6" height="86" fill="url(#gOrange)"/>
-  <text x="60" y="110" fill="#f0883e" font-size="11" font-weight="700" letter-spacing="0.8">IDENTITY</text>
-  <text x="60" y="134" fill="#e6edf3" font-size="16" font-weight="700">Ed25519</text>
-  <text x="200" y="128" fill="#c9d1d9" font-size="12">Signs the two handshake identities and each session frame.</text>
-  <text x="200" y="148" fill="#8b949e" font-size="11">One encoding per key: 44-byte PKIX. Contexts differ per signature.</text>
+  <text x="60" y="110" fill="var(--km-orange, #f0883e)" font-size="11" font-weight="700" letter-spacing="0.8">IDENTITY</text>
+  <text x="60" y="134" fill="var(--km-title, #e6edf3)" font-size="16" font-weight="700">Ed25519</text>
+  <text x="200" y="128" fill="var(--km-body, #c9d1d9)" font-size="12">Signs the two handshake identities and each session frame.</text>
+  <text x="200" y="148" fill="var(--km-muted, #8b949e)" font-size="11">One encoding per key: 44-byte PKIX. Contexts differ per signature.</text>
 
-  <rect x="36" y="184" width="828" height="96" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="184" width="828" height="96" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-purple-2, #8b5cf6)" stroke-width="1.3" filter="url(#shadow)"/>
   <rect x="36" y="184" width="6" height="96" fill="url(#gPurple)"/>
-  <text x="60" y="208" fill="#d2a8ff" font-size="11" font-weight="700" letter-spacing="0.8">HELLOS</text>
-  <text x="60" y="234" fill="#e6edf3" font-size="16" font-weight="700">ML-KEM-768-X25519</text>
-  <text x="310" y="228" fill="#c9d1d9" font-size="12">One X-Wing key pair per handshake. HPKE export-only.</text>
-  <text x="310" y="248" fill="#8b949e" font-size="11">Shared secret ss is 64 bytes: export "kamune/2 kex secret".</text>
-  <text x="60" y="264" fill="#6e7681" font-size="10">Info string kamune/2 kex. HPKE does not wrap the later frames.</text>
+  <text x="60" y="208" fill="var(--km-purple, #d2a8ff)" font-size="11" font-weight="700" letter-spacing="0.8">HELLOS</text>
+  <text x="60" y="234" fill="var(--km-title, #e6edf3)" font-size="16" font-weight="700">ML-KEM-768-X25519</text>
+  <text x="310" y="228" fill="var(--km-body, #c9d1d9)" font-size="12">One X-Wing key pair per handshake. HPKE export-only.</text>
+  <text x="310" y="248" fill="var(--km-muted, #8b949e)" font-size="11">Shared secret ss is 64 bytes: export "kamune/2 kex secret".</text>
+  <text x="60" y="264" fill="var(--km-faint, #6e7681)" font-size="10">Info string kamune/2 kex. HPKE does not wrap the later frames.</text>
 
-  <rect x="36" y="294" width="828" height="86" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="294" width="828" height="86" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-blue-2, #1f6feb)" stroke-width="1.3" filter="url(#shadow)"/>
   <rect x="36" y="294" width="6" height="86" fill="url(#gBlue)"/>
-  <text x="60" y="320" fill="#58a6ff" font-size="11" font-weight="700" letter-spacing="0.8">SCHEDULE</text>
-  <text x="60" y="346" fill="#e6edf3" font-size="16" font-weight="700">HKDF-SHA512</text>
-  <text x="230" y="340" fill="#c9d1d9" font-size="12">Expand-Label. The label prefix is "kamune2 ".</text>
-  <text x="230" y="360" fill="#8b949e" font-size="11">Handshake, session, exporter, and resumption secrets. Hash length 64.</text>
+  <text x="60" y="320" fill="var(--km-blue, #58a6ff)" font-size="11" font-weight="700" letter-spacing="0.8">SCHEDULE</text>
+  <text x="60" y="346" fill="var(--km-title, #e6edf3)" font-size="16" font-weight="700">HKDF-SHA512</text>
+  <text x="230" y="340" fill="var(--km-body, #c9d1d9)" font-size="12">Expand-Label. The label prefix is "kamune2 ".</text>
+  <text x="230" y="360" fill="var(--km-muted, #8b949e)" font-size="11">Handshake, session, exporter, and resumption secrets. Hash length 64.</text>
 
-  <rect x="36" y="394" width="828" height="96" rx="10" fill="#0d1117" stroke="#3fb950" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="394" width="828" height="96" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-green-3, #3fb950)" stroke-width="1.3" filter="url(#shadow)"/>
   <rect x="36" y="394" width="6" height="96" fill="url(#gGreen)"/>
-  <text x="60" y="418" fill="#7ee787" font-size="11" font-weight="700" letter-spacing="0.8">HANDSHAKE</text>
-  <text x="60" y="444" fill="#e6edf3" font-size="16" font-weight="700">XChaCha20-Poly1305</text>
-  <text x="320" y="438" fill="#c9d1d9" font-size="12">Frames 0x03, 0x04, and 0x05.</text>
-  <text x="320" y="458" fill="#8b949e" font-size="11">AD is kamune/2 hs, then ver, then type.</text>
-  <text x="60" y="474" fill="#6e7681" font-size="10">24-byte nonce · 32-byte key · 16-byte tag. Each key seals at most two frames.</text>
+  <text x="60" y="418" fill="var(--km-green, #7ee787)" font-size="11" font-weight="700" letter-spacing="0.8">HANDSHAKE</text>
+  <text x="60" y="444" fill="var(--km-title, #e6edf3)" font-size="16" font-weight="700">XChaCha20-Poly1305</text>
+  <text x="320" y="438" fill="var(--km-body, #c9d1d9)" font-size="12">Frames 0x03, 0x04, and 0x05.</text>
+  <text x="320" y="458" fill="var(--km-muted, #8b949e)" font-size="11">AD is kamune/2 hs, then ver, then type.</text>
+  <text x="60" y="474" fill="var(--km-faint, #6e7681)" font-size="10">24-byte nonce · 32-byte key · 16-byte tag. Each key seals at most two frames.</text>
 
-  <rect x="36" y="504" width="828" height="86" rx="10" fill="#0d1117" stroke="#238636" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="504" width="828" height="86" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-green-2, #238636)" stroke-width="1.3" filter="url(#shadow)"/>
   <rect x="36" y="504" width="6" height="86" fill="url(#gGreen)"/>
-  <text x="60" y="530" fill="#7ee787" font-size="11" font-weight="700" letter-spacing="0.8">SESSION</text>
-  <text x="60" y="556" fill="#e6edf3" font-size="16" font-weight="700">XChaCha20-Poly1305</text>
-  <text x="320" y="550" fill="#c9d1d9" font-size="12">Session frames after Confirm. No associated data.</text>
-  <text x="320" y="570" fill="#8b949e" font-size="11">i_ap_key initiator to responder. r_ap_key the other way.</text>
+  <text x="60" y="530" fill="var(--km-green, #7ee787)" font-size="11" font-weight="700" letter-spacing="0.8">SESSION</text>
+  <text x="60" y="556" fill="var(--km-title, #e6edf3)" font-size="16" font-weight="700">XChaCha20-Poly1305</text>
+  <text x="320" y="550" fill="var(--km-body, #c9d1d9)" font-size="12">Session frames after Confirm. No associated data.</text>
+  <text x="320" y="570" fill="var(--km-muted, #8b949e)" font-size="11">i_ap_key initiator to responder. r_ap_key the other way.</text>
 
-  <text x="450" y="618" text-anchor="middle" fill="#6e7681" font-size="10">One suite. SPEC §3.</text>
+  <text x="450" y="618" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="10">One suite. SPEC §3.</text>
 </svg>

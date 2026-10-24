@@ -1,115 +1,189 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 900" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<svg class="kamune-diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 900" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<style>
+  .kamune-diagram {
+    color-scheme: dark;
+    --km-canvas-0: var(--km-canvas-0-override, var(--km-canvas-0-auto, #0d1117));
+    --km-canvas-1: var(--km-canvas-1-override, var(--km-canvas-1-auto, #161b22));
+    --km-card: var(--km-card-override, var(--km-card-auto, #0d1117));
+    --km-band: var(--km-band-override, var(--km-band-auto, #161b22));
+    --km-inset: var(--km-inset-override, var(--km-inset-auto, #21262d));
+    --km-border: var(--km-border-override, var(--km-border-auto, #30363d));
+    --km-shadow: var(--km-shadow-override, var(--km-shadow-auto, #000));
+    --km-title: var(--km-title-override, var(--km-title-auto, #e6edf3));
+    --km-body: var(--km-body-override, var(--km-body-auto, #c9d1d9));
+    --km-muted: var(--km-muted-override, var(--km-muted-auto, #8b949e));
+    --km-faint: var(--km-faint-override, var(--km-faint-auto, #6e7681));
+    --km-dim: var(--km-dim-override, var(--km-dim-auto, #484f58));
+    --km-info: var(--km-info-override, var(--km-info-auto, #79c0ff));
+    --km-orange: var(--km-orange-override, var(--km-orange-auto, #f0883e));
+    --km-orange-2: var(--km-orange-2-override, var(--km-orange-2-auto, #da6d25));
+    --km-blue: var(--km-blue-override, var(--km-blue-auto, #58a6ff));
+    --km-blue-2: var(--km-blue-2-override, var(--km-blue-2-auto, #1f6feb));
+    --km-purple: var(--km-purple-override, var(--km-purple-auto, #d2a8ff));
+    --km-purple-2: var(--km-purple-2-override, var(--km-purple-2-auto, #8b5cf6));
+    --km-purple-3: var(--km-purple-3-override, var(--km-purple-3-auto, #a371f7));
+    --km-green: var(--km-green-override, var(--km-green-auto, #7ee787));
+    --km-green-2: var(--km-green-2-override, var(--km-green-2-auto, #238636));
+    --km-green-3: var(--km-green-3-override, var(--km-green-3-auto, #3fb950));
+    --km-yellow: var(--km-yellow-override, var(--km-yellow-auto, #e3b341));
+    --km-yellow-2: var(--km-yellow-2-override, var(--km-yellow-2-auto, #9e6a03));
+    --km-yellow-3: var(--km-yellow-3-override, var(--km-yellow-3-auto, #d29922));
+    --km-red: var(--km-red-override, var(--km-red-auto, #f85149));
+    --km-red-2: var(--km-red-2-override, var(--km-red-2-auto, #da3633));
+    --km-pink: var(--km-pink-override, var(--km-pink-auto, #f778ba));
+    --km-pink-2: var(--km-pink-2-override, var(--km-pink-2-auto, #db61a2));
+    --km-teal: var(--km-teal-override, var(--km-teal-auto, #56d4dd));
+    --km-teal-2: var(--km-teal-2-override, var(--km-teal-2-auto, #1b7c83));
+  }
+  @media (prefers-color-scheme: light) {
+    .kamune-diagram {
+      color-scheme: light;
+      --km-canvas-0-auto: #f6f8fa;
+      --km-canvas-1-auto: #ffffff;
+      --km-card-auto: #ffffff;
+      --km-band-auto: #eef2f6;
+      --km-inset-auto: #f6f8fa;
+      --km-border-auto: #d0d7de;
+      --km-shadow-auto: #1f2328;
+      --km-title-auto: #1f2328;
+      --km-body-auto: #59636e;
+      --km-muted-auto: #656d76;
+      --km-faint-auto: #6e7781;
+      --km-dim-auto: #818b98;
+      --km-info-auto: #0969da;
+      --km-orange-auto: #bc4c00;
+      --km-orange-2-auto: #9a3e00;
+      --km-blue-auto: #0969da;
+      --km-blue-2-auto: #0550ae;
+      --km-purple-auto: #8250df;
+      --km-purple-2-auto: #6639ba;
+      --km-purple-3-auto: #8250df;
+      --km-green-auto: #1a7f37;
+      --km-green-2-auto: #116329;
+      --km-green-3-auto: #1a7f37;
+      --km-yellow-auto: #9a6700;
+      --km-yellow-2-auto: #7d4e00;
+      --km-yellow-3-auto: #9a6700;
+      --km-red-auto: #d1242f;
+      --km-red-2-auto: #a40e26;
+      --km-pink-auto: #bf3989;
+      --km-pink-2-auto: #99286e;
+      --km-teal-auto: #0e7c86;
+      --km-teal-2-auto: #115e67;
+    }
+  }
+</style>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
+      <stop offset="0%" stop-color="var(--km-canvas-0, #0d1117)"/>
+      <stop offset="100%" stop-color="var(--km-canvas-1, #161b22)"/>
     </linearGradient>
     <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#d2a8ff"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
+      <stop offset="0%" stop-color="var(--km-purple, #d2a8ff)"/>
+      <stop offset="100%" stop-color="var(--km-purple-2, #8b5cf6)"/>
     </linearGradient>
     <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#58a6ff"/>
-      <stop offset="100%" stop-color="#1f6feb"/>
+      <stop offset="0%" stop-color="var(--km-blue, #58a6ff)"/>
+      <stop offset="100%" stop-color="var(--km-blue-2, #1f6feb)"/>
     </linearGradient>
     <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#7ee787"/>
-      <stop offset="100%" stop-color="#238636"/>
+      <stop offset="0%" stop-color="var(--km-green, #7ee787)"/>
+      <stop offset="100%" stop-color="var(--km-green-2, #238636)"/>
     </linearGradient>
     <linearGradient id="gYellow" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#e3b341"/>
-      <stop offset="100%" stop-color="#9e6a03"/>
+      <stop offset="0%" stop-color="var(--km-yellow, #e3b341)"/>
+      <stop offset="100%" stop-color="var(--km-yellow-2, #9e6a03)"/>
     </linearGradient>
     <marker id="arrowGray" markerWidth="8" markerHeight="8" refX="4" refY="7" orient="auto">
-      <polygon points="0 0, 8 0, 4 8" fill="#8b949e"/>
+      <polygon points="0 0, 8 0, 4 8" fill="var(--km-muted, #8b949e)"/>
     </marker>
   </defs>
 
   <rect width="900" height="900" rx="12" fill="url(#bg)"/>
-  <rect x="1" y="1" width="898" height="898" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+  <rect x="1" y="1" width="898" height="898" rx="11" fill="none" stroke="var(--km-border, #30363d)" stroke-width="1"/>
 
-  <text x="450" y="34" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.4">Key Derivation Schedule</text>
-  <text x="450" y="54" text-anchor="middle" fill="#8b949e" font-size="11">HKDF-SHA512. Expand-Label prefix is "kamune2 ". SPEC §7.</text>
+  <text x="450" y="34" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="20" font-weight="700" letter-spacing="0.4">Key Derivation Schedule</text>
+  <text x="450" y="54" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="11">HKDF-SHA512. Expand-Label prefix is "kamune2 ". SPEC §7.</text>
 
-  <rect x="250" y="72" width="400" height="48" rx="8" fill="#0d1117" stroke="#d2a8ff" stroke-width="1.6"/>
-  <text x="450" y="92" text-anchor="middle" fill="#d2a8ff" font-size="13" font-weight="700">ss · 64 bytes</text>
-  <text x="450" y="108" text-anchor="middle" fill="#8b949e" font-size="10">HPKE export "kamune/2 kex secret"</text>
-  <line x1="450" y1="120" x2="450" y2="140" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
+  <rect x="250" y="72" width="400" height="48" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-purple, #d2a8ff)" stroke-width="1.6"/>
+  <text x="450" y="92" text-anchor="middle" fill="var(--km-purple, #d2a8ff)" font-size="13" font-weight="700">ss · 64 bytes</text>
+  <text x="450" y="108" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="10">HPKE export "kamune/2 kex secret"</text>
+  <line x1="450" y1="120" x2="450" y2="140" stroke="var(--km-muted, #8b949e)" stroke-width="1.2" marker-end="url(#arrowGray)"/>
 
-  <rect x="210" y="144" width="480" height="44" rx="8" fill="#0d1117" stroke="#58a6ff" stroke-width="1.4"/>
-  <text x="450" y="163" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="700">hs = HKDF-Extract(zeros, ss)</text>
-  <text x="450" y="178" text-anchor="middle" fill="#8b949e" font-size="10">salt is 64 zero bytes</text>
+  <rect x="210" y="144" width="480" height="44" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue, #58a6ff)" stroke-width="1.4"/>
+  <text x="450" y="163" text-anchor="middle" fill="var(--km-blue, #58a6ff)" font-size="13" font-weight="700">hs = HKDF-Extract(zeros, ss)</text>
+  <text x="450" y="178" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="10">salt is 64 zero bytes</text>
 
-  <line x1="320" y1="188" x2="230" y2="214" stroke="#58a6ff" stroke-width="1.2"/>
-  <line x1="580" y1="188" x2="670" y2="214" stroke="#58a6ff" stroke-width="1.2"/>
+  <line x1="320" y1="188" x2="230" y2="214" stroke="var(--km-blue, #58a6ff)" stroke-width="1.2"/>
+  <line x1="580" y1="188" x2="670" y2="214" stroke="var(--km-blue, #58a6ff)" stroke-width="1.2"/>
 
-  <rect x="40" y="216" width="390" height="92" rx="8" fill="#0d1117" stroke="#58a6ff"/>
-  <text x="56" y="238" fill="#58a6ff" font-size="12" font-weight="700">r_hs</text>
-  <text x="110" y="238" fill="#8b949e" font-size="10">Derive-Secret(hs, "r hs traffic", TH_sh)</text>
-  <text x="56" y="262" fill="#c9d1d9" font-size="11">r_hs_key</text>
-  <text x="140" y="262" fill="#8b949e" font-size="10">frames 0x03 and 0x05 · 32 B</text>
-  <text x="56" y="282" fill="#c9d1d9" font-size="11">r_fin_key</text>
-  <text x="140" y="282" fill="#8b949e" font-size="10">finished_R · 64 B</text>
+  <rect x="40" y="216" width="390" height="92" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="56" y="238" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="700">r_hs</text>
+  <text x="110" y="238" fill="var(--km-muted, #8b949e)" font-size="10">Derive-Secret(hs, "r hs traffic", TH_sh)</text>
+  <text x="56" y="262" fill="var(--km-body, #c9d1d9)" font-size="11">r_hs_key</text>
+  <text x="140" y="262" fill="var(--km-muted, #8b949e)" font-size="10">frames 0x03 and 0x05 · 32 B</text>
+  <text x="56" y="282" fill="var(--km-body, #c9d1d9)" font-size="11">r_fin_key</text>
+  <text x="140" y="282" fill="var(--km-muted, #8b949e)" font-size="10">finished_R · 64 B</text>
 
-  <rect x="470" y="216" width="390" height="92" rx="8" fill="#0d1117" stroke="#58a6ff"/>
-  <text x="486" y="238" fill="#58a6ff" font-size="12" font-weight="700">i_hs</text>
-  <text x="530" y="238" fill="#8b949e" font-size="10">Derive-Secret(hs, "i hs traffic", TH_sh)</text>
-  <text x="486" y="262" fill="#c9d1d9" font-size="11">i_hs_key</text>
-  <text x="570" y="262" fill="#8b949e" font-size="10">frame 0x04 · 32 B</text>
-  <text x="486" y="282" fill="#c9d1d9" font-size="11">i_fin_key</text>
-  <text x="570" y="282" fill="#8b949e" font-size="10">finished_I · 64 B</text>
+  <rect x="470" y="216" width="390" height="92" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="486" y="238" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="700">i_hs</text>
+  <text x="530" y="238" fill="var(--km-muted, #8b949e)" font-size="10">Derive-Secret(hs, "i hs traffic", TH_sh)</text>
+  <text x="486" y="262" fill="var(--km-body, #c9d1d9)" font-size="11">i_hs_key</text>
+  <text x="570" y="262" fill="var(--km-muted, #8b949e)" font-size="10">frame 0x04 · 32 B</text>
+  <text x="486" y="282" fill="var(--km-body, #c9d1d9)" font-size="11">i_fin_key</text>
+  <text x="570" y="282" fill="var(--km-muted, #8b949e)" font-size="10">finished_I · 64 B</text>
 
-  <rect x="40" y="324" width="820" height="88" rx="8" fill="#161b22" stroke="#e3b341" stroke-dasharray="5,3"/>
-  <text x="56" y="346" fill="#e3b341" font-size="12" font-weight="700">Only when F3 carries an offer</text>
-  <text x="280" y="346" fill="#8b949e" font-size="10">res is the stored 64-byte resumption secret</text>
-  <text x="56" y="370" fill="#c9d1d9" font-size="11">binder_key = Expand-Label(res, "res binder", "", 64)</text>
-  <text x="56" y="390" fill="#c9d1d9" font-size="11">binder = HMAC-SHA512(binder_key, TH_iid)</text>
-  <text x="480" y="390" fill="#c9d1d9" font-size="11">psk = Expand-Label(res, "res psk", "", 64)</text>
+  <rect x="40" y="324" width="820" height="88" rx="8" fill="var(--km-band, #161b22)" stroke="var(--km-yellow, #e3b341)" stroke-dasharray="5,3"/>
+  <text x="56" y="346" fill="var(--km-yellow, #e3b341)" font-size="12" font-weight="700">Only when F3 carries an offer</text>
+  <text x="280" y="346" fill="var(--km-muted, #8b949e)" font-size="10">res is the stored 64-byte resumption secret</text>
+  <text x="56" y="370" fill="var(--km-body, #c9d1d9)" font-size="11">binder_key = Expand-Label(res, "res binder", "", 64)</text>
+  <text x="56" y="390" fill="var(--km-body, #c9d1d9)" font-size="11">binder = HMAC-SHA512(binder_key, TH_iid)</text>
+  <text x="480" y="390" fill="var(--km-body, #c9d1d9)" font-size="11">psk = Expand-Label(res, "res psk", "", 64)</text>
 
-  <line x1="450" y1="412" x2="450" y2="436" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
+  <line x1="450" y1="412" x2="450" y2="436" stroke="var(--km-muted, #8b949e)" stroke-width="1.2" marker-end="url(#arrowGray)"/>
 
-  <rect x="120" y="440" width="660" height="64" rx="8" fill="#0d1117" stroke="#d2a8ff" stroke-width="1.5"/>
-  <text x="450" y="464" text-anchor="middle" fill="#d2a8ff" font-size="13" font-weight="700">master</text>
-  <text x="450" y="484" text-anchor="middle" fill="#c9d1d9" font-size="11">HKDF-Extract(Expand-Label(hs, "derived", "", 64), psk or zeros)</text>
+  <rect x="120" y="440" width="660" height="64" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-purple, #d2a8ff)" stroke-width="1.5"/>
+  <text x="450" y="464" text-anchor="middle" fill="var(--km-purple, #d2a8ff)" font-size="13" font-weight="700">master</text>
+  <text x="450" y="484" text-anchor="middle" fill="var(--km-body, #c9d1d9)" font-size="11">HKDF-Extract(Expand-Label(hs, "derived", "", 64), psk or zeros)</text>
 
-  <rect x="250" y="518" width="400" height="40" rx="8" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="450" y="536" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="600">c_fin_key</text>
-  <text x="450" y="550" text-anchor="middle" fill="#8b949e" font-size="10">Expand-Label(master, "r confirm", "", 64) · finished_C</text>
+  <rect x="250" y="518" width="400" height="40" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="450" y="536" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="12" font-weight="600">c_fin_key</text>
+  <text x="450" y="550" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="10">Expand-Label(master, "r confirm", "", 64) · finished_C</text>
 
-  <text x="450" y="582" text-anchor="middle" fill="#7ee787" font-size="11" font-weight="700">After TH_final</text>
+  <text x="450" y="582" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="11" font-weight="700">After TH_final</text>
 
-  <rect x="36" y="596" width="160" height="72" rx="8" fill="#0d1117" stroke="#7ee787"/>
-  <text x="116" y="622" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">i_ap_key</text>
-  <text x="116" y="640" text-anchor="middle" fill="#8b949e" font-size="9">initiator → responder</text>
-  <text x="116" y="654" text-anchor="middle" fill="#6e7681" font-size="9">32 bytes</text>
+  <rect x="36" y="596" width="160" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)"/>
+  <text x="116" y="622" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">i_ap_key</text>
+  <text x="116" y="640" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">initiator → responder</text>
+  <text x="116" y="654" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">32 bytes</text>
 
-  <rect x="204" y="596" width="160" height="72" rx="8" fill="#0d1117" stroke="#7ee787"/>
-  <text x="284" y="622" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">r_ap_key</text>
-  <text x="284" y="640" text-anchor="middle" fill="#8b949e" font-size="9">responder → initiator</text>
-  <text x="284" y="654" text-anchor="middle" fill="#6e7681" font-size="9">32 bytes</text>
+  <rect x="204" y="596" width="160" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)"/>
+  <text x="284" y="622" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">r_ap_key</text>
+  <text x="284" y="640" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">responder → initiator</text>
+  <text x="284" y="654" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">32 bytes</text>
 
-  <rect x="372" y="596" width="160" height="72" rx="8" fill="#0d1117" stroke="#7ee787"/>
-  <text x="452" y="622" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">exp_master</text>
-  <text x="452" y="640" text-anchor="middle" fill="#8b949e" font-size="9">exporter root</text>
-  <text x="452" y="654" text-anchor="middle" fill="#6e7681" font-size="9">label "exp master"</text>
+  <rect x="372" y="596" width="160" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)"/>
+  <text x="452" y="622" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">exp_master</text>
+  <text x="452" y="640" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">exporter root</text>
+  <text x="452" y="654" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">label "exp master"</text>
 
-  <rect x="540" y="596" width="160" height="72" rx="8" fill="#0d1117" stroke="#7ee787"/>
-  <text x="620" y="622" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">res_next</text>
-  <text x="620" y="640" text-anchor="middle" fill="#8b949e" font-size="9">next resumption secret</text>
-  <text x="620" y="654" text-anchor="middle" fill="#6e7681" font-size="9">label "res master"</text>
+  <rect x="540" y="596" width="160" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)"/>
+  <text x="620" y="622" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">res_next</text>
+  <text x="620" y="640" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">next resumption secret</text>
+  <text x="620" y="654" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">label "res master"</text>
 
-  <rect x="708" y="596" width="156" height="72" rx="8" fill="#0d1117" stroke="#7ee787"/>
-  <text x="786" y="622" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">session id</text>
-  <text x="786" y="640" text-anchor="middle" fill="#8b949e" font-size="9">first 15 bytes</text>
-  <text x="786" y="654" text-anchor="middle" fill="#6e7681" font-size="9">then base32</text>
+  <rect x="708" y="596" width="156" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)"/>
+  <text x="786" y="622" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">session id</text>
+  <text x="786" y="640" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">first 15 bytes</text>
+  <text x="786" y="654" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">then base32</text>
 
-  <rect x="36" y="684" width="828" height="36" rx="8" fill="#21262d" stroke="#484f58"/>
-  <text x="450" y="706" text-anchor="middle" fill="#8b949e" font-size="11">REJECTED: the initiator derives master with a zero PSK only to check finished_C.</text>
+  <rect x="36" y="684" width="828" height="36" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-dim, #484f58)"/>
+  <text x="450" y="706" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="11">REJECTED: the initiator derives master with a zero PSK only to check finished_C.</text>
 
-  <rect x="36" y="736" width="828" height="132" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <text x="52" y="760" fill="#58a6ff" font-size="11" font-weight="700">kamune2 labels</text>
-  <text x="52" y="782" fill="#c9d1d9" font-size="11">r hs traffic · i hs traffic · key · finished · derived</text>
-  <text x="52" y="802" fill="#c9d1d9" font-size="11">res binder · res psk · r confirm · i ap traffic · r ap traffic</text>
-  <text x="52" y="822" fill="#c9d1d9" font-size="11">exp master · res master · session id · exporter</text>
-  <text x="52" y="846" fill="#6e7681" font-size="10">Outside Expand-Label: kamune/2 transcript, kamune/2 kex, kamune/2 kex secret, kamune/2 hs.</text>
+  <rect x="36" y="736" width="828" height="132" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-border, #30363d)"/>
+  <text x="52" y="760" fill="var(--km-blue, #58a6ff)" font-size="11" font-weight="700">kamune2 labels</text>
+  <text x="52" y="782" fill="var(--km-body, #c9d1d9)" font-size="11">r hs traffic · i hs traffic · key · finished · derived</text>
+  <text x="52" y="802" fill="var(--km-body, #c9d1d9)" font-size="11">res binder · res psk · r confirm · i ap traffic · r ap traffic</text>
+  <text x="52" y="822" fill="var(--km-body, #c9d1d9)" font-size="11">exp master · res master · session id · exporter</text>
+  <text x="52" y="846" fill="var(--km-faint, #6e7681)" font-size="10">Outside Expand-Label: kamune/2 transcript, kamune/2 kex, kamune/2 kex secret, kamune/2 hs.</text>
 </svg>

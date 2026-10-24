@@ -1,97 +1,171 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<svg class="kamune-diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<style>
+  .kamune-diagram {
+    color-scheme: dark;
+    --km-canvas-0: var(--km-canvas-0-override, var(--km-canvas-0-auto, #0d1117));
+    --km-canvas-1: var(--km-canvas-1-override, var(--km-canvas-1-auto, #161b22));
+    --km-card: var(--km-card-override, var(--km-card-auto, #0d1117));
+    --km-band: var(--km-band-override, var(--km-band-auto, #161b22));
+    --km-inset: var(--km-inset-override, var(--km-inset-auto, #21262d));
+    --km-border: var(--km-border-override, var(--km-border-auto, #30363d));
+    --km-shadow: var(--km-shadow-override, var(--km-shadow-auto, #000));
+    --km-title: var(--km-title-override, var(--km-title-auto, #e6edf3));
+    --km-body: var(--km-body-override, var(--km-body-auto, #c9d1d9));
+    --km-muted: var(--km-muted-override, var(--km-muted-auto, #8b949e));
+    --km-faint: var(--km-faint-override, var(--km-faint-auto, #6e7681));
+    --km-dim: var(--km-dim-override, var(--km-dim-auto, #484f58));
+    --km-info: var(--km-info-override, var(--km-info-auto, #79c0ff));
+    --km-orange: var(--km-orange-override, var(--km-orange-auto, #f0883e));
+    --km-orange-2: var(--km-orange-2-override, var(--km-orange-2-auto, #da6d25));
+    --km-blue: var(--km-blue-override, var(--km-blue-auto, #58a6ff));
+    --km-blue-2: var(--km-blue-2-override, var(--km-blue-2-auto, #1f6feb));
+    --km-purple: var(--km-purple-override, var(--km-purple-auto, #d2a8ff));
+    --km-purple-2: var(--km-purple-2-override, var(--km-purple-2-auto, #8b5cf6));
+    --km-purple-3: var(--km-purple-3-override, var(--km-purple-3-auto, #a371f7));
+    --km-green: var(--km-green-override, var(--km-green-auto, #7ee787));
+    --km-green-2: var(--km-green-2-override, var(--km-green-2-auto, #238636));
+    --km-green-3: var(--km-green-3-override, var(--km-green-3-auto, #3fb950));
+    --km-yellow: var(--km-yellow-override, var(--km-yellow-auto, #e3b341));
+    --km-yellow-2: var(--km-yellow-2-override, var(--km-yellow-2-auto, #9e6a03));
+    --km-yellow-3: var(--km-yellow-3-override, var(--km-yellow-3-auto, #d29922));
+    --km-red: var(--km-red-override, var(--km-red-auto, #f85149));
+    --km-red-2: var(--km-red-2-override, var(--km-red-2-auto, #da3633));
+    --km-pink: var(--km-pink-override, var(--km-pink-auto, #f778ba));
+    --km-pink-2: var(--km-pink-2-override, var(--km-pink-2-auto, #db61a2));
+    --km-teal: var(--km-teal-override, var(--km-teal-auto, #56d4dd));
+    --km-teal-2: var(--km-teal-2-override, var(--km-teal-2-auto, #1b7c83));
+  }
+  @media (prefers-color-scheme: light) {
+    .kamune-diagram {
+      color-scheme: light;
+      --km-canvas-0-auto: #f6f8fa;
+      --km-canvas-1-auto: #ffffff;
+      --km-card-auto: #ffffff;
+      --km-band-auto: #eef2f6;
+      --km-inset-auto: #f6f8fa;
+      --km-border-auto: #d0d7de;
+      --km-shadow-auto: #1f2328;
+      --km-title-auto: #1f2328;
+      --km-body-auto: #59636e;
+      --km-muted-auto: #656d76;
+      --km-faint-auto: #6e7781;
+      --km-dim-auto: #818b98;
+      --km-info-auto: #0969da;
+      --km-orange-auto: #bc4c00;
+      --km-orange-2-auto: #9a3e00;
+      --km-blue-auto: #0969da;
+      --km-blue-2-auto: #0550ae;
+      --km-purple-auto: #8250df;
+      --km-purple-2-auto: #6639ba;
+      --km-purple-3-auto: #8250df;
+      --km-green-auto: #1a7f37;
+      --km-green-2-auto: #116329;
+      --km-green-3-auto: #1a7f37;
+      --km-yellow-auto: #9a6700;
+      --km-yellow-2-auto: #7d4e00;
+      --km-yellow-3-auto: #9a6700;
+      --km-red-auto: #d1242f;
+      --km-red-2-auto: #a40e26;
+      --km-pink-auto: #bf3989;
+      --km-pink-2-auto: #99286e;
+      --km-teal-auto: #0e7c86;
+      --km-teal-2-auto: #115e67;
+    }
+  }
+</style>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
+      <stop offset="0%" stop-color="var(--km-canvas-0, #0d1117)"/>
+      <stop offset="100%" stop-color="var(--km-canvas-1, #161b22)"/>
     </linearGradient>
     <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#f0883e"/>
-      <stop offset="100%" stop-color="#da6d25"/>
+      <stop offset="0%" stop-color="var(--km-orange, #f0883e)"/>
+      <stop offset="100%" stop-color="var(--km-orange-2, #da6d25)"/>
     </linearGradient>
     <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#58a6ff"/>
-      <stop offset="100%" stop-color="#1f6feb"/>
+      <stop offset="0%" stop-color="var(--km-blue, #58a6ff)"/>
+      <stop offset="100%" stop-color="var(--km-blue-2, #1f6feb)"/>
     </linearGradient>
     <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#d2a8ff"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
+      <stop offset="0%" stop-color="var(--km-purple, #d2a8ff)"/>
+      <stop offset="100%" stop-color="var(--km-purple-2, #8b5cf6)"/>
     </linearGradient>
     <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#7ee787"/>
-      <stop offset="100%" stop-color="#238636"/>
+      <stop offset="0%" stop-color="var(--km-green, #7ee787)"/>
+      <stop offset="100%" stop-color="var(--km-green-2, #238636)"/>
     </linearGradient>
     <filter id="shadow">
-      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.35"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="var(--km-shadow, #000)" flood-opacity="0.35"/>
     </filter>
     <marker id="arrowOrange" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-      <polygon points="0 0, 8 4, 0 8" fill="#f0883e"/>
+      <polygon points="0 0, 8 4, 0 8" fill="var(--km-orange, #f0883e)"/>
     </marker>
     <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-      <polygon points="0 0, 8 4, 0 8" fill="#58a6ff"/>
+      <polygon points="0 0, 8 4, 0 8" fill="var(--km-blue, #58a6ff)"/>
     </marker>
     <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-      <polygon points="0 0, 8 4, 0 8" fill="#d2a8ff"/>
+      <polygon points="0 0, 8 4, 0 8" fill="var(--km-purple, #d2a8ff)"/>
     </marker>
     <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-      <polygon points="0 0, 8 4, 0 8" fill="#7ee787"/>
+      <polygon points="0 0, 8 4, 0 8" fill="var(--km-green, #7ee787)"/>
     </marker>
   </defs>
 
   <rect width="900" height="700" rx="12" fill="url(#bg)"/>
-  <rect x="1" y="1" width="898" height="698" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+  <rect x="1" y="1" width="898" height="698" rx="11" fill="none" stroke="var(--km-border, #30363d)" stroke-width="1"/>
 
-  <text x="450" y="36" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.4">Kamune Protocol Overview</text>
-  <text x="450" y="56" text-anchor="middle" fill="#8b949e" font-size="11">Four flights. ver 0x02. No fallback to an earlier version.</text>
+  <text x="450" y="36" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="20" font-weight="700" letter-spacing="0.4">Kamune Protocol Overview</text>
+  <text x="450" y="56" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="11">Four flights. ver 0x02. No fallback to an earlier version.</text>
 
-  <rect x="40" y="78" width="150" height="40" rx="8" fill="#21262d" stroke="#30363d" filter="url(#shadow)"/>
-  <text x="115" y="96" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="600">Initiator</text>
-  <text x="115" y="110" text-anchor="middle" fill="#8b949e" font-size="9">dialer</text>
+  <rect x="40" y="78" width="150" height="40" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-border, #30363d)" filter="url(#shadow)"/>
+  <text x="115" y="96" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="12" font-weight="600">Initiator</text>
+  <text x="115" y="110" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">dialer</text>
 
-  <rect x="710" y="78" width="150" height="40" rx="8" fill="#21262d" stroke="#30363d" filter="url(#shadow)"/>
-  <text x="785" y="96" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="600">Responder</text>
-  <text x="785" y="110" text-anchor="middle" fill="#8b949e" font-size="9">listener</text>
+  <rect x="710" y="78" width="150" height="40" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-border, #30363d)" filter="url(#shadow)"/>
+  <text x="785" y="96" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="12" font-weight="600">Responder</text>
+  <text x="785" y="110" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">listener</text>
 
-  <line x1="115" y1="126" x2="115" y2="640" stroke="#30363d" stroke-width="1.5" stroke-dasharray="5,4"/>
-  <line x1="785" y1="126" x2="785" y2="640" stroke="#30363d" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <line x1="115" y1="126" x2="115" y2="640" stroke="var(--km-border, #30363d)" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <line x1="785" y1="126" x2="785" y2="640" stroke="var(--km-border, #30363d)" stroke-width="1.5" stroke-dasharray="5,4"/>
 
-  <rect x="175" y="142" width="550" height="78" rx="8" fill="#0d1117" stroke="#da6d25" stroke-width="1.2"/>
+  <rect x="175" y="142" width="550" height="78" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-orange-2, #da6d25)" stroke-width="1.2"/>
   <rect x="175" y="142" width="550" height="4" rx="2" fill="url(#gOrange)"/>
-  <text x="190" y="164" fill="#f0883e" font-size="11" font-weight="700">F1  ClientHello</text>
-  <text x="700" y="164" text-anchor="end" fill="#8b949e" font-size="10">clear · 1282 B</text>
-  <line x1="140" y1="186" x2="760" y2="186" stroke="#f0883e" stroke-width="1.4" marker-end="url(#arrowOrange)"/>
-  <text x="450" y="206" text-anchor="middle" fill="#c9d1d9" font-size="10">ver 0x02 · type 0x01 · nonce_i · tag · X-Wing pk_i</text>
+  <text x="190" y="164" fill="var(--km-orange, #f0883e)" font-size="11" font-weight="700">F1  ClientHello</text>
+  <text x="700" y="164" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="10">clear · 1282 B</text>
+  <line x1="140" y1="186" x2="760" y2="186" stroke="var(--km-orange, #f0883e)" stroke-width="1.4" marker-end="url(#arrowOrange)"/>
+  <text x="450" y="206" text-anchor="middle" fill="var(--km-body, #c9d1d9)" font-size="10">ver 0x02 · type 0x01 · nonce_i · tag · X-Wing pk_i</text>
 
-  <rect x="175" y="232" width="550" height="128" rx="8" fill="#0d1117" stroke="#1f6feb" stroke-width="1.2"/>
+  <rect x="175" y="232" width="550" height="128" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue-2, #1f6feb)" stroke-width="1.2"/>
   <rect x="175" y="232" width="550" height="4" rx="2" fill="url(#gBlue)"/>
-  <text x="190" y="254" fill="#58a6ff" font-size="11" font-weight="700">F2a  ServerHello</text>
-  <text x="700" y="254" text-anchor="end" fill="#8b949e" font-size="10">clear · 1154 B</text>
-  <line x1="760" y1="272" x2="140" y2="272" stroke="#58a6ff" stroke-width="1.4" marker-end="url(#arrowBlue)"/>
-  <text x="450" y="290" text-anchor="middle" fill="#c9d1d9" font-size="10">ver 0x02 · type 0x02 · nonce_r · enc</text>
-  <text x="190" y="316" fill="#58a6ff" font-size="11" font-weight="700">F2b  ResponderAuth</text>
-  <text x="700" y="316" text-anchor="end" fill="#8b949e" font-size="10">AEAD r_hs_key · 214 B</text>
-  <line x1="760" y1="334" x2="140" y2="334" stroke="#58a6ff" stroke-width="1.4" marker-end="url(#arrowBlue)"/>
-  <text x="450" y="350" text-anchor="middle" fill="#c9d1d9" font-size="10">key_R · sig_R · finished_R</text>
+  <text x="190" y="254" fill="var(--km-blue, #58a6ff)" font-size="11" font-weight="700">F2a  ServerHello</text>
+  <text x="700" y="254" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="10">clear · 1154 B</text>
+  <line x1="760" y1="272" x2="140" y2="272" stroke="var(--km-blue, #58a6ff)" stroke-width="1.4" marker-end="url(#arrowBlue)"/>
+  <text x="450" y="290" text-anchor="middle" fill="var(--km-body, #c9d1d9)" font-size="10">ver 0x02 · type 0x02 · nonce_r · enc</text>
+  <text x="190" y="316" fill="var(--km-blue, #58a6ff)" font-size="11" font-weight="700">F2b  ResponderAuth</text>
+  <text x="700" y="316" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="10">AEAD r_hs_key · 214 B</text>
+  <line x1="760" y1="334" x2="140" y2="334" stroke="var(--km-blue, #58a6ff)" stroke-width="1.4" marker-end="url(#arrowBlue)"/>
+  <text x="450" y="350" text-anchor="middle" fill="var(--km-body, #c9d1d9)" font-size="10">key_R · sig_R · finished_R</text>
 
-  <text x="450" y="384" text-anchor="middle" fill="#79c0ff" font-size="10">Initiator runs the verifier here, on the key, before it sends its name.</text>
+  <text x="450" y="384" text-anchor="middle" fill="var(--km-info, #79c0ff)" font-size="10">Initiator runs the verifier here, on the key, before it sends its name.</text>
 
-  <rect x="175" y="398" width="550" height="92" rx="8" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.2"/>
+  <rect x="175" y="398" width="550" height="92" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-purple-2, #8b5cf6)" stroke-width="1.2"/>
   <rect x="175" y="398" width="550" height="4" rx="2" fill="url(#gPurple)"/>
-  <text x="190" y="420" fill="#d2a8ff" font-size="11" font-weight="700">F3  InitiatorAuth</text>
-  <text x="700" y="420" text-anchor="end" fill="#8b949e" font-size="10">AEAD i_hs_key · 426 B</text>
-  <line x1="140" y1="442" x2="760" y2="442" stroke="#d2a8ff" stroke-width="1.4" marker-end="url(#arrowPurple)"/>
-  <text x="450" y="462" text-anchor="middle" fill="#c9d1d9" font-size="10">key_I · name_I · version_I · resume_sid? · binder? · sig_I · finished_I</text>
-  <text x="450" y="480" text-anchor="middle" fill="#8b949e" font-size="10">Responder decides resumption, then runs its verifier.</text>
+  <text x="190" y="420" fill="var(--km-purple, #d2a8ff)" font-size="11" font-weight="700">F3  InitiatorAuth</text>
+  <text x="700" y="420" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="10">AEAD i_hs_key · 426 B</text>
+  <line x1="140" y1="442" x2="760" y2="442" stroke="var(--km-purple, #d2a8ff)" stroke-width="1.4" marker-end="url(#arrowPurple)"/>
+  <text x="450" y="462" text-anchor="middle" fill="var(--km-body, #c9d1d9)" font-size="10">key_I · name_I · version_I · resume_sid? · binder? · sig_I · finished_I</text>
+  <text x="450" y="480" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="10">Responder decides resumption, then runs its verifier.</text>
 
-  <rect x="175" y="504" width="550" height="78" rx="8" fill="#0d1117" stroke="#238636" stroke-width="1.2"/>
+  <rect x="175" y="504" width="550" height="78" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green-2, #238636)" stroke-width="1.2"/>
   <rect x="175" y="504" width="550" height="4" rx="2" fill="url(#gGreen)"/>
-  <text x="190" y="526" fill="#7ee787" font-size="11" font-weight="700">F4  Confirm</text>
-  <text x="700" y="526" text-anchor="end" fill="#8b949e" font-size="10">AEAD r_hs_key · 234 B</text>
-  <line x1="760" y1="546" x2="140" y2="546" stroke="#7ee787" stroke-width="1.4" marker-end="url(#arrowGreen)"/>
-  <text x="450" y="566" text-anchor="middle" fill="#c9d1d9" font-size="10">status · reason · name_R · version_R · finished_C</text>
+  <text x="190" y="526" fill="var(--km-green, #7ee787)" font-size="11" font-weight="700">F4  Confirm</text>
+  <text x="700" y="526" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="10">AEAD r_hs_key · 234 B</text>
+  <line x1="760" y1="546" x2="140" y2="546" stroke="var(--km-green, #7ee787)" stroke-width="1.4" marker-end="url(#arrowGreen)"/>
+  <text x="450" y="566" text-anchor="middle" fill="var(--km-body, #c9d1d9)" font-size="10">status · reason · name_R · version_R · finished_C</text>
 
-  <rect x="175" y="596" width="550" height="44" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <text x="450" y="615" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Session frames</text>
-  <text x="450" y="630" text-anchor="middle" fill="#8b949e" font-size="10">i_ap_key and r_ap_key · first sequence is 1</text>
+  <rect x="175" y="596" width="550" height="44" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-border, #30363d)"/>
+  <text x="450" y="615" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">Session frames</text>
+  <text x="450" y="630" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="10">i_ap_key and r_ap_key · first sequence is 1</text>
 
-  <text x="450" y="674" text-anchor="middle" fill="#6e7681" font-size="10">Ed25519 · ML-KEM-768-X25519 · HKDF-SHA512 · XChaCha20-Poly1305</text>
+  <text x="450" y="674" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="10">Ed25519 · ML-KEM-768-X25519 · HKDF-SHA512 · XChaCha20-Poly1305</text>
 </svg>

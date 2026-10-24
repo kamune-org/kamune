@@ -1,115 +1,189 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 860" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<svg class="kamune-diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 860" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<style>
+  .kamune-diagram {
+    color-scheme: dark;
+    --km-canvas-0: var(--km-canvas-0-override, var(--km-canvas-0-auto, #0d1117));
+    --km-canvas-1: var(--km-canvas-1-override, var(--km-canvas-1-auto, #161b22));
+    --km-card: var(--km-card-override, var(--km-card-auto, #0d1117));
+    --km-band: var(--km-band-override, var(--km-band-auto, #161b22));
+    --km-inset: var(--km-inset-override, var(--km-inset-auto, #21262d));
+    --km-border: var(--km-border-override, var(--km-border-auto, #30363d));
+    --km-shadow: var(--km-shadow-override, var(--km-shadow-auto, #000));
+    --km-title: var(--km-title-override, var(--km-title-auto, #e6edf3));
+    --km-body: var(--km-body-override, var(--km-body-auto, #c9d1d9));
+    --km-muted: var(--km-muted-override, var(--km-muted-auto, #8b949e));
+    --km-faint: var(--km-faint-override, var(--km-faint-auto, #6e7681));
+    --km-dim: var(--km-dim-override, var(--km-dim-auto, #484f58));
+    --km-info: var(--km-info-override, var(--km-info-auto, #79c0ff));
+    --km-orange: var(--km-orange-override, var(--km-orange-auto, #f0883e));
+    --km-orange-2: var(--km-orange-2-override, var(--km-orange-2-auto, #da6d25));
+    --km-blue: var(--km-blue-override, var(--km-blue-auto, #58a6ff));
+    --km-blue-2: var(--km-blue-2-override, var(--km-blue-2-auto, #1f6feb));
+    --km-purple: var(--km-purple-override, var(--km-purple-auto, #d2a8ff));
+    --km-purple-2: var(--km-purple-2-override, var(--km-purple-2-auto, #8b5cf6));
+    --km-purple-3: var(--km-purple-3-override, var(--km-purple-3-auto, #a371f7));
+    --km-green: var(--km-green-override, var(--km-green-auto, #7ee787));
+    --km-green-2: var(--km-green-2-override, var(--km-green-2-auto, #238636));
+    --km-green-3: var(--km-green-3-override, var(--km-green-3-auto, #3fb950));
+    --km-yellow: var(--km-yellow-override, var(--km-yellow-auto, #e3b341));
+    --km-yellow-2: var(--km-yellow-2-override, var(--km-yellow-2-auto, #9e6a03));
+    --km-yellow-3: var(--km-yellow-3-override, var(--km-yellow-3-auto, #d29922));
+    --km-red: var(--km-red-override, var(--km-red-auto, #f85149));
+    --km-red-2: var(--km-red-2-override, var(--km-red-2-auto, #da3633));
+    --km-pink: var(--km-pink-override, var(--km-pink-auto, #f778ba));
+    --km-pink-2: var(--km-pink-2-override, var(--km-pink-2-auto, #db61a2));
+    --km-teal: var(--km-teal-override, var(--km-teal-auto, #56d4dd));
+    --km-teal-2: var(--km-teal-2-override, var(--km-teal-2-auto, #1b7c83));
+  }
+  @media (prefers-color-scheme: light) {
+    .kamune-diagram {
+      color-scheme: light;
+      --km-canvas-0-auto: #f6f8fa;
+      --km-canvas-1-auto: #ffffff;
+      --km-card-auto: #ffffff;
+      --km-band-auto: #eef2f6;
+      --km-inset-auto: #f6f8fa;
+      --km-border-auto: #d0d7de;
+      --km-shadow-auto: #1f2328;
+      --km-title-auto: #1f2328;
+      --km-body-auto: #59636e;
+      --km-muted-auto: #656d76;
+      --km-faint-auto: #6e7781;
+      --km-dim-auto: #818b98;
+      --km-info-auto: #0969da;
+      --km-orange-auto: #bc4c00;
+      --km-orange-2-auto: #9a3e00;
+      --km-blue-auto: #0969da;
+      --km-blue-2-auto: #0550ae;
+      --km-purple-auto: #8250df;
+      --km-purple-2-auto: #6639ba;
+      --km-purple-3-auto: #8250df;
+      --km-green-auto: #1a7f37;
+      --km-green-2-auto: #116329;
+      --km-green-3-auto: #1a7f37;
+      --km-yellow-auto: #9a6700;
+      --km-yellow-2-auto: #7d4e00;
+      --km-yellow-3-auto: #9a6700;
+      --km-red-auto: #d1242f;
+      --km-red-2-auto: #a40e26;
+      --km-pink-auto: #bf3989;
+      --km-pink-2-auto: #99286e;
+      --km-teal-auto: #0e7c86;
+      --km-teal-2-auto: #115e67;
+    }
+  }
+</style>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
+      <stop offset="0%" stop-color="var(--km-canvas-0, #0d1117)"/>
+      <stop offset="100%" stop-color="var(--km-canvas-1, #161b22)"/>
     </linearGradient>
     <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#f0883e"/>
-      <stop offset="100%" stop-color="#da6d25"/>
+      <stop offset="0%" stop-color="var(--km-orange, #f0883e)"/>
+      <stop offset="100%" stop-color="var(--km-orange-2, #da6d25)"/>
     </linearGradient>
     <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#58a6ff"/>
-      <stop offset="100%" stop-color="#1f6feb"/>
+      <stop offset="0%" stop-color="var(--km-blue, #58a6ff)"/>
+      <stop offset="100%" stop-color="var(--km-blue-2, #1f6feb)"/>
     </linearGradient>
     <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#d2a8ff"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
+      <stop offset="0%" stop-color="var(--km-purple, #d2a8ff)"/>
+      <stop offset="100%" stop-color="var(--km-purple-2, #8b5cf6)"/>
     </linearGradient>
     <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#7ee787"/>
-      <stop offset="100%" stop-color="#238636"/>
+      <stop offset="0%" stop-color="var(--km-green, #7ee787)"/>
+      <stop offset="100%" stop-color="var(--km-green-2, #238636)"/>
     </linearGradient>
     <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-      <line x1="0" y1="0" x2="0" y2="6" stroke="#30363d" stroke-width="1"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="var(--km-border, #30363d)" stroke-width="1"/>
     </pattern>
   </defs>
 
   <rect width="900" height="860" rx="12" fill="url(#bg)"/>
-  <rect x="1" y="1" width="898" height="858" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+  <rect x="1" y="1" width="898" height="858" rx="11" fill="none" stroke="var(--km-border, #30363d)" stroke-width="1"/>
 
-  <text x="450" y="34" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.4">Wire Format</text>
-  <text x="450" y="54" text-anchor="middle" fill="#8b949e" font-size="11">Length-prefixed frames. Handshake bytes are fixed. Session bytes are SignedTransport. SPEC §4.</text>
+  <text x="450" y="34" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="20" font-weight="700" letter-spacing="0.4">Wire Format</text>
+  <text x="450" y="54" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="11">Length-prefixed frames. Handshake bytes are fixed. Session bytes are SignedTransport. SPEC §4.</text>
 
-  <text x="40" y="86" fill="#e6edf3" font-size="13" font-weight="700">1. Length prefix</text>
-  <text x="180" y="86" fill="#6e7681" font-size="11">Every frame. Big-endian uint16.</text>
-  <rect x="40" y="100" width="120" height="48" rx="6" fill="#21262d" stroke="#f0883e" stroke-width="1.4"/>
+  <text x="40" y="86" fill="var(--km-title, #e6edf3)" font-size="13" font-weight="700">1. Length prefix</text>
+  <text x="180" y="86" fill="var(--km-faint, #6e7681)" font-size="11">Every frame. Big-endian uint16.</text>
+  <rect x="40" y="100" width="120" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-orange, #f0883e)" stroke-width="1.4"/>
   <rect x="40" y="100" width="120" height="4" fill="url(#gOrange)"/>
-  <text x="100" y="122" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Length</text>
-  <text x="100" y="138" text-anchor="middle" fill="#8b949e" font-size="9">2 bytes</text>
-  <rect x="168" y="100" width="692" height="48" rx="6" fill="#21262d" stroke="#58a6ff" stroke-width="1.4"/>
+  <text x="100" y="122" text-anchor="middle" fill="var(--km-orange, #f0883e)" font-size="12" font-weight="600">Length</text>
+  <text x="100" y="138" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">2 bytes</text>
+  <rect x="168" y="100" width="692" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-blue, #58a6ff)" stroke-width="1.4"/>
   <rect x="168" y="100" width="692" height="4" fill="url(#gBlue)"/>
-  <text x="514" y="122" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Payload</text>
-  <text x="514" y="138" text-anchor="middle" fill="#8b949e" font-size="9">up to 65,535 B · senders stop at 65,471 B</text>
+  <text x="514" y="122" text-anchor="middle" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="600">Payload</text>
+  <text x="514" y="138" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">up to 65,535 B · senders stop at 65,471 B</text>
 
-  <text x="40" y="176" fill="#e6edf3" font-size="13" font-weight="700">2. Handshake payload</text>
-  <text x="230" y="176" fill="#6e7681" font-size="11">Fixed binary. ver 0x02. Not protobuf.</text>
+  <text x="40" y="176" fill="var(--km-title, #e6edf3)" font-size="13" font-weight="700">2. Handshake payload</text>
+  <text x="230" y="176" fill="var(--km-faint, #6e7681)" font-size="11">Fixed binary. ver 0x02. Not protobuf.</text>
 
-  <rect x="40" y="190" width="820" height="36" rx="6" fill="#161b22" stroke="#30363d"/>
-  <text x="56" y="212" fill="#c9d1d9" font-size="11">0x01 ClientHello 1282 clear</text>
-  <text x="320" y="212" fill="#c9d1d9" font-size="11">0x02 ServerHello 1154 clear</text>
-  <text x="580" y="212" fill="#c9d1d9" font-size="11">0x03 ResponderAuth 214</text>
-  <rect x="40" y="232" width="820" height="28" rx="6" fill="#161b22" stroke="#30363d"/>
-  <text x="56" y="250" fill="#c9d1d9" font-size="11">0x04 InitiatorAuth 426 · i_hs_key</text>
-  <text x="360" y="250" fill="#c9d1d9" font-size="11">0x05 Confirm 234 · r_hs_key</text>
-  <text x="620" y="250" fill="#8b949e" font-size="11">0x03 also uses r_hs_key</text>
+  <rect x="40" y="190" width="820" height="36" rx="6" fill="var(--km-band, #161b22)" stroke="var(--km-border, #30363d)"/>
+  <text x="56" y="212" fill="var(--km-body, #c9d1d9)" font-size="11">0x01 ClientHello 1282 clear</text>
+  <text x="320" y="212" fill="var(--km-body, #c9d1d9)" font-size="11">0x02 ServerHello 1154 clear</text>
+  <text x="580" y="212" fill="var(--km-body, #c9d1d9)" font-size="11">0x03 ResponderAuth 214</text>
+  <rect x="40" y="232" width="820" height="28" rx="6" fill="var(--km-band, #161b22)" stroke="var(--km-border, #30363d)"/>
+  <text x="56" y="250" fill="var(--km-body, #c9d1d9)" font-size="11">0x04 InitiatorAuth 426 · i_hs_key</text>
+  <text x="360" y="250" fill="var(--km-body, #c9d1d9)" font-size="11">0x05 Confirm 234 · r_hs_key</text>
+  <text x="620" y="250" fill="var(--km-muted, #8b949e)" font-size="11">0x03 also uses r_hs_key</text>
 
-  <text x="40" y="284" fill="#8b949e" font-size="11">Encrypted handshake frame (0x03, 0x04, 0x05)</text>
-  <rect x="40" y="294" width="70" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
-  <text x="75" y="316" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">ver</text>
-  <text x="75" y="332" text-anchor="middle" fill="#8b949e" font-size="9">1 · 0x02</text>
-  <rect x="118" y="294" width="70" height="52" rx="6" fill="#21262d" stroke="#58a6ff"/>
-  <text x="153" y="316" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">type</text>
-  <text x="153" y="332" text-anchor="middle" fill="#8b949e" font-size="9">1</text>
-  <rect x="196" y="294" width="150" height="52" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="271" y="316" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">nonce</text>
-  <text x="271" y="332" text-anchor="middle" fill="#8b949e" font-size="9">24 · random</text>
-  <rect x="354" y="294" width="506" height="52" rx="6" fill="#21262d" stroke="#7ee787"/>
-  <text x="607" y="316" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">ciphertext and tag</text>
-  <text x="607" y="332" text-anchor="middle" fill="#8b949e" font-size="9">P + 16 · P is 172, 384, or 192</text>
-  <text x="40" y="368" fill="#6e7681" font-size="11">AD = kamune/2 hs || ver || type. Padding inside P is zero.</text>
+  <text x="40" y="284" fill="var(--km-muted, #8b949e)" font-size="11">Encrypted handshake frame (0x03, 0x04, 0x05)</text>
+  <rect x="40" y="294" width="70" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-orange, #f0883e)"/>
+  <text x="75" y="316" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">ver</text>
+  <text x="75" y="332" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">1 · 0x02</text>
+  <rect x="118" y="294" width="70" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="153" y="316" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">type</text>
+  <text x="153" y="332" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">1</text>
+  <rect x="196" y="294" width="150" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="271" y="316" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">nonce</text>
+  <text x="271" y="332" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">24 · random</text>
+  <rect x="354" y="294" width="506" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-green, #7ee787)"/>
+  <text x="607" y="316" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">ciphertext and tag</text>
+  <text x="607" y="332" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">P + 16 · P is 172, 384, or 192</text>
+  <text x="40" y="368" fill="var(--km-faint, #6e7681)" font-size="11">AD = kamune/2 hs || ver || type. Padding inside P is zero.</text>
 
-  <text x="40" y="406" fill="#e6edf3" font-size="13" font-weight="700">3. Session payload</text>
-  <text x="210" y="406" fill="#6e7681" font-size="11">After Confirm. No associated data.</text>
+  <text x="40" y="406" fill="var(--km-title, #e6edf3)" font-size="13" font-weight="700">3. Session payload</text>
+  <text x="210" y="406" fill="var(--km-faint, #6e7681)" font-size="11">After Confirm. No associated data.</text>
 
-  <rect x="40" y="420" width="90" height="48" rx="6" fill="#21262d" stroke="#f0883e"/>
-  <text x="85" y="440" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">Length</text>
-  <text x="85" y="456" text-anchor="middle" fill="#8b949e" font-size="9">2</text>
-  <rect x="138" y="420" width="130" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="203" y="440" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Nonce</text>
-  <text x="203" y="456" text-anchor="middle" fill="#8b949e" font-size="9">24</text>
-  <rect x="276" y="420" width="430" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
-  <text x="491" y="440" text-anchor="middle" fill="#7ee787" font-size="11" font-weight="600">Encrypted SignedTransport</text>
-  <text x="491" y="456" text-anchor="middle" fill="#8b949e" font-size="9">i_ap_key or r_ap_key</text>
-  <rect x="714" y="420" width="146" height="48" rx="6" fill="#21262d" stroke="#e3b341"/>
-  <text x="787" y="440" text-anchor="middle" fill="#e3b341" font-size="11" font-weight="600">Tag</text>
-  <text x="787" y="456" text-anchor="middle" fill="#8b949e" font-size="9">16 · Poly1305</text>
+  <rect x="40" y="420" width="90" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-orange, #f0883e)"/>
+  <text x="85" y="440" text-anchor="middle" fill="var(--km-orange, #f0883e)" font-size="11" font-weight="600">Length</text>
+  <text x="85" y="456" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">2</text>
+  <rect x="138" y="420" width="130" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="203" y="440" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">Nonce</text>
+  <text x="203" y="456" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">24</text>
+  <rect x="276" y="420" width="430" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-green, #7ee787)"/>
+  <text x="491" y="440" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="11" font-weight="600">Encrypted SignedTransport</text>
+  <text x="491" y="456" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">i_ap_key or r_ap_key</text>
+  <rect x="714" y="420" width="146" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-yellow, #e3b341)"/>
+  <text x="787" y="440" text-anchor="middle" fill="var(--km-yellow, #e3b341)" font-size="11" font-weight="600">Tag</text>
+  <text x="787" y="456" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">16 · Poly1305</text>
 
-  <text x="40" y="496" fill="#8b949e" font-size="11">SignedTransport fields. Protobuf. Signature covers Metadata and Data, not Padding.</text>
-  <rect x="40" y="508" width="190" height="56" rx="6" fill="#21262d" stroke="#58a6ff"/>
-  <text x="135" y="530" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Data</text>
-  <text x="135" y="548" text-anchor="middle" fill="#8b949e" font-size="9">inner message</text>
-  <rect x="238" y="508" width="190" height="56" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="333" y="530" text-anchor="middle" fill="#d2a8ff" font-size="12" font-weight="600">Signature</text>
-  <text x="333" y="548" text-anchor="middle" fill="#8b949e" font-size="9">Ed25519</text>
-  <rect x="436" y="508" width="210" height="56" rx="6" fill="#21262d" stroke="#3fb950"/>
-  <text x="541" y="530" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">Metadata</text>
-  <text x="541" y="548" text-anchor="middle" fill="#8b949e" font-size="9">id, time, seq, route</text>
-  <rect x="654" y="508" width="206" height="56" rx="6" fill="#21262d" stroke="#484f58"/>
+  <text x="40" y="496" fill="var(--km-muted, #8b949e)" font-size="11">SignedTransport fields. Protobuf. Signature covers Metadata and Data, not Padding.</text>
+  <rect x="40" y="508" width="190" height="56" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="135" y="530" text-anchor="middle" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="600">Data</text>
+  <text x="135" y="548" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">inner message</text>
+  <rect x="238" y="508" width="190" height="56" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="333" y="530" text-anchor="middle" fill="var(--km-purple, #d2a8ff)" font-size="12" font-weight="600">Signature</text>
+  <text x="333" y="548" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">Ed25519</text>
+  <rect x="436" y="508" width="210" height="56" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-green-3, #3fb950)"/>
+  <text x="541" y="530" text-anchor="middle" fill="var(--km-green-3, #3fb950)" font-size="12" font-weight="600">Metadata</text>
+  <text x="541" y="548" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">id, time, seq, route</text>
+  <rect x="654" y="508" width="206" height="56" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-dim, #484f58)"/>
   <rect x="654" y="508" width="206" height="56" rx="6" fill="url(#hatch)" opacity="0.35"/>
-  <text x="757" y="530" text-anchor="middle" fill="#8b949e" font-size="12" font-weight="600">Padding</text>
-  <text x="757" y="548" text-anchor="middle" fill="#6e7681" font-size="9">bucketed · unsigned</text>
+  <text x="757" y="530" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="12" font-weight="600">Padding</text>
+  <text x="757" y="548" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">bucketed · unsigned</text>
 
-  <rect x="40" y="580" width="820" height="56" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <text x="56" y="602" fill="#d2a8ff" font-size="11" font-weight="600">Signing input</text>
-  <text x="56" y="620" fill="#c9d1d9" font-size="12" font-family="'SF Mono','Fira Code',monospace">kamune/transport-sign/v1 || varint(len(Metadata)) || Metadata || Data</text>
+  <rect x="40" y="580" width="820" height="56" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-border, #30363d)"/>
+  <text x="56" y="602" fill="var(--km-purple, #d2a8ff)" font-size="11" font-weight="600">Signing input</text>
+  <text x="56" y="620" fill="var(--km-body, #c9d1d9)" font-size="12" font-family="'SF Mono','Fira Code',monospace">kamune/transport-sign/v1 || varint(len(Metadata)) || Metadata || Data</text>
 
-  <text x="40" y="662" fill="#8b949e" font-size="11">Padding is outside the signature and inside the AEAD tag.</text>
+  <text x="40" y="662" fill="var(--km-muted, #8b949e)" font-size="11">Padding is outside the signature and inside the AEAD tag.</text>
 
-  <text x="40" y="694" fill="#e6edf3" font-size="12" font-weight="700">Session routes</text>
-  <text x="40" y="718" fill="#c9d1d9" font-size="12">0 INVALID · 7 EXCHANGE_MESSAGES · 8 CLOSE_TRANSPORT</text>
-  <text x="40" y="738" fill="#c9d1d9" font-size="12">9 PING · 10 PONG · 13 SESSION_DATA</text>
-  <text x="40" y="762" fill="#6e7681" font-size="11">Handshake route numbers stay reserved. The handshake is the five frames above, not a route.</text>
+  <text x="40" y="694" fill="var(--km-title, #e6edf3)" font-size="12" font-weight="700">Session routes</text>
+  <text x="40" y="718" fill="var(--km-body, #c9d1d9)" font-size="12">0 INVALID · 7 EXCHANGE_MESSAGES · 8 CLOSE_TRANSPORT</text>
+  <text x="40" y="738" fill="var(--km-body, #c9d1d9)" font-size="12">9 PING · 10 PONG · 13 SESSION_DATA</text>
+  <text x="40" y="762" fill="var(--km-faint, #6e7681)" font-size="11">Handshake route numbers stay reserved. The handshake is the five frames above, not a route.</text>
 
-  <text x="450" y="820" text-anchor="middle" fill="#6e7681" font-size="10">First session sequence is 1. SPEC §4 and §5.</text>
+  <text x="450" y="820" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="10">First session sequence is 1. SPEC §4 and §5.</text>
 </svg>

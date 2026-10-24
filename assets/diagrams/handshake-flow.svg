@@ -1,149 +1,223 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 980" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<svg class="kamune-diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 980" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<style>
+  .kamune-diagram {
+    color-scheme: dark;
+    --km-canvas-0: var(--km-canvas-0-override, var(--km-canvas-0-auto, #0d1117));
+    --km-canvas-1: var(--km-canvas-1-override, var(--km-canvas-1-auto, #161b22));
+    --km-card: var(--km-card-override, var(--km-card-auto, #0d1117));
+    --km-band: var(--km-band-override, var(--km-band-auto, #161b22));
+    --km-inset: var(--km-inset-override, var(--km-inset-auto, #21262d));
+    --km-border: var(--km-border-override, var(--km-border-auto, #30363d));
+    --km-shadow: var(--km-shadow-override, var(--km-shadow-auto, #000));
+    --km-title: var(--km-title-override, var(--km-title-auto, #e6edf3));
+    --km-body: var(--km-body-override, var(--km-body-auto, #c9d1d9));
+    --km-muted: var(--km-muted-override, var(--km-muted-auto, #8b949e));
+    --km-faint: var(--km-faint-override, var(--km-faint-auto, #6e7681));
+    --km-dim: var(--km-dim-override, var(--km-dim-auto, #484f58));
+    --km-info: var(--km-info-override, var(--km-info-auto, #79c0ff));
+    --km-orange: var(--km-orange-override, var(--km-orange-auto, #f0883e));
+    --km-orange-2: var(--km-orange-2-override, var(--km-orange-2-auto, #da6d25));
+    --km-blue: var(--km-blue-override, var(--km-blue-auto, #58a6ff));
+    --km-blue-2: var(--km-blue-2-override, var(--km-blue-2-auto, #1f6feb));
+    --km-purple: var(--km-purple-override, var(--km-purple-auto, #d2a8ff));
+    --km-purple-2: var(--km-purple-2-override, var(--km-purple-2-auto, #8b5cf6));
+    --km-purple-3: var(--km-purple-3-override, var(--km-purple-3-auto, #a371f7));
+    --km-green: var(--km-green-override, var(--km-green-auto, #7ee787));
+    --km-green-2: var(--km-green-2-override, var(--km-green-2-auto, #238636));
+    --km-green-3: var(--km-green-3-override, var(--km-green-3-auto, #3fb950));
+    --km-yellow: var(--km-yellow-override, var(--km-yellow-auto, #e3b341));
+    --km-yellow-2: var(--km-yellow-2-override, var(--km-yellow-2-auto, #9e6a03));
+    --km-yellow-3: var(--km-yellow-3-override, var(--km-yellow-3-auto, #d29922));
+    --km-red: var(--km-red-override, var(--km-red-auto, #f85149));
+    --km-red-2: var(--km-red-2-override, var(--km-red-2-auto, #da3633));
+    --km-pink: var(--km-pink-override, var(--km-pink-auto, #f778ba));
+    --km-pink-2: var(--km-pink-2-override, var(--km-pink-2-auto, #db61a2));
+    --km-teal: var(--km-teal-override, var(--km-teal-auto, #56d4dd));
+    --km-teal-2: var(--km-teal-2-override, var(--km-teal-2-auto, #1b7c83));
+  }
+  @media (prefers-color-scheme: light) {
+    .kamune-diagram {
+      color-scheme: light;
+      --km-canvas-0-auto: #f6f8fa;
+      --km-canvas-1-auto: #ffffff;
+      --km-card-auto: #ffffff;
+      --km-band-auto: #eef2f6;
+      --km-inset-auto: #f6f8fa;
+      --km-border-auto: #d0d7de;
+      --km-shadow-auto: #1f2328;
+      --km-title-auto: #1f2328;
+      --km-body-auto: #59636e;
+      --km-muted-auto: #656d76;
+      --km-faint-auto: #6e7781;
+      --km-dim-auto: #818b98;
+      --km-info-auto: #0969da;
+      --km-orange-auto: #bc4c00;
+      --km-orange-2-auto: #9a3e00;
+      --km-blue-auto: #0969da;
+      --km-blue-2-auto: #0550ae;
+      --km-purple-auto: #8250df;
+      --km-purple-2-auto: #6639ba;
+      --km-purple-3-auto: #8250df;
+      --km-green-auto: #1a7f37;
+      --km-green-2-auto: #116329;
+      --km-green-3-auto: #1a7f37;
+      --km-yellow-auto: #9a6700;
+      --km-yellow-2-auto: #7d4e00;
+      --km-yellow-3-auto: #9a6700;
+      --km-red-auto: #d1242f;
+      --km-red-2-auto: #a40e26;
+      --km-pink-auto: #bf3989;
+      --km-pink-2-auto: #99286e;
+      --km-teal-auto: #0e7c86;
+      --km-teal-2-auto: #115e67;
+    }
+  }
+</style>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
+      <stop offset="0%" stop-color="var(--km-canvas-0, #0d1117)"/>
+      <stop offset="100%" stop-color="var(--km-canvas-1, #161b22)"/>
     </linearGradient>
     <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#f0883e"/>
-      <stop offset="100%" stop-color="#da6d25"/>
+      <stop offset="0%" stop-color="var(--km-orange, #f0883e)"/>
+      <stop offset="100%" stop-color="var(--km-orange-2, #da6d25)"/>
     </linearGradient>
     <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#58a6ff"/>
-      <stop offset="100%" stop-color="#1f6feb"/>
+      <stop offset="0%" stop-color="var(--km-blue, #58a6ff)"/>
+      <stop offset="100%" stop-color="var(--km-blue-2, #1f6feb)"/>
     </linearGradient>
     <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#d2a8ff"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
+      <stop offset="0%" stop-color="var(--km-purple, #d2a8ff)"/>
+      <stop offset="100%" stop-color="var(--km-purple-2, #8b5cf6)"/>
     </linearGradient>
     <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#7ee787"/>
-      <stop offset="100%" stop-color="#238636"/>
+      <stop offset="0%" stop-color="var(--km-green, #7ee787)"/>
+      <stop offset="100%" stop-color="var(--km-green-2, #238636)"/>
     </linearGradient>
     <linearGradient id="gYellow" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#e3b341"/>
-      <stop offset="100%" stop-color="#9e6a03"/>
+      <stop offset="0%" stop-color="var(--km-yellow, #e3b341)"/>
+      <stop offset="100%" stop-color="var(--km-yellow-2, #9e6a03)"/>
     </linearGradient>
     <filter id="shadow">
-      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.35"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="var(--km-shadow, #000)" flood-opacity="0.35"/>
     </filter>
   </defs>
 
   <rect width="900" height="980" rx="12" fill="url(#bg)"/>
-  <rect x="1" y="1" width="898" height="978" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+  <rect x="1" y="1" width="898" height="978" rx="11" fill="none" stroke="var(--km-border, #30363d)" stroke-width="1"/>
 
-  <text x="450" y="36" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.4">Handshake Frames</text>
-  <text x="450" y="56" text-anchor="middle" fill="#8b949e" font-size="11">Fixed layouts. ver 0x02. Plaintext is not protobuf. SPEC §6.</text>
+  <text x="450" y="36" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="20" font-weight="700" letter-spacing="0.4">Handshake Frames</text>
+  <text x="450" y="56" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="11">Fixed layouts. ver 0x02. Plaintext is not protobuf. SPEC §6.</text>
 
-  <rect x="36" y="76" width="828" height="118" rx="10" fill="#0d1117" stroke="#da6d25" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="76" width="828" height="118" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-orange-2, #da6d25)" stroke-width="1.3" filter="url(#shadow)"/>
   <rect x="36" y="76" width="828" height="4" rx="2" fill="url(#gOrange)"/>
-  <text x="52" y="100" fill="#f0883e" font-size="13" font-weight="700">ClientHello</text>
-  <text x="848" y="100" text-anchor="end" fill="#8b949e" font-size="11">I → R · clear · 1282 B · type 0x01</text>
-  <rect x="52" y="116" width="70" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
-  <text x="87" y="138" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">ver</text>
-  <text x="87" y="154" text-anchor="middle" fill="#8b949e" font-size="9">1 · 0x02</text>
-  <rect x="130" y="116" width="70" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
-  <text x="165" y="138" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">type</text>
-  <text x="165" y="154" text-anchor="middle" fill="#8b949e" font-size="9">1 · 0x01</text>
-  <rect x="208" y="116" width="130" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
-  <text x="273" y="138" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">nonce_i</text>
-  <text x="273" y="154" text-anchor="middle" fill="#8b949e" font-size="9">32 · random</text>
-  <rect x="346" y="116" width="150" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
-  <text x="421" y="138" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">tag</text>
-  <text x="421" y="154" text-anchor="middle" fill="#8b949e" font-size="9">32 · ignored today</text>
-  <rect x="504" y="116" width="340" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
-  <text x="674" y="138" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">pk_i</text>
-  <text x="674" y="154" text-anchor="middle" fill="#8b949e" font-size="9">1216 · X-Wing public key (ML-KEM-768-X25519)</text>
+  <text x="52" y="100" fill="var(--km-orange, #f0883e)" font-size="13" font-weight="700">ClientHello</text>
+  <text x="848" y="100" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="11">I → R · clear · 1282 B · type 0x01</text>
+  <rect x="52" y="116" width="70" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-orange, #f0883e)"/>
+  <text x="87" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">ver</text>
+  <text x="87" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">1 · 0x02</text>
+  <rect x="130" y="116" width="70" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-orange, #f0883e)"/>
+  <text x="165" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">type</text>
+  <text x="165" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">1 · 0x01</text>
+  <rect x="208" y="116" width="130" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-orange, #f0883e)"/>
+  <text x="273" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">nonce_i</text>
+  <text x="273" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">32 · random</text>
+  <rect x="346" y="116" width="150" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-orange, #f0883e)"/>
+  <text x="421" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">tag</text>
+  <text x="421" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">32 · ignored today</text>
+  <rect x="504" y="116" width="340" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-orange, #f0883e)"/>
+  <text x="674" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">pk_i</text>
+  <text x="674" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">1216 · X-Wing public key (ML-KEM-768-X25519)</text>
 
-  <rect x="36" y="208" width="828" height="118" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="208" width="828" height="118" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-blue-2, #1f6feb)" stroke-width="1.3" filter="url(#shadow)"/>
   <rect x="36" y="208" width="828" height="4" rx="2" fill="url(#gBlue)"/>
-  <text x="52" y="232" fill="#58a6ff" font-size="13" font-weight="700">ServerHello</text>
-  <text x="848" y="232" text-anchor="end" fill="#8b949e" font-size="11">R → I · clear · 1154 B · type 0x02</text>
-  <rect x="52" y="248" width="70" height="52" rx="6" fill="#21262d" stroke="#58a6ff"/>
-  <text x="87" y="270" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">ver</text>
-  <text x="87" y="286" text-anchor="middle" fill="#8b949e" font-size="9">1 · 0x02</text>
-  <rect x="130" y="248" width="70" height="52" rx="6" fill="#21262d" stroke="#58a6ff"/>
-  <text x="165" y="270" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">type</text>
-  <text x="165" y="286" text-anchor="middle" fill="#8b949e" font-size="9">1 · 0x02</text>
-  <rect x="208" y="248" width="140" height="52" rx="6" fill="#21262d" stroke="#58a6ff"/>
-  <text x="278" y="270" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">nonce_r</text>
-  <text x="278" y="286" text-anchor="middle" fill="#8b949e" font-size="9">32 · random</text>
-  <rect x="356" y="248" width="488" height="52" rx="6" fill="#21262d" stroke="#58a6ff"/>
-  <text x="600" y="270" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">enc</text>
-  <text x="600" y="286" text-anchor="middle" fill="#8b949e" font-size="9">1120 · X-Wing encapsulation to pk_i</text>
+  <text x="52" y="232" fill="var(--km-blue, #58a6ff)" font-size="13" font-weight="700">ServerHello</text>
+  <text x="848" y="232" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="11">R → I · clear · 1154 B · type 0x02</text>
+  <rect x="52" y="248" width="70" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="87" y="270" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">ver</text>
+  <text x="87" y="286" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">1 · 0x02</text>
+  <rect x="130" y="248" width="70" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="165" y="270" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">type</text>
+  <text x="165" y="286" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">1 · 0x02</text>
+  <rect x="208" y="248" width="140" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="278" y="270" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">nonce_r</text>
+  <text x="278" y="286" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">32 · random</text>
+  <rect x="356" y="248" width="488" height="52" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="600" y="270" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">enc</text>
+  <text x="600" y="286" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">1120 · X-Wing encapsulation to pk_i</text>
 
-  <rect x="36" y="340" width="828" height="128" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="340" width="828" height="128" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-purple-2, #8b5cf6)" stroke-width="1.3" filter="url(#shadow)"/>
   <rect x="36" y="340" width="828" height="4" rx="2" fill="url(#gPurple)"/>
-  <text x="52" y="364" fill="#d2a8ff" font-size="13" font-weight="700">ResponderAuth</text>
-  <text x="848" y="364" text-anchor="end" fill="#8b949e" font-size="11">R → I · AEAD r_hs_key · wire 214 B · type 0x03</text>
-  <text x="52" y="386" fill="#6e7681" font-size="10">Plaintext P = 172. The fields fill it, so there is no padding.</text>
-  <rect x="52" y="398" width="240" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="172" y="418" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">key_R</text>
-  <text x="172" y="434" text-anchor="middle" fill="#8b949e" font-size="9">44 · Ed25519 PKIX</text>
-  <rect x="300" y="398" width="250" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="425" y="418" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">sig_R</text>
-  <text x="425" y="434" text-anchor="middle" fill="#8b949e" font-size="9">64</text>
-  <rect x="558" y="398" width="286" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="701" y="418" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">finished_R</text>
-  <text x="701" y="434" text-anchor="middle" fill="#8b949e" font-size="9">64 · HMAC-SHA512</text>
+  <text x="52" y="364" fill="var(--km-purple, #d2a8ff)" font-size="13" font-weight="700">ResponderAuth</text>
+  <text x="848" y="364" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="11">R → I · AEAD r_hs_key · wire 214 B · type 0x03</text>
+  <text x="52" y="386" fill="var(--km-faint, #6e7681)" font-size="10">Plaintext P = 172. The fields fill it, so there is no padding.</text>
+  <rect x="52" y="398" width="240" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="172" y="418" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">key_R</text>
+  <text x="172" y="434" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">44 · Ed25519 PKIX</text>
+  <rect x="300" y="398" width="250" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="425" y="418" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">sig_R</text>
+  <text x="425" y="434" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">64</text>
+  <rect x="558" y="398" width="286" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="701" y="418" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">finished_R</text>
+  <text x="701" y="434" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">64 · HMAC-SHA512</text>
 
-  <rect x="36" y="482" width="828" height="210" rx="10" fill="#0d1117" stroke="#a371f7" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="482" width="828" height="210" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-purple-3, #a371f7)" stroke-width="1.3" filter="url(#shadow)"/>
   <rect x="36" y="482" width="828" height="4" rx="2" fill="url(#gPurple)"/>
-  <text x="52" y="506" fill="#d2a8ff" font-size="13" font-weight="700">InitiatorAuth</text>
-  <text x="848" y="506" text-anchor="end" fill="#8b949e" font-size="11">I → R · AEAD i_hs_key · wire 426 B · type 0x04</text>
-  <text x="52" y="528" fill="#6e7681" font-size="10">Plaintext P = 384. Bytes after the last field are zero padding.</text>
-  <rect x="52" y="540" width="150" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="127" y="560" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">key_I</text>
-  <text x="127" y="576" text-anchor="middle" fill="#8b949e" font-size="9">44 · PKIX</text>
-  <rect x="210" y="540" width="170" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="295" y="560" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">name_I</text>
-  <text x="295" y="576" text-anchor="middle" fill="#8b949e" font-size="9">str8(64) · empty ok</text>
-  <rect x="388" y="540" width="170" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="473" y="560" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">version_I</text>
-  <text x="473" y="576" text-anchor="middle" fill="#8b949e" font-size="9">str8(32) · semver</text>
-  <rect x="566" y="540" width="278" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="705" y="560" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">resume_sid</text>
-  <text x="705" y="576" text-anchor="middle" fill="#8b949e" font-size="9">str8(24) · 0 or 24 of [A-Z2-7]</text>
-  <rect x="52" y="598" width="250" height="48" rx="6" fill="#21262d" stroke="#e3b341"/>
-  <text x="177" y="618" text-anchor="middle" fill="#e3b341" font-size="11" font-weight="600">binder</text>
-  <text x="177" y="634" text-anchor="middle" fill="#8b949e" font-size="9">64 · only if sid length is 24</text>
-  <rect x="310" y="598" width="160" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="390" y="618" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">sig_I</text>
-  <text x="390" y="634" text-anchor="middle" fill="#8b949e" font-size="9">64</text>
-  <rect x="478" y="598" width="180" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
-  <text x="568" y="618" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">finished_I</text>
-  <text x="568" y="634" text-anchor="middle" fill="#8b949e" font-size="9">64</text>
-  <rect x="666" y="598" width="178" height="48" rx="6" fill="#21262d" stroke="#484f58"/>
-  <text x="755" y="618" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="600">zero pad</text>
-  <text x="755" y="634" text-anchor="middle" fill="#6e7681" font-size="9">up to P</text>
+  <text x="52" y="506" fill="var(--km-purple, #d2a8ff)" font-size="13" font-weight="700">InitiatorAuth</text>
+  <text x="848" y="506" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="11">I → R · AEAD i_hs_key · wire 426 B · type 0x04</text>
+  <text x="52" y="528" fill="var(--km-faint, #6e7681)" font-size="10">Plaintext P = 384. Bytes after the last field are zero padding.</text>
+  <rect x="52" y="540" width="150" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="127" y="560" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">key_I</text>
+  <text x="127" y="576" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">44 · PKIX</text>
+  <rect x="210" y="540" width="170" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="295" y="560" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">name_I</text>
+  <text x="295" y="576" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">str8(64) · empty ok</text>
+  <rect x="388" y="540" width="170" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="473" y="560" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">version_I</text>
+  <text x="473" y="576" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">str8(32) · semver</text>
+  <rect x="566" y="540" width="278" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="705" y="560" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">resume_sid</text>
+  <text x="705" y="576" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">str8(24) · 0 or 24 of [A-Z2-7]</text>
+  <rect x="52" y="598" width="250" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-yellow, #e3b341)"/>
+  <text x="177" y="618" text-anchor="middle" fill="var(--km-yellow, #e3b341)" font-size="11" font-weight="600">binder</text>
+  <text x="177" y="634" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">64 · only if sid length is 24</text>
+  <rect x="310" y="598" width="160" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="390" y="618" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">sig_I</text>
+  <text x="390" y="634" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">64</text>
+  <rect x="478" y="598" width="180" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="568" y="618" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">finished_I</text>
+  <text x="568" y="634" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">64</text>
+  <rect x="666" y="598" width="178" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-dim, #484f58)"/>
+  <text x="755" y="618" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="11" font-weight="600">zero pad</text>
+  <text x="755" y="634" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="9">up to P</text>
 
-  <rect x="36" y="706" width="828" height="52" rx="8" fill="#21262d" stroke="#e3b341" stroke-width="1.2"/>
+  <rect x="36" y="706" width="828" height="52" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-yellow, #e3b341)" stroke-width="1.2"/>
   <rect x="36" y="706" width="4" height="52" fill="url(#gYellow)"/>
-  <text x="56" y="728" fill="#e3b341" font-size="11" font-weight="700">Binder does not match</text>
-  <text x="56" y="744" fill="#c9d1d9" font-size="10">Confirm status is COLD. That is not a failed handshake.</text>
-  <text x="520" y="728" fill="#e3b341" font-size="11" font-weight="700">REJECTED</text>
-  <text x="520" y="744" fill="#c9d1d9" font-size="10">Only verifier (reason 1) or version (reason 2).</text>
+  <text x="56" y="728" fill="var(--km-yellow, #e3b341)" font-size="11" font-weight="700">Binder does not match</text>
+  <text x="56" y="744" fill="var(--km-body, #c9d1d9)" font-size="10">Confirm status is COLD. That is not a failed handshake.</text>
+  <text x="520" y="728" fill="var(--km-yellow, #e3b341)" font-size="11" font-weight="700">REJECTED</text>
+  <text x="520" y="744" fill="var(--km-body, #c9d1d9)" font-size="10">Only verifier (reason 1) or version (reason 2).</text>
 
-  <rect x="36" y="772" width="828" height="156" rx="10" fill="#0d1117" stroke="#238636" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="772" width="828" height="156" rx="10" fill="var(--km-card, #0d1117)" stroke="var(--km-green-2, #238636)" stroke-width="1.3" filter="url(#shadow)"/>
   <rect x="36" y="772" width="828" height="4" rx="2" fill="url(#gGreen)"/>
-  <text x="52" y="796" fill="#7ee787" font-size="13" font-weight="700">Confirm</text>
-  <text x="848" y="796" text-anchor="end" fill="#8b949e" font-size="11">R → I · AEAD r_hs_key · wire 234 B · type 0x05</text>
-  <text x="52" y="818" fill="#6e7681" font-size="10">Plaintext P = 192, then zero padding. status 1 COLD, 2 RESUMED, 3 REJECTED.</text>
-  <rect x="52" y="832" width="100" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
-  <text x="102" y="852" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">status</text>
-  <text x="102" y="868" text-anchor="middle" fill="#8b949e" font-size="9">u8</text>
-  <rect x="160" y="832" width="100" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
-  <text x="210" y="852" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">reason</text>
-  <text x="210" y="868" text-anchor="middle" fill="#8b949e" font-size="9">u8</text>
-  <rect x="268" y="832" width="170" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
-  <text x="353" y="852" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">name_R</text>
-  <text x="353" y="868" text-anchor="middle" fill="#8b949e" font-size="9">str8(64)</text>
-  <rect x="446" y="832" width="170" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
-  <text x="531" y="852" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">version_R</text>
-  <text x="531" y="868" text-anchor="middle" fill="#8b949e" font-size="9">str8(32)</text>
-  <rect x="624" y="832" width="220" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
-  <text x="734" y="852" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">finished_C</text>
-  <text x="734" y="868" text-anchor="middle" fill="#8b949e" font-size="9">64 · then zero pad</text>
+  <text x="52" y="796" fill="var(--km-green, #7ee787)" font-size="13" font-weight="700">Confirm</text>
+  <text x="848" y="796" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="11">R → I · AEAD r_hs_key · wire 234 B · type 0x05</text>
+  <text x="52" y="818" fill="var(--km-faint, #6e7681)" font-size="10">Plaintext P = 192, then zero padding. status 1 COLD, 2 RESUMED, 3 REJECTED.</text>
+  <rect x="52" y="832" width="100" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-green, #7ee787)"/>
+  <text x="102" y="852" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">status</text>
+  <text x="102" y="868" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">u8</text>
+  <rect x="160" y="832" width="100" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-green, #7ee787)"/>
+  <text x="210" y="852" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">reason</text>
+  <text x="210" y="868" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">u8</text>
+  <rect x="268" y="832" width="170" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-green, #7ee787)"/>
+  <text x="353" y="852" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">name_R</text>
+  <text x="353" y="868" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">str8(64)</text>
+  <rect x="446" y="832" width="170" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-green, #7ee787)"/>
+  <text x="531" y="852" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">version_R</text>
+  <text x="531" y="868" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">str8(32)</text>
+  <rect x="624" y="832" width="220" height="48" rx="6" fill="var(--km-inset, #21262d)" stroke="var(--km-green, #7ee787)"/>
+  <text x="734" y="852" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="11" font-weight="600">finished_C</text>
+  <text x="734" y="868" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="9">64 · then zero pad</text>
 
-  <text x="450" y="956" text-anchor="middle" fill="#6e7681" font-size="10">Encrypted frames: ver, type, 24-byte nonce, ciphertext and tag. AD = kamune/2 hs || ver || type. SPEC §6.</text>
+  <text x="450" y="956" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="10">Encrypted frames: ver, type, 24-byte nonce, ciphertext and tag. AD = kamune/2 hs || ver || type. SPEC §6.</text>
 </svg>

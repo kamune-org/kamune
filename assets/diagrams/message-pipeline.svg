@@ -1,148 +1,222 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 760" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<svg class="kamune-diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 760" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<style>
+  .kamune-diagram {
+    color-scheme: dark;
+    --km-canvas-0: var(--km-canvas-0-override, var(--km-canvas-0-auto, #0d1117));
+    --km-canvas-1: var(--km-canvas-1-override, var(--km-canvas-1-auto, #161b22));
+    --km-card: var(--km-card-override, var(--km-card-auto, #0d1117));
+    --km-band: var(--km-band-override, var(--km-band-auto, #161b22));
+    --km-inset: var(--km-inset-override, var(--km-inset-auto, #21262d));
+    --km-border: var(--km-border-override, var(--km-border-auto, #30363d));
+    --km-shadow: var(--km-shadow-override, var(--km-shadow-auto, #000));
+    --km-title: var(--km-title-override, var(--km-title-auto, #e6edf3));
+    --km-body: var(--km-body-override, var(--km-body-auto, #c9d1d9));
+    --km-muted: var(--km-muted-override, var(--km-muted-auto, #8b949e));
+    --km-faint: var(--km-faint-override, var(--km-faint-auto, #6e7681));
+    --km-dim: var(--km-dim-override, var(--km-dim-auto, #484f58));
+    --km-info: var(--km-info-override, var(--km-info-auto, #79c0ff));
+    --km-orange: var(--km-orange-override, var(--km-orange-auto, #f0883e));
+    --km-orange-2: var(--km-orange-2-override, var(--km-orange-2-auto, #da6d25));
+    --km-blue: var(--km-blue-override, var(--km-blue-auto, #58a6ff));
+    --km-blue-2: var(--km-blue-2-override, var(--km-blue-2-auto, #1f6feb));
+    --km-purple: var(--km-purple-override, var(--km-purple-auto, #d2a8ff));
+    --km-purple-2: var(--km-purple-2-override, var(--km-purple-2-auto, #8b5cf6));
+    --km-purple-3: var(--km-purple-3-override, var(--km-purple-3-auto, #a371f7));
+    --km-green: var(--km-green-override, var(--km-green-auto, #7ee787));
+    --km-green-2: var(--km-green-2-override, var(--km-green-2-auto, #238636));
+    --km-green-3: var(--km-green-3-override, var(--km-green-3-auto, #3fb950));
+    --km-yellow: var(--km-yellow-override, var(--km-yellow-auto, #e3b341));
+    --km-yellow-2: var(--km-yellow-2-override, var(--km-yellow-2-auto, #9e6a03));
+    --km-yellow-3: var(--km-yellow-3-override, var(--km-yellow-3-auto, #d29922));
+    --km-red: var(--km-red-override, var(--km-red-auto, #f85149));
+    --km-red-2: var(--km-red-2-override, var(--km-red-2-auto, #da3633));
+    --km-pink: var(--km-pink-override, var(--km-pink-auto, #f778ba));
+    --km-pink-2: var(--km-pink-2-override, var(--km-pink-2-auto, #db61a2));
+    --km-teal: var(--km-teal-override, var(--km-teal-auto, #56d4dd));
+    --km-teal-2: var(--km-teal-2-override, var(--km-teal-2-auto, #1b7c83));
+  }
+  @media (prefers-color-scheme: light) {
+    .kamune-diagram {
+      color-scheme: light;
+      --km-canvas-0-auto: #f6f8fa;
+      --km-canvas-1-auto: #ffffff;
+      --km-card-auto: #ffffff;
+      --km-band-auto: #eef2f6;
+      --km-inset-auto: #f6f8fa;
+      --km-border-auto: #d0d7de;
+      --km-shadow-auto: #1f2328;
+      --km-title-auto: #1f2328;
+      --km-body-auto: #59636e;
+      --km-muted-auto: #656d76;
+      --km-faint-auto: #6e7781;
+      --km-dim-auto: #818b98;
+      --km-info-auto: #0969da;
+      --km-orange-auto: #bc4c00;
+      --km-orange-2-auto: #9a3e00;
+      --km-blue-auto: #0969da;
+      --km-blue-2-auto: #0550ae;
+      --km-purple-auto: #8250df;
+      --km-purple-2-auto: #6639ba;
+      --km-purple-3-auto: #8250df;
+      --km-green-auto: #1a7f37;
+      --km-green-2-auto: #116329;
+      --km-green-3-auto: #1a7f37;
+      --km-yellow-auto: #9a6700;
+      --km-yellow-2-auto: #7d4e00;
+      --km-yellow-3-auto: #9a6700;
+      --km-red-auto: #d1242f;
+      --km-red-2-auto: #a40e26;
+      --km-pink-auto: #bf3989;
+      --km-pink-2-auto: #99286e;
+      --km-teal-auto: #0e7c86;
+      --km-teal-2-auto: #115e67;
+    }
+  }
+</style>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
+      <stop offset="0%" stop-color="var(--km-canvas-0, #0d1117)"/>
+      <stop offset="100%" stop-color="var(--km-canvas-1, #161b22)"/>
     </linearGradient>
     <linearGradient id="gBlue" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#58a6ff"/>
-      <stop offset="100%" stop-color="#1f6feb"/>
+      <stop offset="0%" stop-color="var(--km-blue, #58a6ff)"/>
+      <stop offset="100%" stop-color="var(--km-blue-2, #1f6feb)"/>
     </linearGradient>
     <linearGradient id="gGreen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#7ee787"/>
-      <stop offset="100%" stop-color="#238636"/>
+      <stop offset="0%" stop-color="var(--km-green, #7ee787)"/>
+      <stop offset="100%" stop-color="var(--km-green-2, #238636)"/>
     </linearGradient>
     <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-      <polygon points="0 0, 8 4, 0 8" fill="#58a6ff"/>
+      <polygon points="0 0, 8 4, 0 8" fill="var(--km-blue, #58a6ff)"/>
     </marker>
     <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-      <polygon points="0 0, 8 4, 0 8" fill="#7ee787"/>
+      <polygon points="0 0, 8 4, 0 8" fill="var(--km-green, #7ee787)"/>
     </marker>
   </defs>
 
   <rect width="900" height="760" rx="12" fill="url(#bg)"/>
-  <rect x="1" y="1" width="898" height="758" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+  <rect x="1" y="1" width="898" height="758" rx="11" fill="none" stroke="var(--km-border, #30363d)" stroke-width="1"/>
 
-  <text x="450" y="34" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.4">Message Pipeline</text>
-  <text x="450" y="54" text-anchor="middle" fill="#8b949e" font-size="11">Session frames after Confirm. First sequence is 1. SPEC §6.5 and §8.</text>
+  <text x="450" y="34" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="20" font-weight="700" letter-spacing="0.4">Message Pipeline</text>
+  <text x="450" y="54" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="11">Session frames after Confirm. First sequence is 1. SPEC §6.5 and §8.</text>
 
-  <text x="40" y="84" fill="#58a6ff" font-size="12" font-weight="700" letter-spacing="1">SEND</text>
-  <text x="860" y="84" text-anchor="end" fill="#8b949e" font-size="10">outbound key: i_ap_key or r_ap_key</text>
+  <text x="40" y="84" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="700" letter-spacing="1">SEND</text>
+  <text x="860" y="84" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="10">outbound key: i_ap_key or r_ap_key</text>
 
-  <rect x="28" y="98" width="110" height="78" rx="8" fill="#0d1117" stroke="#58a6ff"/>
-  <text x="83" y="120" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="700">1</text>
-  <text x="83" y="138" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">seq + 1</text>
-  <text x="83" y="154" text-anchor="middle" fill="#8b949e" font-size="8">first frame is 1</text>
-  <line x1="138" y1="136" x2="148" y2="136" stroke="#58a6ff" marker-end="url(#arrowBlue)"/>
+  <rect x="28" y="98" width="110" height="78" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="83" y="120" text-anchor="middle" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="700">1</text>
+  <text x="83" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">seq + 1</text>
+  <text x="83" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">first frame is 1</text>
+  <line x1="138" y1="136" x2="148" y2="136" stroke="var(--km-blue, #58a6ff)" marker-end="url(#arrowBlue)"/>
 
-  <rect x="152" y="98" width="110" height="78" rx="8" fill="#0d1117" stroke="#58a6ff"/>
-  <text x="207" y="120" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="700">2</text>
-  <text x="207" y="138" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Data</text>
-  <text x="207" y="154" text-anchor="middle" fill="#8b949e" font-size="8">serialize</text>
-  <line x1="262" y1="136" x2="272" y2="136" stroke="#58a6ff" marker-end="url(#arrowBlue)"/>
+  <rect x="152" y="98" width="110" height="78" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="207" y="120" text-anchor="middle" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="700">2</text>
+  <text x="207" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Data</text>
+  <text x="207" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">serialize</text>
+  <line x1="262" y1="136" x2="272" y2="136" stroke="var(--km-blue, #58a6ff)" marker-end="url(#arrowBlue)"/>
 
-  <rect x="276" y="98" width="110" height="78" rx="8" fill="#0d1117" stroke="#58a6ff"/>
-  <text x="331" y="120" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="700">3</text>
-  <text x="331" y="138" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Metadata</text>
-  <text x="331" y="154" text-anchor="middle" fill="#8b949e" font-size="8">serialize once</text>
-  <line x1="386" y1="136" x2="396" y2="136" stroke="#58a6ff" marker-end="url(#arrowBlue)"/>
+  <rect x="276" y="98" width="110" height="78" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="331" y="120" text-anchor="middle" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="700">3</text>
+  <text x="331" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Metadata</text>
+  <text x="331" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">serialize once</text>
+  <line x1="386" y1="136" x2="396" y2="136" stroke="var(--km-blue, #58a6ff)" marker-end="url(#arrowBlue)"/>
 
-  <rect x="400" y="98" width="110" height="78" rx="8" fill="#0d1117" stroke="#d2a8ff"/>
-  <text x="455" y="120" text-anchor="middle" fill="#d2a8ff" font-size="12" font-weight="700">4</text>
-  <text x="455" y="138" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Sign</text>
-  <text x="455" y="154" text-anchor="middle" fill="#8b949e" font-size="8">Ed25519</text>
-  <line x1="510" y1="136" x2="520" y2="136" stroke="#58a6ff" marker-end="url(#arrowBlue)"/>
+  <rect x="400" y="98" width="110" height="78" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="455" y="120" text-anchor="middle" fill="var(--km-purple, #d2a8ff)" font-size="12" font-weight="700">4</text>
+  <text x="455" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Sign</text>
+  <text x="455" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">Ed25519</text>
+  <line x1="510" y1="136" x2="520" y2="136" stroke="var(--km-blue, #58a6ff)" marker-end="url(#arrowBlue)"/>
 
-  <rect x="524" y="98" width="110" height="78" rx="8" fill="#0d1117" stroke="#58a6ff"/>
-  <text x="579" y="120" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="700">5</text>
-  <text x="579" y="138" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Envelope</text>
-  <text x="579" y="154" text-anchor="middle" fill="#8b949e" font-size="8">+ padding</text>
-  <line x1="634" y1="136" x2="644" y2="136" stroke="#58a6ff" marker-end="url(#arrowBlue)"/>
+  <rect x="524" y="98" width="110" height="78" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="579" y="120" text-anchor="middle" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="700">5</text>
+  <text x="579" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Envelope</text>
+  <text x="579" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">+ padding</text>
+  <line x1="634" y1="136" x2="644" y2="136" stroke="var(--km-blue, #58a6ff)" marker-end="url(#arrowBlue)"/>
 
-  <rect x="648" y="98" width="110" height="78" rx="8" fill="#0d1117" stroke="#7ee787"/>
-  <text x="703" y="120" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">6</text>
-  <text x="703" y="138" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Encrypt</text>
-  <text x="703" y="154" text-anchor="middle" fill="#8b949e" font-size="8">no AD</text>
-  <line x1="758" y1="136" x2="768" y2="136" stroke="#58a6ff" marker-end="url(#arrowBlue)"/>
+  <rect x="648" y="98" width="110" height="78" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)"/>
+  <text x="703" y="120" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">6</text>
+  <text x="703" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Encrypt</text>
+  <text x="703" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">no AD</text>
+  <line x1="758" y1="136" x2="768" y2="136" stroke="var(--km-blue, #58a6ff)" marker-end="url(#arrowBlue)"/>
 
-  <rect x="772" y="98" width="100" height="78" rx="8" fill="#0d1117" stroke="#58a6ff"/>
-  <text x="822" y="120" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="700">7</text>
-  <text x="822" y="138" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Write</text>
-  <text x="822" y="154" text-anchor="middle" fill="#8b949e" font-size="8">2-byte length</text>
+  <rect x="772" y="98" width="100" height="78" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="822" y="120" text-anchor="middle" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="700">7</text>
+  <text x="822" y="138" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Write</text>
+  <text x="822" y="154" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">2-byte length</text>
 
-  <text x="40" y="198" fill="#6e7681" font-size="10">Sign step covers kamune/transport-sign/v1 || varint(len(Metadata)) || Metadata || Data. Fresh 24-byte nonce. 16-byte tag.</text>
+  <text x="40" y="198" fill="var(--km-faint, #6e7681)" font-size="10">Sign step covers kamune/transport-sign/v1 || varint(len(Metadata)) || Metadata || Data. Fresh 24-byte nonce. 16-byte tag.</text>
 
-  <rect x="40" y="216" width="820" height="36" rx="8" fill="#161b22" stroke="#30363d"/>
-  <text x="450" y="238" text-anchor="middle" fill="#8b949e" font-size="11">Length-prefixed ciphertext on the wire</text>
+  <rect x="40" y="216" width="820" height="36" rx="8" fill="var(--km-band, #161b22)" stroke="var(--km-border, #30363d)"/>
+  <text x="450" y="238" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="11">Length-prefixed ciphertext on the wire</text>
 
-  <text x="40" y="280" fill="#7ee787" font-size="12" font-weight="700" letter-spacing="1">RECEIVE</text>
-  <text x="860" y="280" text-anchor="end" fill="#8b949e" font-size="10">inbound key is the peer's outbound key</text>
+  <text x="40" y="280" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700" letter-spacing="1">RECEIVE</text>
+  <text x="860" y="280" text-anchor="end" fill="var(--km-muted, #8b949e)" font-size="10">inbound key is the peer's outbound key</text>
 
-  <rect x="28" y="294" width="110" height="72" rx="8" fill="#0d1117" stroke="#7ee787"/>
-  <text x="83" y="316" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">1</text>
-  <text x="83" y="334" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Read</text>
-  <text x="83" y="350" text-anchor="middle" fill="#8b949e" font-size="8">full frame</text>
-  <line x1="138" y1="330" x2="148" y2="330" stroke="#7ee787" marker-end="url(#arrowGreen)"/>
+  <rect x="28" y="294" width="110" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)"/>
+  <text x="83" y="316" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">1</text>
+  <text x="83" y="334" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Read</text>
+  <text x="83" y="350" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">full frame</text>
+  <line x1="138" y1="330" x2="148" y2="330" stroke="var(--km-green, #7ee787)" marker-end="url(#arrowGreen)"/>
 
-  <rect x="152" y="294" width="110" height="72" rx="8" fill="#0d1117" stroke="#f85149"/>
-  <text x="207" y="316" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">2</text>
-  <text x="207" y="334" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Decrypt</text>
-  <text x="207" y="350" text-anchor="middle" fill="#f85149" font-size="8">fail: keep</text>
-  <line x1="262" y1="330" x2="272" y2="330" stroke="#7ee787" marker-end="url(#arrowGreen)"/>
+  <rect x="152" y="294" width="110" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-red, #f85149)"/>
+  <text x="207" y="316" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">2</text>
+  <text x="207" y="334" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Decrypt</text>
+  <text x="207" y="350" text-anchor="middle" fill="var(--km-red, #f85149)" font-size="8">fail: keep</text>
+  <line x1="262" y1="330" x2="272" y2="330" stroke="var(--km-green, #7ee787)" marker-end="url(#arrowGreen)"/>
 
-  <rect x="276" y="294" width="110" height="72" rx="8" fill="#0d1117" stroke="#7ee787"/>
-  <text x="331" y="316" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">3</text>
-  <text x="331" y="334" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Unmarshal</text>
-  <text x="331" y="350" text-anchor="middle" fill="#8b949e" font-size="8">SignedTransport</text>
-  <line x1="386" y1="330" x2="396" y2="330" stroke="#7ee787" marker-end="url(#arrowGreen)"/>
+  <rect x="276" y="294" width="110" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)"/>
+  <text x="331" y="316" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">3</text>
+  <text x="331" y="334" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Unmarshal</text>
+  <text x="331" y="350" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">SignedTransport</text>
+  <line x1="386" y1="330" x2="396" y2="330" stroke="var(--km-green, #7ee787)" marker-end="url(#arrowGreen)"/>
 
-  <rect x="400" y="294" width="110" height="72" rx="8" fill="#0d1117" stroke="#f85149"/>
-  <text x="455" y="316" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">4</text>
-  <text x="455" y="334" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Verify sig</text>
-  <text x="455" y="350" text-anchor="middle" fill="#f85149" font-size="8">fail: delete</text>
-  <line x1="510" y1="330" x2="520" y2="330" stroke="#7ee787" marker-end="url(#arrowGreen)"/>
+  <rect x="400" y="294" width="110" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-red, #f85149)"/>
+  <text x="455" y="316" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">4</text>
+  <text x="455" y="334" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Verify sig</text>
+  <text x="455" y="350" text-anchor="middle" fill="var(--km-red, #f85149)" font-size="8">fail: delete</text>
+  <line x1="510" y1="330" x2="520" y2="330" stroke="var(--km-green, #7ee787)" marker-end="url(#arrowGreen)"/>
 
-  <rect x="524" y="294" width="110" height="72" rx="8" fill="#0d1117" stroke="#f85149"/>
-  <text x="579" y="316" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">5</text>
-  <text x="579" y="334" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">seq == n+1</text>
-  <text x="579" y="350" text-anchor="middle" fill="#f85149" font-size="8">else: keep</text>
-  <line x1="634" y1="330" x2="644" y2="330" stroke="#7ee787" marker-end="url(#arrowGreen)"/>
+  <rect x="524" y="294" width="110" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-red, #f85149)"/>
+  <text x="579" y="316" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">5</text>
+  <text x="579" y="334" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">seq == n+1</text>
+  <text x="579" y="350" text-anchor="middle" fill="var(--km-red, #f85149)" font-size="8">else: keep</text>
+  <line x1="634" y1="330" x2="644" y2="330" stroke="var(--km-green, #7ee787)" marker-end="url(#arrowGreen)"/>
 
-  <rect x="648" y="294" width="110" height="72" rx="8" fill="#0d1117" stroke="#f85149"/>
-  <text x="703" y="316" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">6</text>
-  <text x="703" y="334" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Route</text>
-  <text x="703" y="350" text-anchor="middle" fill="#f85149" font-size="8">bad: delete</text>
-  <line x1="758" y1="330" x2="768" y2="330" stroke="#7ee787" marker-end="url(#arrowGreen)"/>
+  <rect x="648" y="294" width="110" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-red, #f85149)"/>
+  <text x="703" y="316" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">6</text>
+  <text x="703" y="334" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Route</text>
+  <text x="703" y="350" text-anchor="middle" fill="var(--km-red, #f85149)" font-size="8">bad: delete</text>
+  <line x1="758" y1="330" x2="768" y2="330" stroke="var(--km-green, #7ee787)" marker-end="url(#arrowGreen)"/>
 
-  <rect x="772" y="294" width="100" height="72" rx="8" fill="#0d1117" stroke="#7ee787"/>
-  <text x="822" y="316" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">7</text>
-  <text x="822" y="334" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Deliver</text>
-  <text x="822" y="350" text-anchor="middle" fill="#8b949e" font-size="8">to the app</text>
+  <rect x="772" y="294" width="100" height="72" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)"/>
+  <text x="822" y="316" text-anchor="middle" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">7</text>
+  <text x="822" y="334" text-anchor="middle" fill="var(--km-title, #e6edf3)" font-size="10" font-weight="600">Deliver</text>
+  <text x="822" y="350" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="8">to the app</text>
 
-  <rect x="40" y="384" width="400" height="64" rx="8" fill="#21262d" stroke="#f85149" stroke-opacity="0.7"/>
-  <text x="56" y="408" fill="#f85149" font-size="11" font-weight="700">End, keep, touch</text>
-  <text x="56" y="428" fill="#c9d1d9" font-size="11">AEAD failure, duplicate sequence, or a gap.</text>
+  <rect x="40" y="384" width="400" height="64" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-red, #f85149)" stroke-opacity="0.7"/>
+  <text x="56" y="408" fill="var(--km-red, #f85149)" font-size="11" font-weight="700">End, keep, touch</text>
+  <text x="56" y="428" fill="var(--km-body, #c9d1d9)" font-size="11">AEAD failure, duplicate sequence, or a gap.</text>
 
-  <rect x="460" y="384" width="400" height="64" rx="8" fill="#21262d" stroke="#f85149" stroke-opacity="0.7"/>
-  <text x="476" y="408" fill="#f85149" font-size="11" font-weight="700">End and delete</text>
-  <text x="476" y="428" fill="#c9d1d9" font-size="11">Bad signature, or a route that is not allowed.</text>
+  <rect x="460" y="384" width="400" height="64" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-red, #f85149)" stroke-opacity="0.7"/>
+  <text x="476" y="408" fill="var(--km-red, #f85149)" font-size="11" font-weight="700">End and delete</text>
+  <text x="476" y="428" fill="var(--km-body, #c9d1d9)" font-size="11">Bad signature, or a route that is not allowed.</text>
 
-  <text x="40" y="472" fill="#8b949e" font-size="11">Decode Metadata only after the signature verifies. The key is the identity from this handshake.</text>
-  <text x="40" y="492" fill="#6e7681" font-size="10">Keep means resumption state stays. Touch updates the idle window. SPEC §6.6.</text>
+  <text x="40" y="472" fill="var(--km-muted, #8b949e)" font-size="11">Decode Metadata only after the signature verifies. The key is the identity from this handshake.</text>
+  <text x="40" y="492" fill="var(--km-faint, #6e7681)" font-size="10">Keep means resumption state stays. Touch updates the idle window. SPEC §6.6.</text>
 
-  <text x="40" y="530" fill="#e6edf3" font-size="12" font-weight="700">Three integrity layers</text>
-  <rect x="40" y="544" width="250" height="64" rx="8" fill="#0d1117" stroke="#7ee787"/>
-  <text x="56" y="568" fill="#7ee787" font-size="12" font-weight="700">Poly1305</text>
-  <text x="56" y="588" fill="#8b949e" font-size="10">AEAD tag on the ciphertext</text>
-  <rect x="310" y="544" width="270" height="64" rx="8" fill="#0d1117" stroke="#d2a8ff"/>
-  <text x="326" y="568" fill="#d2a8ff" font-size="12" font-weight="700">Ed25519</text>
-  <text x="326" y="588" fill="#8b949e" font-size="10">kamune/transport-sign/v1</text>
-  <rect x="600" y="544" width="260" height="64" rx="8" fill="#0d1117" stroke="#58a6ff"/>
-  <text x="616" y="568" fill="#58a6ff" font-size="12" font-weight="700">Sequence</text>
-  <text x="616" y="588" fill="#8b949e" font-size="10">strict +1, per direction</text>
+  <text x="40" y="530" fill="var(--km-title, #e6edf3)" font-size="12" font-weight="700">Three integrity layers</text>
+  <rect x="40" y="544" width="250" height="64" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-green, #7ee787)"/>
+  <text x="56" y="568" fill="var(--km-green, #7ee787)" font-size="12" font-weight="700">Poly1305</text>
+  <text x="56" y="588" fill="var(--km-muted, #8b949e)" font-size="10">AEAD tag on the ciphertext</text>
+  <rect x="310" y="544" width="270" height="64" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-purple, #d2a8ff)"/>
+  <text x="326" y="568" fill="var(--km-purple, #d2a8ff)" font-size="12" font-weight="700">Ed25519</text>
+  <text x="326" y="588" fill="var(--km-muted, #8b949e)" font-size="10">kamune/transport-sign/v1</text>
+  <rect x="600" y="544" width="260" height="64" rx="8" fill="var(--km-card, #0d1117)" stroke="var(--km-blue, #58a6ff)"/>
+  <text x="616" y="568" fill="var(--km-blue, #58a6ff)" font-size="12" font-weight="700">Sequence</text>
+  <text x="616" y="588" fill="var(--km-muted, #8b949e)" font-size="10">strict +1, per direction</text>
 
-  <text x="450" y="660" text-anchor="middle" fill="#6e7681" font-size="10">A path that drops, replays, or corrupts a frame does not delete resumption state.</text>
-  <text x="450" y="682" text-anchor="middle" fill="#6e7681" font-size="10">Local close, a valid close frame, a bad inner signature, or a bad route does.</text>
-  <rect x="40" y="706" width="820" height="32" rx="8" fill="#21262d" stroke="#30363d"/>
-  <text x="450" y="726" text-anchor="middle" fill="#8b949e" font-size="11">Nonce is random per encryption. Session frames use no associated data.</text>
+  <text x="450" y="660" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="10">A path that drops, replays, or corrupts a frame does not delete resumption state.</text>
+  <text x="450" y="682" text-anchor="middle" fill="var(--km-faint, #6e7681)" font-size="10">Local close, a valid close frame, a bad inner signature, or a bad route does.</text>
+  <rect x="40" y="706" width="820" height="32" rx="8" fill="var(--km-inset, #21262d)" stroke="var(--km-border, #30363d)"/>
+  <text x="450" y="726" text-anchor="middle" fill="var(--km-muted, #8b949e)" font-size="11">Nonce is random per encryption. Session frames use no associated data.</text>
 </svg>
