@@ -881,8 +881,9 @@ func TestSeventhPromptInAMinuteIsRejected(t *testing.T) {
 func TestNameCollisionFlagsUnknownKey(t *testing.T) {
 	a := require.New(t)
 	d, rec := newTestDaemon(t, VerificationModeQuick, false)
+	storedKey := newTestPeerKey(t)
 	a.NoError(d.store().StorePeer(&storage.Peer{
-		Name: "Bob", PublicKey: newTestPeerKey(t), FirstSeen: time.Now(),
+		Name: "Bob", PublicKey: storedKey, FirstSeen: time.Now(),
 	}))
 	req := policyReq(t, d, kamune.RoleResponder, false)
 	req.Peer.Name = "bob"
@@ -894,6 +895,7 @@ func TestNameCollisionFlagsUnknownKey(t *testing.T) {
 	evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
 	a.Equal(true, evt.Data["name_collision"])
 	a.Equal("Bob", evt.Data["stored_name"])
+	a.Equal(fingerprint.Numeric(storedKey), evt.Data["stored_code"])
 	a.Equal("bob", evt.Data["peer_name"])
 	id, ok := evt.Data["request_id"].(float64)
 	a.True(ok)

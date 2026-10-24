@@ -9,6 +9,7 @@
     "role": { "type": "string", "enum": ["initiator", "responder"] },
     "peer_name": { "type": "string", "description": "The name the peer claimed. Empty on the initiator, who has not received a name yet." },
     "stored_name": { "type": "string", "description": "The name stored for this key, or the stored contact whose name the unknown key collides with." },
+    "stored_code": { "type": "string", "description": "Numeric fingerprint of the stored contact when name_collision is set. Empty otherwise. 40 digits in eight groups of five." },
     "name_collision": { "type": "boolean", "description": "An unknown key claimed a stored peer's name (EqualFold)." },
     "own_code": { "type": "string", "description": "Numeric fingerprint of the local identity key: 40 digits in eight groups of five." },
     "peer_code": { "type": "string", "description": "Numeric fingerprint of the peer's key: 40 digits in eight groups of five. This is the code to compare with the peer over a trusted channel." },
@@ -20,5 +21,5 @@
     "resumed": { "type": "boolean" },
     "session_id": { "type": "string" }
   },
-  "required": ["request_id", "role", "peer_name", "stored_name", "name_collision", "own_code", "peer_code", "safety_number", "known", "mode", "pinned", "resume_offered", "resumed", "session_id"]
+  "required": ["request_id", "role", "peer_name", "stored_name", "stored_code", "name_collision", "own_code", "peer_code", "safety_number", "known", "mode", "pinned", "resume_offered", "resumed", "session_id"]
 }
