@@ -70,6 +70,8 @@ A connection runs four flights:
 4. **Confirm.** The listener sends its name and version, and says whether
    the session resumed. Both sides then derive the session keys.
 
+![The four handshake flights.](assets/diagrams/protocol-overview.svg)
+
 Later frames are signed, encrypted and sequenced. The first one is
 sequence 1.
 

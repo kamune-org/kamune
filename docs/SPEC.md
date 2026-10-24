@@ -118,6 +118,12 @@ disconnect from a network failure (§6.6).
 Kamune provides one suite:
 `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X`.
 
+<picture>
+  <img
+    alt="Ed25519, X-Wing, HKDF-SHA512, XChaCha20-Poly1305."
+    src="../assets/diagrams/cipher-suite.svg">
+</picture>
+
 | Component                | Algorithm          | Purpose                                                                                        |
 | ------------------------ | ------------------ | ---------------------------------------------------------------------------------------------- |
 | **Identity signing**     | Ed25519            | Handshake signatures (§6.2) and the signature on each session frame (§8.1).                    |
@@ -132,6 +138,12 @@ Kamune provides one suite:
 
 Handshake frames are the fixed layouts of §6.1. Session frames, after
 Confirm, are the `SignedTransport` envelopes of §4.2, encrypted as in §4.3.
+
+<picture>
+  <img
+    alt="Length prefix, handshake frames, and session frames."
+    src="../assets/diagrams/wire-format.svg">
+</picture>
 
 ### 4.1 Length-Prefixed Framing
 
@@ -342,6 +354,12 @@ F3  InitiatorAuth                  ->
     check Confirm; derive session keys
 ```
 
+<picture>
+  <img
+    alt="Four handshake flights between initiator and responder."
+    src="../assets/diagrams/protocol-overview.svg">
+</picture>
+
 The initiator's verifier runs after F2b and before F3. The responder's
 verifier runs after F3 and before F4. Each side runs it once, on a cold
 handshake and on a resumed one. On the initiator the verifier sees the
@@ -358,6 +376,12 @@ Frame types:
 | 0x03 | ResponderAuth | R→I       | AEAD, `r_hs_key`  | 214  |
 | 0x04 | InitiatorAuth | I→R       | AEAD, `i_hs_key`  | 426  |
 | 0x05 | Confirm       | R→I       | AEAD, `r_hs_key`  | 234  |
+
+<picture>
+  <img
+    alt="Fields and sizes of the five handshake frames."
+    src="../assets/diagrams/handshake-flow.svg">
+</picture>
 
 On every received frame, check in order: the exact length for the expected
 type, `ver`, `type`, the AEAD open for an encrypted frame, then the
@@ -637,6 +661,12 @@ complete steps 1 to 7 for one frame before it reads the next, so frames
 are checked in wire order. The reference implementation serves such calls
 one at a time, and each frame goes to exactly one caller.
 
+<picture>
+  <img
+    alt="Send and receive path of a session frame."
+    src="../assets/diagrams/message-pipeline.svg">
+</picture>
+
 ### 6.6 Session Teardown
 
 Resumption state is deleted only for an end that the authenticated peer or
@@ -865,6 +895,12 @@ Expand-Label(S, label, ctx, L) =
 Derive-Secret(S, label, TH) = Expand-Label(S, label, TH, 64)
 zeros = 64 zero bytes
 ```
+
+<picture>
+  <img
+    alt="HKDF-SHA512 schedule from the shared secret to session keys."
+    src="../assets/diagrams/key-derivation.svg">
+</picture>
 
 ### 7.1 Transcript
 
@@ -1255,6 +1291,12 @@ the dial for the handshake timeout plus the verify timeout.
 | **Dialer** | Opens a connection, runs the initiator handshake, returns the transport. |
 | **Transport** | Encrypted, session-aware channel once the handshake has finished. |
 | **Connection** | The framed byte pipe under the protocol (§9.4). |
+
+<picture>
+  <img
+    alt="Initiator and responder handshake states."
+    src="../assets/diagrams/session-phases.svg">
+</picture>
 
 ---
 

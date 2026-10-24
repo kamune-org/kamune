@@ -1,750 +1,149 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg id="a" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 900 1090">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 980" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
   <defs>
-    <linearGradient id="b" x1="-1016.37" y1="0" x2="-1016.37" y2="1" gradientTransform="translate(915182 10) scale(900 1090)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0d1117"/>
-      <stop offset="1" stop-color="#161b22"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
     </linearGradient>
-    <linearGradient id="c" x1="-1011.64" y1="-2.5" x2="-1010.64" y2="-1.5" gradientTransform="translate(161932 88) scale(160 4)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#58a6ff"/>
-      <stop offset="1" stop-color="#1f6feb"/>
+    <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#da6d25"/>
     </linearGradient>
-    <linearGradient id="d" x1="-1011.64" y1="-2.5" x2="-1010.64" y2="-1.5" gradientTransform="translate(162532 88) scale(160 4)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#58a6ff"/>
-      <stop offset="1" stop-color="#1f6feb"/>
+    <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
     </linearGradient>
-    <linearGradient id="e" x1="-1016.76" y1="-.36" x2="-1015.76" y2=".64" gradientTransform="translate(833782 150) scale(820 28)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f0883e"/>
-      <stop offset="1" stop-color="#da6d25"/>
+    <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#d2a8ff"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
     </linearGradient>
-    <linearGradient id="f" x1="-1016.76" y1="-1" x2="-1015.76" y2="0" gradientTransform="translate(833782 168) scale(820 10)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f0883e"/>
-      <stop offset="1" stop-color="#da6d25"/>
+    <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7ee787"/>
+      <stop offset="100%" stop-color="#238636"/>
     </linearGradient>
-    <linearGradient id="g" x1="-916.2" y1="-1" x2="-915.2" y2="0" gradientTransform="translate(9217 159) scale(10)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f0883e"/>
-      <stop offset="1" stop-color="#da6d25"/>
+    <linearGradient id="gYellow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e3b341"/>
+      <stop offset="100%" stop-color="#9e6a03"/>
     </linearGradient>
-    <linearGradient id="h" x1="-1016.76" y1="-.18" x2="-1015.76" y2=".82" gradientTransform="translate(833782 355) scale(820 28)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#58a6ff"/>
-      <stop offset="1" stop-color="#1f6feb"/>
-    </linearGradient>
-    <linearGradient id="i" x1="-1016.76" y1="-1" x2="-1015.76" y2="0" gradientTransform="translate(833782 373) scale(820 10)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#58a6ff"/>
-      <stop offset="1" stop-color="#1f6feb"/>
-    </linearGradient>
-    <linearGradient id="j" x1="-916.2" y1="-1" x2="-915.2" y2="0" gradientTransform="translate(9217 364) scale(10)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#58a6ff"/>
-      <stop offset="1" stop-color="#1f6feb"/>
-    </linearGradient>
-    <linearGradient id="k" x1="-1016.76" y1="-.36" x2="-1015.76" y2=".64" gradientTransform="translate(833782 510) scale(820 28)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#d2a8ff"/>
-      <stop offset="1" stop-color="#8b5cf6"/>
-    </linearGradient>
-    <linearGradient id="l" x1="-1016.76" y1="-1" x2="-1015.76" y2="0" gradientTransform="translate(833782 528) scale(820 10)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#d2a8ff"/>
-      <stop offset="1" stop-color="#8b5cf6"/>
-    </linearGradient>
-    <linearGradient id="m" x1="-916.2" y1="-1" x2="-915.2" y2="0" gradientTransform="translate(9217 519) scale(10)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#d2a8ff"/>
-      <stop offset="1" stop-color="#8b5cf6"/>
-    </linearGradient>
-    <linearGradient id="n" x1="-509" y1="-.06" x2="-508" y2=".94" gradientTransform="translate(1073 557) scale(2 175)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#d2a8ff"/>
-      <stop offset="1" stop-color="#8b5cf6"/>
-    </linearGradient>
-    <linearGradient id="o" x1="-509" y1="-.06" x2="-508" y2=".94" gradientTransform="translate(1861 557) scale(2 170)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#d2a8ff"/>
-      <stop offset="1" stop-color="#8b5cf6"/>
-    </linearGradient>
-    <linearGradient id="p" x1="-1016.76" y1="-.36" x2="-1015.76" y2=".64" gradientTransform="translate(833782 748) scale(820 28)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f778ba"/>
-      <stop offset="1" stop-color="#db61a2"/>
-    </linearGradient>
-    <linearGradient id="q" x1="-1016.76" y1="-1" x2="-1015.76" y2="0" gradientTransform="translate(833782 766) scale(820 10)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f778ba"/>
-      <stop offset="1" stop-color="#db61a2"/>
-    </linearGradient>
-    <linearGradient id="r" x1="-916.2" y1="-1" x2="-915.2" y2="0" gradientTransform="translate(9217 757) scale(10)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f778ba"/>
-      <stop offset="1" stop-color="#db61a2"/>
-    </linearGradient>
-    <linearGradient id="s" x1="-1015.46" y1="-2.5" x2="-1014.46" y2="-1.5" gradientTransform="translate(406432 1020) scale(400 4)" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#7ee787"/>
-      <stop offset="1" stop-color="#238636"/>
-    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
   </defs>
-  <rect x=".78" y="1" width="900" height="1090" rx="12" ry="12" style="fill: url(#b);"/>
-  <rect x="1" y="1" width="898" height="1088" rx="11" ry="11" style="fill: none; stroke: #30363d;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(308.47 38)" style="fill: #e6edf3; font-family: Helvetica-Bold, Helvetica; font-size: 20px; font-weight: 700; isolation: isolate; letter-spacing: .03em;"><tspan x="0" y="0">Session Establishment Flow</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(223.05 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Full</tspan></text>
-    <text transform="translate(239.66 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(243.42 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">session</tspan></text>
-    <text transform="translate(276.72 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(280.48 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">establishment:</tspan></text>
-    <text transform="translate(347.88 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(351.64 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Exchange</tspan></text>
-    <text transform="translate(396.25 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(400.01 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">-&gt;</tspan></text>
-    <text transform="translate(409.94 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(413.7 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Introduction</tspan></text>
-    <text transform="translate(471.26 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(475.02 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">-&gt;</tspan></text>
-    <text transform="translate(484.95 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(488.71 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Key</tspan></text>
-    <text transform="translate(505.37 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(509.13 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Exchange</tspan></text>
-    <text transform="translate(553.73 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(557.49 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">-&gt;</tspan></text>
-    <text transform="translate(567.42 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(571.18 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Challenge</tspan></text>
-    <text transform="translate(617.44 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(621.2 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">-&gt;</tspan></text>
-    <text transform="translate(631.13 60)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(634.89 60)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Established</tspan></text>
-  </g>
-  <g>
-    <rect x="70" y="78" width="160" height="44" rx="10" ry="10" style="fill: #21262d;"/>
-    <rect x="70" y="78" width="160" height="44" rx="10" ry="10" style="fill: none; stroke: #58a6ff; stroke-width: 1.5px;"/>
-  </g>
-  <path d="M72,78h156c1.1,0,2,.9,2,2h0c0,1.1-.9,2-2,2H72c-1.1,0-2-.9-2-2h0c0-1.1.9-2,2-2Z" style="fill: url(#c);"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(124.33 101)" style="fill: #e6edf3; font-family: Helvetica-Bold, Helvetica; font-size: 14px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Initiator</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(136.33 116)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">(Client)</tspan></text>
-  </g>
-  <g>
-    <rect x="670" y="78" width="160" height="44" rx="10" ry="10" style="fill: #21262d;"/>
-    <rect x="670" y="78" width="160" height="44" rx="10" ry="10" style="fill: none; stroke: #58a6ff; stroke-width: 1.5px;"/>
-  </g>
-  <path d="M672,78h156c1.1,0,2,.9,2,2h0c0,1.1-.9,2-2,2h-156c-1.1,0-2-.9-2-2h0c0-1.1.9-2,2-2Z" style="fill: url(#d);"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(713.44 101)" style="fill: #e6edf3; font-family: Helvetica-Bold, Helvetica; font-size: 14px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Responder</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(736.33 116)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">(Server)</tspan></text>
-  </g>
-  <line x1="150" y1="128" x2="150" y2="1045" style="fill: none; stroke: #30363d; stroke-dasharray: 6 4; stroke-width: 1.5px;"/>
-  <line x1="750" y1="128" x2="750" y2="1045" style="fill: none; stroke: #30363d; stroke-dasharray: 6 4; stroke-width: 1.5px;"/>
-  <g>
-    <rect x="40" y="140" width="820" height="210" rx="10" ry="10" style="fill: #0d1117;"/>
-    <rect x="40" y="140" width="820" height="210" rx="10" ry="10" style="fill: none; stroke: #da6d25; stroke-width: 1.2px;"/>
-  </g>
-  <rect x="40" y="140" width="820" height="28" rx="10" ry="10" style="fill: url(#e); isolation: isolate; opacity: .12;"/>
-  <rect x="40" y="158" width="820" height="10" style="fill: url(#f); isolation: isolate; opacity: .12;"/>
-  <circle cx="60" cy="154" r="5" style="fill: url(#g);"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(75 159)" style="fill: #f0883e; font-family: Helvetica-Bold, Helvetica; font-size: 12px; font-weight: 700; isolation: isolate; letter-spacing: .07em;"><tspan x="0" y="0">EXCHANGE</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(781.73 155)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">RawBytes</tspan></text>
-    <text transform="translate(821.7 155)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 10px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(825.12 155)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">·</tspan></text>
-    <text transform="translate(827.19 155)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 10px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(830.61 155)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">HPKE</tspan></text>
-  </g>
-  <g>
-    <rect x="55" y="181.7" width="130" height="28" rx="6" ry="6" style="fill: #21262d; stroke: #f0883e; stroke-width: .8px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(62.65 195.7)" style="fill: #f0883e; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Gen Ephemeral HPKE Keypair</tspan></text>
-    </g>
-    <g style="isolation: isolate;">
-      <text transform="translate(96.47 204.7)" style="fill: #6e7681; font-size: 7px; isolation: isolate;"><tspan x="0" y="0" style="font-family: ArialMT, Arial;">pk_hpke</tspan><tspan x="26.47" y="0" style="font-family: MyriadPro-Regular, &apos;Myriad Pro&apos;;">₁</tspan><tspan x="28.17" y="0" style="font-family: ArialMT, Arial;">,</tspan></text>
-      <text transform="translate(125.05 204.7)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(127.44 204.7)" style="fill: #6e7681; font-size: 7px; isolation: isolate;"><tspan x="0" y="0" style="font-family: ArialMT, Arial;">sk_hpke</tspan><tspan x="26.07" y="0" style="font-family: MyriadPro-Regular, &apos;Myriad Pro&apos;;">₁</tspan></text>
-    </g>
-  </g>
-  <polygon points="688.74 188.05 706.74 194.35 688.74 200.65 688.74 188.05" style="fill: #f0883e;"/>
-  <g>
-    <rect x="340" y="183" width="220" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #da6d25; stroke-width: .8px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(421.8 198)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">HPKE</tspan></text>
-      <text transform="translate(446.2 198)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(449.96 198)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Public</tspan></text>
-      <text transform="translate(478.23 198)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(481.99 198)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Key</tspan></text>
-    </g>
-  </g>
-  <g>
-    <rect x="715" y="181" width="130" height="28" rx="6" ry="6" style="fill: #21262d; stroke: #f0883e; stroke-width: .8px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(733.98 195)" style="fill: #f0883e; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Receive, Gen Ciphertext</tspan></text>
-    </g>
-    <g style="isolation: isolate;">
-      <text transform="translate(750.09 204)" style="fill: #6e7681; font-size: 7px; isolation: isolate;"><tspan x="0" y="0" style="font-family: ArialMT, Arial;">ciphertext</tspan><tspan x="30.35" y="0" style="font-family: MyriadPro-Regular, &apos;Myriad Pro&apos;;">₁</tspan><tspan x="32.06" y="0" style="font-family: ArialMT, Arial;">,</tspan></text>
-      <text transform="translate(783.07 204)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(785.46 204)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7px; isolation: isolate;"><tspan x="0" y="0">sender</tspan></text>
-      <text transform="translate(805.37 204)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(807.76 204)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7px; isolation: isolate;"><tspan x="0" y="0">ctx</tspan></text>
-    </g>
-  </g>
-  <polygon points="275.26 228.85 257.26 235.15 275.26 241.45 275.26 228.85" style="fill: #f0883e;"/>
-  <g>
-    <rect x="340" y="224" width="220" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #da6d25; stroke-width: .8px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(419.92 239)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Ciphertext</tspan></text>
-      <text transform="translate(468.23 239)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(471.99 239)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">(enc)</tspan></text>
-    </g>
-  </g>
-  <g>
-    <rect x="715" y="263" width="130" height="28" rx="6" ry="6" style="fill: #21262d; stroke: #f0883e; stroke-width: .8px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(722.65 277)" style="fill: #f0883e; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Gen Ephemeral HPKE Keypair</tspan></text>
-    </g>
-    <g style="isolation: isolate;">
-      <text transform="translate(756.47 286)" style="fill: #6e7681; font-size: 7px; isolation: isolate;"><tspan x="0" y="0" style="font-family: ArialMT, Arial;">pk_hpke</tspan><tspan x="26.47" y="0" style="font-family: MyriadPro-Regular, &apos;Myriad Pro&apos;;">₂</tspan><tspan x="28.64" y="0" style="font-family: ArialMT, Arial;">,</tspan></text>
-      <text transform="translate(785.52 286)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(787.91 286)" style="fill: #6e7681; font-size: 7px; isolation: isolate;"><tspan x="0" y="0" style="font-family: ArialMT, Arial;">sk_hpke</tspan><tspan x="26.07" y="0" style="font-family: MyriadPro-Regular, &apos;Myriad Pro&apos;;">₂</tspan></text>
-    </g>
-  </g>
-  <polygon points="212.26 270.7 194.26 277 212.26 283.3 212.26 270.7" style="fill: #f0883e;"/>
-  <g>
-    <rect x="340" y="266" width="220" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #da6d25; stroke-width: .8px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(421.8 281)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">HPKE</tspan></text>
-      <text transform="translate(446.2 281)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(449.96 281)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Public</tspan></text>
-      <text transform="translate(478.23 281)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(481.99 281)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Key</tspan></text>
-    </g>
-  </g>
-  <g>
-    <rect x="55.26" y="260.75" width="130" height="28" rx="6" ry="6" style="fill: #21262d; stroke: #f0883e; stroke-width: .8px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(74.24 274.75)" style="fill: #f0883e; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Receive, Gen Ciphertext</tspan></text>
-    </g>
-    <g style="isolation: isolate;">
-      <text transform="translate(90.35 284.75)" style="fill: #6e7681; font-size: 7px; isolation: isolate;"><tspan x="0" y="0" style="font-family: ArialMT, Arial;">ciphertext</tspan><tspan x="30.35" y="0" style="font-family: MyriadPro-Regular, &apos;Myriad Pro&apos;;">₂</tspan><tspan x="32.52" y="0" style="font-family: ArialMT, Arial;">,</tspan></text>
-      <text transform="translate(123.8 284.75)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(126.19 284.75)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7px; isolation: isolate;"><tspan x="0" y="0">sender</tspan></text>
-      <text transform="translate(146.1 284.75)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(148.49 284.75)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7px; isolation: isolate;"><tspan x="0" y="0">ctx</tspan></text>
-    </g>
-  </g>
-  <polygon points="630.74 308.19 648.74 314.49 630.74 320.79 630.74 308.19" style="fill: #f0883e;"/>
-  <g>
-    <rect x="340" y="304" width="220" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #da6d25; stroke-width: .8px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(419.92 319)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Ciphertext</tspan></text>
-      <text transform="translate(468.23 319)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(471.99 319)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">(enc)</tspan></text>
-    </g>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(293.67 343)" style="fill: #6e7681; font-family: Helvetica, Helvetica; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">Both peers create sender &amp; recipient HPKE contexts for secure communication</tspan></text>
-  </g>
-  <g>
-    <rect x="40" y="350" width="820" height="141" rx="10" ry="10" style="fill: #0d1117;"/>
-    <rect x="40" y="350" width="820" height="141" rx="10" ry="10" style="fill: none; stroke: #1f6feb; stroke-width: 1.2px;"/>
-  </g>
-  <rect x="40" y="350" width="820" height="28" rx="10" ry="10" style="fill: url(#h); isolation: isolate; opacity: .12;"/>
-  <rect x="40" y="363" width="820" height="10" style="fill: url(#i); isolation: isolate; opacity: .12;"/>
-  <circle cx="60" cy="359" r="5" style="fill: url(#j);"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(75 364)" style="fill: #58a6ff; font-family: Helvetica-Bold, Helvetica; font-size: 12px; font-weight: 700; isolation: isolate; letter-spacing: .07em;"><tspan x="0" y="0">INTRODUCTION</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(739.55 364)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">Route:</tspan></text>
-    <text transform="translate(766.32 364)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 10px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(769.74 364)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">IDENTIT</tspan><tspan x="38.89" y="0" style="letter-spacing: -.02em;">Y</tspan></text>
-    <text transform="translate(808.03 364)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 10px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(811.45 364)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">·</tspan></text>
-    <text transform="translate(813.51 364)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 10px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(816.93 364)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">Ed25519</tspan></text>
-  </g>
-  <g>
-    <rect x="55" y="397" width="85" height="18" rx="4" ry="4" style="fill: #21262d; stroke: #484f58; stroke-width: .6px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(74.21 408)" style="fill: #58a6ff; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Identity Key</tspan></text>
-    </g>
-  </g>
-  <polygon points="718.8 400.7 736.8 407 718.8 413.3 718.8 400.7" style="fill: #58a6ff;"/>
-  <g>
-    <rect x="315" y="395" width="270" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #1f6feb; stroke-width: .8px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(340.48 410)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Introduce</tspan></text>
-      <text transform="translate(385.19 410)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(388.95 410)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">{</tspan></text>
-      <text transform="translate(392.08 410)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(395.84 410)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Name,</tspan></text>
-      <text transform="translate(425.34 410)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(429.1 410)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">PublicKe</tspan><tspan x="43.41" y="0" style="letter-spacing: -.07em;">y</tspan><tspan x="48.1" y="0">,</tspan></text>
-      <text transform="translate(483.86 410)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(487.62 410)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">App</tspan><tspan x="19.57" y="0" style="letter-spacing: -.06em;">V</tspan><tspan x="26.3" y="0">ersion</tspan></text>
-      <text transform="translate(549.62 410)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(553.38 410)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">}</tspan></text>
-    </g>
-  </g>
-  <g>
-    <rect x="756" y="397" width="95" height="18" rx="4" ry="4" style="fill: #21262d; stroke: #484f58; stroke-width: .6px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(784.77 409)" style="fill: #58a6ff; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0" style="letter-spacing: -.05em;">V</tspan><tspan x="4.9" y="0">erify Sig</tspan></text>
-    </g>
-  </g>
-  <polygon points="176.8 444.7 158.8 451 176.8 457.3 176.8 444.7" style="fill: #58a6ff;"/>
-  <g>
-    <rect x="315" y="439" width="270" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #1f6feb; stroke-width: .8px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(340.48 454)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Introduce</tspan></text>
-      <text transform="translate(385.19 454)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(388.95 454)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">{</tspan></text>
-      <text transform="translate(392.08 454)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(395.84 454)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Name,</tspan></text>
-      <text transform="translate(425.34 454)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(429.1 454)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">PublicKe</tspan><tspan x="43.41" y="0" style="letter-spacing: -.07em;">y</tspan><tspan x="48.1" y="0">,</tspan></text>
-      <text transform="translate(483.86 454)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(487.62 454)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">App</tspan><tspan x="19.57" y="0" style="letter-spacing: -.06em;">V</tspan><tspan x="26.3" y="0">ersion</tspan></text>
-      <text transform="translate(549.62 454)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-      <text transform="translate(553.38 454)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">}</tspan></text>
-    </g>
-  </g>
-  <g>
-    <rect x="55" y="442" width="85" height="18" rx="4" ry="4" style="fill: #21262d; stroke: #484f58; stroke-width: .6px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(79.77 454)" style="fill: #58a6ff; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0" style="letter-spacing: -.05em;">V</tspan><tspan x="4.9" y="0">erify Sig</tspan></text>
-    </g>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(314.55 482)" style="fill: #6e7681; font-family: Helvetica, Helvetica; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">Both peers now hold each other&apos;s authenticated Ed25519 public key</tspan></text>
-  </g>
-  <g>
-    <rect x="40" y="500" width="820" height="228" rx="10" ry="10" style="fill: #0d1117;"/>
-    <rect x="40" y="500" width="820" height="228" rx="10" ry="10" style="fill: none; stroke: #8b5cf6; stroke-width: 1.2px;"/>
-  </g>
-  <rect x="40" y="500" width="820" height="28" rx="10" ry="10" style="fill: url(#k); isolation: isolate; opacity: .12;"/>
-  <rect x="40" y="518" width="820" height="10" style="fill: url(#l); isolation: isolate; opacity: .12;"/>
-  <circle cx="60" cy="514" r="5" style="fill: url(#m);"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(75 519)" style="fill: #d2a8ff; font-family: Helvetica-Bold, Helvetica; font-size: 12px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0" style="letter-spacing: .07em;">KE</tspan><tspan x="18.35" y="0" style="letter-spacing: .05em;">Y</tspan><tspan x="26.98" y="0" xml:space="preserve" style="letter-spacing: .07em;"> EXCHANGE</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(744.8 515)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">ML-KEM-768</tspan></text>
-    <text transform="translate(797.47 515)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 10px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(800.89 515)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">·</tspan></text>
-    <text transform="translate(802.96 515)" style="fill: #8b949e; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 10px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(806.37 515)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 10px; isolation: isolate;"><tspan x="0" y="0">Ephemeral</tspan></text>
-  </g>
-  <rect x="55" y="538" width="120" height="32" rx="6" ry="6" style="fill: #21262d; stroke: #8b5cf6; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(80.05 552)" style="fill: #d2a8ff; font-family: Helvetica-Bold, Helvetica; font-size: 8.5px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Gen ML-KEM-768</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(97.06 564)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">pk_kem,</tspan></text>
-    <text transform="translate(123.68 564)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(126.24 564)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">sk_kem</tspan></text>
-  </g>
-  <rect x="55" y="574" width="120" height="32" rx="6" ry="6" style="fill: #21262d; stroke: #8b5cf6; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(82.4 588)" style="fill: #d2a8ff; font-family: Helvetica-Bold, Helvetica; font-size: 8.5px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Gen Parameters</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(81.67 600)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">salt</tspan></text>
-    <text transform="translate(92.51 600)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(95.07 600)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">(16B)</tspan></text>
-    <text transform="translate(111.09 600)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(113.65 600)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">+</tspan></text>
-    <text transform="translate(118.12 600)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(120.69 600)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">prefix</tspan></text>
-    <text transform="translate(138.56 600)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(141.12 600)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">(12ch)</tspan></text>
-  </g>
-  <polygon points="713.8 610.7 731.8 617 713.8 623.3 713.8 610.7" style="fill: #d2a8ff;"/>
-  <rect x="275" y="607" width="350" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #8b5cf6; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(372.92 622)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Handshake</tspan></text>
-    <text transform="translate(424.14 622)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(427.9 622)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">{</tspan></text>
-    <text transform="translate(431.02 622)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(434.78 622)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">pk_kem,</tspan></text>
-    <text transform="translate(473.82 622)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(477.58 622)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Salt,</tspan></text>
-    <text transform="translate(496.82 622)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(500.58 622)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">SessionPrefix</tspan></text>
-    <text transform="translate(560.74 622)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(564.5 622)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">}</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(188.8 610.86)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 5px; isolation: isolate;"><tspan x="0" y="0">REQUEST_HANDSHAKE</tspan></text>
-  </g>
-  <rect x="725" y="629" width="120" height="46" rx="6" ry="6" style="fill: #21262d; stroke: #8b5cf6; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(741.3 643)" style="fill: #d2a8ff; font-family: Helvetica-Bold, Helvetica; font-size: 8.5px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Encapsulate(pk_kem)</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(761.93 656)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">secret</tspan></text>
-    <text transform="translate(780.71 656)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(783.27 656)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">(32B),</tspan></text>
-    <text transform="translate(800.85 656)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(803.41 656)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">ct</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(761.93 668)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">+</tspan></text>
-    <text transform="translate(766.4 668)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(768.96 668)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">gen</tspan></text>
-    <text transform="translate(781.08 668)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(783.64 668)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">salt,</tspan></text>
-    <text transform="translate(796.03 668)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(798.59 668)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">su</tspan><tspan x="7.92" y="0" style="letter-spacing: -.02em;">f</tspan><tspan x="9.87" y="0">fix</tspan></text>
-  </g>
-  <polygon points="182.8 679.7 164.8 686 182.8 692.3 182.8 679.7" style="fill: #d2a8ff;"/>
-  <rect x="280" y="675" width="340" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #8b5cf6; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(365.41 690)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Handshake</tspan></text>
-    <text transform="translate(416.63 690)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(420.39 690)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">{</tspan></text>
-    <text transform="translate(423.51 690)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(427.27 690)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Ciphertext,</tspan></text>
-    <text transform="translate(477.86 690)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(481.62 690)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">Salt,</tspan></text>
-    <text transform="translate(500.86 690)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(504.62 690)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">SessionSu</tspan><tspan x="52.59" y="0" style="letter-spacing: -.02em;">f</tspan><tspan x="55.45" y="0">fix</tspan></text>
-    <text transform="translate(564.52 690)" style="fill: #c9d1d9; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 11px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(568.28 690)" style="fill: #c9d1d9; font-family: ArialMT, Arial; font-size: 11px; isolation: isolate;"><tspan x="0" y="0">}</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(631.98 679)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">ACCEPT_HANDSHAKE</tspan></text>
-  </g>
-  <rect x="55" y="695" width="120" height="22" rx="6" ry="6" style="fill: #21262d; stroke: #8b5cf6; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(83.35 710)" style="fill: #d2a8ff; font-family: Helvetica-Bold, Helvetica; font-size: 8.5px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Decapsulate(ct)</tspan></text>
-  </g>
-  <path d="M56,547h0c.55,0,1,.45,1,1v173c0,.55-.45,1-1,1h0c-.55,0-1-.45-1-1v-173c0-.55.45-1,1-1Z" style="fill: url(#n); isolation: isolate; opacity: .2;"/>
-  <path d="M844,547h0c.55,0,1,.45,1,1v168c0,.55-.45,1-1,1h0c-.55,0-1-.45-1-1v-168c0-.55.45-1,1-1Z" style="fill: url(#o); isolation: isolate; opacity: .2;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(357.83 721)" style="fill: #d2a8ff; font-family: Helvetica-Bold, Helvetica; font-size: 9px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Both derive: secret = 32-byte shared secret</tspan></text>
-  </g>
-  <g>
-    <rect x="40" y="738" width="820" height="260" rx="10" ry="10" style="fill: #0d1117;"/>
-    <rect x="40" y="738" width="820" height="260" rx="10" ry="10" style="fill: none; stroke: #db61a2; stroke-width: 1.2px;"/>
-  </g>
-  <rect x="40" y="738" width="820" height="28" rx="10" ry="10" style="fill: url(#p); isolation: isolate; opacity: .12;"/>
-  <rect x="40" y="756" width="820" height="10" style="fill: url(#q); isolation: isolate; opacity: .12;"/>
-  <circle cx="60" cy="752" r="5" style="fill: url(#r);"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(75 757)" style="fill: #f778ba; font-family: Helvetica-Bold, Helvetica; font-size: 12px; font-weight: 700; isolation: isolate; letter-spacing: .07em;"><tspan x="0" y="0">CHALLENGE EXCHANGE</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <g>
-      <path d="M705.52,751.92v4.91c0,.37.3.67.67.67h8.04c.37,0,.67-.3.67-.67v-4.91h-9.38,0Z" style="fill: #ffce31;"/>
-      <path d="M714.89,751.24c0-.37-.3-.67-.67-.67h-8.04c-.37,0-.67.3-.67.67v.67h9.38v-.67h0Z" style="fill: #ff8736;"/>
-      <path d="M707.14,750.79c.51,0,.92.18.92.39s-.41.39-.92.39-.93-.18-.93-.39.41-.39.93-.39Z" style="fill: #3e4347;"/>
-      <path d="M713.27,750.79c.51,0,.93.18.93.39s-.41.39-.93.39-.92-.18-.92-.39.41-.39.92-.39Z" style="fill: #3e4347;"/>
-      <path d="M710.21,747.5c-2.02,0-3.66,1.65-3.66,3.68,0,.12.25.22.59.22v-.22h0c.12-1.71,1.45-3.07,3.07-3.07s2.95,1.36,3.07,3.07h0v.22c.34,0,.59-.1.59-.22,0-2.03-1.64-3.68-3.66-3.68h0Z" style="fill: #dfe9ef;"/>
-      <path d="M713.27,751.18c-.12-1.71-1.45-3.07-3.07-3.07s-2.95,1.36-3.07,3.07h0v.22c.34,0,.65-.1.65-.22,0-1.11.92-2.43,2.41-2.43s2.41,1.32,2.41,2.43c0,.12.31.22.65.22v-.22h.02Z" style="fill: #b0bdc6;"/>
-      <path d="M710.93,756.31l-.3-1.92c.18-.13.29-.34.29-.58,0-.4-.32-.72-.71-.72s-.71.32-.71.72c0,.24.11.45.29.58l-.3,1.92h1.44Z" style="fill: #3e4347;"/>
-    </g>
-    <path d="M722.87,752.84h-2.62v2.43h2.92v.73h-3.79v-6.74h3.64v.73h-2.77v2.13h2.62v.72h0Z" style="fill: #8b949e;"/>
-    <path d="M724.27,752.47c0-.5,0-.91-.04-1.31h.78l.05.8h.02c.24-.46.8-.91,1.6-.91.67,0,1.71.4,1.71,2.06v2.89h-.88v-2.79c0-.78-.29-1.43-1.12-1.43-.58,0-1.03.41-1.18.9-.04.11-.06.26-.06.41v2.91h-.88v-3.53h0Z" style="fill: #8b949e;"/>
-    <path d="M733.27,755.82c-.23.12-.74.28-1.39.28-1.46,0-2.41-.99-2.41-2.47s1.02-2.57,2.6-2.57c.52,0,.98.13,1.22.25l-.2.68c-.21-.12-.54-.23-1.02-.23-1.11,0-1.71.82-1.71,1.83,0,1.12.72,1.81,1.68,1.81.5,0,.83-.13,1.08-.24l.15.66h0Z" style="fill: #8b949e;"/>
-    <path d="M734.3,752.67c0-.57,0-1.06-.04-1.51h.77l.03.95h.04c.22-.65.75-1.06,1.34-1.06.1,0,.17,0,.25.03v.83c-.09-.02-.18-.03-.3-.03-.62,0-1.06.47-1.18,1.13-.02.12-.04.26-.04.41v2.58h-.87v-3.33h0Z" style="fill: #8b949e;"/>
-    <path d="M738.14,751.16l1.06,2.86c.11.32.23.7.31.99h.02c.09-.29.19-.66.31-1.01l.96-2.84h.93l-1.32,3.45c-.63,1.66-1.06,2.51-1.66,3.03-.43.38-.86.53-1.08.57l-.22-.74c.22-.07.51-.21.77-.43.24-.19.54-.53.74-.98.04-.09.07-.16.07-.21s-.02-.12-.06-.23l-1.79-4.46h.96,0Z" style="fill: #8b949e;"/>
-    <path d="M742.53,752.74c0-.62-.02-1.12-.04-1.58h.79l.04.83h.02c.36-.59.93-.94,1.72-.94,1.17,0,2.05.99,2.05,2.46,0,1.74-1.06,2.6-2.2,2.6-.64,0-1.2-.28-1.49-.76h-.02v2.63h-.87v-5.24h0ZM743.4,754.03c0,.13.02.25.04.36.16.61.69,1.03,1.32,1.03.93,0,1.47-.76,1.47-1.87,0-.97-.51-1.8-1.44-1.8-.6,0-1.16.43-1.33,1.09-.03.11-.06.24-.06.36v.83h0Z" style="fill: #8b949e;"/>
-    <path d="M749.28,749.77v1.39h1.26v.67h-1.26v2.61c0,.6.17.94.66.94.23,0,.4-.03.51-.06l.04.66c-.17.07-.44.12-.78.12-.41,0-.74-.13-.95-.37-.25-.26-.34-.69-.34-1.26v-2.64h-.75v-.67h.75v-1.16l.86-.23h0Z" style="fill: #8b949e;"/>
-    <path d="M751.96,753.74c.02,1.19.78,1.68,1.66,1.68.63,0,1.01-.11,1.34-.25l.15.63c-.31.14-.84.3-1.61.3-1.49,0-2.38-.98-2.38-2.44s.86-2.61,2.27-2.61c1.58,0,2,1.39,2,2.28,0,.18-.02.32-.03.41h-3.4ZM754.54,753.11c0-.56-.23-1.43-1.22-1.43-.89,0-1.28.82-1.35,1.43h2.57,0Z" style="fill: #8b949e;"/>
-    <path d="M760.66,748.9v5.85c0,.43,0,.92.04,1.25h-.79l-.04-.84h-.02c-.27.54-.86.95-1.65.95-1.17,0-2.07-.99-2.07-2.46-.01-1.61.99-2.6,2.17-2.6.74,0,1.24.35,1.46.74h.02v-2.89h.88ZM759.78,753.13c0-.11-.01-.26-.04-.37-.13-.56-.61-1.02-1.27-1.02-.91,0-1.45.8-1.45,1.87,0,.98.48,1.79,1.43,1.79.59,0,1.13-.39,1.29-1.05.03-.12.04-.24.04-.38v-.84h0Z" style="fill: #8b949e;"/>
-    <path d="M765.25,753.37c0-.36.25-.63.6-.63s.58.26.59.63c0,.36-.24.63-.6.63s-.6-.27-.59-.63Z" style="fill: #8b949e;"/>
-    <path d="M776.74,753.04c-.05-.94-.11-2.07-.1-2.91h-.03c-.23.79-.51,1.63-.85,2.56l-1.19,3.27h-.66l-1.09-3.21c-.32-.95-.59-1.82-.78-2.62h-.02c-.02.84-.07,1.97-.13,2.98l-.18,2.89h-.83l.47-6.74h1.11l1.15,3.26c.28.83.51,1.57.68,2.27h.03c.17-.68.41-1.42.71-2.27l1.2-3.26h1.11l.42,6.74h-.85l-.17-2.96Z" style="fill: #8b949e;"/>
-    <path d="M783.15,754.68c0,.5.01.94.04,1.32h-.78l-.05-.79h-.02c-.23.39-.74.9-1.6.9-.76,0-1.67-.42-1.67-2.12v-2.83h.88v2.68c0,.92.28,1.54,1.08,1.54.59,0,1-.41,1.16-.8.05-.13.08-.29.08-.45v-2.97h.88v3.52h0Z" style="fill: #8b949e;"/>
-    <path d="M785.67,749.77v1.39h1.26v.67h-1.26v2.61c0,.6.17.94.66.94.23,0,.4-.03.51-.06l.04.66c-.17.07-.44.12-.78.12-.41,0-.74-.13-.95-.37-.25-.26-.34-.69-.34-1.26v-2.64h-.75v-.67h.75v-1.16l.86-.23h0Z" style="fill: #8b949e;"/>
-    <path d="M791.97,754.68c0,.5.01.94.04,1.32h-.78l-.05-.79h-.02c-.23.39-.74.9-1.6.9-.76,0-1.67-.42-1.67-2.12v-2.83h.88v2.68c0,.92.28,1.54,1.08,1.54.59,0,1-.41,1.16-.8.05-.13.08-.29.08-.45v-2.97h.88v3.52h0Z" style="fill: #8b949e;"/>
-    <path d="M796.11,756l-.07-.61h-.03c-.27.38-.79.72-1.48.72-.98,0-1.48-.69-1.48-1.39,0-1.17,1.04-1.81,2.91-1.8v-.1c0-.4-.11-1.12-1.1-1.12-.45,0-.92.14-1.26.36l-.2-.58c.4-.26.98-.43,1.59-.43,1.48,0,1.84,1.01,1.84,1.98v1.81c0,.42.02.83.08,1.16h-.8ZM795.98,753.53c-.96-.02-2.05.15-2.05,1.09,0,.57.38.84.83.84.63,0,1.03-.4,1.17-.81.03-.09.05-.19.05-.28v-.84Z" style="fill: #8b949e;"/>
-    <path d="M798.25,748.9h.88v7.1h-.88v-7.1Z" style="fill: #8b949e;"/>
-    <path d="M805.54,756l-2.2-6.74h.94l1.05,3.32c.29.91.54,1.73.72,2.52h.02c.19-.78.47-1.63.77-2.51l1.14-3.33h.93l-2.41,6.74h-.96Z" style="fill: #8b949e;"/>
-    <path d="M809.77,753.74c.02,1.19.78,1.68,1.66,1.68.63,0,1.01-.11,1.34-.25l.15.63c-.31.14-.84.3-1.61.3-1.49,0-2.38-.98-2.38-2.44s.86-2.61,2.27-2.61c1.58,0,2,1.39,2,2.28,0,.18-.02.32-.03.41h-3.4ZM812.35,753.11c0-.56-.23-1.43-1.22-1.43-.89,0-1.28.82-1.35,1.43h2.57,0Z" style="fill: #8b949e;"/>
-    <path d="M814.29,752.67c0-.57,0-1.06-.04-1.51h.77l.03.95h.04c.22-.65.75-1.06,1.34-1.06.1,0,.17,0,.25.03v.83c-.09-.02-.18-.03-.3-.03-.62,0-1.06.47-1.18,1.13-.02.12-.04.26-.04.41v2.58h-.87v-3.33h0Z" style="fill: #8b949e;"/>
-    <path d="M818.58,749.8c.01.3-.21.54-.56.54-.31,0-.53-.24-.53-.54s.23-.55.55-.55.54.24.54.55h0ZM817.6,756v-4.84h.88v4.84h-.88Z" style="fill: #8b949e;"/>
-    <path d="M820.03,756v-4.17h-.68v-.67h.68v-.26c0-1.28.75-2.11,2.11-2.11.45,0,.98.14,1.23.32l-.25.67c-.21-.15-.59-.28-1.02-.28-.93,0-1.2.65-1.2,1.42v.24h2.81v4.84h-.87v-4.17h-1.94v4.17h-.87,0Z" style="fill: #8b949e;"/>
-    <path d="M828.62,755.82c-.23.12-.74.28-1.39.28-1.46,0-2.41-.99-2.41-2.47s1.02-2.57,2.6-2.57c.52,0,.98.13,1.22.25l-.2.68c-.21-.12-.54-.23-1.02-.23-1.11,0-1.71.82-1.71,1.83,0,1.12.72,1.81,1.68,1.81.5,0,.83-.13,1.08-.24l.15.66h0Z" style="fill: #8b949e;"/>
-    <path d="M832.33,756l-.07-.61h-.03c-.27.38-.79.72-1.48.72-.98,0-1.48-.69-1.48-1.39,0-1.17,1.04-1.81,2.91-1.8v-.1c0-.4-.11-1.12-1.1-1.12-.45,0-.92.14-1.26.36l-.2-.58c.4-.26.98-.43,1.59-.43,1.48,0,1.84,1.01,1.84,1.98v1.81c0,.42.02.83.08,1.16h-.8ZM832.2,753.53c-.96-.02-2.05.15-2.05,1.09,0,.57.38.84.83.84.63,0,1.03-.4,1.17-.81.03-.09.05-.19.05-.28v-.84Z" style="fill: #8b949e;"/>
-    <path d="M835.49,749.77v1.39h1.26v.67h-1.26v2.61c0,.6.17.94.66.94.23,0,.4-.03.51-.06l.04.66c-.17.07-.44.12-.78.12-.41,0-.74-.13-.95-.37-.25-.26-.34-.69-.34-1.26v-2.64h-.75v-.67h.75v-1.16l.86-.23h0Z" style="fill: #8b949e;"/>
-    <path d="M838.72,749.8c0,.3-.21.54-.56.54-.31,0-.53-.24-.53-.54s.23-.55.55-.55.54.24.54.55h0ZM837.74,756v-4.84h.88v4.84h-.88Z" style="fill: #8b949e;"/>
-    <path d="M844.46,753.54c0,1.79-1.24,2.57-2.41,2.57-1.31,0-2.32-.96-2.32-2.49,0-1.62,1.06-2.57,2.4-2.57s2.33,1.01,2.33,2.49h0ZM840.62,753.59c0,1.06.61,1.86,1.47,1.86s1.47-.79,1.47-1.88c0-.82-.41-1.86-1.45-1.86s-1.49.96-1.49,1.88h0Z" style="fill: #8b949e;"/>
-    <path d="M845.57,752.47c0-.5,0-.91-.04-1.31h.78l.05.8h.02c.24-.46.8-.91,1.6-.91.67,0,1.71.4,1.71,2.06v2.89h-.88v-2.79c0-.78-.29-1.43-1.12-1.43-.58,0-1.03.41-1.18.9-.04.11-.06.26-.06.41v2.91h-.88v-3.53h0Z" style="fill: #8b949e;"/>
-  </g>
-  <rect x="55" y="774" width="115" height="32" rx="6" ry="6" style="fill: #21262d; stroke: #db61a2; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(83.54 788)" style="fill: #f778ba; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Create Ciphers</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(82.86 799)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7px; isolation: isolate;"><tspan x="0" y="0">HKDF</tspan></text>
-    <text transform="translate(99.29 799)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(101.68 799)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7px; isolation: isolate;"><tspan x="0" y="0">-</tspan></text>
-    <text transform="translate(103.83 799)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(106.22 799)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7px; isolation: isolate;"><tspan x="0" y="0">XChaCha20</tspan></text>
-  </g>
-  <rect x="730" y="774" width="115" height="32" rx="6" ry="6" style="fill: #21262d; stroke: #db61a2; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(758.54 788)" style="fill: #f778ba; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Create Ciphers</tspan></text>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(759.86 799)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7px; isolation: isolate;"><tspan x="0" y="0">HKDF</tspan></text>
-    <text transform="translate(776.29 799)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(778.68 799)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7px; isolation: isolate;"><tspan x="0" y="0">-</tspan></text>
-    <text transform="translate(780.83 799)" style="fill: #6e7681; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 7px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(783.22 799)" style="fill: #6e7681; font-family: ArialMT, Arial; font-size: 7px; isolation: isolate;"><tspan x="0" y="0">XChaCha20</tspan></text>
-  </g>
-  <g>
-    <rect x="55" y="832" width="115" height="22" rx="6" ry="6" style="fill: #21262d; stroke: #484f58; stroke-width: .6px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(75.76 846)" style="fill: #f778ba; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Derive challenge_c</tspan></text>
-    </g>
-  </g>
-  <polygon points="716.8 837.7 734.8 844 716.8 850.3 716.8 837.7" style="fill: #f778ba;"/>
-  <rect x="340" y="832" width="220" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #db61a2; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <g>
-      <path d="M408.99,842.51v5.4c0,.41.33.74.74.74h8.84c.41,0,.74-.33.74-.74v-5.4h-10.32Z" style="fill: #ffce31;"/>
-      <path d="M419.3,841.77c0-.41-.33-.74-.74-.74h-8.84c-.41,0-.74.33-.74.74v.74h10.31v-.74h0Z" style="fill: #ff8736;"/>
-      <ellipse cx="410.77" cy="841.69" rx="1.02" ry=".43" style="fill: #3e4347;"/>
-      <ellipse cx="417.52" cy="841.69" rx="1.02" ry=".43" style="fill: #3e4347;"/>
-      <path d="M414.14,837.65c-2.22,0-4.03,1.81-4.03,4.04,0,.13.27.24.65.24v-.24h0c.13-1.89,1.59-3.38,3.37-3.38s3.24,1.49,3.37,3.38h0v.24c.38,0,.65-.11.65-.24,0-2.23-1.81-4.04-4.03-4.04h.02Z" style="fill: #dfe9ef;"/>
-      <path d="M417.52,841.69c-.13-1.89-1.59-3.38-3.37-3.38s-3.24,1.49-3.37,3.38h0v.24c.38,0,.72-.11.72-.24,0-1.22,1.02-2.67,2.66-2.67s2.66,1.45,2.66,2.67c0,.13.34.24.72.24v-.24h-.02Z" style="fill: #b0bdc6;"/>
-      <path d="M414.93,847.34l-.33-2.11c.19-.14.32-.37.32-.63,0-.44-.35-.79-.78-.79s-.78.35-.78.79c0,.26.13.49.32.63l-.33,2.11h1.58,0Z" style="fill: #3e4347;"/>
-    </g>
-    <path d="M428.08,843.52h-2.88v2.67h3.21v.8h-4.17v-7.42h4v.8h-3.05v2.34h2.88v.81Z" style="fill: #c9d1d9;"/>
-    <path d="M429.62,843.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88h0Z" style="fill: #c9d1d9;"/>
-    <path d="M439.52,846.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73h-.01Z" style="fill: #c9d1d9;"/>
-    <path d="M440.65,843.34c0-.63-.01-1.17-.04-1.66h.85l.03,1.05h.04c.24-.72.83-1.17,1.47-1.17.11,0,.19.01.28.03v.91c-.1-.02-.2-.03-.33-.03-.68,0-1.17.52-1.3,1.24-.02.13-.04.29-.04.45v2.84h-.96v-3.66h0Z" style="fill: #c9d1d9;"/>
-    <path d="M444.87,841.67l1.17,3.15c.12.35.25.77.34,1.09h.02c.1-.32.21-.73.34-1.11l1.06-3.12h1.02l-1.45,3.8c-.69,1.83-1.17,2.76-1.83,3.33-.47.42-.95.58-1.19.63l-.24-.81c.24-.08.56-.23.85-.47.26-.21.59-.58.81-1.08.04-.1.08-.18.08-.23s-.02-.13-.07-.25l-1.97-4.91h1.06v-.02Z" style="fill: #c9d1d9;"/>
-    <path d="M449.7,843.41c0-.68-.02-1.23-.04-1.74h.87l.04.91h.02c.4-.65,1.02-1.03,1.89-1.03,1.29,0,2.26,1.09,2.26,2.71,0,1.91-1.17,2.86-2.42,2.86-.7,0-1.32-.31-1.64-.84h-.02v2.89h-.96v-5.77h0ZM450.66,844.83c0,.14.02.27.04.4.18.67.76,1.13,1.45,1.13,1.02,0,1.62-.84,1.62-2.06,0-1.07-.56-1.98-1.58-1.98-.66,0-1.28.47-1.46,1.2-.03.12-.07.26-.07.4v.91h0Z" style="fill: #c9d1d9;"/>
-    <path d="M457.13,840.15v1.53h1.39v.74h-1.39v2.87c0,.66.19,1.03.73,1.03.25,0,.44-.03.56-.07l.04.73c-.19.08-.48.13-.86.13-.45,0-.81-.14-1.05-.41-.27-.29-.37-.76-.37-1.39v-2.9h-.82v-.74h.82v-1.28l.95-.25h0Z" style="fill: #c9d1d9;"/>
-    <path d="M461.7,839.37c-.8,1.08-1.39,2.51-1.39,4.5s.61,3.37,1.39,4.47h-.76c-.69-.91-1.44-2.32-1.44-4.47.01-2.17.75-3.58,1.44-4.5h.76Z" style="fill: #c9d1d9;"/>
-    <path d="M466.52,846.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73h-.01Z" style="fill: #c9d1d9;"/>
-    <path d="M467.65,839.19h.97v3.32h.02c.15-.28.4-.52.69-.68.29-.17.63-.27.99-.27.71,0,1.86.44,1.86,2.28v3.17h-.97v-3.06c0-.86-.32-1.58-1.23-1.58-.63,0-1.12.44-1.3.97-.06.13-.07.28-.07.46v3.21h-.97v-7.81h.01Z" style="fill: #c9d1d9;"/>
-    <path d="M476.71,847l-.08-.67h-.03c-.3.42-.87.79-1.63.79-1.08,0-1.63-.76-1.63-1.53,0-1.29,1.14-1.99,3.2-1.98v-.11c0-.44-.12-1.23-1.21-1.23-.5,0-1.01.15-1.39.4l-.22-.64c.44-.29,1.08-.47,1.75-.47,1.63,0,2.02,1.11,2.02,2.18v1.99c0,.46.02.91.09,1.28h-.88.01ZM476.56,844.28c-1.06-.02-2.25.17-2.25,1.2,0,.63.42.92.91.92.69,0,1.13-.44,1.29-.89.03-.1.05-.21.05-.31v-.92Z" style="fill: #c9d1d9;"/>
-    <path d="M479.06,839.19h.97v7.81h-.97v-7.81Z" style="fill: #c9d1d9;"/>
-    <path d="M481.66,839.19h.97v7.81h-.97v-7.81Z" style="fill: #c9d1d9;"/>
-    <path d="M484.79,844.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.75ZM487.63,843.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.49,1.57h2.83Z" style="fill: #c9d1d9;"/>
-    <path d="M489.76,843.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88h0Z" style="fill: #c9d1d9;"/>
-    <path d="M500.46,841.67c-.02.39-.04.81-.04,1.46v3.09c0,1.22-.24,1.97-.76,2.43-.52.48-1.27.64-1.94.64s-1.34-.15-1.77-.44l.24-.74c.35.22.9.42,1.56.42.99,0,1.72-.52,1.72-1.86v-.59h-.02c-.3.5-.87.89-1.69.89-1.32,0-2.27-1.12-2.27-2.6,0-1.8,1.18-2.83,2.4-2.83.92,0,1.43.48,1.66.92h.02l.04-.8h.85ZM499.46,843.78c0-.17-.01-.31-.06-.44-.18-.56-.65-1.02-1.35-1.02-.92,0-1.58.78-1.58,2.01,0,1.05.53,1.92,1.57,1.92.59,0,1.13-.37,1.34-.99.05-.17.08-.35.08-.52v-.96h0Z" style="fill: #c9d1d9;"/>
-    <path d="M502.56,844.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.75ZM505.4,843.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.48,1.57h2.83,0Z" style="fill: #c9d1d9;"/>
-    <path d="M512.23,847.83v.55h-5.5v-.55h5.5Z" style="fill: #c9d1d9;"/>
-    <path d="M516.82,846.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.16.73h0Z" style="fill: #c9d1d9;"/>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(221.37 837.99)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">SEND_CHALLENGE</tspan></text>
-  </g>
-  <g>
-    <rect x="757" y="843.58" width="85" height="29.36" rx="4" ry="4" style="fill: #21262d; stroke: #484f58; stroke-width: .6px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(769.77 862)" style="fill: #f778ba; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Decrypt + Echo</tspan></text>
-    </g>
-  </g>
-  <polygon points="199.8 873.7 181.8 880 199.8 886.3 199.8 873.7" style="fill: #f778ba;"/>
-  <rect x="340" y="868" width="220" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #db61a2; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <g>
-      <path d="M408.99,878.51v5.4c0,.41.33.74.74.74h8.84c.41,0,.74-.33.74-.74v-5.4h-10.32Z" style="fill: #ffce31;"/>
-      <path d="M419.3,877.77c0-.41-.33-.74-.74-.74h-8.84c-.41,0-.74.33-.74.74v.74h10.31v-.74h0Z" style="fill: #ff8736;"/>
-      <ellipse cx="410.77" cy="877.69" rx="1.02" ry=".43" style="fill: #3e4347;"/>
-      <ellipse cx="417.52" cy="877.69" rx="1.02" ry=".43" style="fill: #3e4347;"/>
-      <path d="M414.14,873.65c-2.22,0-4.03,1.81-4.03,4.04,0,.13.27.24.65.24v-.24h0c.13-1.89,1.59-3.38,3.37-3.38s3.24,1.49,3.37,3.38h0v.24c.38,0,.65-.11.65-.24,0-2.23-1.81-4.04-4.03-4.04h.02Z" style="fill: #dfe9ef;"/>
-      <path d="M417.52,877.69c-.13-1.89-1.59-3.38-3.37-3.38s-3.24,1.49-3.37,3.38h0v.24c.38,0,.72-.11.72-.24,0-1.22,1.02-2.67,2.66-2.67s2.66,1.45,2.66,2.67c0,.13.34.24.72.24v-.24h-.02Z" style="fill: #b0bdc6;"/>
-      <path d="M414.93,883.34l-.33-2.11c.19-.14.32-.37.32-.63,0-.44-.35-.79-.78-.79s-.78.35-.78.79c0,.26.13.49.32.63l-.33,2.11h1.58,0Z" style="fill: #3e4347;"/>
-    </g>
-    <path d="M428.08,879.52h-2.88v2.67h3.21v.8h-4.17v-7.42h4v.8h-3.05v2.34h2.88v.81Z" style="fill: #c9d1d9;"/>
-    <path d="M429.62,879.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88h0Z" style="fill: #c9d1d9;"/>
-    <path d="M439.52,882.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73h-.01Z" style="fill: #c9d1d9;"/>
-    <path d="M440.65,879.34c0-.63-.01-1.17-.04-1.66h.85l.03,1.05h.04c.24-.72.83-1.17,1.47-1.17.11,0,.19.01.28.03v.91c-.1-.02-.2-.03-.33-.03-.68,0-1.17.52-1.3,1.24-.02.13-.04.29-.04.45v2.84h-.96v-3.66h0Z" style="fill: #c9d1d9;"/>
-    <path d="M444.87,877.67l1.17,3.15c.12.35.25.77.34,1.09h.02c.1-.32.21-.73.34-1.11l1.06-3.12h1.02l-1.45,3.8c-.69,1.83-1.17,2.76-1.83,3.33-.47.42-.95.58-1.19.63l-.24-.81c.24-.08.56-.23.85-.47.26-.21.59-.58.81-1.08.04-.1.08-.18.08-.23s-.02-.13-.07-.25l-1.97-4.91h1.06v-.02Z" style="fill: #c9d1d9;"/>
-    <path d="M449.7,879.41c0-.68-.02-1.23-.04-1.74h.87l.04.91h.02c.4-.65,1.02-1.03,1.89-1.03,1.29,0,2.26,1.09,2.26,2.71,0,1.91-1.17,2.86-2.42,2.86-.7,0-1.32-.31-1.64-.84h-.02v2.89h-.96v-5.77h0ZM450.66,880.83c0,.14.02.27.04.4.18.67.76,1.13,1.45,1.13,1.02,0,1.62-.84,1.62-2.06,0-1.07-.56-1.98-1.58-1.98-.66,0-1.28.47-1.46,1.2-.03.12-.07.26-.07.4v.91h0Z" style="fill: #c9d1d9;"/>
-    <path d="M457.13,876.15v1.53h1.39v.74h-1.39v2.87c0,.66.19,1.03.73,1.03.25,0,.44-.03.56-.07l.04.73c-.19.08-.48.13-.86.13-.45,0-.81-.14-1.05-.41-.27-.29-.37-.76-.37-1.39v-2.9h-.82v-.74h.82v-1.28l.95-.25h0Z" style="fill: #c9d1d9;"/>
-    <path d="M461.7,875.37c-.8,1.08-1.39,2.51-1.39,4.5s.61,3.37,1.39,4.47h-.76c-.69-.91-1.44-2.32-1.44-4.47.01-2.17.75-3.58,1.44-4.5h.76Z" style="fill: #c9d1d9;"/>
-    <path d="M466.52,882.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73h-.01Z" style="fill: #c9d1d9;"/>
-    <path d="M467.65,875.19h.97v3.32h.02c.15-.28.4-.52.69-.68.29-.17.63-.27.99-.27.71,0,1.86.44,1.86,2.28v3.17h-.97v-3.06c0-.86-.32-1.58-1.23-1.58-.63,0-1.12.44-1.3.97-.06.13-.07.28-.07.46v3.21h-.97v-7.81h.01Z" style="fill: #c9d1d9;"/>
-    <path d="M476.71,883l-.08-.67h-.03c-.3.42-.87.79-1.63.79-1.08,0-1.63-.76-1.63-1.53,0-1.29,1.14-1.99,3.2-1.98v-.11c0-.44-.12-1.23-1.21-1.23-.5,0-1.01.15-1.39.4l-.22-.64c.44-.29,1.08-.47,1.75-.47,1.63,0,2.02,1.11,2.02,2.18v1.99c0,.46.02.91.09,1.28h-.88.01ZM476.56,880.28c-1.06-.02-2.25.17-2.25,1.2,0,.63.42.92.91.92.69,0,1.13-.44,1.29-.89.03-.1.05-.21.05-.31v-.92Z" style="fill: #c9d1d9;"/>
-    <path d="M479.06,875.19h.97v7.81h-.97v-7.81Z" style="fill: #c9d1d9;"/>
-    <path d="M481.66,875.19h.97v7.81h-.97v-7.81Z" style="fill: #c9d1d9;"/>
-    <path d="M484.79,880.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.75ZM487.63,879.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.49,1.57h2.83Z" style="fill: #c9d1d9;"/>
-    <path d="M489.76,879.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88h0Z" style="fill: #c9d1d9;"/>
-    <path d="M500.46,877.67c-.02.39-.04.81-.04,1.46v3.09c0,1.22-.24,1.97-.76,2.43-.52.48-1.27.64-1.94.64s-1.34-.15-1.77-.44l.24-.74c.35.22.9.42,1.56.42.99,0,1.72-.52,1.72-1.86v-.59h-.02c-.3.5-.87.89-1.69.89-1.32,0-2.27-1.12-2.27-2.6,0-1.8,1.18-2.83,2.4-2.83.92,0,1.43.48,1.66.92h.02l.04-.8h.85ZM499.46,879.78c0-.17-.01-.31-.06-.44-.18-.56-.65-1.02-1.35-1.02-.92,0-1.58.78-1.58,2.01,0,1.05.53,1.92,1.57,1.92.59,0,1.13-.37,1.34-.99.05-.17.08-.35.08-.52v-.96h0Z" style="fill: #c9d1d9;"/>
-    <path d="M502.56,880.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.75ZM505.4,879.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.48,1.57h2.83,0Z" style="fill: #c9d1d9;"/>
-    <path d="M512.23,883.83v.55h-5.5v-.55h5.5Z" style="fill: #c9d1d9;"/>
-    <path d="M516.82,882.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.16.73h0Z" style="fill: #c9d1d9;"/>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(612.98 872)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">VERIFY_CHALLENGE</tspan></text>
-  </g>
-  <g>
-    <rect x="54" y="870" width="115" height="18" rx="4" ry="4" style="fill: #21262d; stroke: #484f58; stroke-width: .6px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(67.06 881)" style="fill: #7ee787; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Constant</tspan><tspan x="34.66" y="0" style="letter-spacing: -.02em;">T</tspan><tspan x="39.41" y="0">imeCompare</tspan></text>
-    </g>
-  </g>
-  <g>
-    <rect x="730" y="919" width="115" height="22" rx="6" ry="6" style="fill: #21262d; stroke: #484f58; stroke-width: .6px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(750.76 934)" style="fill: #f778ba; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Derive challenge_s</tspan></text>
-    </g>
-  </g>
-  <polygon points="182.8 926.7 164.8 933 182.8 939.3 182.8 926.7" style="fill: #f778ba;"/>
-  <rect x="340" y="920" width="220" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #db61a2; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <g>
-      <path d="M408.99,930.51v5.4c0,.41.33.74.74.74h8.84c.41,0,.74-.33.74-.74v-5.4h-10.32Z" style="fill: #ffce31;"/>
-      <path d="M419.3,929.77c0-.41-.33-.74-.74-.74h-8.84c-.41,0-.74.33-.74.74v.74h10.31v-.74h0Z" style="fill: #ff8736;"/>
-      <ellipse cx="410.77" cy="929.69" rx="1.02" ry=".43" style="fill: #3e4347;"/>
-      <ellipse cx="417.52" cy="929.69" rx="1.02" ry=".43" style="fill: #3e4347;"/>
-      <path d="M414.14,925.65c-2.22,0-4.03,1.81-4.03,4.04,0,.13.27.24.65.24v-.24h0c.13-1.89,1.59-3.38,3.37-3.38s3.24,1.49,3.37,3.38h0v.24c.38,0,.65-.11.65-.24,0-2.23-1.81-4.04-4.03-4.04h.02Z" style="fill: #dfe9ef;"/>
-      <path d="M417.52,929.69c-.13-1.89-1.59-3.38-3.37-3.38s-3.24,1.49-3.37,3.38h0v.24c.38,0,.72-.11.72-.24,0-1.22,1.02-2.67,2.66-2.67s2.66,1.45,2.66,2.67c0,.13.34.24.72.24v-.24h-.02Z" style="fill: #b0bdc6;"/>
-      <path d="M414.93,935.34l-.33-2.11c.19-.14.32-.37.32-.63,0-.44-.35-.79-.78-.79s-.78.35-.78.79c0,.26.13.49.32.63l-.33,2.11h1.58,0Z" style="fill: #3e4347;"/>
-    </g>
-    <path d="M428.08,931.52h-2.88v2.67h3.21v.8h-4.17v-7.42h4v.8h-3.05v2.34h2.88v.81Z" style="fill: #c9d1d9;"/>
-    <path d="M429.62,931.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88h0Z" style="fill: #c9d1d9;"/>
-    <path d="M439.52,934.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73h-.01Z" style="fill: #c9d1d9;"/>
-    <path d="M440.65,931.34c0-.63-.01-1.17-.04-1.66h.85l.03,1.05h.04c.24-.72.83-1.17,1.47-1.17.11,0,.19.01.28.03v.91c-.1-.02-.2-.03-.33-.03-.68,0-1.17.52-1.3,1.24-.02.13-.04.29-.04.45v2.84h-.96v-3.66h0Z" style="fill: #c9d1d9;"/>
-    <path d="M444.87,929.67l1.17,3.15c.12.35.25.77.34,1.09h.02c.1-.32.21-.73.34-1.11l1.06-3.12h1.02l-1.45,3.8c-.69,1.83-1.17,2.76-1.83,3.33-.47.42-.95.58-1.19.63l-.24-.81c.24-.08.56-.23.85-.47.26-.21.59-.58.81-1.08.04-.1.08-.18.08-.23s-.02-.13-.07-.25l-1.97-4.91h1.06v-.02Z" style="fill: #c9d1d9;"/>
-    <path d="M449.7,931.41c0-.68-.02-1.23-.04-1.74h.87l.04.91h.02c.4-.65,1.02-1.03,1.89-1.03,1.29,0,2.26,1.09,2.26,2.71,0,1.91-1.17,2.86-2.42,2.86-.7,0-1.32-.31-1.64-.84h-.02v2.89h-.96v-5.77h0ZM450.66,932.83c0,.14.02.27.04.4.18.67.76,1.13,1.45,1.13,1.02,0,1.62-.84,1.62-2.06,0-1.07-.56-1.98-1.58-1.98-.66,0-1.28.47-1.46,1.2-.03.12-.07.26-.07.4v.91h0Z" style="fill: #c9d1d9;"/>
-    <path d="M457.13,928.15v1.53h1.39v.74h-1.39v2.87c0,.66.19,1.03.73,1.03.25,0,.44-.03.56-.07l.04.73c-.19.08-.48.13-.86.13-.45,0-.81-.14-1.05-.41-.27-.29-.37-.76-.37-1.39v-2.9h-.82v-.74h.82v-1.28l.95-.25h0Z" style="fill: #c9d1d9;"/>
-    <path d="M461.7,927.37c-.8,1.08-1.39,2.51-1.39,4.5s.61,3.37,1.39,4.47h-.76c-.69-.91-1.44-2.32-1.44-4.47.01-2.17.75-3.58,1.44-4.5h.76Z" style="fill: #c9d1d9;"/>
-    <path d="M466.52,934.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73h-.01Z" style="fill: #c9d1d9;"/>
-    <path d="M467.65,927.19h.97v3.32h.02c.15-.28.4-.52.69-.68.29-.17.63-.27.99-.27.71,0,1.86.44,1.86,2.28v3.17h-.97v-3.06c0-.86-.32-1.58-1.23-1.58-.63,0-1.12.44-1.3.97-.06.13-.07.28-.07.46v3.21h-.97v-7.81h.01Z" style="fill: #c9d1d9;"/>
-    <path d="M476.71,935l-.08-.67h-.03c-.3.42-.87.79-1.63.79-1.08,0-1.63-.76-1.63-1.53,0-1.29,1.14-1.99,3.2-1.98v-.11c0-.44-.12-1.23-1.21-1.23-.5,0-1.01.15-1.39.4l-.22-.64c.44-.29,1.08-.47,1.75-.47,1.63,0,2.02,1.11,2.02,2.18v1.99c0,.46.02.91.09,1.28h-.88.01ZM476.56,932.28c-1.06-.02-2.25.17-2.25,1.2,0,.63.42.92.91.92.69,0,1.13-.44,1.29-.89.03-.1.05-.21.05-.31v-.92Z" style="fill: #c9d1d9;"/>
-    <path d="M479.06,927.19h.97v7.81h-.97v-7.81Z" style="fill: #c9d1d9;"/>
-    <path d="M481.66,927.19h.97v7.81h-.97v-7.81Z" style="fill: #c9d1d9;"/>
-    <path d="M484.79,932.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.75ZM487.63,931.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.49,1.57h2.83Z" style="fill: #c9d1d9;"/>
-    <path d="M489.76,931.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88h0Z" style="fill: #c9d1d9;"/>
-    <path d="M500.46,929.67c-.02.39-.04.81-.04,1.46v3.09c0,1.22-.24,1.97-.76,2.43-.52.48-1.27.64-1.94.64s-1.34-.15-1.77-.44l.24-.74c.35.22.9.42,1.56.42.99,0,1.72-.52,1.72-1.86v-.59h-.02c-.3.5-.87.89-1.69.89-1.32,0-2.27-1.12-2.27-2.6,0-1.8,1.18-2.83,2.4-2.83.92,0,1.43.48,1.66.92h.02l.04-.8h.85ZM499.46,931.78c0-.17-.01-.31-.06-.44-.18-.56-.65-1.02-1.35-1.02-.92,0-1.58.78-1.58,2.01,0,1.05.53,1.92,1.57,1.92.59,0,1.13-.37,1.34-.99.05-.17.08-.35.08-.52v-.96h0Z" style="fill: #c9d1d9;"/>
-    <path d="M502.56,932.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.75ZM505.4,931.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.48,1.57h2.83,0Z" style="fill: #c9d1d9;"/>
-    <path d="M512.23,935.83v.55h-5.5v-.55h5.5Z" style="fill: #c9d1d9;"/>
-    <path d="M512.9,934.01c.29.19.79.38,1.28.38.7,0,1.03-.35,1.03-.79s-.27-.71-.99-.98c-.96-.34-1.41-.87-1.41-1.51,0-.86.69-1.56,1.84-1.56.54,0,1.01.15,1.31.33l-.24.7c-.21-.13-.59-.31-1.09-.31-.57,0-.89.33-.89.73,0,.44.32.64,1.01.9.92.35,1.4.81,1.4,1.61,0,.94-.73,1.6-1.99,1.6-.58,0-1.12-.14-1.5-.36l.24-.74h0Z" style="fill: #c9d1d9;"/>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(614.38 925.99)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">SEND_CHALLENGE</tspan></text>
-  </g>
-  <polygon points="699.8 960.7 717.8 967 699.8 973.3 699.8 960.7" style="fill: #f778ba;"/>
-  <rect x="340" y="956" width="220" height="22" rx="5" ry="5" style="fill: #0d1117; stroke: #db61a2; stroke-width: .8px;"/>
-  <g style="isolation: isolate;">
-    <g>
-      <path d="M408.99,966.51v5.4c0,.41.33.74.74.74h8.84c.41,0,.74-.33.74-.74v-5.4h-10.32Z" style="fill: #ffce31;"/>
-      <path d="M419.3,965.77c0-.41-.33-.74-.74-.74h-8.84c-.41,0-.74.33-.74.74v.74h10.31v-.74h0Z" style="fill: #ff8736;"/>
-      <path d="M410.77,965.26c.56,0,1.02.19,1.02.43s-.46.43-1.02.43-1.02-.19-1.02-.43.46-.43,1.02-.43Z" style="fill: #3e4347;"/>
-      <path d="M417.52,965.26c.56,0,1.02.19,1.02.43s-.46.43-1.02.43-1.02-.19-1.02-.43.46-.43,1.02-.43Z" style="fill: #3e4347;"/>
-      <path d="M414.14,961.65c-2.22,0-4.03,1.81-4.03,4.04,0,.13.27.24.65.24v-.24h0c.13-1.89,1.59-3.38,3.37-3.38s3.24,1.49,3.37,3.38h0v.24c.38,0,.65-.11.65-.24,0-2.23-1.81-4.04-4.03-4.04h.02Z" style="fill: #dfe9ef;"/>
-      <path d="M417.52,965.69c-.13-1.89-1.59-3.38-3.37-3.38s-3.24,1.49-3.37,3.38h0v.24c.38,0,.72-.11.72-.24,0-1.22,1.02-2.67,2.66-2.67s2.66,1.45,2.66,2.67c0,.13.34.24.72.24v-.24h-.02Z" style="fill: #b0bdc6;"/>
-      <path d="M414.93,971.34l-.33-2.11c.19-.14.32-.37.32-.63,0-.44-.35-.79-.78-.79s-.78.35-.78.79c0,.26.13.49.32.63l-.33,2.11h1.58,0Z" style="fill: #3e4347;"/>
-    </g>
-    <path d="M428.08,967.52h-2.88v2.67h3.21v.8h-4.17v-7.42h4v.8h-3.05v2.34h2.88v.81Z" style="fill: #c9d1d9;"/>
-    <path d="M429.62,967.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88h0Z" style="fill: #c9d1d9;"/>
-    <path d="M439.52,970.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73h-.01Z" style="fill: #c9d1d9;"/>
-    <path d="M440.65,967.34c0-.63-.01-1.17-.04-1.66h.85l.03,1.05h.04c.24-.72.83-1.17,1.47-1.17.11,0,.19.01.28.03v.91c-.1-.02-.2-.03-.33-.03-.68,0-1.17.52-1.3,1.24-.02.13-.04.29-.04.45v2.84h-.96v-3.66h0Z" style="fill: #c9d1d9;"/>
-    <path d="M444.87,965.67l1.17,3.15c.12.35.25.77.34,1.09h.02c.1-.32.21-.73.34-1.11l1.06-3.12h1.02l-1.45,3.8c-.69,1.83-1.17,2.76-1.83,3.33-.47.42-.95.58-1.19.63l-.24-.81c.24-.08.56-.23.85-.47.26-.21.59-.58.81-1.08.04-.1.08-.18.08-.23s-.02-.13-.07-.25l-1.97-4.91h1.06v-.02Z" style="fill: #c9d1d9;"/>
-    <path d="M449.7,967.41c0-.68-.02-1.23-.04-1.74h.87l.04.91h.02c.4-.65,1.02-1.03,1.89-1.03,1.29,0,2.26,1.09,2.26,2.71,0,1.91-1.17,2.86-2.42,2.86-.7,0-1.32-.31-1.64-.84h-.02v2.89h-.96v-5.77h0ZM450.66,968.83c0,.14.02.27.04.4.18.67.76,1.13,1.45,1.13,1.02,0,1.62-.84,1.62-2.06,0-1.07-.56-1.98-1.58-1.98-.66,0-1.28.47-1.46,1.2-.03.12-.07.26-.07.4v.91h0Z" style="fill: #c9d1d9;"/>
-    <path d="M457.13,964.15v1.53h1.39v.74h-1.39v2.87c0,.66.19,1.03.73,1.03.25,0,.44-.03.56-.07l.04.73c-.19.08-.48.13-.86.13-.45,0-.81-.14-1.05-.41-.27-.29-.37-.76-.37-1.39v-2.9h-.82v-.74h.82v-1.28l.95-.25h0Z" style="fill: #c9d1d9;"/>
-    <path d="M461.7,963.37c-.8,1.08-1.39,2.51-1.39,4.5s.61,3.37,1.39,4.47h-.76c-.69-.91-1.44-2.32-1.44-4.47.01-2.17.75-3.58,1.44-4.5h.76Z" style="fill: #c9d1d9;"/>
-    <path d="M466.52,970.8c-.25.13-.81.31-1.53.31-1.61,0-2.65-1.09-2.65-2.72s1.12-2.83,2.86-2.83c.57,0,1.08.14,1.34.27l-.22.75c-.23-.13-.59-.25-1.12-.25-1.22,0-1.88.9-1.88,2.01,0,1.23.79,1.99,1.85,1.99.55,0,.91-.14,1.19-.26l.17.73h-.01Z" style="fill: #c9d1d9;"/>
-    <path d="M467.65,963.19h.97v3.32h.02c.15-.28.4-.52.69-.68.29-.17.63-.27.99-.27.71,0,1.86.44,1.86,2.28v3.17h-.97v-3.06c0-.86-.32-1.58-1.23-1.58-.63,0-1.12.44-1.3.97-.06.13-.07.28-.07.46v3.21h-.97v-7.81h.01Z" style="fill: #c9d1d9;"/>
-    <path d="M476.71,971l-.08-.67h-.03c-.3.42-.87.79-1.63.79-1.08,0-1.63-.76-1.63-1.53,0-1.29,1.14-1.99,3.2-1.98v-.11c0-.44-.12-1.23-1.21-1.23-.5,0-1.01.15-1.39.4l-.22-.64c.44-.29,1.08-.47,1.75-.47,1.63,0,2.02,1.11,2.02,2.18v1.99c0,.46.02.91.09,1.28h-.88.01ZM476.56,968.28c-1.06-.02-2.25.17-2.25,1.2,0,.63.42.92.91.92.69,0,1.13-.44,1.29-.89.03-.1.05-.21.05-.31v-.92Z" style="fill: #c9d1d9;"/>
-    <path d="M479.06,963.19h.97v7.81h-.97v-7.81Z" style="fill: #c9d1d9;"/>
-    <path d="M481.66,963.19h.97v7.81h-.97v-7.81Z" style="fill: #c9d1d9;"/>
-    <path d="M484.79,968.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.75ZM487.63,967.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.49,1.57h2.83Z" style="fill: #c9d1d9;"/>
-    <path d="M489.76,967.12c0-.55-.01-1-.04-1.44h.86l.06.88h.02c.26-.51.88-1,1.76-1,.74,0,1.88.44,1.88,2.27v3.18h-.97v-3.07c0-.86-.32-1.57-1.23-1.57-.64,0-1.13.45-1.3.99-.04.12-.07.29-.07.45v3.2h-.97v-3.88h0Z" style="fill: #c9d1d9;"/>
-    <path d="M500.46,965.67c-.02.39-.04.81-.04,1.46v3.09c0,1.22-.24,1.97-.76,2.43-.52.48-1.27.64-1.94.64s-1.34-.15-1.77-.44l.24-.74c.35.22.9.42,1.56.42.99,0,1.72-.52,1.72-1.86v-.59h-.02c-.3.5-.87.89-1.69.89-1.32,0-2.27-1.12-2.27-2.6,0-1.8,1.18-2.83,2.4-2.83.92,0,1.43.48,1.66.92h.02l.04-.8h.85ZM499.46,967.78c0-.17-.01-.31-.06-.44-.18-.56-.65-1.02-1.35-1.02-.92,0-1.58.78-1.58,2.01,0,1.05.53,1.92,1.57,1.92.59,0,1.13-.37,1.34-.99.05-.17.08-.35.08-.52v-.96h0Z" style="fill: #c9d1d9;"/>
-    <path d="M502.56,968.51c.02,1.31.86,1.85,1.83,1.85.69,0,1.11-.12,1.47-.28l.17.69c-.34.15-.92.33-1.77.33-1.64,0-2.62-1.08-2.62-2.68s.95-2.87,2.5-2.87c1.74,0,2.2,1.53,2.2,2.51,0,.2-.02.35-.03.45h-3.75ZM505.4,967.82c.01-.62-.25-1.57-1.34-1.57-.98,0-1.41.9-1.48,1.57h2.83,0Z" style="fill: #c9d1d9;"/>
-    <path d="M512.23,971.83v.55h-5.5v-.55h5.5Z" style="fill: #c9d1d9;"/>
-    <path d="M512.9,970.01c.29.19.79.38,1.28.38.7,0,1.03-.35,1.03-.79s-.27-.71-.99-.98c-.96-.34-1.41-.87-1.41-1.51,0-.86.69-1.56,1.84-1.56.54,0,1.01.15,1.31.33l-.24.7c-.21-.13-.59-.31-1.09-.31-.57,0-.89.33-.89.73,0,.44.32.64,1.01.9.92.35,1.4.81,1.4,1.61,0,.94-.73,1.6-1.99,1.6-.58,0-1.12-.14-1.5-.36l.24-.74h0Z" style="fill: #c9d1d9;"/>
-  </g>
-  <g style="isolation: isolate;">
-    <text transform="translate(219.08 960)" style="fill: #8b949e; font-family: ArialMT, Arial; font-size: 7.5px; isolation: isolate;"><tspan x="0" y="0">VERIFY_CHALLENGE</tspan></text>
-  </g>
-  <g>
-    <rect x="730" y="955" width="115" height="18" rx="4" ry="4" style="fill: #21262d; stroke: #484f58; stroke-width: .6px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(744.06 968)" style="fill: #7ee787; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Constant</tspan><tspan x="34.66" y="0" style="letter-spacing: -.02em;">T</tspan><tspan x="39.41" y="0">imeCompare</tspan></text>
-    </g>
-  </g>
-  <g>
-    <rect x="250" y="1010" width="400" height="42" rx="10" ry="10" style="fill: #0d1117;"/>
-    <rect x="250" y="1010" width="400" height="42" rx="10" ry="10" style="fill: none; stroke: #7ee787; stroke-width: 2px;"/>
-  </g>
-  <g style="isolation: isolate; opacity: .25;">
-    <rect x="248" y="1008" width="404" height="46" rx="12" ry="12" style="fill: none; stroke: #7ee787;"/>
-  </g>
-  <path d="M252,1010h396c1.1,0,2,.9,2,2h0c0,1.1-.9,2-2,2H252c-1.1,0-2-.9-2-2h0c0-1.1.9-2,2-2Z" style="fill: url(#s);"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(354.2 1037)" style="fill: #7ee787; font-family: Helvetica-Bold, Helvetica; font-size: 15px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0" style="letter-spacing: .07em;">SESSION ES</tspan><tspan x="101.36" y="0" style="letter-spacing: 0em;">T</tspan><tspan x="110.47" y="0" style="letter-spacing: .07em;">ABLISHED</tspan></text>
-  </g>
-  <line x1="150" y1="1000" x2="150" y2="1031" style="fill: none; stroke: #7ee787; stroke-width: 1.5px;"/>
-  <circle cx="150" cy="1031" r="4" style="fill: #7ee787;"/>
-  <line x1="750" y1="1000" x2="750" y2="1031" style="fill: none; stroke: #7ee787; stroke-width: 1.5px;"/>
-  <circle cx="750" cy="1031" r="4" style="fill: #7ee787;"/>
-  <g style="isolation: isolate;">
-    <text transform="translate(164.98 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">HPKE</tspan></text>
-    <text transform="translate(184.94 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(188.02 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">exchange</tspan></text>
-    <text transform="translate(224.59 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(227.67 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">for</tspan></text>
-    <text transform="translate(238.18 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(241.26 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">initial</tspan></text>
-    <text transform="translate(262.01 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(265.09 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">encryption</tspan></text>
-    <text transform="translate(305.95 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(309.02 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">·</tspan></text>
-    <text transform="translate(310.89 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(313.96 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">Forward</tspan></text>
-    <text transform="translate(345.21 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(348.29 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">secrecy</tspan></text>
-    <text transform="translate(376.11 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(379.19 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">via</tspan></text>
-    <text transform="translate(389.96 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(393.04 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">ephemeral</tspan></text>
-    <text transform="translate(433.59 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(436.67 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">ML-KEM-768</tspan></text>
-    <text transform="translate(484.07 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(487.15 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">·</tspan></text>
-    <text transform="translate(489.01 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(492.09 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">Key</tspan></text>
-    <text transform="translate(505.71 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(508.79 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">binding</tspan></text>
-    <text transform="translate(538.22 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(541.29 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">via</tspan></text>
-    <text transform="translate(552.07 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(555.14 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">HKDF-SHA512(secret,</tspan></text>
-    <text transform="translate(635.65 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(638.72 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">salt,</tspan></text>
-    <text transform="translate(653.59 1069)" style="fill: #484f58; font-family: AppleBraille-Outline6Dot, &apos;Apple Braille&apos;; font-size: 9px; isolation: isolate;"><tspan x="0" y="0"> </tspan></text>
-    <text transform="translate(656.67 1069)" style="fill: #484f58; font-family: ArialMT, Arial; font-size: 9px; isolation: isolate;"><tspan x="0" y="0">direction||sessionID)</tspan></text>
-  </g>
-  <line x1="194.26" y1="194.35" x2="340" y2="194.35" style="fill: none; stroke: #f0883e; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="560" y1="194.35" x2="689.92" y2="194.35" style="fill: none; stroke: #f0883e; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <polyline points="782.82 216.87 782.82 236.98 782.82 235.91 559.74 235.91" style="fill: none; stroke: #f0883e; stroke-width: 3px;"/>
-  <line x1="269.72" y1="235.15" x2="340.26" y2="235.15" style="fill: none; stroke: #f0883e; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="560.74" y1="277" x2="707.74" y2="277" style="fill: none; stroke: #f0883e; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="207.75" y1="277" x2="340.26" y2="277" style="fill: none; stroke: #f0883e; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <polyline points="117.26 295.79 117.26 316.99 117.26 315.86 340.34 315.86" style="fill: none; stroke: #f0883e; stroke-width: 3px;"/>
-  <line x1="560.11" y1="314.56" x2="637.24" y2="314.56" style="fill: none; stroke: #f0883e; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="153.8" y1="406.96" x2="314.04" y2="406.96" style="fill: none; stroke: #58a6ff; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="585.46" y1="406.58" x2="730" y2="406.58" style="fill: none; stroke: #58a6ff; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <g>
-    <rect x="756.95" y="439" width="94.05" height="20.81" rx="4" ry="4" style="fill: #21262d; stroke: #484f58; stroke-width: .6px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(778.2 451.71) scale(.96 1)" style="fill: #58a6ff; font-family: Helvetica-Bold, Helvetica; font-size: 9.25px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Identity Key</tspan></text>
-    </g>
-  </g>
-  <line x1="584.83" y1="451.16" x2="744.1" y2="451.16" style="fill: none; stroke: #58a6ff; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="166.08" y1="451.35" x2="314.39" y2="451.35" style="fill: none; stroke: #58a6ff; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <polyline points="100.5 608.86 100.5 618.46 100.5 617.95 275 617.95" style="fill: none; stroke: #d2a8ff; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="625" y1="617.38" x2="713.8" y2="617.38" style="fill: none; stroke: #d2a8ff; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <polyline points="781.58 677.62 781.58 687.22 781.58 686.71 620.53 686.71" style="fill: none; stroke: #d2a8ff; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="179.03" y1="685.67" x2="279.36" y2="685.67" style="fill: none; stroke: #d2a8ff; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="177.8" y1="843.34" x2="339.95" y2="843.34" style="fill: none; stroke: #f778ba; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="560.37" y1="843.58" x2="719.82" y2="843.58" style="fill: none; stroke: #f778ba; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="559.53" y1="878.28" x2="741.36" y2="878.28" style="fill: none; stroke: #f778ba; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="188.75" y1="879.41" x2="340.7" y2="879.41" style="fill: none; stroke: #f778ba; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="560.52" y1="931.5" x2="725" y2="931.5" style="fill: none; stroke: #f778ba; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="179.03" y1="933.12" x2="340.36" y2="933.12" style="fill: none; stroke: #f778ba; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="154.71" y1="966.12" x2="339.56" y2="966.12" style="fill: none; stroke: #f778ba; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <line x1="561.06" y1="966.96" x2="706.8" y2="966.96" style="fill: none; stroke: #f778ba; stroke-miterlimit: 10; stroke-width: 3px;"/>
-  <g>
-    <rect x="58.22" y="934.72" width="85" height="29.36" rx="4" ry="4" style="fill: #21262d; stroke: #484f58; stroke-width: .6px;"/>
-    <g style="isolation: isolate;">
-      <text transform="translate(70.99 953.14)" style="fill: #f778ba; font-family: Helvetica-Bold, Helvetica; font-size: 8px; font-weight: 700; isolation: isolate;"><tspan x="0" y="0">Decrypt + Echo</tspan></text>
-    </g>
-  </g>
-  <text x="450" y="1084" text-anchor="middle" style="fill: #6e7681; font-family: Helvetica, Arial, sans-serif; font-size: 8px;">Simplified view; SPEC §6.1 to §6.4 is authoritative. The responder sends its enc and its HPKE public key in one frame, so the Exchange takes three frames.</text>
+
+  <rect width="900" height="980" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="898" height="978" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <text x="450" y="36" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.4">Handshake Frames</text>
+  <text x="450" y="56" text-anchor="middle" fill="#8b949e" font-size="11">Fixed layouts. ver 0x02. Plaintext is not protobuf. SPEC §6.</text>
+
+  <rect x="36" y="76" width="828" height="118" rx="10" fill="#0d1117" stroke="#da6d25" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="76" width="828" height="4" rx="2" fill="url(#gOrange)"/>
+  <text x="52" y="100" fill="#f0883e" font-size="13" font-weight="700">ClientHello</text>
+  <text x="848" y="100" text-anchor="end" fill="#8b949e" font-size="11">I → R · clear · 1282 B · type 0x01</text>
+  <rect x="52" y="116" width="70" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
+  <text x="87" y="138" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">ver</text>
+  <text x="87" y="154" text-anchor="middle" fill="#8b949e" font-size="9">1 · 0x02</text>
+  <rect x="130" y="116" width="70" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
+  <text x="165" y="138" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">type</text>
+  <text x="165" y="154" text-anchor="middle" fill="#8b949e" font-size="9">1 · 0x01</text>
+  <rect x="208" y="116" width="130" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
+  <text x="273" y="138" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">nonce_i</text>
+  <text x="273" y="154" text-anchor="middle" fill="#8b949e" font-size="9">32 · random</text>
+  <rect x="346" y="116" width="150" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
+  <text x="421" y="138" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">tag</text>
+  <text x="421" y="154" text-anchor="middle" fill="#8b949e" font-size="9">32 · ignored today</text>
+  <rect x="504" y="116" width="340" height="52" rx="6" fill="#21262d" stroke="#f0883e"/>
+  <text x="674" y="138" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">pk_i</text>
+  <text x="674" y="154" text-anchor="middle" fill="#8b949e" font-size="9">1216 · X-Wing public key (ML-KEM-768-X25519)</text>
+
+  <rect x="36" y="208" width="828" height="118" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="208" width="828" height="4" rx="2" fill="url(#gBlue)"/>
+  <text x="52" y="232" fill="#58a6ff" font-size="13" font-weight="700">ServerHello</text>
+  <text x="848" y="232" text-anchor="end" fill="#8b949e" font-size="11">R → I · clear · 1154 B · type 0x02</text>
+  <rect x="52" y="248" width="70" height="52" rx="6" fill="#21262d" stroke="#58a6ff"/>
+  <text x="87" y="270" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">ver</text>
+  <text x="87" y="286" text-anchor="middle" fill="#8b949e" font-size="9">1 · 0x02</text>
+  <rect x="130" y="248" width="70" height="52" rx="6" fill="#21262d" stroke="#58a6ff"/>
+  <text x="165" y="270" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">type</text>
+  <text x="165" y="286" text-anchor="middle" fill="#8b949e" font-size="9">1 · 0x02</text>
+  <rect x="208" y="248" width="140" height="52" rx="6" fill="#21262d" stroke="#58a6ff"/>
+  <text x="278" y="270" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">nonce_r</text>
+  <text x="278" y="286" text-anchor="middle" fill="#8b949e" font-size="9">32 · random</text>
+  <rect x="356" y="248" width="488" height="52" rx="6" fill="#21262d" stroke="#58a6ff"/>
+  <text x="600" y="270" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">enc</text>
+  <text x="600" y="286" text-anchor="middle" fill="#8b949e" font-size="9">1120 · X-Wing encapsulation to pk_i</text>
+
+  <rect x="36" y="340" width="828" height="128" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="340" width="828" height="4" rx="2" fill="url(#gPurple)"/>
+  <text x="52" y="364" fill="#d2a8ff" font-size="13" font-weight="700">ResponderAuth</text>
+  <text x="848" y="364" text-anchor="end" fill="#8b949e" font-size="11">R → I · AEAD r_hs_key · wire 214 B · type 0x03</text>
+  <text x="52" y="386" fill="#6e7681" font-size="10">Plaintext P = 172. The fields fill it, so there is no padding.</text>
+  <rect x="52" y="398" width="240" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
+  <text x="172" y="418" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">key_R</text>
+  <text x="172" y="434" text-anchor="middle" fill="#8b949e" font-size="9">44 · Ed25519 PKIX</text>
+  <rect x="300" y="398" width="250" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
+  <text x="425" y="418" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">sig_R</text>
+  <text x="425" y="434" text-anchor="middle" fill="#8b949e" font-size="9">64</text>
+  <rect x="558" y="398" width="286" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
+  <text x="701" y="418" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">finished_R</text>
+  <text x="701" y="434" text-anchor="middle" fill="#8b949e" font-size="9">64 · HMAC-SHA512</text>
+
+  <rect x="36" y="482" width="828" height="210" rx="10" fill="#0d1117" stroke="#a371f7" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="482" width="828" height="4" rx="2" fill="url(#gPurple)"/>
+  <text x="52" y="506" fill="#d2a8ff" font-size="13" font-weight="700">InitiatorAuth</text>
+  <text x="848" y="506" text-anchor="end" fill="#8b949e" font-size="11">I → R · AEAD i_hs_key · wire 426 B · type 0x04</text>
+  <text x="52" y="528" fill="#6e7681" font-size="10">Plaintext P = 384. Bytes after the last field are zero padding.</text>
+  <rect x="52" y="540" width="150" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
+  <text x="127" y="560" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">key_I</text>
+  <text x="127" y="576" text-anchor="middle" fill="#8b949e" font-size="9">44 · PKIX</text>
+  <rect x="210" y="540" width="170" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
+  <text x="295" y="560" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">name_I</text>
+  <text x="295" y="576" text-anchor="middle" fill="#8b949e" font-size="9">str8(64) · empty ok</text>
+  <rect x="388" y="540" width="170" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
+  <text x="473" y="560" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">version_I</text>
+  <text x="473" y="576" text-anchor="middle" fill="#8b949e" font-size="9">str8(32) · semver</text>
+  <rect x="566" y="540" width="278" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
+  <text x="705" y="560" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">resume_sid</text>
+  <text x="705" y="576" text-anchor="middle" fill="#8b949e" font-size="9">str8(24) · 0 or 24 of [A-Z2-7]</text>
+  <rect x="52" y="598" width="250" height="48" rx="6" fill="#21262d" stroke="#e3b341"/>
+  <text x="177" y="618" text-anchor="middle" fill="#e3b341" font-size="11" font-weight="600">binder</text>
+  <text x="177" y="634" text-anchor="middle" fill="#8b949e" font-size="9">64 · only if sid length is 24</text>
+  <rect x="310" y="598" width="160" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
+  <text x="390" y="618" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">sig_I</text>
+  <text x="390" y="634" text-anchor="middle" fill="#8b949e" font-size="9">64</text>
+  <rect x="478" y="598" width="180" height="48" rx="6" fill="#21262d" stroke="#d2a8ff"/>
+  <text x="568" y="618" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">finished_I</text>
+  <text x="568" y="634" text-anchor="middle" fill="#8b949e" font-size="9">64</text>
+  <rect x="666" y="598" width="178" height="48" rx="6" fill="#21262d" stroke="#484f58"/>
+  <text x="755" y="618" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="600">zero pad</text>
+  <text x="755" y="634" text-anchor="middle" fill="#6e7681" font-size="9">up to P</text>
+
+  <rect x="36" y="706" width="828" height="52" rx="8" fill="#21262d" stroke="#e3b341" stroke-width="1.2"/>
+  <rect x="36" y="706" width="4" height="52" fill="url(#gYellow)"/>
+  <text x="56" y="728" fill="#e3b341" font-size="11" font-weight="700">Binder does not match</text>
+  <text x="56" y="744" fill="#c9d1d9" font-size="10">Confirm status is COLD. That is not a failed handshake.</text>
+  <text x="520" y="728" fill="#e3b341" font-size="11" font-weight="700">REJECTED</text>
+  <text x="520" y="744" fill="#c9d1d9" font-size="10">Only verifier (reason 1) or version (reason 2).</text>
+
+  <rect x="36" y="772" width="828" height="156" rx="10" fill="#0d1117" stroke="#238636" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="772" width="828" height="4" rx="2" fill="url(#gGreen)"/>
+  <text x="52" y="796" fill="#7ee787" font-size="13" font-weight="700">Confirm</text>
+  <text x="848" y="796" text-anchor="end" fill="#8b949e" font-size="11">R → I · AEAD r_hs_key · wire 234 B · type 0x05</text>
+  <text x="52" y="818" fill="#6e7681" font-size="10">Plaintext P = 192, then zero padding. status 1 COLD, 2 RESUMED, 3 REJECTED.</text>
+  <rect x="52" y="832" width="100" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
+  <text x="102" y="852" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">status</text>
+  <text x="102" y="868" text-anchor="middle" fill="#8b949e" font-size="9">u8</text>
+  <rect x="160" y="832" width="100" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
+  <text x="210" y="852" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">reason</text>
+  <text x="210" y="868" text-anchor="middle" fill="#8b949e" font-size="9">u8</text>
+  <rect x="268" y="832" width="170" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
+  <text x="353" y="852" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">name_R</text>
+  <text x="353" y="868" text-anchor="middle" fill="#8b949e" font-size="9">str8(64)</text>
+  <rect x="446" y="832" width="170" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
+  <text x="531" y="852" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">version_R</text>
+  <text x="531" y="868" text-anchor="middle" fill="#8b949e" font-size="9">str8(32)</text>
+  <rect x="624" y="832" width="220" height="48" rx="6" fill="#21262d" stroke="#7ee787"/>
+  <text x="734" y="852" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">finished_C</text>
+  <text x="734" y="868" text-anchor="middle" fill="#8b949e" font-size="9">64 · then zero pad</text>
+
+  <text x="450" y="956" text-anchor="middle" fill="#6e7681" font-size="10">Encrypted frames: ver, type, 24-byte nonce, ciphertext and tag. AD = kamune/2 hs || ver || type. SPEC §6.</text>
 </svg>

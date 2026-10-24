@@ -1,105 +1,72 @@
-<?xml version="1.0" encoding="utf-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" font-family="'Segoe UI',system-ui,-apple-system,sans-serif">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0d1117"/>
-      <stop offset="1" stop-color="#161b22"/>
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
     </linearGradient>
-    <linearGradient id="gSign" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#f0883e"/>
-      <stop offset="1" stop-color="#da6d25"/>
+    <linearGradient id="gOrange" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#da6d25"/>
     </linearGradient>
-    <linearGradient id="gKem" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#d2a8ff"/>
-      <stop offset="1" stop-color="#8b5cf6"/>
+    <linearGradient id="gPurple" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#d2a8ff"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
     </linearGradient>
-    <linearGradient id="gKdf" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#58a6ff"/>
-      <stop offset="1" stop-color="#1f6feb"/>
+    <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
     </linearGradient>
-    <linearGradient id="gEnc" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#7ee787"/>
-      <stop offset="1" stop-color="#238636"/>
+    <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7ee787"/>
+      <stop offset="100%" stop-color="#238636"/>
     </linearGradient>
     <filter id="shadow">
-      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.5"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.35"/>
     </filter>
-    <marker id="arrowGray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
-      <polygon points="0 0, 8 3, 0 6" fill="#8b949e"/>
-    </marker>
   </defs>
-  <rect width="900" height="500" rx="12" fill="url(#bg)"/>
-  <rect x="1" y="1" width="898" height="498" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
-  <text x="450" y="38" text-anchor="middle" fill="#e6edf3" font-size="19" font-weight="700" letter-spacing="0.5" style="white-space: pre;">Cipher Suite Architecture</text>
-  <text x="450" y="58" text-anchor="middle" fill="#8b949e" font-size="11" font-family="'SF Mono','Fira Code',monospace" style="white-space: pre;">Ed25519 _ MLKEM768 _ HKDF-SHA512 _ ChaCha20-Poly1305X</text>
-  <g transform="matrix(1, 0, 0, 1, 50, -7.598606)">
-    <g>
-      <rect x="137.374" y="82.72" width="186.803" height="120" rx="10" fill="#0d1117" stroke="#da6d25" stroke-width="1.5" filter="url(#shadow)" style=""/>
-      <rect x="137.374" y="82.72" width="186.803" height="26" rx="10" fill="url(#gSign)" opacity="0.15" style=""/>
-      <rect x="137.374" y="98.72" width="186.803" height="10" fill="url(#gSign)" opacity="0.15" style=""/>
-      <circle cx="155.374" cy="95.72" r="4.5" fill="url(#gSign)"/>
-      <text x="169.374" y="100.72" fill="#f0883e" font-size="11" font-weight="700" letter-spacing="1" style="white-space: pre; font-size: 11px;">IDENTITY &amp; SIGNING</text>
-      <rect x="157.374" y="118.72" width="155" height="68" rx="7" fill="#21262d" stroke="#f0883e" stroke-width="1" opacity="0.9"/>
-      <text style="white-space: pre; font-size: 13px;" x="234.374" y="140.72" text-anchor="middle" font-weight="600" font-size="13" fill="#e6edf3">Ed25519</text>
-      <text x="234.374" y="156.72" text-anchor="middle" fill="#8b949e" font-size="9.5" style="white-space: pre; font-size: 9.5px;">Digital Signatures</text>
-      <text x="234.374" y="170.72" text-anchor="middle" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">Default · Classical</text>
-      <rect x="157.374" y="118.72" width="155" height="3" rx="2" fill="url(#gSign)" opacity="0.6"/>
-    </g>
-    <line x1="235" y1="202" x2="235" y2="244" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
-    <text x="243" y="225" fill="#6e7681" font-size="8.5" style="white-space: pre;">signs all</text>
-    <text x="243" y="235" fill="#6e7681" font-size="8.5" style="white-space: pre;">messages</text>
-  </g>
-  <rect x="62" y="192" width="151" height="4" rx="2" fill="none"/>
-  <g>
-    <rect x="430" y="75.55" width="280" height="120" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.5" filter="url(#shadow)"/>
-    <rect x="430" y="75.55" width="280" height="26" rx="10" fill="url(#gKem)" opacity="0.15"/>
-    <rect x="430" y="91.55" width="280" height="10" fill="url(#gKem)" opacity="0.15"/>
-    <circle cx="448" cy="88.55" r="4.5" fill="url(#gKem)"/>
-    <text x="462" y="93.55" fill="#d2a8ff" font-size="11" font-weight="700" letter-spacing="1" style="white-space: pre; font-size: 11px;">KEY ENCAPSULATION</text>
-    <rect x="460" y="111.55" width="220" height="68" rx="7" fill="#21262d" stroke="#8b5cf6" stroke-width="1" opacity="0.9"/>
-    <text x="570" y="133.55" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600" style="white-space: pre; font-size: 13px;">ML-KEM-768</text>
-    <text x="570" y="149.55" text-anchor="middle" fill="#8b949e" font-size="9.5" style="white-space: pre; font-size: 9.5px;">Post-Quantum Key Encapsulation</text>
-    <text x="570" y="163.55" text-anchor="middle" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">Ephemeral · One-time per session</text>
-    <rect x="460" y="111.55" width="220" height="3" rx="2" fill="url(#gKem)" opacity="0.6"/>
-    <line x1="570" y1="195.55" x2="570" y2="237.55" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
-    <text x="578" y="218.55" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">32-byte</text>
-    <text x="578" y="228.55" fill="#6e7681" font-size="8.5" style="white-space: pre; font-size: 8.5px;">shared secret</text>
-  </g>
-  <rect x="260" y="252" width="380" height="100" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.5" filter="url(#shadow)"/>
-  <rect x="260" y="252" width="380" height="26" rx="10" fill="url(#gKdf)" opacity="0.15"/>
-  <rect x="260" y="268" width="380" height="10" fill="url(#gKdf)" opacity="0.15"/>
-  <circle cx="278" cy="265" r="4.5" fill="url(#gKdf)"/>
-  <text x="292" y="270" fill="#58a6ff" font-size="11" font-weight="700" letter-spacing="1" style="white-space: pre;">KEY DERIVATION</text>
-  <rect x="290" y="288" width="320" height="50" rx="7" fill="#21262d" stroke="#1f6feb" stroke-width="1" opacity="0.9"/>
-  <text x="450" y="310" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600" style="white-space: pre;">HKDF-SHA512</text>
-  <text x="450" y="326" text-anchor="middle" fill="#8b949e" font-size="9.5" style="white-space: pre;">Extract-and-Expand · RFC 5869 · Directional info binding</text>
-  <rect x="290" y="288" width="320" height="3" rx="2" fill="url(#gKdf)" opacity="0.6"/>
-  <text x="295" y="348" fill="#6e7681" font-size="8" style="white-space: pre;">Inputs: shared_secret + salt + direction||sessionID</text>
-  <line x1="450" y1="352" x2="450" y2="394" stroke="#8b949e" stroke-width="1.2" marker-end="url(#arrowGray)"/>
-  <text x="458" y="372" fill="#6e7681" font-size="8.5" style="white-space: pre;">32-byte</text>
-  <text x="458" y="382" fill="#6e7681" font-size="8.5" style="white-space: pre;">derived keys</text>
-  <rect x="260" y="402" width="380" height="80" rx="10" fill="#0d1117" stroke="#238636" stroke-width="1.5" filter="url(#shadow)"/>
-  <rect x="260" y="402" width="380" height="26" rx="10" fill="url(#gEnc)" opacity="0.15"/>
-  <rect x="260" y="418" width="380" height="10" fill="url(#gEnc)" opacity="0.15"/>
-  <circle cx="278" cy="415" r="4.5" fill="url(#gEnc)"/>
-  <text x="292" y="420" fill="#7ee787" font-size="11" font-weight="700" letter-spacing="1" style="white-space: pre;">SYMMETRIC ENCRYPTION</text>
-  <rect x="290" y="438" width="320" height="32" rx="7" fill="#21262d" stroke="#238636" stroke-width="1" opacity="0.9"/>
-  <text x="450" y="458" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600" style="white-space: pre;">XChaCha20-Poly1305</text>
-  <rect x="290" y="438" width="320" height="3" rx="2" fill="url(#gEnc)" opacity="0.6"/>
-  <text x="450" y="492" text-anchor="middle" fill="#6e7681" font-size="9" style="white-space: pre; font-size: 9px;">24-byte nonce · 32-byte key · 16-byte auth tag · AEAD</text>
-  <g transform="matrix(1, 0, 0, 1, 55, -0.582317)">
-    <text x="30" y="148" fill="#484f58" font-size="9" font-weight="600" transform="matrix(0, -1, 1, 0, -118, 178)" text-anchor="middle" style="white-space: pre; font-size: 9px;">INTRODUCTION</text>
-    <text x="30" y="310" fill="#484f58" font-size="9" font-weight="600" transform="matrix(0, -1, 1, 0, -280, 340)" text-anchor="middle" style="white-space: pre; font-size: 9px;">HANDSHAKE</text>
-    <text x="30" y="445" fill="#484f58" font-size="9" font-weight="600" transform="matrix(0, -1, 1, 0, -415, 475)" text-anchor="middle" style="white-space: pre; font-size: 9px;">COMMUNICATION</text>
-    <line x1="44" y1="212" x2="44" y2="242" stroke="#30363d" stroke-width="1" stroke-dasharray="3,3"/>
-    <line x1="44" y1="362" x2="44" y2="392" stroke="#30363d" stroke-width="1" stroke-dasharray="3,3"/>
-  </g>
-  <rect x="740" y="262" width="130" height="22" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1"/>
-  <text x="805" y="277" text-anchor="middle" fill="#f0883e" font-size="9" font-weight="600" style="white-space: pre;">🛡 Authentication</text>
-  <rect x="740" y="292" width="130" height="22" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1"/>
-  <text x="805" y="307" text-anchor="middle" fill="#d2a8ff" font-size="9" font-weight="600" style="white-space: pre;">🔑 PQ Key Exchange</text>
-  <rect x="740" y="322" width="130" height="22" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1"/>
-  <text x="805" y="337" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="600" style="white-space: pre;">🔗 Key Binding</text>
-  <rect x="740" y="352" width="130" height="22" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1"/>
-  <text x="805" y="367" text-anchor="middle" fill="#7ee787" font-size="9" font-weight="600" style="white-space: pre;">🔒 Confidentiality</text>
+
+  <rect width="900" height="640" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="898" height="638" rx="11" fill="none" stroke="#30363d" stroke-width="1"/>
+
+  <text x="450" y="36" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700" letter-spacing="0.4">Cipher Suite</text>
+  <text x="450" y="58" text-anchor="middle" fill="#8b949e" font-size="12" font-family="'SF Mono','Fira Code',monospace">Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X</text>
+
+  <rect x="36" y="84" width="828" height="86" rx="10" fill="#0d1117" stroke="#da6d25" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="84" width="6" height="86" fill="url(#gOrange)"/>
+  <text x="60" y="110" fill="#f0883e" font-size="11" font-weight="700" letter-spacing="0.8">IDENTITY</text>
+  <text x="60" y="134" fill="#e6edf3" font-size="16" font-weight="700">Ed25519</text>
+  <text x="200" y="128" fill="#c9d1d9" font-size="12">Signs the two handshake identities and each session frame.</text>
+  <text x="200" y="148" fill="#8b949e" font-size="11">One encoding per key: 44-byte PKIX. Contexts differ per signature.</text>
+
+  <rect x="36" y="184" width="828" height="96" rx="10" fill="#0d1117" stroke="#8b5cf6" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="184" width="6" height="96" fill="url(#gPurple)"/>
+  <text x="60" y="208" fill="#d2a8ff" font-size="11" font-weight="700" letter-spacing="0.8">HELLOS</text>
+  <text x="60" y="234" fill="#e6edf3" font-size="16" font-weight="700">ML-KEM-768-X25519</text>
+  <text x="310" y="228" fill="#c9d1d9" font-size="12">One X-Wing key pair per handshake. HPKE export-only.</text>
+  <text x="310" y="248" fill="#8b949e" font-size="11">Shared secret ss is 64 bytes: export "kamune/2 kex secret".</text>
+  <text x="60" y="264" fill="#6e7681" font-size="10">Info string kamune/2 kex. HPKE does not wrap the later frames.</text>
+
+  <rect x="36" y="294" width="828" height="86" rx="10" fill="#0d1117" stroke="#1f6feb" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="294" width="6" height="86" fill="url(#gBlue)"/>
+  <text x="60" y="320" fill="#58a6ff" font-size="11" font-weight="700" letter-spacing="0.8">SCHEDULE</text>
+  <text x="60" y="346" fill="#e6edf3" font-size="16" font-weight="700">HKDF-SHA512</text>
+  <text x="230" y="340" fill="#c9d1d9" font-size="12">Expand-Label. The label prefix is "kamune2 ".</text>
+  <text x="230" y="360" fill="#8b949e" font-size="11">Handshake, session, exporter, and resumption secrets. Hash length 64.</text>
+
+  <rect x="36" y="394" width="828" height="96" rx="10" fill="#0d1117" stroke="#3fb950" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="394" width="6" height="96" fill="url(#gGreen)"/>
+  <text x="60" y="418" fill="#7ee787" font-size="11" font-weight="700" letter-spacing="0.8">HANDSHAKE</text>
+  <text x="60" y="444" fill="#e6edf3" font-size="16" font-weight="700">XChaCha20-Poly1305</text>
+  <text x="320" y="438" fill="#c9d1d9" font-size="12">Frames 0x03, 0x04, and 0x05.</text>
+  <text x="320" y="458" fill="#8b949e" font-size="11">AD is kamune/2 hs, then ver, then type.</text>
+  <text x="60" y="474" fill="#6e7681" font-size="10">24-byte nonce · 32-byte key · 16-byte tag. Each key seals at most two frames.</text>
+
+  <rect x="36" y="504" width="828" height="86" rx="10" fill="#0d1117" stroke="#238636" stroke-width="1.3" filter="url(#shadow)"/>
+  <rect x="36" y="504" width="6" height="86" fill="url(#gGreen)"/>
+  <text x="60" y="530" fill="#7ee787" font-size="11" font-weight="700" letter-spacing="0.8">SESSION</text>
+  <text x="60" y="556" fill="#e6edf3" font-size="16" font-weight="700">XChaCha20-Poly1305</text>
+  <text x="320" y="550" fill="#c9d1d9" font-size="12">Session frames after Confirm. No associated data.</text>
+  <text x="320" y="570" fill="#8b949e" font-size="11">i_ap_key initiator to responder. r_ap_key the other way.</text>
+
+  <text x="450" y="618" text-anchor="middle" fill="#6e7681" font-size="10">One suite. SPEC §3.</text>
 </svg>
