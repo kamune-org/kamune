@@ -368,10 +368,9 @@ func (m *model) turnedAway(err error) {
 	m.connectErr = err
 }
 
-// nameTakenWarning follows a name on the verify screen that reads the
-// same as the stored name of a peer with another key.
-const nameTakenWarning = "⚠ A stored peer with a different key has this " +
-	"name. Check the fingerprint."
+// nameTakenWarning is the RFC007 §20.1 collision sentence, without the
+// contact's name. The view appends that name.
+const nameTakenWarning = "A NEW key is using the name of your contact"
 
 func (m *model) viewVerify() string {
 	var b strings.Builder
@@ -417,7 +416,10 @@ func (m *model) viewVerify() string {
 			displayName(req.knownName),
 		))
 		if req.knownNameTaken {
-			b.WriteString("\n" + m.s.highlight.Render(nameTakenWarning))
+			b.WriteString("\n" + m.s.highlight.Render(
+				collisionLine(req.knownName),
+			))
+			b.WriteString(storedCodeLine(req.storedNumeric))
 		}
 	}
 
@@ -425,7 +427,10 @@ func (m *model) viewVerify() string {
 		displayName(req.peer.Name),
 	))
 	if req.claimedNameTaken {
-		b.WriteString("\n" + m.s.highlight.Render(nameTakenWarning))
+		b.WriteString("\n" + m.s.highlight.Render(
+			collisionLine(req.peer.Name),
+		))
+		b.WriteString(storedCodeLine(req.storedNumeric))
 	}
 	if req.storeAs != "" && req.storeAs != req.peer.Name {
 		style := m.s.muted
@@ -439,8 +444,19 @@ func (m *model) viewVerify() string {
 	}
 	b.WriteString("\nApp version: " + displayVersion(req.peer.AppVersion))
 
-	b.WriteString("\n\n  [Y] Accept  [N/Esc] Reject")
+	b.WriteString("\n\n  [N/Esc] Reject  [Y] Accept")
 	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func collisionLine(name string) string {
+	return nameTakenWarning + " " + displayName(name) + "."
+}
+
+func storedCodeLine(code string) string {
+	if code == "" {
+		return ""
+	}
+	return "\nStored contact's code:\n  " + code
 }
 
 func loadSessions(store *storage.Storage) tea.Cmd {

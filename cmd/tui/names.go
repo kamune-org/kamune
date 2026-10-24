@@ -75,6 +75,39 @@ func otherPeerNames(
 	return names, nil
 }
 
+// storedPeerNumeric is the numeric code of the stored peer whose name
+// collides with the claimed name, or with the known name of a stored key.
+func storedPeerNumeric(
+	store *storage.Storage, key []byte, claimed, known string,
+	isNew bool, others map[string]bool,
+) string {
+	if store == nil || others == nil {
+		return ""
+	}
+	want := ""
+	if others[nameKey(claimed)] {
+		want = claimed
+	} else if !isNew && others[nameKey(known)] {
+		want = known
+	}
+	if nameKey(want) == "" {
+		return ""
+	}
+	peers, err := store.ListPeers()
+	if err != nil {
+		return ""
+	}
+	for _, p := range peers {
+		if bytes.Equal(p.PublicKey, key) {
+			continue
+		}
+		if nameKey(p.Name) == nameKey(want) {
+			return fingerprint.Numeric(p.PublicKey)
+		}
+	}
+	return ""
+}
+
 // newPeerName returns the name to store peer under, a peer whose key is
 // not stored yet (see [nameToStore]).
 func newPeerName(store *storage.Storage, peer *storage.Peer) string {

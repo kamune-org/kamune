@@ -95,6 +95,9 @@ type verifyRequest struct {
 	// name the peer claims, or as the name stored for its key.
 	claimedNameTaken bool
 	knownNameTaken   bool
+	// storedNumeric is fingerprint.Numeric of the other stored peer
+	// whose name collides. Empty when there is no collision.
+	storedNumeric string
 	// storeAs is the name that a new peer is stored under if the user
 	// accepts it (see [nameToStore]), or "" for a peer whose key is
 	// stored.
@@ -771,7 +774,10 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 
 			claimedNameTaken: others[nameKey(peer.Name)],
 			knownNameTaken:   !isNew && others[nameKey(knownName)],
-			storeAs:          storeAs,
+			storedNumeric: storedPeerNumeric(
+				store, key, peer.Name, knownName, isNew, others,
+			),
+			storeAs: storeAs,
 		})
 
 		timer := time.NewTimer(timeout)
