@@ -860,7 +860,7 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		return
 	}
 
-	t, err := dialer.Dial()
+	t, err := dialer.DialContext(ctx)
 	if err != nil {
 		d.setStatus(StatusError, "Connection failed")
 		d.addLogEntry("ERROR", "Dial failed: "+err.Error())
@@ -1381,7 +1381,7 @@ func (d *Daemon) makeReconnectFn(
 		if err != nil {
 			return nil, err
 		}
-		t, err := dl.Dial()
+		t, err := dl.DialContext(ctx)
 		if err != nil {
 			return nil, err
 		}
