@@ -935,8 +935,9 @@ func TestNameCollisionFlagsUnknownKey(t *testing.T) {
 	defer cleanup()
 	app.verifMode = VerificationModeQuick
 	events := recordEvents(app)
+	storedKey := newTestPubKey(t)
 	a.NoError(app.store().StorePeer(&storage.Peer{
-		Name: "Bob", PublicKey: newTestPubKey(t), FirstSeen: time.Now(),
+		Name: "Bob", PublicKey: storedKey, FirstSeen: time.Now(),
 	}))
 	req := policyReq(t, app, kamune.RoleResponder, false)
 	req.Peer.Name = "bob"
@@ -948,6 +949,7 @@ func TestNameCollisionFlagsUnknownKey(t *testing.T) {
 	data := events.named("verify-peer")[0][0].(map[string]any)
 	a.Equal(true, data["nameCollision"])
 	a.Equal("Bob", data["storedName"])
+	a.Equal(fingerprint.Numeric(storedKey), data["storedCode"])
 	a.Equal("bob", data["peerName"])
 	app.VerifyResponse(ids[0], false)
 	a.Error(waitVerdict(t, errCh))

@@ -3,7 +3,7 @@
 
   // data is one verification request; App keys this component by its
   // requestID, so a new request always mounts a fresh dialog.
-  let { data, waiting = 0, onClose } = $props();
+  let { data, onClose } = $props();
 
   // Accept stays disabled for a moment after the dialog appears, so a
   // click meant for the previous request cannot accept this one.
@@ -74,11 +74,6 @@
         </svg>
       </div>
       <h3>Verify Peer</h3>
-      {#if waiting > 0}
-        <span class="verify-queue" title="More verification requests are waiting">
-          {waiting} more waiting
-        </span>
-      {/if}
     </div>
 
     <div class="dialog-body">
@@ -109,6 +104,16 @@
             A NEW key is using the name of your contact {data.storedName}.
             Compare both codes with them before accepting.
           </div>
+          {#if data.storedCode}
+            <div class="verify-code-line">
+              <div class="verify-code-label">Saved contact's code:</div>
+              <div class="verify-numeric" aria-label={data.storedCode}>
+                {#each groups(data.storedCode) as group}
+                  <span class="verify-numeric-group">{group}</span>
+                {/each}
+              </div>
+            </div>
+          {/if}
         {/if}
       </div>
 
@@ -144,10 +149,19 @@
     </div>
 
     <div class="dialog-actions">
-      <button class="dialog-btn dialog-btn-secondary" onclick={reject}>Reject</button>
-      <button class="dialog-btn dialog-btn-primary" onclick={accept} disabled={!armed || busy}
-        >Accept</button
-      >
+      {#if data.nameCollision}
+        <button class="dialog-btn dialog-btn-primary" onclick={reject} autofocus
+          >Reject</button
+        >
+        <button class="dialog-btn dialog-btn-secondary" onclick={accept} disabled={!armed || busy}
+          >Accept</button
+        >
+      {:else}
+        <button class="dialog-btn dialog-btn-secondary" onclick={reject}>Reject</button>
+        <button class="dialog-btn dialog-btn-primary" onclick={accept} disabled={!armed || busy}
+          >Accept</button
+        >
+      {/if}
     </div>
   </div>
 </div>

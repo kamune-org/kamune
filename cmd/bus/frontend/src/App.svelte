@@ -51,7 +51,7 @@
     activeSessionId,
     sidebarTab,
     logPanelOpen,
-    verificationQueue,
+    verificationRequest,
     shareDialog,
     dialogs,
     toast,
@@ -328,9 +328,7 @@
       appendMessage(sessionID, msg);
     });
     EventsOn('verify-peer', (data) => {
-      verificationQueue.update((q) =>
-        q.some((r) => r.requestID === data.requestID) ? q : [...q, data]
-      );
+      verificationRequest.update((cur) => cur ?? data);
     });
     EventsOn('verify-peer-closed', (requestID) => {
       dropVerification(requestID);
@@ -598,7 +596,9 @@
   });
 
   function dropVerification(requestID) {
-    verificationQueue.update((q) => q.filter((r) => r.requestID !== requestID));
+    verificationRequest.update((cur) =>
+      cur && cur.requestID === requestID ? null : cur
+    );
   }
 
   function warnInsecureIgnored() {
@@ -1036,13 +1036,9 @@
     />
   {/if}
 
-  {#if $verificationQueue.length > 0}
-    {#key $verificationQueue[0].requestID}
-      <VerifyDialog
-        data={$verificationQueue[0]}
-        waiting={$verificationQueue.length - 1}
-        onClose={dropVerification}
-      />
+  {#if $verificationRequest}
+    {#key $verificationRequest.requestID}
+      <VerifyDialog data={$verificationRequest} onClose={dropVerification} />
     {/key}
   {/if}
 

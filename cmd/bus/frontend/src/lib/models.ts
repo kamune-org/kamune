@@ -76,6 +76,9 @@ export interface VerificationRequest {
   // of this key, or the colliding contact when nameCollision is set.
   peerName: string;
   storedName: string;
+  // storedCode is the saved contact's numeric code when nameCollision
+  // is set, and empty otherwise.
+  storedCode: string;
   nameCollision: boolean;
   ownCode: string;
   peerCode: string;

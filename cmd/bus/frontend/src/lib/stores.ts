@@ -139,9 +139,9 @@ export const relayToken = writable('');
 export const relayTokens = writable<RelayToken[]>([]);
 export const p2pTokens = writable<P2PToken[]>([]);
 
-// verificationQueue holds the open verification request. RFC007 §20.1
-// allows one prompt at a time.
-export const verificationQueue = writable<VerificationRequest[]>([]);
+// verificationRequest is the one open prompt. RFC007 §20.1 allows one
+// prompt at a time. A second event is ignored; Go already rejected it.
+export const verificationRequest = writable<VerificationRequest | null>(null);
 export const shareDialog = writable<ShareInfo | null>(null);
 export const versionWarnings = writable<Record<string, string>>({});
 // historySaveFailed marks the sessions some of whose messages could not

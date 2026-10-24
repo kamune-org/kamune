@@ -183,28 +183,29 @@ func (a *App) createAutoAcceptVerifier() kamune.RemoteVerifier {
 	}
 }
 
-// collidingStoredName returns the stored name that EqualFold-matches the
-// unknown peer's claimed name, if any (RFC007 §20.1).
+// collidingStoredName returns the stored peer whose name EqualFold-matches
+// the unknown peer's claimed name, if any (RFC007 §20.1).
 func collidingStoredName(
 	store *storage.Storage, peer *storage.Peer, known bool,
-) string {
+) *storage.Peer {
 	if known || store == nil || peer == nil {
-		return ""
+		return nil
 	}
 	name := strings.TrimSpace(peer.Name)
 	if name == "" {
-		return ""
+		return nil
 	}
 	peers, err := store.ListPeers()
 	if err != nil {
-		return ""
+		return nil
 	}
 	for _, p := range peers {
 		if strings.EqualFold(p.Name, name) {
-			return p.Name
+			p.PublicKey = bytes.Clone(p.PublicKey)
+			return p
 		}
 	}
-	return ""
+	return nil
 }
 
 // askUser emits verify-peer for req, which id describes, and waits for
@@ -234,11 +235,13 @@ func (a *App) askUser(
 	if id.Known {
 		storedName = id.Label
 	}
-	collisionName := collidingStoredName(a.store(), peer, id.Known)
-	if collisionName != "" {
-		storedName = collisionName
+	storedCode := ""
+	hit := collidingStoredName(a.store(), peer, id.Known)
+	if hit != nil {
+		storedName = hit.Name
+		storedCode = fingerprint.Numeric(hit.PublicKey)
 		a.addLogEntry("INFO",
-			"A NEW key is using the name of your contact "+collisionName)
+			"A NEW key is using the name of your contact "+hit.Name)
 	}
 
 	a.setStatus(StatusVerifying, verifyingStatus(id.Label))
@@ -249,7 +252,8 @@ func (a *App) askUser(
 		"role":          verifyRoleName(req.Role),
 		"peerName":      peerName,
 		"storedName":    storedName,
-		"nameCollision": collisionName != "",
+		"storedCode":    storedCode,
+		"nameCollision": hit != nil,
 		"ownCode":       fingerprint.Numeric(req.LocalPublicKey),
 		"peerCode":      fingerprint.Numeric(peer.PublicKey),
 		"safetyNumber": fingerprint.SafetyNumber(
