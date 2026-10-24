@@ -793,6 +793,11 @@ func TestVerifierPolicyTable(t *testing.T) {
 			pinned: true, resumeOffered: true, known: true,
 		},
 		{
+			name: "strict initiator pinned cold",
+			mode: VerificationModeStrict, role: kamune.RoleInitiator,
+			pinned: true, known: true, wantPrompt: true,
+		},
+		{
 			name: "strict responder", mode: VerificationModeStrict,
 			role: kamune.RoleResponder, known: true, wantPrompt: true,
 		},
