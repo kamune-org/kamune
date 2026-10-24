@@ -69,20 +69,24 @@ func TestViewVerify_PeerClaimsComeAfterFingerprints(t *testing.T) {
 		numericFP:      "11111 22222",
 		localNumericFP: "33333 44444",
 		isNew:          true,
+		role:           kamune.RoleResponder,
 	}
 
 	view := m.viewVerify()
 	requireNoTerminalControls(a, view)
 	for _, ln := range strings.Split(view, "\n") {
-		if strings.Contains(ln, "Claimed name (unverified):") {
+		if strings.Contains(ln, "Name it gives itself:") {
 			continue
 		}
 		a.NotContains(ln, "Emoji fingerprint:")
 		a.NotContains(ln, "Hex fingerprint:")
 	}
 	ownAt := strings.Index(view, "Your code:")
-	peerAt := strings.Index(view, "Alice's code:")
-	claimAt := strings.Index(view, "Claimed name (unverified): Alice")
+	peerAt := strings.Index(view, "Peer's code:")
+	claimAt := strings.Index(view, "Name it gives itself: Alice")
+	nick := "Nickname: " + fingerprint.Pseudonym(m.verifyReq.peer.PublicKey)
+	a.Contains(view, nick)
+	a.Greater(strings.Index(view, nick), peerAt)
 	a.Positive(ownAt)
 	a.Greater(peerAt, ownAt)
 	a.Contains(view, "33333 44444")
@@ -95,7 +99,7 @@ func TestViewVerify_PeerClaimsComeAfterFingerprints(t *testing.T) {
 	a.Less(strings.Index(view, "not known"), claimAt)
 	for _, ln := range strings.Split(view, "\n") {
 		if strings.Contains(ln, "FAKE") {
-			a.Contains(ln, "Claimed name (unverified):")
+			a.Contains(ln, "Name it gives itself:")
 		}
 	}
 	nines := maxVersionLength - len("0.7.0 ")
@@ -113,11 +117,19 @@ func TestViewVerify_KnownPeerShowsStoredName(t *testing.T) {
 		knownName:      "Alice",
 		numericFP:      "11111 22222",
 		localNumericFP: "33333 44444",
+		role:           kamune.RoleResponder,
 	}
 
 	view := m.viewVerify()
 	a.Contains(view, "Your code:")
-	a.Contains(view, "Mallory's code:")
+	a.Contains(view, "Peer's code:")
+	a.Contains(view, "Nickname: "+fingerprint.Pseudonym(
+		m.verifyReq.peer.PublicKey,
+	))
+	a.Greater(
+		strings.Index(view, "Nickname:"),
+		strings.Index(view, "Peer's code:"),
+	)
 	a.Contains(view, "Read your code to your contact and have them read theirs.")
 	a.NotContains(view, "Emoji fingerprint:")
 	a.NotContains(view, "Hex fingerprint:")
@@ -127,7 +139,27 @@ func TestViewVerify_KnownPeerShowsStoredName(t *testing.T) {
 	}
 	a.Contains(view, "connected before")
 	a.Contains(view, "Stored name: Alice")
-	a.Contains(view, "Claimed name (unverified): Mallory")
+	a.Contains(view, "Name it gives itself: Mallory")
+}
+
+func TestViewVerify_InitiatorHidesResponderName(t *testing.T) {
+	a := require.New(t)
+	m := newTestModel()
+	m.state = stateVerify
+	m.verifyReq = &verifyRequest{
+		peer:           &storage.Peer{Name: "Alice"},
+		numericFP:      "11111 22222",
+		localNumericFP: "33333 44444",
+		role:           kamune.RoleInitiator,
+	}
+
+	view := m.viewVerify()
+	a.Contains(view, "Peer's code:")
+	a.Contains(view, "Nickname: "+fingerprint.Pseudonym(
+		m.verifyReq.peer.PublicKey,
+	))
+	a.NotContains(view, "Alice")
+	a.NotContains(view, "Name it gives itself:")
 }
 
 func TestViewVerify_ResumedShowsBanner(t *testing.T) {
@@ -141,12 +173,21 @@ func TestViewVerify_ResumedShowsBanner(t *testing.T) {
 		localNumericFP: "33333 44444",
 		resumed:        true,
 		sessionID:      "SIDRESUME",
+		role:           kamune.RoleResponder,
 	}
 
 	view := m.viewVerify()
 	a.Contains(view, "Reconnecting session SIDRESUME")
 	a.Contains(view, "Your code:")
-	a.Contains(view, "Bob's code:")
+	a.Contains(view, "Peer's code:")
+	a.Contains(view, "Nickname: "+fingerprint.Pseudonym(
+		m.verifyReq.peer.PublicKey,
+	))
+	a.Greater(
+		strings.Index(view, "Nickname:"),
+		strings.Index(view, "Peer's code:"),
+	)
+	a.Contains(view, "Name it gives itself: Bob")
 }
 
 func TestUpdateVerify_Keys(t *testing.T) {

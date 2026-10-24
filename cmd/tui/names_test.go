@@ -196,7 +196,7 @@ func TestVerify_NewKeyClaimingAContactsName(t *testing.T) {
 
 	view, m := round()
 	a.Contains(view, "not known")
-	a.Contains(lineWith(view, "Claimed name"), claimed)
+	a.Contains(lineWith(view, "Name it gives itself"), claimed)
 	a.Contains(view, nameTakenWarning)
 	a.Contains(view, "If you accept, it is stored as "+pseudonym+".")
 	a.ElementsMatch([]string{"Bob", pseudonym}, storedNames(t, store))
@@ -225,6 +225,7 @@ func TestViewVerify_StoredNameTaken(t *testing.T) {
 		peer:           &storage.Peer{Name: "Bob"},
 		knownName:      "Bob",
 		knownNameTaken: true,
+		role:           kamune.RoleResponder,
 	}
 
 	view := m.viewVerify()
@@ -233,7 +234,7 @@ func TestViewVerify_StoredNameTaken(t *testing.T) {
 	a.Less(strings.Index(view, "Stored name: Bob"),
 		strings.Index(view, nameTakenWarning))
 	a.Less(strings.Index(view, nameTakenWarning),
-		strings.Index(view, "Claimed name"))
+		strings.Index(view, "Name it gives itself"))
 }
 
 // TestVerifier_SaysWhatANewPeerIsStoredAs checks that the prompt gives

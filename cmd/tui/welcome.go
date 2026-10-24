@@ -7,6 +7,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/kamune-org/kamune"
+	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -389,15 +392,8 @@ func (m *model) viewVerify() string {
 		b.WriteString("\n\n")
 	}
 
-	peerLabel := displayName(req.peer.Name)
-	if i := strings.IndexByte(peerLabel, ' '); i >= 0 {
-		peerLabel = peerLabel[:i]
-	}
-	if peerLabel == "" {
-		peerLabel = "Peer"
-	}
 	b.WriteString("Your code:\n  " + req.localNumericFP)
-	b.WriteString("\n" + peerLabel + "'s code:\n  " +
+	b.WriteString("\nPeer's code:\n  " +
 		m.s.highlight.Render(req.numericFP))
 	b.WriteString("\n" + m.s.muted.Render(
 		"Read your code to your contact and have them read theirs. "+
@@ -423,9 +419,13 @@ func (m *model) viewVerify() string {
 		}
 	}
 
-	b.WriteString("\n\nClaimed name (unverified): " + m.s.bold.Render(
-		displayName(req.peer.Name),
-	))
+	b.WriteString("\n\nNickname: " +
+		fingerprint.Pseudonym(req.peer.PublicKey))
+	if req.role == kamune.RoleResponder && req.peer.Name != "" {
+		b.WriteString("\nName it gives itself: " + m.s.bold.Render(
+			displayName(req.peer.Name),
+		))
+	}
 	if req.claimedNameTaken {
 		b.WriteString("\n" + m.s.highlight.Render(
 			collisionLine(req.peer.Name),

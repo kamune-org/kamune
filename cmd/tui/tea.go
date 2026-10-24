@@ -90,6 +90,9 @@ type verifyRequest struct {
 	// stored session (RFC007 §16.1 Strict responder banner).
 	resumed   bool
 	sessionID string
+	// role is the side this prompt is on. The claimed name is shown
+	// only for a responder.
+	role kamune.Role
 	// claimedNameTaken and knownNameTaken report that another stored
 	// peer, with a different key, has a name that reads the same as the
 	// name the peer claims, or as the name stored for its key.
@@ -771,6 +774,7 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 			responseCh:     respCh,
 			resumed:        req.Resumed,
 			sessionID:      req.SessionID,
+			role:           req.Role,
 
 			claimedNameTaken: others[nameKey(peer.Name)],
 			knownNameTaken:   !isNew && others[nameKey(knownName)],
