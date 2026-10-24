@@ -1049,7 +1049,7 @@ func (a *App) ConnectToServer(
 			if err != nil {
 				return nil, err
 			}
-			t, err := d.Dial()
+			t, err := d.DialContext(reconnectCtx)
 			if err != nil {
 				return nil, err
 			}
