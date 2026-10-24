@@ -1367,3 +1367,55 @@ func sendScriptConfirm(
 	a.NoError(err)
 	a.NoError(cn.WriteBytes(sealed))
 }
+
+func TestResume_ServerCancelKeepsRows(t *testing.T) {
+	a := require.New(t)
+	store := openStore(t)
+	it, rt, ia, ra := coldPair(t, store, nil)
+	sid := it.SessionID()
+	remember(t, store, ia)
+	remember(t, store, ra)
+	a.NoError(it.CloseAbort())
+	a.NoError(rt.CloseAbort())
+
+	ic, rc := pipeConns(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	entered := make(chan struct{})
+	iCh := startInitiator(ic, initiatorInput{
+		attest: ia, store: store, name: "ada", resumeSID: sid,
+		verify: acceptVerify(nil, nil),
+	})
+	rCh := make(chan hsResult, 1)
+	go func() {
+		tr, err := runResponder(ctx, rc, responderInput{
+			attest: ra, store: store, name: "bob",
+			resumeEnabled: true,
+			verify: func(
+				vctx context.Context, _ *storage.Storage, req VerifyRequest,
+			) error {
+				if req.Resumed {
+					close(entered)
+				}
+				<-vctx.Done()
+				return vctx.Err()
+			},
+		})
+		rCh <- hsResult{tr, err}
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("responder verifier did not run")
+	}
+	cancel()
+	gi := <-iCh
+	gr := <-rCh
+	a.False(errors.Is(gi.err, ErrHandshakeRejected))
+	a.ErrorIs(gr.err, ErrClosedServer)
+	_, err := store.GetResumption(sid, storage.ResumeRoleInitiator)
+	a.NoError(err)
+	_, err = store.GetResumption(sid, storage.ResumeRoleResponder)
+	a.NoError(err)
+}
+

@@ -513,6 +513,12 @@ func runResponder(
 		Resumed:        dec.resumed,
 	})
 	if err != nil {
+		// A cancelled parent is the server closing, not the user
+		// rejecting the peer. Sending Confirm would make the dialer
+		// delete its row. A verify timeout leaves the parent active.
+		if cerr := ctx.Err(); cerr != nil {
+			return failHS(cn, fmt.Errorf("%w: %w", ErrClosedServer, cerr))
+		}
 		if dec.resumed && in.store != nil {
 			_ = in.store.DeleteResumption(
 				sidHint, storage.ResumeRoleResponder, dec.row.Generation,
