@@ -333,6 +333,33 @@ func TestVerifier_PromptTimesOut(t *testing.T) {
 	a.Equal(stateConnecting, m.state)
 }
 
+func TestVerifier_ReturnsWhenLibraryContextEnds(t *testing.T) {
+	a := require.New(t)
+	m, msgs, peer := promptModel(t)
+	m.state = stateConnecting
+	m.mode = modeDirectServe
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- m.mkVerifier(m.att)(ctx, m.store, kamune.VerifyRequest{
+			Peer: peer,
+		})
+	}()
+
+	m.Update(waitFor(t, msgs))
+	a.Equal(stateVerify, m.state)
+	a.NoError(m.att.ctx.Err())
+	cancel()
+	a.ErrorIs(waitFor(t, done), context.Canceled)
+	ended := waitFor(t, msgs)
+	a.IsType(verifyEndedMsg{}, ended)
+	m.Update(ended)
+	a.Equal(stateConnecting, m.state)
+	a.Nil(m.verifyReq)
+	a.NoError(m.att.ctx.Err())
+}
+
 func TestVerifier_StopsWhenAttemptIsCancelled(t *testing.T) {
 	a := require.New(t)
 	m, msgs, peer := promptModel(t)

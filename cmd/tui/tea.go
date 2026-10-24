@@ -707,7 +707,7 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 	}
 	var prompting atomic.Bool
 	return func(
-		_ context.Context, store *storage.Storage, req kamune.VerifyRequest,
+		ctx context.Context, store *storage.Storage, req kamune.VerifyRequest,
 	) error {
 		peer := req.Peer
 		var isNew bool
@@ -791,6 +791,9 @@ func (m *model) mkVerifier(att *attempt) kamune.RemoteVerifier {
 		case err = <-respCh:
 		case <-timer.C:
 			err = errPromptTimeout
+			send(verifyEndedMsg{responseCh: respCh, err: err})
+		case <-ctx.Done():
+			err = ctx.Err()
 			send(verifyEndedMsg{responseCh: respCh, err: err})
 		case <-att.ctx.Done():
 			err = errAttemptCancelled
