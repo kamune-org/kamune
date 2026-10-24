@@ -774,14 +774,15 @@ func policyReq(
 
 func TestVerifierPolicyTable(t *testing.T) {
 	tests := []struct {
-		name          string
-		mode          VerificationMode
-		role          kamune.Role
-		known         bool
-		pinned        bool
-		resumeOffered bool
-		resumed       bool
-		wantPrompt    bool
+		name           string
+		mode           VerificationMode
+		role           kamune.Role
+		known          bool
+		pinned         bool
+		resumeOffered  bool
+		resumed        bool
+		wantPrompt     bool
+		wantStoredName string
 	}{
 		{
 			name: "strict initiator", mode: VerificationModeStrict,
@@ -813,7 +814,7 @@ func TestVerifierPolicyTable(t *testing.T) {
 		{
 			name: "quick initiator stored unpinned",
 			mode: VerificationModeQuick, role: kamune.RoleInitiator,
-			known: true, wantPrompt: true,
+			known: true, wantPrompt: true, wantStoredName: "Bob",
 		},
 		{
 			name: "quick initiator unknown", mode: VerificationModeQuick,
@@ -855,6 +856,14 @@ func TestVerifierPolicyTable(t *testing.T) {
 			req.ResumeOffered = tt.resumeOffered
 			req.Resumed = tt.resumed
 
+			var events *eventLog
+			checkEvent := tt.wantStoredName != "" ||
+				(tt.wantPrompt && !tt.known &&
+					tt.mode == VerificationModeQuick &&
+					tt.role == kamune.RoleInitiator)
+			if checkEvent {
+				events = recordEvents(app)
+			}
 			rv := app.verifierWithin(
 				app.lifeCtx(), tt.mode, tt.role == kamune.RoleResponder,
 			)
@@ -865,6 +874,21 @@ func TestVerifierPolicyTable(t *testing.T) {
 				return
 			}
 			ids := waitPending(t, app, 1)
+			if checkEvent {
+				data := events.named("verify-peer")[0][0].(map[string]any)
+				if tt.wantStoredName != "" {
+					a.Equal(tt.wantStoredName, data["storedName"])
+					a.Equal(true, data["known"])
+					a.Equal(false, data["pinned"])
+					a.Equal("quick", data["mode"])
+					a.Equal("initiator", data["role"])
+					a.Equal("", data["peerName"])
+				}
+				if !tt.known {
+					a.Equal(false, data["known"])
+					a.Equal("", data["storedName"])
+				}
+			}
 			app.VerifyResponse(ids[0], true)
 			a.NoError(waitVerdict(t, errCh))
 		})

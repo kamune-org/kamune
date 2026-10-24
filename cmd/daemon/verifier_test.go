@@ -659,14 +659,15 @@ func TestInboundPromptIsReplacedByTheSameKey(t *testing.T) {
 
 func TestVerifierPolicyTable(t *testing.T) {
 	tests := []struct {
-		name          string
-		mode          VerificationMode
-		role          kamune.Role
-		pinned        bool
-		resumeOffered bool
-		resumed       bool
-		known         bool
-		wantPrompt    bool
+		name           string
+		mode           VerificationMode
+		role           kamune.Role
+		pinned         bool
+		resumeOffered  bool
+		resumed        bool
+		known          bool
+		wantPrompt     bool
+		wantStoredName string
 	}{
 		{
 			name: "strict initiator cold", mode: VerificationModeStrict,
@@ -698,7 +699,7 @@ func TestVerifierPolicyTable(t *testing.T) {
 		{
 			name: "quick initiator unpinned stored",
 			mode: VerificationModeQuick, role: kamune.RoleInitiator,
-			known: true, wantPrompt: true,
+			known: true, wantPrompt: true, wantStoredName: "Bob",
 		},
 		{
 			name: "quick initiator unknown", mode: VerificationModeQuick,
@@ -754,6 +755,20 @@ func TestVerifierPolicyTable(t *testing.T) {
 				return
 			}
 			evt := rec.waitFor(t, isEvent(EvtVerifyPeer))
+			if tt.wantStoredName != "" {
+				a.Equal(tt.wantStoredName, evt.Data["stored_name"])
+				a.Equal(true, evt.Data["known"])
+				a.Equal(false, evt.Data["pinned"])
+				a.Equal("quick", evt.Data["mode"])
+				a.Equal("initiator", evt.Data["role"])
+				a.Equal("", evt.Data["peer_name"])
+			}
+			if tt.wantPrompt && !tt.known &&
+				tt.mode == VerificationModeQuick &&
+				tt.role == kamune.RoleInitiator {
+				a.Equal(false, evt.Data["known"])
+				a.Equal("", evt.Data["stored_name"])
+			}
 			id, ok := evt.Data["request_id"].(float64)
 			a.True(ok)
 			d.handleVerifyResponse(Command{
