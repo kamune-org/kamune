@@ -320,35 +320,6 @@ func (s *Server) countSourceLocked(p *pendingConn) bool {
 	return true
 }
 
-// introduced records that the dialer on p has sent its introduction or
-// resume request. p no longer waits, so it stops counting against
-// [ServeWithMaxPendingHandshakes] and is not dropped for a newer
-// connection: the rest of the handshake, which may wait for a user to
-// verify the peer, does not hold up other dialers. A connection over UDP
-// starts to count against the per-source cap here, since the dialer could
-// not have sent a valid introduction without the server's reply, which
-// went to the source address. introduced returns an error when p was
-// dropped already or when its source is at the per-source cap. p may be
-// nil, for a connection that ListenAndServe did not accept.
-func (s *Server) introduced(p *pendingConn) error {
-	if p == nil {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if p.dropped {
-		return errors.New(
-			"dropped for a newer connection before the introduction",
-		)
-	}
-	s.waiting.remove(p)
-	if p.source != "" && !p.counted && !s.countSourceLocked(p) {
-		return errTooManyFromSource
-	}
-	p.authenticated = true
-	return nil
-}
-
 // endHandshake marks the handshake of p as over and frees its place among
 // the waiting connections, if it still holds one, and in the per-source
 // count. It reports whether the server is still open. p may be nil, for a

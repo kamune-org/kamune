@@ -1482,11 +1482,12 @@ func TestPendingCapsByTransport(t *testing.T) {
 			}
 			if !tc.atAccept {
 				for i, p := range conns {
-					err := server.introduced(p)
+					a.NoError(server.helloReceived(p))
+					err := server.authenticated(p)
 					if i < defaultMaxPendingPerSource {
-						a.NoError(err, "introduction %d", i)
+						a.NoError(err, "authentication %d", i)
 					} else {
-						a.Error(err, "introduction over the cap")
+						a.Error(err, "authentication over the cap")
 					}
 				}
 			}
@@ -1494,7 +1495,8 @@ func TestPendingCapsByTransport(t *testing.T) {
 			server.endHandshake(conns[0])
 			p, _, ok := server.admit(tc.newConn(nil, "10.0.0.1:9999"))
 			a.True(ok)
-			a.NoError(server.introduced(p))
+			a.NoError(server.helloReceived(p))
+			a.NoError(server.authenticated(p))
 
 			// Each connection from a network of its own: the cap on
 			// waiting connections applies whatever the transport.
