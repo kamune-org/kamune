@@ -280,7 +280,11 @@ func (s *Storage) SweepSessions(
 		}
 		for _, name := range sessions.ListSubNamespaces() {
 			session := sessions.Sub([]byte(name))
-			if !idleUnnamedSession(session, now, maxAge) {
+			idle, err := idleUnnamedSession(session, now, maxAge)
+			if err != nil {
+				return err
+			}
+			if !idle {
 				continue
 			}
 			if err := sessions.DeleteNamespace([]byte(name)); err != nil {
@@ -366,37 +370,48 @@ func expireResumption(
 
 func idleUnnamedSession(
 	session engine.Namespace, now time.Time, maxAge time.Duration,
-) bool {
+) (bool, error) {
 	meta := session.Sub([]byte("meta"))
-	if hasResumption(meta) {
-		return false
+	held, err := hasResumption(meta)
+	if err != nil || held {
+		return false, err
 	}
 	if session.Sub([]byte("chat")).FirstKey() != nil {
-		return false
+		return false, nil
 	}
-	if _, err := meta.GetEncrypted(sessionMetaKey); err == nil {
-		return false
+	_, err = meta.GetEncrypted(sessionMetaKey)
+	if err == nil {
+		return false, nil
+	}
+	if !isMissing(err) {
+		return false, err
 	}
 	ts, err := meta.GetEncrypted([]byte(EstablishedAtKey))
+	if err != nil && !isMissing(err) {
+		return false, err
+	}
 	if err == nil && len(ts) >= 8 {
 		at := time.Unix(0, int64(binary.BigEndian.Uint64(ts[:8])))
 		if now.Sub(at) <= maxAge {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
-func hasResumption(meta engine.Namespace) bool {
+func hasResumption(meta engine.Namespace) (bool, error) {
 	for _, key := range []string{
 		resumptionInitiatorKey, resumptionResponderKey,
 	} {
 		_, err := meta.GetEncrypted([]byte(key))
 		if err == nil {
-			return true
+			return true, nil
+		}
+		if !isMissing(err) {
+			return false, err
 		}
 	}
-	return false
+	return false, nil
 }
 
 func readResumption(

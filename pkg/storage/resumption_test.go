@@ -2,6 +2,8 @@ package storage
 
 import (
 	"bytes"
+	"errors"
+	"iter"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kamune-org/kamune/internal/clock"
+	"github.com/kamune-org/kamune/internal/engine"
 )
 
 func testResumption(role ResumeRole, current byte) *Resumption {
@@ -289,4 +292,86 @@ func TestResumption_NotInBoltPlaintext(t *testing.T) {
 	raw, err := os.ReadFile(path)
 	a.NoError(err)
 	a.NotContains(raw, secret)
+}
+
+func TestSweepSessions_BadNameDeletesNothing(t *testing.T) {
+	a := require.New(t)
+	meta := &stubNS{errs: map[string]error{
+		"name": errors.New("decrypt"),
+	}}
+	session := &stubNS{subs: map[string]engine.Namespace{
+		"meta": meta,
+		"chat": &stubNS{},
+	}}
+	sessions := &stubNS{
+		list: []string{"s1"},
+		subs: map[string]engine.Namespace{"s1": session},
+	}
+	root := &stubNS{subs: map[string]engine.Namespace{
+		engine.SessionsNamespace: sessions,
+	}}
+	s := &Storage{engine: stubStore{root: root}}
+	n, err := s.SweepSessions(time.Now(), time.Hour, 7*24*time.Hour)
+	a.Error(err)
+	a.Equal(0, n)
+	a.False(sessions.deleted)
+}
+
+type stubStore struct{ root engine.Namespace }
+
+func (s stubStore) Close() error                                  { return nil }
+func (s stubStore) Query(func(engine.Namespace) error) error      { return nil }
+func (s stubStore) Command(fn func(engine.Namespace) error) error { return fn(s.root) }
+func (s stubStore) RotatePassphrase(_, _ []byte) error            { return nil }
+func (s stubStore) RotateDataKey(_, _ []byte) error               { return nil }
+
+type stubNS struct {
+	subs    map[string]engine.Namespace
+	errs    map[string]error
+	list    []string
+	deleted bool
+}
+
+func (n *stubNS) Sub(name []byte) engine.Namespace {
+	if n != nil && n.subs != nil {
+		if sub, ok := n.subs[string(name)]; ok {
+			return sub
+		}
+	}
+	return &stubNS{}
+}
+
+func (n *stubNS) Ensure(name []byte) engine.Namespace { return n.Sub(name) }
+
+func (n *stubNS) GetEncrypted(key []byte) ([]byte, error) {
+	if n != nil && n.errs != nil {
+		if err, ok := n.errs[string(key)]; ok {
+			return nil, err
+		}
+	}
+	return nil, engine.ErrMissingItem
+}
+
+func (n *stubNS) PutEncrypted([]byte, []byte) error { return nil }
+func (n *stubNS) Delete([]byte) error               { return nil }
+
+func (n *stubNS) DeleteNamespace([]byte) error {
+	if n != nil {
+		n.deleted = true
+	}
+	return nil
+}
+
+func (n *stubNS) IterateEncrypted() iter.Seq2[[]byte, []byte] {
+	return func(func([]byte, []byte) bool) {}
+}
+
+func (n *stubNS) FirstKey() []byte { return nil }
+func (n *stubNS) LastKey() []byte  { return nil }
+func (n *stubNS) KeyCount() int    { return 0 }
+func (n *stubNS) ListSubNamespaces() []string {
+	if n == nil {
+		return nil
+	}
+	return n.list
 }
