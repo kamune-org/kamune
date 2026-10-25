@@ -1,10 +1,82 @@
 version: "2"
+
 linters:
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - contextcheck
+    - copyloopvar
+    - durationcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - gocheckcompilerdirectives
+    - goprintffuncname
+    - loggercheck
+    - makezero
+    - mirror
+    - misspell
+    - nilnesserr
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - reassign
+    - recvcheck
+    - sloglint
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
   settings:
     govet:
-      # Run every govet analyzer, fieldalignment included, which
-      # `make align-structs` applies. shadow is left out: it flags the
-      # usual `err :=` in nested scopes.
+      # fieldalignment is included. make align-structs does not apply
+      # it. shadow flags the usual err := in nested scopes.
       enable-all: true
       disable:
         - shadow
+    exhaustive:
+      default-signifies-exhaustive: true
+    sloglint:
+      no-mixed-args: true
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    generated: lax
+    paths:
+      - '\.pb\.go$'
+    rules:
+      # Field alignment only. Other govet analyzers still see tests.
+      - path: '(.+)_test\.go'
+        linters:
+          - govet
+        text: '^fieldalignment:'
+      # Relay tests alone report 77 unchecked errors.
+      - path: '(.+)_test\.go'
+        linters:
+          - errcheck
+      # tea.Key switches have no default and would list every key.
+      - linters:
+          - exhaustive
+        text: 'tea\.Key'
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - github.com/kamune-org/kamune
+  exclusions:
+    generated: lax
+    paths:
+      - '\.pb\.go$'
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

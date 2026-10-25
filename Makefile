@@ -34,9 +34,23 @@ gen-proto:
 	@protoc -I=internal/box --go_out=internal/box internal/box/*.proto
 	@protoc -I=pkg/relayconn --go_out=pkg/relayconn pkg/relayconn/pb/*.proto
 
-.PHONY: align-structs
-align-structs:
-	@golangci-lint run --enable=govet --fix
+.PHONY: lint fmt align-structs
+
+# Check every module. Does not write. Bus uses the server build so
+# Linux does not need GTK or WebKit. Findings are expected.
+lint:
+	golangci-lint run ./...
+	cd cmd/relay && golangci-lint run ./...
+	cd cmd/tui && golangci-lint run ./...
+	cd cmd/daemon && golangci-lint run ./...
+	cd cmd/bus && CGO_ENABLED=0 golangci-lint run --build-tags server ./...
+
+fmt:
+	golangci-lint fmt
+	cd cmd/relay && golangci-lint fmt
+	cd cmd/tui && golangci-lint fmt
+	cd cmd/daemon && golangci-lint fmt
+	cd cmd/bus && golangci-lint fmt
 
 .PHONY: build
 build: relay bus daemon
