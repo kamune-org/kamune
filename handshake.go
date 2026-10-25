@@ -22,66 +22,61 @@ const (
 	// defaultHandshakeTimeout bounds the network steps of a handshake.
 	defaultHandshakeTimeout = 30 * time.Second
 
-	// defaultVerifyTimeout bounds how long a RemoteVerifier may take. It is
-	// longer than the two-minute fingerprint prompt of the bundled clients,
-	// so their own timeout fires first.
+	// defaultVerifyTimeout bounds how long a [RemoteVerifier] may take. It is
+	// longer than the two-minute fingerprint prompt of the bundled clients, so
+	// their own timeout fires first.
 	defaultVerifyTimeout = 150 * time.Second
+
+	kexInfo   = "kamune/2 kex"
+	kexExport = "kamune/2 kex secret"
 )
 
 type handshakeOpts struct {
 	remoteVerifier RemoteVerifier
-	pin            []byte
 	sessionID      string
+	pin            []byte
 	timeout        time.Duration
-	// verifyTimeout bounds the local verifier, and is the time allowed for
-	// the remote peer's verifier while waiting for its answer.
-	verifyTimeout time.Duration
-	// noPersistence keeps session state out of storage. See
-	// [ServeWithoutPersistence] and [DialWithoutPersistence].
-	noPersistence bool
-	resumeOnly    bool
+	verifyTimeout  time.Duration
+	noPersistence  bool
+	resumeOnly     bool
 }
 
-const kexInfo = "kamune/2 kex"
-const kexExport = "kamune/2 kex secret"
-
-// initiatorInput is what runInitiator needs besides the connection.
+// initiatorInput is what [runInitiator] needs besides the connection.
 type initiatorInput struct {
+	clock         clock.Clock
 	attest        *attest.Attest
 	store         *storage.Storage
 	verify        verifyFunc
-	pin           []byte
 	resumeSID     string
+	name          string
+	version       string
+	pin           []byte
+	verifyTimeout time.Duration
 	resumeOnly    bool
 	noPersistence bool
-	verifyTimeout time.Duration
-	name          string
-	version       string
-	clock         clock.Clock
 }
 
-// responderInput is what runResponder needs besides the connection.
+// responderInput is what [runResponder] needs besides the connection.
 type responderInput struct {
-	attest        *attest.Attest
+	clock         clock.Clock
 	store         *storage.Storage
 	verify        verifyFunc
-	resumeEnabled bool
-	noPersistence bool
-	verifyTimeout time.Duration
-	introTimeout  time.Duration
+	dropped       func() bool
+	onAuth        func() error
+	onHello       func() error
+	attest        *attest.Attest
 	name          string
 	version       string
-	clock         clock.Clock
-	onHello       func() error
-	onAuth        func() error
-	// dropped reports that admission closed this connection to make room.
-	dropped func() bool
+	introTimeout  time.Duration
+	verifyTimeout time.Duration
+	noPersistence bool
+	resumeEnabled bool
 }
 
 type resumeDecision struct {
-	resumed bool
-	used    []byte
 	row     *storage.Resumption
+	used    []byte
+	resumed bool
 }
 
 func runInitiator(
@@ -108,7 +103,9 @@ func runInitiator(
 		in.pin = row.PeerKey
 	}
 
-	if err := cn.SetDeadline(time.Now().Add(defaultHandshakeTimeout)); err != nil {
+	if err := cn.SetDeadline(
+		time.Now().Add(defaultHandshakeTimeout),
+	); err != nil {
 		return failHS(cn, err)
 	}
 	sk, err := hpke.MLKEM768X25519().GenerateKey()
@@ -206,7 +203,9 @@ func runInitiator(
 	})
 	if err != nil {
 		if ctx.Err() != nil {
-			return failHS(cn, fmt.Errorf("%w: %w", ErrVerificationFailed, ctx.Err()))
+			return failHS(
+				cn, fmt.Errorf("%w: %w", ErrVerificationFailed, ctx.Err()),
+			)
 		}
 		return failHS(cn, fmt.Errorf("%w: %w", ErrVerificationFailed, err))
 	}
@@ -341,9 +340,21 @@ func runInitiator(
 	}
 	_ = cn.SetDeadline(time.Time{})
 	return newHSTransport(
-		cn, in.attest, in.store, in.clock, sid, nameR, verR, keyR,
-		sess.iApp, sess.rApp, sess.exporter, gen,
-		storage.ResumeRoleInitiator, resumed, in.noPersistence,
+		cn,
+		in.attest,
+		in.store,
+		in.clock,
+		sid,
+		nameR,
+		verR,
+		keyR,
+		sess.iApp,
+		sess.rApp,
+		sess.exporter,
+		gen,
+		storage.ResumeRoleInitiator,
+		resumed,
+		in.noPersistence,
 	)
 }
 
@@ -579,17 +590,27 @@ func runResponder(
 		in.noPersistence = true
 	}
 	return newHSTransport(
-		cn, in.attest, in.store, in.clock, sid, string(id.Name),
-		string(id.Version), id.Key, sess.rApp, sess.iApp, sess.exporter,
-		gen, storage.ResumeRoleResponder, dec.resumed, in.noPersistence,
+		cn,
+		in.attest,
+		in.store,
+		in.clock,
+		sid,
+		string(id.Name),
+		string(id.Version),
+		id.Key,
+		sess.rApp,
+		sess.iApp,
+		sess.exporter,
+		gen,
+		storage.ResumeRoleResponder,
+		dec.resumed,
+		in.noPersistence,
 	)
 }
 
 func loadOffer(in initiatorInput) (*storage.Resumption, error) {
 	if in.noPersistence {
-		return nil, fmt.Errorf(
-			"%w: persistence is off", ErrNoResumptionState,
-		)
+		return nil, fmt.Errorf("%w: persistence is off", ErrNoResumptionState)
 	}
 	if in.store == nil {
 		return nil, ErrNoResumptionState
@@ -704,9 +725,12 @@ func commitInitiator(
 	now := clockNow(in.clock)
 	if resumed {
 		next := &storage.Resumption{
-			Generation: offer.Generation + 1, Current: bytes.Clone(resNext),
-			PeerKey: bytes.Clone(peerKey), ColdAt: offer.ColdAt,
-			RefreshedAt: now, Role: storage.ResumeRoleInitiator,
+			Generation:  offer.Generation + 1,
+			Current:     bytes.Clone(resNext),
+			PeerKey:     bytes.Clone(peerKey),
+			ColdAt:      offer.ColdAt,
+			RefreshedAt: now,
+			Role:        storage.ResumeRoleInitiator,
 		}
 		err := in.store.SwapResumption(sid, offer.Generation, next)
 		if errors.Is(err, storage.ErrResumptionConflict) {
@@ -728,9 +752,12 @@ func commitInitiator(
 		)
 	}
 	next := &storage.Resumption{
-		Generation: 1, Current: bytes.Clone(resNext),
-		PeerKey: bytes.Clone(peerKey), ColdAt: now, RefreshedAt: now,
-		Role: storage.ResumeRoleInitiator,
+		Generation:  1,
+		Current:     bytes.Clone(resNext),
+		PeerKey:     bytes.Clone(peerKey),
+		ColdAt:      now,
+		RefreshedAt: now,
+		Role:        storage.ResumeRoleInitiator,
 	}
 	err := in.store.SwapResumption(sid, 0, next)
 	if errors.Is(err, storage.ErrResumptionConflict) {
@@ -748,16 +775,21 @@ func commitInitiator(
 }
 
 func commitResponder(
-	in responderInput, sid string, dec resumeDecision,
-	peerKey, resNext []byte, resumed bool,
+	in responderInput,
+	sid string,
+	dec resumeDecision,
+	peerKey, resNext []byte,
+	resumed bool,
 ) (uint64, bool, error) {
 	if in.noPersistence || in.store == nil {
 		return 0, false, nil
 	}
 	now := clockNow(in.clock)
 	next := &storage.Resumption{
-		Current: bytes.Clone(resNext), PeerKey: bytes.Clone(peerKey),
-		RefreshedAt: now, Role: storage.ResumeRoleResponder,
+		Current:     bytes.Clone(resNext),
+		PeerKey:     bytes.Clone(peerKey),
+		RefreshedAt: now,
+		Role:        storage.ResumeRoleResponder,
 	}
 	oldGen := uint64(0)
 	if resumed {
@@ -791,8 +823,12 @@ func dropConflicted(store *storage.Storage, sid string) {
 }
 
 func rejectConfirm(
-	ctx context.Context, cn Conn, th *transcript, hs hsKeys,
-	reason byte, cause error,
+	ctx context.Context,
+	cn Conn,
+	th *transcript,
+	hs hsKeys,
+	reason byte,
+	cause error,
 ) (*Transport, error) {
 	_, plain, err := buildConfirm(
 		th, hs.hs, nil, confirmRejected, reason, "", "",
@@ -814,7 +850,9 @@ func rejectConfirm(
 }
 
 func buildConfirm(
-	th *transcript, hsSecret, psk []byte, status, reason byte,
+	th *transcript,
+	hsSecret, psk []byte,
+	status, reason byte,
 	name, version string,
 ) (appSecrets, []byte, error) {
 	var zero appSecrets
@@ -848,9 +886,15 @@ func buildConfirm(
 }
 
 func newHSTransport(
-	cn Conn, at *attest.Attest, store *storage.Storage, clk clock.Clock,
-	sid, name, version string, peerKey, encKey, decKey, exp []byte,
-	gen uint64, role storage.ResumeRole, resumed, noPersistence bool,
+	cn Conn,
+	at *attest.Attest,
+	store *storage.Storage,
+	clk clock.Clock,
+	sid, name, version string,
+	peerKey, encKey, decKey, exp []byte,
+	gen uint64,
+	role storage.ResumeRole,
+	resumed, noPersistence bool,
 ) (*Transport, error) {
 	encoder, err := enigma.NewFromKey(encKey)
 	if err != nil {

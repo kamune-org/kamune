@@ -54,9 +54,9 @@ func (l *udpListener) Accept() (Conn, error) {
 }
 
 const (
-	// defaultMaxPendingHandshakes is how many accepted connections may wait
-	// for the dialer's ClientHello at once, unless
-	// [ServeWithMaxPendingHandshakes] changes it.
+	// defaultMaxPendingHandshakes is how many accepted connections may wait for
+	// the dialer's ClientHello at once, unless [ServeWithMaxPendingHandshakes]
+	// changes it.
 	defaultMaxPendingHandshakes = 256
 
 	// defaultMaxPendingPerSource is how many connections from one source may
@@ -68,26 +68,26 @@ const (
 	// ClientHello, unless [ServeWithIntroTimeout] changes it.
 	defaultIntroTimeout = 10 * time.Second
 
-	// ipv6SourceBits is the prefix length by which the per-source limit
-	// groups IPv6 addresses, since one host commonly holds a whole /64.
+	// ipv6SourceBits is the prefix length by which the per-source limit groups
+	// IPv6 addresses, since one host commonly holds a whole /64.
 	ipv6SourceBits = 64
 
-	// ipv4NetworkBits and ipv6NetworkBits are the prefix lengths by which
-	// the cap on waiting connections groups addresses into networks when
-	// it picks a connection to drop. One site commonly holds an IPv6 /48,
-	// which is 65,536 /64s.
+	// ipv4NetworkBits and ipv6NetworkBits are the prefix lengths by which the
+	// cap on waiting connections groups addresses into networks when it picks a
+	// connection to drop. One site commonly holds an IPv6 /48, which is 65,536
+	// /64s.
 	ipv4NetworkBits = 24
 	ipv6NetworkBits = 48
 
 	// minAcceptDelay and maxAcceptDelay bound how long ListenAndServe waits
-	// after an Accept error before it calls Accept again. The wait doubles
-	// on each consecutive error.
+	// after an Accept error before it calls Accept again. The wait doubles on
+	// each consecutive error.
 	minAcceptDelay = 5 * time.Millisecond
 	maxAcceptDelay = time.Second
 
-	// sweepInterval is how often a persistence server sweeps resumption
-	// rows. The timestamp comes from the server clock; the wait is wall
-	// time, because clock.Clock has no ticker.
+	// sweepInterval is how often a persistence server sweeps resumption rows.
+	// The timestamp comes from the server clock; the wait is wall time, because
+	// [clock.Clock] has no ticker.
 	sweepInterval = time.Hour
 )
 
@@ -106,8 +106,8 @@ type Server struct {
 	// handshake, for the per-source cap.
 	sources map[string]int
 	pending map[*pendingConn]struct{}
-	// waiting and hello are the two pre-authentication stages. Each is
-	// capped by maxPending. A ClientHello flood can evict only hello.
+	// waiting and hello are the two pre-authentication stages. Each is capped
+	// by maxPending. A ClientHello flood can evict only hello.
 	waiting       stage
 	hello         stage
 	serverName    string
@@ -129,24 +129,24 @@ type Server struct {
 // not ended yet.
 type pendingConn struct {
 	conn Conn
-	// source is the key under which the per-source cap counts the
-	// connection, or "" when that cap does not apply to it.
+	// source is the key under which the per-source cap counts the connection,
+	// or "" when that cap does not apply to it.
 	source string
 	// network is the key under which the connection counts while it is on
 	// waiting or hello.
 	network string
 	// where is the pre-authentication list p is on, or admitNone.
 	where admitPlace // guarded by Server.mu
-	// forgeable is whether the connection's source address can be forged,
-	// as over UDP. The per-source cap then counts it only once the dialer
-	// has authenticated, which needs the server's reply.
+	// forgeable is whether the connection's source address can be forged, as
+	// over UDP. The per-source cap then counts it only once the dialer has
+	// authenticated, which needs the server's reply.
 	forgeable bool
 	// counted is whether the per-source cap counts the connection.
 	counted bool // guarded by Server.mu
 	// authenticated is whether sig_I and finished_I have verified.
 	authenticated bool // guarded by Server.mu
-	// dropped is whether the server closed the connection to make room
-	// for a newer one before the dialer authenticated.
+	// dropped is whether the server closed the connection to make room for a
+	// newer one before the dialer authenticated.
 	dropped bool // guarded by Server.mu
 	ended   bool // guarded by Server.mu
 }
@@ -155,20 +155,20 @@ type pendingConn struct {
 // blocks until the listener is closed via [Server.Close] or an unrecoverable
 // error occurs.
 //
-// Other Accept errors, such as running out of file descriptors, are logged
-// and retried after a wait that starts at 5 ms and doubles up to 1 s.
+// Other Accept errors, such as running out of file descriptors, are logged and
+// retried after a wait that starts at 5 ms and doubles up to 1 s.
 //
-// By default an accepted connection has 10 seconds to send ClientHello,
-// and at most 256 connections may wait for that at once. The same cap
-// applies again after ClientHello, until the dialer authenticates.
-// ListenAndServe keeps accepting at that cap: a new connection takes the
-// place of a waiting one, which is closed, from the networks that hold the
-// most places. Idle connections from fewer networks than the cap thus
-// cannot keep out a dialer that sends ClientHello within a few round
-// trips. One source may have at most 16 connections in the handshake at
-// once; over UDP, whose source address can be forged, only those whose
-// dialer has authenticated count. See [ServeWithIntroTimeout],
-// [ServeWithMaxPendingHandshakes] and [ServeWithMaxPendingPerSource].
+// By default an accepted connection has 10 seconds to send ClientHello, and at
+// most 256 connections may wait for that at once. The same cap applies again
+// after ClientHello, until the dialer authenticates.
+// ListenAndServe keeps accepting at that cap: a new connection takes the place
+// of a waiting one, which is closed, from the networks that hold the most
+// places. Idle connections from fewer networks than the cap thus cannot keep
+// out a dialer that sends ClientHello within a few round trips. One source may
+// have at most 16 connections in the handshake at once; over UDP, whose source
+// address can be forged, only those whose dialer has authenticated count. See
+// [ServeWithIntroTimeout], [ServeWithMaxPendingHandshakes], and
+// [ServeWithMaxPendingPerSource].
 func (s *Server) ListenAndServe() error {
 	s.mu.Lock()
 	if s.closed {
@@ -198,8 +198,8 @@ func (s *Server) ListenAndServe() error {
 				return nil
 			}
 
-			// Errors such as EMFILE repeat until something changes, so
-			// wait before trying again instead of spinning.
+			// Errors such as EMFILE repeat until something changes, so wait
+			// before trying again instead of spinning.
 			delay = nextAcceptDelay(delay)
 			slog.Error(
 				"accept conn",
@@ -232,8 +232,8 @@ func (s *Server) ListenAndServe() error {
 			case s.isClosed():
 				slog.Debug("serve conn after close", slog.Any("error", err))
 			case !s.wasAuthenticated(p):
-				// Anyone can open a connection and let it time out or
-				// drop it, so these failures would flood the log.
+				// Anyone can open a connection and let it time out or drop it,
+				// so these failures would flood the log.
 				slog.Debug(
 					"serve conn before authentication",
 					slog.Any("error", err),
@@ -245,20 +245,20 @@ func (s *Server) ListenAndServe() error {
 	}
 }
 
-// admit records cn as being in the handshake, so that Close can close it
-// and Shutdown waits for it, and as waiting for ClientHello. It reports
-// false and records nothing when the server is closed or when cn's source
-// is at the per-source cap.
+// admit records cn as being in the handshake, so that Close can close it and
+// Shutdown waits for it, and as waiting for ClientHello. It reports false and
+// records nothing when the server is closed or when cn's source is at the
+// per-source cap.
 //
-// When the waiting connections are at the cap already, admit drops one of
-// them to make room and returns its conn for the caller to close (see
-// dropCandidate). A real dialer sends ClientHello within a few round
-// trips, so the connections from the networks that hold the most places
-// are the least likely to be real dialers.
+// When the waiting connections are at the cap already, admit drops one of them
+// to make room and returns its conn for the caller to close (see
+// dropCandidate). A real dialer sends ClientHello within a few round trips, so
+// the connections from the networks that hold the most places are the least
+// likely to be real dialers.
 //
-// A connection over UDP is not checked against the per-source cap here:
-// its source address may be forged, and a sender could then use up the
-// places of the host it names. authenticated checks it instead.
+// A connection over UDP is not checked against the per-source cap here: its
+// source address may be forged, and a sender could then use up the places of
+// the host it names. authenticated checks it instead.
 func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 	p := &pendingConn{conn: cn}
 	if addr := connAddr(cn); addr != nil {
@@ -301,8 +301,8 @@ func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 	return p, dropped, true
 }
 
-// countSourceLocked counts p for the per-source cap, or reports false when
-// its source is at the cap already.
+// countSourceLocked counts p for the per-source cap, or reports false when its
+// source is at the cap already.
 func (s *Server) countSourceLocked(p *pendingConn) bool {
 	if s.sources[p.source] >= s.maxPerSource {
 		// Debug, not Warn: a flood from one source would flood the log.
@@ -320,11 +320,10 @@ func (s *Server) countSourceLocked(p *pendingConn) bool {
 	return true
 }
 
-// endHandshake marks the handshake of p as over and frees its place among
-// the waiting connections, if it still holds one, and in the per-source
-// count. It reports whether the server is still open. p may be nil, for a
-// connection that ListenAndServe did not accept, and a second call for the
-// same p only reports.
+// endHandshake marks the handshake of p as over and frees its place among the
+// waiting connections, if it still holds one, and in the per-source count. It
+// reports whether the server is still open. p may be nil, for a connection that
+// ListenAndServe did not accept, and a second call for the same p only reports.
 func (s *Server) endHandshake(p *pendingConn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -354,8 +353,8 @@ func isListenerClosed(err error) bool {
 	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.ErrClosedPipe)
 }
 
-// nextAcceptDelay returns the wait after an Accept error that followed a
-// wait of prev.
+// nextAcceptDelay returns the wait after an Accept error that followed a wait
+// of prev.
 func nextAcceptDelay(prev time.Duration) time.Duration {
 	if prev <= 0 {
 		return minAcceptDelay
@@ -363,8 +362,8 @@ func nextAcceptDelay(prev time.Duration) time.Duration {
 	return min(2*prev, maxAcceptDelay)
 }
 
-// pause waits for d and reports true, or reports false as soon as the server
-// is closed.
+// pause waits for d and reports true, or reports false as soon as the server is
+// closed.
 func (s *Server) pause(d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -398,9 +397,9 @@ func forgeableAddr(addr net.Addr) bool {
 }
 
 // sourceKey returns the key under which the per-source limit counts a
-// connection from addr: its IP address, or for IPv6 the address's /64
-// prefix. An address that is not an IP address, with or without a port, is
-// used as it is.
+// connection from addr: its IP address, or for IPv6 the address's /64 prefix.
+// An address that is not an IP address, with or without a port, is used as it
+// is.
 func sourceKey(addr net.Addr) string {
 	ip, host, ok := hostIP(addr)
 	switch {
@@ -413,10 +412,10 @@ func sourceKey(addr net.Addr) string {
 	}
 }
 
-// networkKey returns the key under which the cap on waiting connections
-// groups a connection from addr when it picks one to drop: the /24 prefix
-// of its IPv4 address, or the /48 prefix of its IPv6 address. An address
-// that is not an IP address, with or without a port, is used as it is.
+// networkKey returns the key under which the cap on waiting connections groups
+// a connection from addr when it picks one to drop: the /24 prefix of its IPv4
+// address, or the /48 prefix of its IPv6 address. An address that is not an IP
+// address, with or without a port, is used as it is.
 func networkKey(addr net.Addr) string {
 	ip, host, ok := hostIP(addr)
 	switch {
@@ -453,11 +452,11 @@ func prefixKey(ip netip.Addr, bits int) string {
 }
 
 // Close shuts the server down. It closes the listener, so that
-// [Server.ListenAndServe] returns, and closes the connections that are still
-// in the handshake. A handshake that completes after Close is not handed to
-// the handler and its session is not stored; its transport is closed
-// instead. Sessions already handed to the handler are not affected: close
-// their transports to end them. Close does not wait for anything; see
+// [Server.ListenAndServe] returns, and closes the connections that are still in
+// the handshake. A handshake that completes after Close is not handed to the
+// handler and its session is not stored; its transport is closed instead.
+// Sessions already handed to the handler are not affected: close their
+// transports to end them. Close does not wait for anything; see
 // [Server.Shutdown]. It is safe to call multiple times and concurrently.
 func (s *Server) Close() error {
 	s.mu.Lock()
@@ -466,8 +465,8 @@ func (s *Server) Close() error {
 		return nil
 	}
 
-	// Mark the server closed before closing the listener, so the Accept
-	// error that follows is read as shutdown whatever it is.
+	// Mark the server closed before closing the listener, so the Accept error
+	// that follows is read as shutdown whatever it is.
 	s.closed = true
 	if s.done != nil {
 		close(s.done)
@@ -497,8 +496,8 @@ func (s *Server) Close() error {
 // has ended and, if it was handed to the handler, the handler has returned.
 // Handlers return when their sessions end, so close the sessions' transports
 // before or while Shutdown waits. Shutdown returns ctx.Err() if ctx is done
-// first. It does not stop the handshakes and handlers still running then:
-// they carry on until they return.
+// first. It does not stop the handshakes and handlers still running then: they
+// carry on until they return.
 func (s *Server) Shutdown(ctx context.Context) error {
 	_ = s.Close()
 	done := make(chan struct{})
@@ -518,9 +517,9 @@ func (s *Server) serve(cn Conn) error {
 	return s.serveConn(cn, nil)
 }
 
-// serveConn runs the handshake on cn and then hands the session to the
-// handler, unless the server was closed in the meantime. p is the record
-// that ListenAndServe made for cn, or nil.
+// serveConn runs the handshake on cn and then hands the session to the handler,
+// unless the server was closed in the meantime. p is the record that
+// ListenAndServe made for cn, or nil.
 func (s *Server) serveConn(cn Conn, p *pendingConn) (err error) {
 	defer func() {
 		s.endHandshake(p)
@@ -572,8 +571,8 @@ func (s *Server) serveConn(cn Conn, p *pendingConn) (err error) {
 	return nil
 }
 
-// startSweep deletes expired resumption rows now and every sweepInterval
-// until Close. A server without persistence does not sweep.
+// startSweep deletes expired resumption rows now and every sweepInterval until
+// Close. A server without persistence does not sweep.
 func (s *Server) startSweep() {
 	if s.handshakeOpts.noPersistence || s.storage == nil {
 		return
@@ -601,8 +600,8 @@ func (s *Server) startSweep() {
 	}()
 }
 
-// sweepOnce runs one SweepSessions pass. The timestamp is the server
-// clock; the interval between passes is wall time.
+// sweepOnce runs one SweepSessions pass. The timestamp is the server clock; the
+// interval between passes is wall time.
 func (s *Server) sweepOnce() {
 	if s.storage == nil {
 		return
@@ -638,10 +637,11 @@ func (s *Server) PublicKey() []byte {
 }
 
 // NewServer creates a new server with the given address, handler, and storage.
-// By default the server uses TCP on the given address when [Server.ListenAndServe]
-// is called, unless a different listener or transport is configured via options.
-// It returns ErrMissingStorage when store is nil, ErrMissingVerifier when rv
-// is nil, and an error when [AppVersion] is not a valid version.
+// By default the server uses TCP on the given address when
+// [Server.ListenAndServe] is called, unless a different listener or transport
+// is configured via options. It returns [ErrMissingStorage] when store is nil,
+// [ErrMissingVerifier] when rv is nil, and an error when [AppVersion] is not a
+// valid version.
 func NewServer(
 	addr string,
 	handler HandlerFunc,
@@ -709,8 +709,8 @@ func NewServer(
 	return s, nil
 }
 
-// ServerOptions configures the server. Returning an error from an option
-// causes [NewServer] to fail immediately with that error.
+// ServerOptions configures the server. Returning an error from an option causes
+// [NewServer] to fail immediately with that error.
 type ServerOptions func(*Server) error
 
 // ServeWithServerName sets the server's advertised name. The name must pass
@@ -729,8 +729,8 @@ func ServeWithServerName(name string) ServerOptions {
 
 // ServeWithTCP configures the server to use TCP connections with the given
 // connection options. If not called, TCP with default options is used.
-// [NewServer] binds the address once everything else has succeeded, and
-// returns the error if binding fails.
+// [NewServer] binds the address once everything else has succeeded, and returns
+// the error if binding fails.
 func ServeWithTCP(opts ...ConnOption) ServerOptions {
 	return func(s *Server) error {
 		s.connOpts = opts
@@ -747,12 +747,11 @@ func ServeWithTCP(opts ...ConnOption) ServerOptions {
 }
 
 // ServeWithUDP configures the server to use UDP/KCP connections. [NewServer]
-// binds the address once everything else has succeeded, and returns the
-// error if binding fails. Anyone can forge the source address of a UDP
-// datagram, and kcp-go starts a session for any datagram from a new
-// address; see [ServeWithMaxPendingHandshakes] and
-// [ServeWithMaxPendingPerSource] for how their caps treat such
-// connections.
+// binds the address once everything else has succeeded, and returns the error
+// if binding fails. Anyone can forge the source address of a UDP datagram, and
+// kcp-go starts a session for any datagram from a new address; see
+// [ServeWithMaxPendingHandshakes] and [ServeWithMaxPendingPerSource] for how
+// their caps treat such connections.
 func ServeWithUDP(opts ...ConnOption) ServerOptions {
 	return func(s *Server) error {
 		s.connOpts = opts
@@ -779,13 +778,13 @@ func ServeWithListener(l Listener) ServerOptions {
 }
 
 // ServeWithResumeEnabled controls whether the server may continue a stored
-// session. When disabled, every resume offer is answered with a cold
-// handshake. The [RemoteVerifier] still runs. Enabled by default.
+// session. When disabled, every resume offer is answered with a cold handshake.
+// The [RemoteVerifier] still runs. Enabled by default.
 //
-// A stored session can be resumed while its row is inside the idle window
-// (24 hours since it was last touched) and the maximum age (7 days since
-// the cold handshake). To stop one peer from resuming, delete it from
-// storage with [storage.Storage.DeletePeer], or delete its sessions with
+// A stored session can be resumed while its row is inside the idle window (24
+// hours since it was last touched) and the maximum age (7 days since the cold
+// handshake). To stop one peer from resuming, delete it from storage with
+// [storage.Storage.DeletePeer], or delete its sessions with
 // [storage.Storage.DeleteSession].
 func ServeWithResumeEnabled(enabled bool) ServerOptions {
 	return func(s *Server) error {
@@ -794,12 +793,12 @@ func ServeWithResumeEnabled(enabled bool) ServerOptions {
 	}
 }
 
-// ServeWithVerifyTimeout sets how long the [RemoteVerifier] may take to
-// decide on a peer. The handshake deadline does not run while the verifier
-// does, so a user has this long to compare fingerprints; a verifier that
-// accepts later is treated as a rejection. The server also allows this long
-// for the dialer's verifier when it waits for the dialer to go on. The
-// default is 150 seconds; d must be positive.
+// ServeWithVerifyTimeout sets how long the [RemoteVerifier] may take to decide
+// on a peer. The handshake deadline does not run while the verifier does, so a
+// user has this long to compare fingerprints; a verifier that accepts later is
+// treated as a rejection. The server also allows this long for the dialer's
+// verifier when it waits for the dialer to go on. The default is 150 seconds; d
+// must be positive.
 func ServeWithVerifyTimeout(d time.Duration) ServerOptions {
 	return func(s *Server) error {
 		if d <= 0 {
@@ -811,9 +810,9 @@ func ServeWithVerifyTimeout(d time.Duration) ServerOptions {
 }
 
 // ServeWithoutPersistence keeps the server from writing session state to
-// storage, for incognito use. A session it accepts stores no resumption
-// row, and closing it writes nothing either. An offer is answered with a
-// cold handshake.
+// storage, for incognito use. A session it accepts stores no resumption row,
+// and closing it writes nothing either. An offer is answered with a cold
+// handshake.
 //
 // The storage is still read for the server's identity and handed to the
 // [RemoteVerifier], which decides on its own whether to store the peer.
@@ -824,33 +823,32 @@ func ServeWithoutPersistence() ServerOptions {
 	}
 }
 
-// ServeWithMaxPendingHandshakes caps how many accepted connections may wait
-// for ClientHello at the same time, and, separately, how many may sit in
-// the hello stage before the dialer authenticates. [Server.ListenAndServe]
-// keeps accepting at the cap: a new connection takes the place of one in
-// the same stage, which is closed. To pick it, the server groups those
-// connections by network, an IPv4 /24 or an IPv6 /48, takes the networks
-// with the most of them, the new connection counted, and closes the oldest
-// connection of one of those networks, picked at random. So idle
-// connections from one network lose their places first, and idle
-// connections from fewer networks than the cap never push out a dialer
-// from another network that sends ClientHello within a few round trips.
+// ServeWithMaxPendingHandshakes caps how many accepted connections may wait for
+// ClientHello at the same time, and, separately, how many may sit in the hello
+// stage before the dialer authenticates. [Server.ListenAndServe] keeps
+// accepting at the cap: a new connection takes the place of one in the same
+// stage, which is closed. To pick it, the server groups those connections by
+// network, an IPv4 /24 or an IPv6 /48, takes the networks with the most of
+// them, the new connection counted, and closes the oldest connection of one of
+// those networks, picked at random. So idle connections from one network lose
+// their places first, and idle connections from fewer networks than the cap
+// never push out a dialer from another network that sends ClientHello within a
+// few round trips.
 //
 // Idle connections from more networks than the cap can: each new one then
-// closes a connection in that stage at random, so a dialer is more likely
-// to lose its place the more of them arrive before it sends ClientHello.
-// That takes many addresses on TCP, but over UDP, including KCP, a sender
-// can forge as many source addresses as it likes without receiving a
-// reply. The cap still applies there, since each KCP session costs a few
-// hundred kilobytes and without it such a sender could hold any number of
-// them.
+// closes a connection in that stage at random, so a dialer is more likely to
+// lose its place the more of them arrive before it sends ClientHello. That
+// takes many addresses on TCP, but over UDP, including KCP, a sender can forge
+// as many source addresses as it likes without receiving a reply. The cap still
+// applies there, since each KCP session costs a few hundred kilobytes and
+// without it such a sender could hold any number of them.
 //
-// A connection whose dialer has authenticated, for example one waiting for
-// the [RemoteVerifier], no longer counts and is never closed this way, and
-// neither are sessions handed to the handler. A full hello stage evicts a
-// hello connection and never a waiting one. [ServeWithIntroTimeout] bounds
-// how long an idle connection holds its place before ClientHello. The
-// default is 256; n == 0 removes the cap, and a negative n is an error.
+// A connection whose dialer has authenticated, for example one waiting for the
+// [RemoteVerifier], no longer counts and is never closed this way, and neither
+// are sessions handed to the handler. A full hello stage evicts a hello
+// connection and never a waiting one. [ServeWithIntroTimeout] bounds how long
+// an idle connection holds its place before ClientHello. The default is 256;
+// n == 0 removes the cap, and a negative n is an error.
 func ServeWithMaxPendingHandshakes(n int) ServerOptions {
 	return func(s *Server) error {
 		if n < 0 {
@@ -861,20 +859,20 @@ func ServeWithMaxPendingHandshakes(n int) ServerOptions {
 	}
 }
 
-// ServeWithMaxPendingPerSource caps how many connections from one source may
-// be in the handshake at the same time, from the moment they are accepted
-// until the handshake ends, verification included. A connection over the
-// cap is closed as soon as it is accepted, so it does not take the place of
-// a waiting connection (see [ServeWithMaxPendingHandshakes]). The source is
-// the IP address of the connection's RemoteAddr, and for IPv6 its /64
-// prefix, since one host commonly holds a whole /64. A connection that does
-// not report a remote address, such as a relay connection, is not limited.
+// ServeWithMaxPendingPerSource caps how many connections from one source may be
+// in the handshake at the same time, from the moment they are accepted until
+// the handshake ends, verification included. A connection over the cap is
+// closed as soon as it is accepted, so it does not take the place of a waiting
+// connection (see [ServeWithMaxPendingHandshakes]). The source is the IP
+// address of the connection's RemoteAddr, and for IPv6 its /64 prefix, since
+// one host commonly holds a whole /64. A connection that does not report a
+// remote address, such as a relay connection, is not limited.
 //
-// Over UDP, including KCP, a sender could forge another host's address and
-// use up that host's places, so there a connection counts only once the
-// dialer has authenticated, which it cannot do without the server's reply,
-// and one over the cap is closed then. The default is 16; n == 0 removes
-// the cap, and a negative n is an error.
+// Over UDP, including KCP, a sender could forge another host's address and use
+// up that host's places, so there a connection counts only once the dialer has
+// authenticated, which it cannot do without the server's reply, and one over
+// the cap is closed then. The default is 16; n == 0 removes the cap, and a
+// negative n is an error.
 func ServeWithMaxPendingPerSource(n int) ServerOptions {
 	return func(s *Server) error {
 		if n < 0 {
@@ -886,11 +884,10 @@ func ServeWithMaxPendingPerSource(n int) ServerOptions {
 }
 
 // ServeWithIntroTimeout sets how long an accepted connection has to send
-// ClientHello. A connection that has not done so in time is closed, which
-// frees its place among the connections that
-// [ServeWithMaxPendingHandshakes] caps. Once ClientHello has arrived, the
-// rest of the handshake has the usual handshake timeout. The default is
-// 10 seconds; d must be positive.
+// ClientHello. A connection that has not done so in time is closed, which frees
+// its place among the connections that [ServeWithMaxPendingHandshakes] caps.
+// Once ClientHello has arrived, the rest of the handshake has the usual
+// handshake timeout. The default is 10 seconds; d must be positive.
 func ServeWithIntroTimeout(d time.Duration) ServerOptions {
 	return func(s *Server) error {
 		if d <= 0 {
@@ -901,8 +898,8 @@ func ServeWithIntroTimeout(d time.Duration) ServerOptions {
 	}
 }
 
-// ServeWithClock sets a custom clock for the server. It is primarily useful
-// for tests that need to control time-dependent behavior like session expiry.
+// ServeWithClock sets a custom clock for the server. It is primarily useful for
+// tests that need to control time-dependent behavior like session expiry.
 func ServeWithClock(c clock.Clock) ServerOptions {
 	return func(s *Server) error {
 		s.clock = c

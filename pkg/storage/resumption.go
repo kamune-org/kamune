@@ -41,12 +41,12 @@ const (
 
 // Resumption is one role's resumption secret and the times that bound it.
 type Resumption struct {
-	Generation  uint64
+	ColdAt      time.Time
+	RefreshedAt time.Time
 	Current     []byte
 	Previous    []byte
 	PeerKey     []byte
-	ColdAt      time.Time
-	RefreshedAt time.Time
+	Generation  uint64
 	Role        ResumeRole
 }
 

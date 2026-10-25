@@ -19,8 +19,8 @@ const (
 // VerifyRequest describes an authenticated peer to a verifier.
 type VerifyRequest struct {
 	Peer           *storage.Peer
-	LocalPublicKey []byte
 	SessionID      string
+	LocalPublicKey []byte
 	Role           Role
 	Pinned         bool
 	ResumeOffered  bool

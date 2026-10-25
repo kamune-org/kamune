@@ -41,8 +41,8 @@ func (r Route) IsValid() bool {
 
 func (r Route) isSessionRoute() bool {
 	switch r {
-	case RouteExchangeMessages, RouteCloseTransport,
-		RoutePing, RoutePong, RouteSessionData:
+	case RouteExchangeMessages, RouteCloseTransport, RoutePing, RoutePong,
+	RouteSessionData:
 		return true
 	default:
 		return false

@@ -25,64 +25,61 @@ const (
 	mongolianVS  = '\u180E' // Mongolian vowel separator
 )
 
-// ValidatePeerName checks a name that a peer introduces itself with. It
-// returns an error wrapping [ErrInvalidPeerName] when name is longer than
+// ValidatePeerName checks a name that a peer introduces itself with. It returns
+// an error wrapping [ErrInvalidPeerName] when name is longer than
 // [MaxPeerNameLength] bytes, is not valid UTF-8, or holds a code point that
-// shows nothing or can change how the name, or the text shown around it,
-// looks:
-//   - control characters (C0, DEL and C1), such as line breaks and the
-//     escape character that starts terminal escape sequences;
+// shows nothing or can change how the name, or the text shown around it, looks:
+//   - control characters (C0, DEL and C1), such as line breaks and the escape
+//     character that starts terminal escape sequences;
 //   - line and paragraph separators;
-//   - format characters, which include the bidirectional controls that
-//     reorder text and invisible ones such as the zero-width space, the
-//     word joiner, the byte order mark and tag characters;
-//   - the other default ignorable code points, such as the combining
-//     grapheme joiner and the Hangul fillers;
-//   - the other code points known to be drawn blank: the Khitan filler,
-//     the blank Braille pattern, the musical null notehead and the object
-//     replacement character. A font can draw more code points blank, such
-//     as private-use ones, and those pass.
+//   - format characters, which include the bidirectional controls that reorder
+//     text and invisible ones such as the zero-width space, the word joiner,
+//     the byte order mark and tag characters;
+//   - the other default ignorable code points, such as the combining grapheme
+//     joiner and the Hangul fillers;
+//   - the other code points known to be drawn blank: the Khitan filler, the
+//     blank Braille pattern, the musical null notehead and the object
+//     replacement character. A font can draw more code points blank, such as
+//     private-use ones, and those pass.
 //
-// The zero-width non-joiner and joiner (U+200C and U+200D), the
-// variation selectors, the tag characters and the Mongolian vowel
-// separator are format characters too. They are allowed only where
-// scripts and emoji use them:
-//   - either joiner after a virama and before a code point that shows, a
-//     space or the end of the name, as in Indic scripts, in Bengali khanda
-//     ta and in Malayalam chillu letters written the way text did before
-//     Unicode 5.1;
-//   - the joiner after a letter and right before a virama of its script,
-//     as in Bengali ra-phala and Sinhala touching letters;
-//   - the non-joiner between two letters of a script whose letters join,
-//     such as Arabic, as Persian needs;
-//   - the joiner between two emoji or other symbols, as in emoji
-//     sequences; the emoji blocks from U+1F000 count whole, so that emoji
-//     newer than Go's Unicode tables pass;
-//   - U+FE0E and U+FE0F right after an emoji or another symbol, or after
-//     a digit, # or * that the keycap mark U+20E3 follows;
-//   - U+FE00 to U+FE02 and the ideographic variation selectors right after
-//     a CJK ideograph, and the Mongolian selectors right after a Mongolian
+// The zero-width non-joiner and joiner (U+200C and U+200D), the variation
+// selectors, the tag characters and the Mongolian vowel separator are format
+// characters too. They are allowed only where scripts and emoji use them:
+//   - either joiner after a virama and before a code point that shows, a space
+//     or the end of the name, as in Indic scripts, in Bengali khanda ta and in
+//     Malayalam chillu letters written the way text did before Unicode 5.1;
+//   - the joiner after a letter and right before a virama of its script, as in
+//     Bengali ra-phala and Sinhala touching letters;
+//   - the non-joiner between two letters of a script whose letters join, such
+//     as Arabic, as Persian needs;
+//   - the joiner between two emoji or other symbols, as in emoji sequences; the
+//     emoji blocks from U+1F000 count whole, so that emoji newer than Go's
+//     Unicode tables pass;
+//   - U+FE0E and U+FE0F right after an emoji or another symbol, or after a
+//     digit, # or * that the keycap mark U+20E3 follows;
+//   - U+FE00 to U+FE02 and the ideographic variation selectors right after a
+//     CJK ideograph, and the Mongolian selectors right after a Mongolian
 //     letter;
 //   - tag characters only in the flags of England, Scotland and Wales: the
 //     black flag, a tag sequence and the cancel tag;
-//   - the Mongolian vowel separator between a Mongolian letter and the
-//     vowel a or e.
+//   - the Mongolian vowel separator between a Mongolian letter and the vowel a
+//     or e.
 //
-// Anywhere else, such as after a Latin letter or at the start of the name,
-// they are rejected. An empty name is valid.
+// Anywhere else, such as after a Latin letter or at the start of the name, they
+// are rejected. An empty name is valid.
 //
-// Names that pass can still look alike: letters of different scripts can
-// share a shape, spaces are allowed, including at either end, and a joiner
-// or selector does not change every letter or symbol it is allowed after.
-// Applications that compare names should use [SamePeerName]. A peer's name
-// is its own claim and proves nothing about its identity, which only the
-// key fingerprint shows.
+// Names that pass can still look alike: letters of different scripts can share
+// a shape, spaces are allowed, including at either end, and a joiner or
+// selector does not change every letter or symbol it is allowed after.
+// Applications that compare names should use [SamePeerName]. A peer's name is
+// its own claim and proves nothing about its identity, which only the key
+// fingerprint shows.
 //
 // The server and the dialer reject a handshake whose name fails this check
 // before the [RemoteVerifier] runs, and [ServeWithServerName] and
 // [DialWithClientName] reject such a local name. Applications can use it to
-// check names that users type, and [SanitizePeerName] to show names that
-// were stored without the check.
+// check names that users type, and [SanitizePeerName] to show names that were
+// stored without the check.
 func ValidatePeerName(name string) error {
 	if len(name) > MaxPeerNameLength {
 		return fmt.Errorf(
@@ -103,13 +100,13 @@ func ValidatePeerName(name string) error {
 	return nil
 }
 
-// SanitizePeerName makes a name that may fail [ValidatePeerName], such as
-// one stored by an older version, safe to show. Each invalid UTF-8
-// sequence and each code point that the check rejects becomes U+FFFD, so
-// a hidden character shows as a mark rather than not at all. A name still
-// longer than [MaxPeerNameLength] bytes is cut on a code point boundary
-// and ends with an ellipsis. The result always passes ValidatePeerName,
-// and a name that passes is returned unchanged.
+// SanitizePeerName makes a name that may fail [ValidatePeerName], such as one
+// stored by an older version, safe to show. Each invalid UTF-8 sequence and
+// each code point that the check rejects becomes U+FFFD, so a hidden character
+// shows as a mark rather than not at all. A name still longer than
+// [MaxPeerNameLength] bytes is cut on a code point boundary and ends with an
+// ellipsis. The result always passes [ValidatePeerName], and a name that passes
+// is returned unchanged.
 func SanitizePeerName(name string) string {
 	s := replaceRejectedRunes(name)
 	if len(s) <= MaxPeerNameLength {
@@ -125,32 +122,32 @@ func SanitizePeerName(name string) string {
 	return replaceRejectedRunes(s[:cut] + ellipsis)
 }
 
-// SamePeerName reports whether two peer names read alike: whether they
-// are equal, case folded, once their spaces and the code points known to
-// show nothing are dropped. Those are the control and format characters,
-// the joiners, the variation selectors, the other default ignorable code
-// points such as the Hangul fillers, and the code points drawn blank that
-// [ValidatePeerName] lists, whether it rejects them or allows them in
-// their place. Every space is dropped, not only those at either end,
-// since some, such as the hair space, are narrow enough to pass for no
-// space at all. Names that differ only in their spaces, such as "Bob Lee"
-// and "BobLee", are therefore the same name to it.
+// SamePeerName reports whether two peer names read alike: whether they are
+// equal, case folded, once their spaces and the code points known to show
+// nothing are dropped. Those are the control and format characters, the
+// joiners, the variation selectors, the other default ignorable code points
+// such as the Hangul fillers, and the code points drawn blank that
+// [ValidatePeerName] lists, whether it rejects them or allows them in their
+// place. Every space is dropped, not only those at either end, since some, such
+// as the hair space, are narrow enough to pass for no space at all. Names that
+// differ only in their spaces, such as "Bob Lee" and "BobLee", are therefore
+// the same name to it.
 //
-// Applications that warn when a new key claims the name of a known peer,
-// or that keep names apart, should compare with it rather than with
-// strings.EqualFold: a name may hold a joiner or selector that passes
-// ValidatePeerName and still shows nothing, and a name stored by an older
+// Applications that warn when a new key claims the name of a known peer, or
+// that keep names apart, should compare with it rather than with
+// [strings.EqualFold]: a name may hold a joiner or selector that passes
+// [ValidatePeerName] and still shows nothing, and a name stored by an older
 // version may hold any code point. It does not normalize, so letters of
 // different scripts that share a shape, such as Latin a and Cyrillic a,
-// fullwidth letters, and an accented letter written as one code point or
-// as a letter and a combining mark still compare as different names, as
-// do names that differ in a code point that only some fonts draw blank.
+// fullwidth letters, and an accented letter written as one code point or as a
+// letter and a combining mark still compare as different names, as do names
+// that differ in a code point that only some fonts draw blank.
 func SamePeerName(x, y string) bool {
 	return strings.EqualFold(nameSkeleton(x), nameSkeleton(y))
 }
 
-// nameSkeleton returns name without its spaces and the code points that
-// show nothing. See [SamePeerName].
+// nameSkeleton returns name without its spaces and the code points that show
+// nothing. See [SamePeerName].
 func nameSkeleton(name string) string {
 	var b strings.Builder
 	b.Grow(len(name))
@@ -163,9 +160,9 @@ func nameSkeleton(name string) string {
 	return b.String()
 }
 
-// replaceRejectedRunes replaces each invalid UTF-8 sequence and each code
-// point of s that [ValidatePeerName] rejects with U+FFFD. It does not cut
-// s to length.
+// replaceRejectedRunes replaces each invalid UTF-8 sequence and each code point
+// of s that [ValidatePeerName] rejects with U+FFFD. It does not cut s to
+// length.
 func replaceRejectedRunes(s string) string {
 	if ValidatePeerName(s) == nil {
 		return s
@@ -189,8 +186,8 @@ func replaceRejectedRunes(s string) string {
 	return b.String()
 }
 
-// nameRuneAllowed reports whether r may appear in a peer's name between
-// before and after. See [ValidatePeerName].
+// nameRuneAllowed reports whether r may appear in a peer's name between before
+// and after. See [ValidatePeerName].
 func nameRuneAllowed(before string, r rune, after string) bool {
 	switch {
 	case r == zwnj:
@@ -217,16 +214,15 @@ func nameRuneAllowed(before string, r rune, after string) bool {
 	}
 }
 
-// blank reports whether r is one of the code points that are drawn as
-// blank space but are not default ignorable, which [nameRuneAllowed]
-// rejects.
+// blank reports whether r is one of the code points that are drawn as blank
+// space but are not default ignorable, which [nameRuneAllowed] rejects.
 func blank(r rune) bool {
 	return r == khitanFiller || r == blankBraille || r == nullNotehead ||
 		r == objectRepl
 }
 
-// hidden reports whether r is a code point that shows nothing on its own
-// and that [nameRuneAllowed] rejects, or allows only in some places.
+// hidden reports whether r is a code point that shows nothing on its own and
+// that [nameRuneAllowed] rejects, or allows only in some places.
 func hidden(r rune) bool {
 	return r == zwnj || r == zwj || blank(r) ||
 		unicode.In(
@@ -237,8 +233,8 @@ func hidden(r rune) bool {
 		)
 }
 
-// lastBase returns the last code point of s that is not a nonspacing
-// mark, or -1 when there is none.
+// lastBase returns the last code point of s that is not a nonspacing mark,
+// or -1 when there is none.
 func lastBase(s string) rune {
 	for s != "" {
 		r, size := utf8.DecodeLastRuneInString(s)
@@ -250,9 +246,9 @@ func lastBase(s string) rune {
 	return -1
 }
 
-// firstBase returns the first code point of s that is not a nonspacing
-// mark, or -1 when there is none. Marks that show nothing, such as
-// variation selectors, end the search like any other code point.
+// firstBase returns the first code point of s that is not a nonspacing mark,
+// or -1 when there is none. Marks that show nothing, such as variation
+// selectors, end the search like any other code point.
 func firstBase(s string) rune {
 	for _, r := range s {
 		if !unicode.Is(unicode.Mn, r) || hidden(r) {
@@ -262,9 +258,8 @@ func firstBase(s string) rune {
 	return -1
 }
 
-// joiningScripts are the scripts whose letters join to their neighbours,
-// so that a zero-width non-joiner between two of them changes how they
-// are drawn.
+// joiningScripts are the scripts whose letters join to their neighbours, so
+// that a zero-width non-joiner between two of them changes how they are drawn.
 var joiningScripts = []*unicode.RangeTable{
 	unicode.Arabic,
 	unicode.Syriac,
@@ -281,14 +276,14 @@ var joiningScripts = []*unicode.RangeTable{
 	unicode.Chorasmian,
 }
 
-// visibleLetter reports whether r is a letter that shows, unlike the
-// Hangul fillers.
+// visibleLetter reports whether r is a letter that shows, unlike the Hangul
+// fillers.
 func visibleLetter(r rune) bool {
 	return unicode.IsLetter(r) && !hidden(r)
 }
 
-// joinsLetters reports whether a zero-width non-joiner between before and
-// after stands between two letters of one joining script, marks aside.
+// joinsLetters reports whether a zero-width non-joiner between before and after
+// stands between two letters of one joining script, marks aside.
 func joinsLetters(before, after string) bool {
 	p, n := lastBase(before), firstBase(after)
 	if !visibleLetter(p) || !visibleLetter(n) {
@@ -302,10 +297,10 @@ func joinsLetters(before, after string) bool {
 	return false
 }
 
-// pictograph reports whether r can stand in an emoji sequence: a code
-// point of the emoji blocks from U+1F000 to U+1FFFD, skin tone modifiers
-// among them, whether or not Go's Unicode tables assign it yet, or another
-// non-ASCII symbol that is not drawn blank.
+// pictograph reports whether r can stand in an emoji sequence: a code point of
+// the emoji blocks from U+1F000 to U+1FFFD, skin tone modifiers among them,
+// whether or not Go's Unicode tables assign it yet, or another non-ASCII symbol
+// that is not drawn blank.
 func pictograph(r rune) bool {
 	if r >= 0x1F000 && r <= 0x1FFFD {
 		return true
@@ -314,15 +309,15 @@ func pictograph(r rune) bool {
 		unicode.In(r, unicode.So, unicode.Sm)
 }
 
-// joinsEmoji reports whether a zero-width joiner between before and after
-// joins two emoji. The one before may carry a variation selector.
+// joinsEmoji reports whether a zero-width joiner between before and after joins
+// two emoji. The one before may carry a variation selector.
 func joinsEmoji(before, after string) bool {
 	n, size := utf8.DecodeRuneInString(after)
 	return size > 0 && pictograph(lastBase(before)) && pictograph(n)
 }
 
-// selectorAllowed reports whether the variation selector r may follow
-// before, with after following it.
+// selectorAllowed reports whether the variation selector r may follow before,
+// with after following it.
 func selectorAllowed(before string, r rune, after string) bool {
 	p, size := utf8.DecodeLastRuneInString(before)
 	switch {
@@ -352,8 +347,8 @@ func selectorAllowed(before string, r rune, after string) bool {
 }
 
 // viramas are the code points of Unicode canonical combining class 9, the
-// viramas and similar signs after which a joiner or non-joiner picks how
-// a consonant cluster is drawn. Sorted.
+// viramas and similar signs after which a joiner or non-joiner picks how a
+// consonant cluster is drawn. Sorted.
 var viramas = []rune{
 	0x094D, 0x09CD, 0x0A4D, 0x0ACD, 0x0B4D, 0x0BCD, 0x0C4D, 0x0CCD,
 	0x0D3B, 0x0D3C, 0x0D4D, 0x0DCA, 0x0E3A, 0x0EBA, 0x0F84, 0x1039,
@@ -366,11 +361,11 @@ var viramas = []rune{
 	0x11D44, 0x11D45, 0x11D97, 0x11F41, 0x11F42,
 }
 
-// afterVirama reports whether a joiner between before and after follows
-// a virama and comes, marks aside, before a code point that shows or at
-// the end of the name. A joiner that ends a word, before a space,
-// punctuation, a digit or an emoji, writes Malayalam chillu letters the
-// way text did before Unicode 5.1, and Bengali khanda ta.
+// afterVirama reports whether a joiner between before and after follows a
+// virama and comes, marks aside, before a code point that shows or at the end
+// of the name. A joiner that ends a word, before a space, punctuation, a digit
+// or an emoji, writes Malayalam chillu letters the way text did before
+// Unicode 5.1, and Bengali khanda ta.
 func afterVirama(before, after string) bool {
 	p, size := utf8.DecodeLastRuneInString(before)
 	if size == 0 {
@@ -383,20 +378,19 @@ func afterVirama(before, after string) bool {
 	return n < 0 || shows(n)
 }
 
-// shows reports whether r shows and [nameRuneAllowed] never rejects it:
-// it is not a control, a line or paragraph separator, or a code point
-// that shows nothing. A joiner may therefore rely on it being there in
-// the sanitized name too.
+// shows reports whether r shows and [nameRuneAllowed] never rejects it: it is
+// not a control, a line or paragraph separator, or a code point that shows
+// nothing. A joiner may therefore rely on it being there in the sanitized name
+// too.
 func shows(r rune) bool {
 	return !hidden(r) && !unicode.IsControl(r) &&
 		!unicode.In(r, unicode.Zl, unicode.Zp)
 }
 
-// beforeVirama reports whether a joiner between before and after comes
-// right before a virama and after a letter of the virama's script, marks
-// aside, as in Bengali ra-phala and Sinhala touching letters. A virama is
-// never rejected, so [SanitizePeerName] keeps such a joiner only where the
-// result validates.
+// beforeVirama reports whether a joiner between before and after comes right
+// before a virama and after a letter of the virama's script, marks aside, as in
+// Bengali ra-phala and Sinhala touching letters. A virama is never rejected, so
+// [SanitizePeerName] keeps such a joiner only where the result validates.
 func beforeVirama(before, after string) bool {
 	n, size := utf8.DecodeRuneInString(after)
 	if size == 0 {
@@ -419,8 +413,8 @@ func sameScript(p, n rune) bool {
 	return false
 }
 
-// subdivisionFlags are the tag sequences of the emoji flags Unicode
-// recommends, England, Scotland and Wales, without the cancel tag.
+// subdivisionFlags are the tag sequences of the emoji flags Unicode recommends,
+// England, Scotland and Wales, without the cancel tag.
 var subdivisionFlags = []string{"gbeng", "gbsct", "gbwls"}
 
 // isTag reports whether r is a tag character, U+E0020 to U+E007F.
@@ -428,10 +422,10 @@ func isTag(r rune) bool {
 	return r >= 0xE0020 && r <= cancelTag
 }
 
-// inSubdivisionFlag reports whether the tag character r between before
-// and after belongs to one of [subdivisionFlags]: the black flag, then the
-// tag characters of the sequence, then the cancel tag. Every tag of one
-// run sees the same run, so a run is allowed or rejected whole.
+// inSubdivisionFlag reports whether the tag character r between before and
+// after belongs to one of [subdivisionFlags]: the black flag, then the tag
+// characters of the sequence, then the cancel tag. Every tag of one run sees
+// the same run, so a run is allowed or rejected whole.
 func inSubdivisionFlag(before string, r rune, after string) bool {
 	const longest = 6 // the tags of "gbeng", and the cancel tag
 	var tags []rune
@@ -468,10 +462,9 @@ func inSubdivisionFlag(before string, r rune, after string) bool {
 	return slices.Contains(subdivisionFlags, b.String())
 }
 
-// beforeFinalVowel reports whether the Mongolian vowel separator between
-// before and after follows a Mongolian letter, marks aside, and comes
-// right before the vowel a or e, as traditional orthography writes a
-// word-final a or e.
+// beforeFinalVowel reports whether the Mongolian vowel separator between before
+// and after follows a Mongolian letter, marks aside, and comes right before the
+// vowel a or e, as traditional orthography writes a word-final a or e.
 func beforeFinalVowel(before, after string) bool {
 	p := lastBase(before)
 	n, _ := utf8.DecodeRuneInString(after)

@@ -2,6 +2,7 @@ package kamune
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -113,8 +114,8 @@ func (d *Dialer) PublicKey() []byte {
 }
 
 // NewDialer creates a new dialer with the given address, storage, and options.
-// It returns ErrMissingStorage when store is nil, ErrMissingVerifier when rv
-// is nil, and an error when [AppVersion] is not a valid version.
+// It returns [ErrMissingStorage] when store is nil, [ErrMissingVerifier] when
+// rv is nil, and an error when [AppVersion] is not a valid version.
 func NewDialer(
 	addr string, store *storage.Storage, rv RemoteVerifier, opts ...DialOption,
 ) (*Dialer, error) {
@@ -155,13 +156,11 @@ func NewDialer(
 		d.clientName = fingerprint.Sum(at.MarshalPublicKey())
 	}
 	if d.handshakeOpts.noPersistence && d.handshakeOpts.sessionID != "" {
-		return nil, fmt.Errorf(
-			"dial: resume requires persistence",
-		)
+		return nil, errors.New("dial: resume requires persistence")
 	}
 	if len(d.handshakeOpts.pin) > 0 &&
 		!attest.IsValidPublicKey(d.handshakeOpts.pin) {
-		return nil, fmt.Errorf("dial: peer key is not a valid public key")
+		return nil, errors.New("dial: peer key is not a valid public key")
 	}
 
 	return d, nil
@@ -171,9 +170,9 @@ func NewDialer(
 // [NewDialer] to fail immediately with that error.
 type DialOption func(*Dialer) error
 
-// DialWithFunc sets a custom dial function for the dialer. When set, the
-// dialer uses this function instead of the default TCP dial. This is the
-// dial-side equivalent of [ServeWithListener].
+// DialWithFunc sets a custom dial function for the dialer. When set, the dialer
+// uses this function instead of the default TCP dial. This is the dial-side
+// equivalent of [ServeWithListener].
 func DialWithFunc(fn func(addr string) (Conn, error)) DialOption {
 	return func(d *Dialer) error {
 		d.dialFunc = fn
@@ -182,10 +181,10 @@ func DialWithFunc(fn func(addr string) (Conn, error)) DialOption {
 }
 
 // DialWithTCP configures the dialer to use TCP connections. This is the
-// default, so the option is only needed to say so or to set connection
-// options. It clears a custom dial function. [DialContext] then uses
-// net.Dialer.DialContext and can cancel the connect. A later
-// [DialWithFunc] or [DialWithUDP] replaces that dial.
+// default, so the option is only needed to say so or to set connection options.
+// It clears a custom dial function. [DialContext] then uses
+// [net.Dialer.DialContext] and can cancel the connect. A later [DialWithFunc]
+// or [DialWithUDP] replaces that dial.
 func DialWithTCP(opts ...ConnOption) DialOption {
 	return func(d *Dialer) error {
 		d.connOpts = append(d.connOpts, opts...)
@@ -261,9 +260,9 @@ func DialWithPeerKey(pub []byte) DialOption {
 // DialWithVerifyTimeout sets how long the [RemoteVerifier] may take to decide
 // on a peer. The handshake deadline does not run while the verifier does, so
 // a user has this long to compare fingerprints; a verifier that accepts later
-// is treated as a rejection. The dialer also allows this long for the
-// server's verifier when it waits for the server's answer, so a lower d
-// also makes [Dialer.Dial] give up sooner on a server that does not answer.
+// is treated as a rejection. The dialer also allows this long for the server's
+// verifier when it waits for the server's answer, so a lower d also makes
+// [Dialer.Dial] give up sooner on a server that does not answer.
 // The default is 150 seconds; d must be positive.
 func DialWithVerifyTimeout(d time.Duration) DialOption {
 	return func(dl *Dialer) error {

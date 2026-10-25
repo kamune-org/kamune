@@ -13,15 +13,15 @@ var (
 	// that has already been closed.
 	ErrConnClosed = errors.New("connection has been closed")
 	// ErrPeerDisconnected is returned when the remote peer sends a
-	// RouteCloseTransport frame, indicating a graceful disconnect.
+	// [RouteCloseTransport] frame, indicating a graceful disconnect.
 	ErrPeerDisconnected = errors.New("peer disconnected")
 	// ErrInvalidSignature is returned when a cryptographic signature fails
 	// verification.
 	ErrInvalidSignature = errors.New("invalid signature")
-	// ErrVerificationFailed is returned when a handshake check, such as
-	// the remote verifier or a finished MAC, does not pass.
+	// ErrVerificationFailed is returned when a handshake check, such as the
+	// remote verifier or a finished MAC, does not pass.
 	ErrVerificationFailed = errors.New("verification failed")
-	// ErrMessageTooLarge is returned when a frame exceeds maxTransportSize.
+	// ErrMessageTooLarge is returned when a frame exceeds [maxTransportSize].
 	ErrMessageTooLarge = errors.New("message is too large")
 	// ErrOutOfSync is returned when received message sequence numbers indicate
 	// duplicates, gaps, or out-of-order delivery.
@@ -30,50 +30,47 @@ var (
 	// match the expected route for the current protocol phase.
 	ErrUnexpectedRoute = errors.New("unexpected route received")
 	// ErrInvalidRoute is returned when a route is not a recognized protocol
-	// route (e.g. when used with Transport.Send).
+	// route (e.g. when used with [Transport.Send]).
 	ErrInvalidRoute = errors.New("invalid route")
-	// ErrReceiveTimeout is returned when Transport.Receive exceeds its deadline.
+	// ErrReceiveTimeout is returned when [Transport.Receive] exceeds its
+	// deadline.
 	ErrReceiveTimeout = errors.New("receive timed out")
 	// ErrInvalidPeerName is returned when a peer's name, local or received
 	// in a handshake, fails [ValidatePeerName].
 	ErrInvalidPeerName = errors.New("invalid peer name")
-	// ErrInvalidAppVersion is returned when a version, the local
-	// [AppVersion] or one received in a handshake, fails
-	// [ValidateAppVersion].
+	// ErrInvalidAppVersion is returned when a version, the local [AppVersion]
+	// or one received in a handshake, fails [ValidateAppVersion].
 	ErrInvalidAppVersion = errors.New("invalid app version")
-	// ErrMissingStorage is returned by NewServer and NewDialer when they are
-	// given a nil storage.
+	// ErrMissingStorage is returned by [NewServer] and [NewDialer] when they
+	// are given a nil storage.
 	ErrMissingStorage = errors.New("storage is required")
-	// ErrMissingVerifier is returned by NewServer and NewDialer when they
+	// ErrMissingVerifier is returned by [NewServer] and [NewDialer] when they
 	// are given a nil [RemoteVerifier].
 	ErrMissingVerifier = errors.New("remote verifier is required")
 	// ErrInvalidExport is returned when ExportKeyingMaterial is called
 	// with a label or length outside the allowed range.
 	ErrInvalidExport = errors.New("invalid exporter label or length")
-	// ErrUnsupportedProtocol is returned when a handshake frame's
-	// version is not the version this build speaks.
+	// ErrUnsupportedProtocol is returned when a handshake frame's version is
+	// not the version this build speaks.
 	ErrUnsupportedProtocol = errors.New("unsupported protocol version")
-	// ErrInvalidHandshake is returned when a handshake frame has the
-	// right version but its type, length, or plaintext is not valid.
+	// ErrInvalidHandshake is returned when a handshake frame has the right
+	// version but its type, length, or plaintext is not valid.
 	ErrInvalidHandshake = errors.New("malformed handshake message")
-	// ErrPeerKeyMismatch is returned when an authenticated peer key is
-	// not the pinned key, or a PeerConstraint rejects it.
-	ErrPeerKeyMismatch = errors.New(
-		"peer key does not match the pinned key",
-	)
-	// ErrSelfConnection is returned when the peer's identity key is
-	// the local identity key.
+	// ErrPeerKeyMismatch is returned when an authenticated peer key is not the
+	// pinned key, or a [PeerConstraint] rejects it.
+	ErrPeerKeyMismatch = errors.New("peer key does not match the pinned key")
+	// ErrSelfConnection is returned when the peer's identity key is the local
+	// identity key.
 	ErrSelfConnection = errors.New("peer key is the local key")
-	// ErrHandshakeRejected is returned when the peer sends a
-	// rejected Confirm.
+	// ErrHandshakeRejected is returned when the peer sends a rejected Confirm.
 	ErrHandshakeRejected = errors.New("peer rejected the handshake")
-	// ErrNoResumptionState is returned when a resume was asked for
-	// and the session has no initiator row.
+	// ErrNoResumptionState is returned when a resume was asked for and the
+	// session has no initiator row.
 	ErrNoResumptionState = errors.New("no resumption state for session")
-	// ErrResumeInProgress is returned when this process is already
-	// resuming the session.
+	// ErrResumeInProgress is returned when this process is already resuming
+	// the session.
 	ErrResumeInProgress = errors.New("session is being resumed already")
-	// ErrResumeRefused is returned when a resume-only dial is answered
-	// with a cold session.
+	// ErrResumeRefused is returned when a resume-only dial is answered with a
+	// cold session.
 	ErrResumeRefused = errors.New("peer did not resume the session")
 )

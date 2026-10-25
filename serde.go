@@ -23,10 +23,7 @@ type signedSerde struct {
 }
 
 func newSignedSerde(remote []byte, attest *attest.Attest) *signedSerde {
-	return &signedSerde{
-		remote: remote,
-		attest: attest,
-	}
+	return &signedSerde{remote: remote, attest: attest}
 }
 
 func (s *signedSerde) serialize(
@@ -138,7 +135,7 @@ const paddingField protowire.Number = 4
 //
 // The padding is appended as raw Padding field records instead of being set on
 // st, so that every gap of two or more bytes is filled exactly (see
-// paddingRecords).
+// [paddingRecords]).
 func padSignedTransport(st *pb.SignedTransport) ([]byte, error) {
 	st.Padding = nil
 	b, err := proto.Marshal(st)
@@ -176,13 +173,12 @@ func appendPadding(b []byte, gap int) []byte {
 	return b
 }
 
-// paddingRecords returns the content lengths of the Padding field records
-// whose encodings add up to exactly gap bytes. A record costs a one-byte tag,
-// a varint length and the content. A single record fits every gap of two or
-// more bytes except those that fall between two varint widths (130, 16387,
-// ...). For those, an empty two-byte record goes first, and the last record,
-// whose value a decoder keeps, carries the content. A gap of one byte cannot
-// be filled.
+// paddingRecords returns the content lengths of the Padding field records whose
+// encodings add up to exactly gap bytes. A record costs a one-byte tag, a
+// varint length and the content. A single record fits every gap of two or more
+// bytes except those that fall between two varint widths (130, 16387, ...). For
+// those, an empty two-byte record goes first, and the last record, whose value
+// a decoder keeps, carries the content. A gap of one byte cannot be filled.
 func paddingRecords(gap int) ([]int, bool) {
 	if gap <= 0 {
 		return nil, gap == 0
@@ -230,7 +226,7 @@ func naturalBucketIndex(baseSize int) int {
 	return len(paddingBuckets) - 1
 }
 
-// selectBump returns a random bump level (0-3) according to  bumpProbabilities.
+// selectBump returns a random bump level (0-3) according to [bumpProbabilities].
 // Index 0 corresponds to "stay", index 3 to "+3".
 func selectBump() int {
 	total := 0

@@ -19,12 +19,12 @@ import (
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
-// closeFrameTimeout bounds how long Transport.Close waits for its close frame
-// to be sent. It leaves room for a full frame already being written on a
-// slow link, while a peer that stops reading holds Close up only this long.
+// closeFrameTimeout bounds how long [Transport.Close] waits for its close frame
+// to be sent. It leaves room for a full frame already being written on a slow
+// link, while a peer that stops reading holds Close up only this long.
 const closeFrameTimeout = 5 * time.Second
 
-// connDropErrors are Conn read errors that mean the connection was closed
+// connDropErrors are [Conn] read errors that mean the connection was closed
 // locally, closed by the peer, or dropped by the network.
 var connDropErrors = []error{
 	ErrConnClosed,
@@ -48,7 +48,7 @@ func isConnDrop(err error) bool {
 }
 
 // isTimeout reports whether err is a deadline/timeout error, either from
-// os.ErrDeadlineExceeded or from a net.Error with Timeout() true.
+// [os.ErrDeadlineExceeded] or from a [net.Error] with Timeout() true.
 func isTimeout(err error) bool {
 	switch {
 	case errors.Is(err, os.ErrDeadlineExceeded):
@@ -61,22 +61,22 @@ func isTimeout(err error) bool {
 
 // Transport handles encrypted message exchange with route-based dispatch.
 //
-// A Transport that receives a frame it must not process further closes
-// its connection. A failed inner signature, a route that is not a session
-// route, or RouteCloseTransport deletes the resumption row. A decrypt
-// failure, a duplicate or a gap, and a connection drop touch the row and
-// leave it. A compare-and-swap conflict leaves a newer row in place.
-// Every later Receive returns the same error, and Send fails with
-// ErrConnClosed. Only RouteCloseTransport tells the peer. In the other
-// cases the peer sees the connection drop.
+// A Transport that receives a frame it must not process further closes its
+// connection. A failed inner signature, a route that is not a session route,
+// or [RouteCloseTransport] deletes the resumption row. A decrypt failure, a
+// duplicate or a gap, and a connection drop touch the row and leave it. A
+// compare-and-swap conflict leaves a newer row in place. Every later Receive
+// returns the same error, and Send fails with [ErrConnClosed]. Only
+// [RouteCloseTransport] tells the peer. In the other cases the peer sees the
+// connection drop.
 //
-// Closing a Transport deletes its resumption row. A compare-and-swap
-// conflict leaves a newer row in place. A session without persistence
-// stores no row.
+// Closing a Transport deletes its resumption row. A compare-and-swap conflict
+// leaves a newer row in place. A session without persistence stores no row.
 type Transport struct {
 	conn         Conn
 	acceptedMeta any
 	termErr      error
+	clock        clock.Clock
 	serde        *signedSerde
 	encoder      *enigma.Enigma
 	decoder      *enigma.Enigma
@@ -84,19 +84,18 @@ type Transport struct {
 	remotePeer   *storage.Peer
 	storage      *storage.Storage
 	sessionID    string
-	recvSequence uint64
-	sendSequence uint64
+	exporter     []byte
 	closeTimeout time.Duration
 	resGen       uint64
-	resRole      storage.ResumeRole
-	exporter     []byte
-	clock        clock.Clock
+	sendSequence uint64
+	recvSequence uint64
+	resRelease   sync.Once
 	sendMu       sync.Mutex
 	recvMu       sync.Mutex
+	resDropped   atomic.Bool
+	resRole      storage.ResumeRole
 	resumed      bool
 	resHeld      bool
-	resRelease   sync.Once
-	resDropped   atomic.Bool
 }
 
 func newTransport(
@@ -129,18 +128,18 @@ func (t *Transport) Receive(dst Transferable) (*Metadata, error) {
 	return metadata, nil
 }
 
-// ReceivePayload reads and decrypts the next message and returns the
-// verified protobuf bytes without unmarshalling them into a caller type.
+// ReceivePayload reads and decrypts the next message and returns the verified
+// protobuf bytes without unmarshalling them into a caller type.
 //
-// It returns ErrReceiveTimeout when the read deadline passes before any byte
+// It returns [ErrReceiveTimeout] when the read deadline passes before any byte
 // of the next frame has arrived; the caller may retry. A connection that drops
-// or times out part-way through a frame yields ErrConnClosed.
+// or times out part-way through a frame yields [ErrConnClosed].
 //
 // ReceivePayload and Receive are safe for concurrent use. Calls are served one
 // at a time in wire order, and each frame goes to exactly one caller.
 func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
-	// Hold recvMu from the read through the sequence check, so that frames
-	// read by concurrent callers are checked in the order they arrived.
+	// Hold recvMu from the read through the sequence check, so that frames read
+	// by concurrent callers are checked in the order they arrived.
 	t.recvMu.Lock()
 	defer t.recvMu.Unlock()
 
@@ -203,8 +202,8 @@ func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 		return nil, nil, t.terminate(err, false)
 	}
 	if route == RouteCloseTransport {
-		// The peer will send nothing more; close the session so that no
-		// frame queued behind the close is processed.
+		// The peer will send nothing more; close the session so that no frame
+		// queued behind the close is processed.
 		return nil, nil, t.terminate(ErrPeerDisconnected, false)
 	}
 
@@ -213,9 +212,9 @@ func (t *Transport) ReceivePayload() (*Metadata, []byte, error) {
 
 // Send encrypts and sends a message with the specified route.
 //
-// An error wrapping ErrConnClosed means the connection is gone, for example
-// because a write failed part-way through the frame; the caller must not
-// retry on this Transport.
+// An error wrapping [ErrConnClosed] means the connection is gone, for example
+// because a write failed part-way through the frame; the caller must not retry
+// on this Transport.
 func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 	if !route.IsValid() {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, route)
@@ -248,28 +247,27 @@ func (t *Transport) Send(message Transferable, route Route) (*Metadata, error) {
 }
 
 // Close ends the session and closes the transport connection. It sends a
-// RouteCloseTransport frame before closing (best-effort — if the send fails,
-// it closes directly) and deletes the session's resumption row, whether or
-// not the frame could be sent, so neither side can resume the session
-// afterwards. To keep a session resumable after its connection drops, as
-// when Receive returns ErrConnClosed, use [Transport.CloseAbort] instead.
-// It returns nil when Receive has already closed the transport.
+// [RouteCloseTransport] frame before closing (best-effort — if the send fails,
+// it closes directly) and deletes the session's resumption row, whether or not
+// the frame could be sent, so neither side can resume the session afterwards.
+// To keep a session resumable after its connection drops, as when Receive
+// returns [ErrConnClosed], use [Transport.CloseAbort] instead. It returns nil
+// when Receive has already closed the transport.
 //
-// Closing a generation whose stored row is newer is a compare-and-swap
-// conflict and leaves that row in place. A session without persistence
-// stores no row.
+// Closing a generation whose stored row is newer is a compare-and-swap conflict
+// and leaves that row in place. A session without persistence stores no row.
 //
-// Close waits at most 5 seconds for the close frame to be sent, including
-// the wait for a Send already in progress, and then closes the connection
-// whether or not the frame went out. A peer that stops reading cannot hold
-// it up for longer. A peer that does not get the frame in time sees the
-// connection drop, as ErrConnClosed rather than ErrPeerDisconnected.
+// Close waits at most 5 seconds for the close frame to be sent, including the
+// wait for a Send already in progress, and then closes the connection whether
+// or not the frame went out. A peer that stops reading cannot hold it up for
+// longer. A peer that does not get the frame in time sees the connection drop,
+// as [ErrConnClosed] rather than [ErrPeerDisconnected].
 //
-// The frame is written from a goroutine that ends when the write does.
-// Closing the connection ends a pending write on a network connection. A
-// Conn whose Close does not, such as one accepted from a relay listener,
-// which shares the listener's link to the relay, keeps that goroutine until
-// the pending write completes or the link fails.
+// The frame is written from a goroutine that ends when the write does. Closing
+// the connection ends a pending write on a network connection. A [Conn] whose
+// Close does not, such as one accepted from a relay listener, which shares the
+// listener's link to the relay, keeps that goroutine until the pending write
+// completes or the link fails.
 func (t *Transport) Close() error {
 	t.zeroExporter()
 	if t.terminated() != nil {
@@ -288,19 +286,19 @@ func (t *Transport) Close() error {
 	case <-sent:
 	case <-timer.C:
 		// Closing the connection below ends a stuck write on a network
-		// connection, and the goroutine then returns. See the doc
-		// comment for Conns whose Close does not.
+		// connection, and the goroutine then returns. See the doc comment for
+		// Conns whose Close does not.
 	}
-	// The session is over even if the peer never got the close frame, so
-	// it must not be resumed.
+	// The session is over even if the peer never got the close frame, so it
+	// must not be resumed.
 	t.endResumption()
 	return t.conn.Close()
 }
 
-// CloseAbort closes the underlying connection abruptly without transmitting
-// a RouteCloseTransport frame or deleting the resumption row. It touches
-// the row, so the session can still be resumed. Used when a connection
-// drops or fails keepalive.
+// CloseAbort closes the underlying connection abruptly without transmitting a
+// [RouteCloseTransport] frame or deleting the resumption row. It touches the
+// row, so the session can still be resumed. Used when a connection drops or
+// fails keepalive.
 func (t *Transport) CloseAbort() error {
 	t.zeroExporter()
 	t.touchResumption()
@@ -310,8 +308,8 @@ func (t *Transport) CloseAbort() error {
 // Resumed reports whether this session continued an earlier one.
 func (t *Transport) Resumed() bool { return t.resumed }
 
-// ExportKeyingMaterial derives length bytes for label and context.
-// After Close, CloseAbort, or termination it returns ErrConnClosed.
+// ExportKeyingMaterial derives length bytes for label and context. After Close,
+// CloseAbort, or termination it returns [ErrConnClosed].
 func (t *Transport) ExportKeyingMaterial(
 	label string, context []byte, length int,
 ) ([]byte, error) {
@@ -334,10 +332,10 @@ func (t *Transport) zeroExporter() {
 
 // terminate records err as the terminal error of t, unless one is already
 // recorded, wipes the exporter, closes the connection and returns err.
-// keepState false deletes the resumption row at t.resGen. keepState true
-// touches that row and leaves it, for a failure anyone on the path can
-// cause. The exporter is wiped in this critical section. zeroExporter
-// takes t.mu itself, so calling it here would deadlock.
+//keepState false deletes the resumption row at t.resGen. keepState true
+// touches that row and leaves it, for a failure anyone on the path can cause.
+// The exporter is wiped in this critical section. zeroExporter takes t.mu
+// itself, so calling it here would deadlock.
 func (t *Transport) terminate(err error, keepState bool) error {
 	t.mu.Lock()
 	first := t.termErr == nil
@@ -410,10 +408,10 @@ func (t *Transport) releaseResumption() {
 	})
 }
 
-// dropIfUnreleased closes a transport whose handler returned without
-// Close, CloseAbort, or terminate. The hold would otherwise pin the row
-// past idle and max age. A release that already ran is left alone, so a
-// Close that deleted the row is not followed by a touch.
+// dropIfUnreleased closes a transport whose handler returned without Close,
+// CloseAbort, or terminate. The hold would otherwise pin the row past idle and
+// max age. A release that already ran is left alone, so a Close that deleted
+// the row is not followed by a touch.
 func (t *Transport) dropIfUnreleased() {
 	if t == nil || !t.resHeld || t.resDropped.Load() {
 		return

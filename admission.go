@@ -60,9 +60,8 @@ func (g *stage) remove(p *pendingConn) {
 }
 
 // dropCandidate returns the connection to drop for a new one from network.
-// It takes the networks with the most connections, the new one counted,
-// picks one of them at random and returns its oldest connection. g must
-// not be empty.
+// It takes the networks with the most connections, the new one counted, picks
+// one of them at random and returns its oldest connection. g must not be empty.
 func (g *stage) dropCandidate(network string) *pendingConn {
 	in := func(n string) int {
 		if n == network {
@@ -93,9 +92,9 @@ func (g *stage) dropCandidate(network string) *pendingConn {
 	return victim
 }
 
-// helloReceived moves p from waiting to hello. Hello is capped on its own,
-// so a full hello list evicts a hello connection and never a waiting one.
-// p may be nil when ListenAndServe did not accept the connection.
+// helloReceived moves p from waiting to hello. Hello is capped on its own, so a
+// full hello list evicts a hello connection and never a waiting one. p may be
+// nil when ListenAndServe did not accept the connection.
 func (s *Server) helloReceived(p *pendingConn) error {
 	if p == nil {
 		return nil

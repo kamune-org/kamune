@@ -125,18 +125,16 @@ const defaultIdleSessionLimit = 8
 
 type Storage struct {
 	clock             clock.Clock
-	passphraseHandler PassphraseHandler
 	engine            engine.Store
+	passphraseHandler PassphraseHandler
+	live              map[string]int
 	dbPath            string
 	nameKey           []byte
 	expiryDuration    time.Duration
 	timeout           time.Duration
 	idleSessionLimit  int
+	liveMu            sync.Mutex
 	createDB          bool
-	// live counts transports that still hold a session, so a sweep does
-	// not expire it while the connection is open. Guarded by liveMu.
-	live   map[string]int
-	liveMu sync.Mutex
 }
 
 // OpenStorage opens the database, creating it unless [WithCreateDB] says

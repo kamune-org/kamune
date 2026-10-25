@@ -336,9 +336,7 @@ func parseConfirm(
 	}
 	rest = rest[n:]
 	if len(rest) < finishedLen {
-		return 0, 0, "", "", nil, fmt.Errorf(
-			"%w: confirm", ErrInvalidHandshake,
-		)
+		return 0, 0, "", "", nil, fmt.Errorf("%w: confirm", ErrInvalidHandshake)
 	}
 	finC = rest[:finishedLen]
 	if err = checkZero(rest[finishedLen:]); err != nil {
@@ -425,11 +423,9 @@ func checkConfirm(status, reason byte, name, version string) error {
 	return nil
 }
 
-// checkConfirmStatus checks the status and reason. Name and version are
-// checked after finished_C, by the caller, so a bad MAC is not hidden.
-func checkConfirmStatus(
-	status, reason byte, name, version string,
-) error {
+// checkConfirmStatus checks the status and reason. Name and version are checked
+// after finished_C, by the caller, so a bad MAC is not hidden.
+func checkConfirmStatus(status, reason byte, name, version string) error {
 	switch status {
 	case confirmCold, confirmResumed:
 		if reason != 0 {

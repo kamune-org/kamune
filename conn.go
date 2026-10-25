@@ -14,7 +14,7 @@ import (
 )
 
 // Conn is the abstract transport connection used by the kamune protocol. It
-// extends exchange.ReadWriter with deadline and close operations.
+// extends [exchange.ReadWriter] with deadline and close operations.
 type Conn interface {
 	exchange.ReadWriter
 	SetDeadline(t time.Time) error
@@ -100,7 +100,7 @@ func (c *conn) ReadBytes() ([]byte, error) {
 }
 
 // abortFrame closes the conn after a read or write failed part-way through a
-// frame. The returned error wraps ErrConnClosed but not cause, so a deadline
+// frame. The returned error wraps [ErrConnClosed] but not cause, so a deadline
 // that fired mid-frame is not mistaken for a retryable timeout.
 func (c *conn) abortFrame(cause error) error {
 	_ = c.Close()
@@ -303,7 +303,7 @@ func NewConn(c net.Conn, opts ...ConnOption) Conn {
 	return newConn(c, opts...)
 }
 
-// newConn wraps a net.Conn with framing, deadlines, and functional options.
+// newConn wraps a [net.Conn] with framing, deadlines, and functional options.
 func newConn(c net.Conn, opts ...ConnOption) *conn {
 	cn := &conn{
 		conn:          c,

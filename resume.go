@@ -19,9 +19,9 @@ type resumeLockKey struct {
 	sid   string
 }
 
-// resumeHold is one session's resume mutex. refs counts goroutines that
-// have observed the entry and not yet finished TryLock or Unlock, so the
-// entry is not deleted in that window.
+// resumeHold is one session's resume mutex. refs counts goroutines that have
+// observed the entry and not yet finished TryLock or Unlock, so the entry is
+// not deleted in that window.
 type resumeHold struct {
 	mu   sync.Mutex
 	refs int
