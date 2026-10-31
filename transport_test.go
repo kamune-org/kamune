@@ -729,7 +729,7 @@ func storeTestResumption(
 	}))
 }
 
-func TestTransportCloseClearsResumptionTokens(t *testing.T) {
+func TestTransportCloseDeletesResumption(t *testing.T) {
 	a := require.New(t)
 	store := newTransportTestStorage(t)
 	tr := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
@@ -740,11 +740,10 @@ func TestTransportCloseClearsResumptionTokens(t *testing.T) {
 	a.ErrorIs(err, storage.ErrNoResumption)
 }
 
-// TestTransportCloseKeepsTokensOfResumedSession closes a transport after
-// a resumption of its session on another transport stored new tokens,
-// and checks that those stay, and that closing the newer one ends the
-// session.
-func TestTransportCloseKeepsTokensOfResumedSession(t *testing.T) {
+// TestTransportCloseKeepsNewerGeneration closes a transport after a
+// resumption of its session stored a newer generation, and checks that
+// the newer row stays. Closing that newer transport ends the session.
+func TestTransportCloseKeepsNewerGeneration(t *testing.T) {
 	a := require.New(t)
 	store := newTransportTestStorage(t)
 	old := incomingTransport(t, RouteExchangeMessages, 1, Bytes(nil))
