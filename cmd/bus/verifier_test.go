@@ -1026,6 +1026,48 @@ func TestVerifierBusyRejectsSecondPrompt(t *testing.T) {
 	a.Error(waitVerdict(t, errCh))
 }
 
+// TestSeventhPromptInAMinuteIsRejected checks RFC007 §20.1: after six
+// prompts in a minute, another unknown key is rejected with no prompt.
+// A stored peer on the initiator path still gets a prompt.
+func TestSeventhPromptInAMinuteIsRejected(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	app.verifMode = VerificationModeQuick
+	events := recordEvents(app)
+	rv := app.verifierWithin(app.lifeCtx(), VerificationModeQuick, true)
+
+	prompt := func() {
+		t.Helper()
+		req := policyReq(t, app, kamune.RoleResponder, false)
+		errCh := runVerifierReq(app, rv, req)
+		ids := waitPending(t, app, 1)
+		app.VerifyResponse(ids[0], false)
+		a.ErrorIs(waitVerdict(t, errCh), kamune.ErrVerificationFailed)
+	}
+	for range 6 {
+		prompt()
+	}
+	a.Len(events.named("verify-peer"), 6)
+
+	req := policyReq(t, app, kamune.RoleResponder, false)
+	err := waitVerdict(t, runVerifierReq(app, rv, req))
+	a.ErrorIs(err, errPromptRateLimited)
+	a.ErrorIs(err, kamune.ErrVerificationFailed)
+	a.NotErrorIs(err, errVerifierBusy)
+	a.Len(events.named("verify-peer"), 6)
+	a.Empty(pendingIDs(app))
+
+	known := policyReq(t, app, kamune.RoleInitiator, true)
+	errCh := runVerifierReq(app, app.verifierWithin(
+		app.lifeCtx(), VerificationModeQuick, false,
+	), known)
+	ids := waitPending(t, app, 1)
+	a.Len(events.named("verify-peer"), 7)
+	app.VerifyResponse(ids[0], false)
+	a.Error(waitVerdict(t, errCh))
+}
+
 func TestNameCollisionFlagsUnknownKey(t *testing.T) {
 	a := require.New(t)
 	app, cleanup := newTestAppWithStorage(t)
