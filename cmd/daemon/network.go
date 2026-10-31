@@ -819,7 +819,7 @@ func (d *Daemon) dial(ctx context.Context, cmd Command, params DialParams) {
 		))
 		params.Addr = "p2p"
 	case "direct-p2p":
-		conn, err := directP2PDial(params.DirectPeerAddr)
+		conn, err := directP2PDial(ctx, params.DirectPeerAddr)
 		if err != nil {
 			d.emitError(cmd.ID, "direct_p2p_failed", fmt.Sprintf("direct p2p dial: %v", err))
 			return
@@ -1348,7 +1348,7 @@ func (d *Daemon) makeReconnectFn(
 			resumeOpts = append(resumeOpts, kamune.DialWithPeerKey(peerKey))
 		}
 		if isDirectP2P {
-			pConn, err := directP2PDial(directPeerAddr)
+			pConn, err := directP2PDial(ctx, directPeerAddr)
 			if err != nil {
 				return nil, fmt.Errorf("direct p2p redial: %w", err)
 			}

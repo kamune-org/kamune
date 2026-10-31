@@ -116,7 +116,7 @@ func (l *directP2PListener) Addr() *net.UDPAddr {
 	return nil
 }
 
-func directP2PDial(peerAddr string) (kamune.Conn, error) {
+func directP2PDial(ctx context.Context, peerAddr string) (kamune.Conn, error) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
 		return nil, fmt.Errorf("bind punch socket: %w", err)
@@ -128,12 +128,19 @@ func directP2PDial(peerAddr string) (kamune.Conn, error) {
 		return nil, fmt.Errorf("resolve peer addr: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	kickCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, _ = sendNATKick(ctx, conn, peerUDPAddr)
+	_, _ = sendNATKick(kickCtx, conn, peerUDPAddr)
+	if err := ctx.Err(); err != nil {
+		conn.Close()
+		return nil, err
+	}
 
 	var convid uint32
-	binary.Read(rand.Reader, binary.LittleEndian, &convid)
+	if err := binary.Read(rand.Reader, binary.LittleEndian, &convid); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("convid: %w", err)
+	}
 	sess, err := kcp.NewConn4(convid, peerUDPAddr, nil, 0, 0, true, conn)
 	if err != nil {
 		conn.Close()

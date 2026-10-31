@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"net"
 	"testing"
@@ -15,6 +16,16 @@ import (
 // kcp-go takes as the first packet of a new session with conversation
 // conv: a 24-byte KCP header. The datagrams of one host to one socket
 // arrive in the order they were sent.
+func TestDirectP2PDialCancelled(t *testing.T) {
+	a := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	_, err := directP2PDial(ctx, "127.0.0.1:9")
+	a.ErrorIs(err, context.Canceled)
+	a.Less(time.Since(start), time.Second)
+}
+
 func sendKCPOpen(t *testing.T, ip string, dst *net.UDPAddr, conv uint32) {
 	a := require.New(t)
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP(ip)})
