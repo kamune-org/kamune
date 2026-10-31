@@ -263,7 +263,11 @@ func (b *BrokerClient) HolePunch(
 	// handshake's first Write sends the first KCP segment; the
 	// listener's kcp.ServeConn accepts it.
 	var convid uint32
-	binary.Read(rand.Reader, binary.LittleEndian, &convid)
+	if err := binary.Read(
+		rand.Reader, binary.LittleEndian, &convid,
+	); err != nil {
+		return nil, fmt.Errorf("convid: %w", err)
+	}
 	sess, err := kcp.NewConn4(convid, peerAddr, nil, 0, 0, true, punchConn)
 	if err != nil {
 		return nil, fmt.Errorf("kcp session: %w", err)

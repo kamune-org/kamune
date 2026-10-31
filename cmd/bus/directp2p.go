@@ -148,7 +148,12 @@ func directP2PDial(
 	// Create a KCP client session on the punch socket. The first Write
 	// triggers the KCP SYN; the peer's kcp.ServeConn accepts it.
 	var convid uint32
-	binary.Read(rand.Reader, binary.LittleEndian, &convid)
+	if err := binary.Read(
+		rand.Reader, binary.LittleEndian, &convid,
+	); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("convid: %w", err)
+	}
 	sess, err := kcp.NewConn4(convid, peerUDPAddr, nil, 0, 0, true, conn)
 	if err != nil {
 		conn.Close()
