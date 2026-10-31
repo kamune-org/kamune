@@ -366,6 +366,34 @@ func TestPromptTimeoutClosesRequest(t *testing.T) {
 	a.Equal(events.promptIDs(), events.closedIDs())
 }
 
+func TestPromptStopsWhenHandshakeContextEnds(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	app.verifMode = VerificationModeQuick
+
+	peer := newTestPeer(t, "Alice")
+	vctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rv := app.verifierWithin(
+		app.lifeCtx(), VerificationModeQuick, false,
+	)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- rv(vctx, app.store(), kamune.VerifyRequest{Peer: peer})
+	}()
+	waitPending(t, app, 1)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		a.ErrorIs(err, ErrVerificationCancelled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("prompt stayed open after the handshake context ended")
+	}
+	a.Empty(pendingIDs(app))
+}
+
 func TestParseVerificationMode(t *testing.T) {
 	cases := []struct {
 		in   string

@@ -84,7 +84,14 @@ func (a *App) verifierWithin(
 	return func(
 		vctx context.Context, store *storage.Storage, req kamune.VerifyRequest,
 	) error {
-		return a.verifyPeer(ctx, store, req, mode, inbound)
+		// vctx is the handshake context. It ends on the verify deadline
+		// and when the dial or server context ends. The lifetime ctx
+		// ends when the app does. The prompt stops on either one.
+		pctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		stop := context.AfterFunc(vctx, cancel)
+		defer stop()
+		return a.verifyPeer(pctx, store, req, mode, inbound)
 	}
 }
 
