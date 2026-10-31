@@ -196,8 +196,15 @@ func handleRelayConn(
 			return
 		}
 		ack := &pb.Frame{Kind: &pb.Frame_Auth{Auth: &pb.Auth{}}}
-		b, _ := proto.Marshal(ack)
-		_ = ch.WriteBytes(b)
+		b, err := proto.Marshal(ack)
+		if err != nil {
+			ch.Close()
+			return
+		}
+		if err = ch.WriteBytes(b); err != nil {
+			ch.Close()
+			return
+		}
 
 		frameBytes, err = ch.ReadBytes()
 		if err != nil {
