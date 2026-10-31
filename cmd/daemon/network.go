@@ -258,8 +258,8 @@ func (d *Daemon) startServer(
 			peerKey, _ = decodeValidPeerKey(params.PeerPubB64)
 		}
 		pl, err := newP2PListener(
-			broker, params.BrokerAddr, tokenBytes, peerKey, params.Addr,
-			d.p2pRefreshed,
+			ctx, broker, params.BrokerAddr, tokenBytes, peerKey,
+			params.Addr, d.p2pRefreshed,
 		)
 		if err != nil {
 			d.setStatus(StatusError, "Failed to create p2p listener")

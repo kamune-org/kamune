@@ -80,10 +80,12 @@ type p2pListener struct {
 // newP2PListener binds a punch socket at bindAddr and registers token
 // from it with the broker at brokerAddr, or a token that the broker
 // assigns when token is empty. peerKey is the key of the peer that a
-// static token was derived for, or nil. It refreshes the registrations
-// of its tokens every p2pTokenRefreshInterval and calls onRefresh, if
-// not nil, after each refresh that went out.
+// static token was derived for, or nil. ctx bounds broker echo and
+// register only. The listener then runs until Close. It refreshes the
+// registrations of its tokens every p2pTokenRefreshInterval and calls
+// onRefresh, if not nil, after each refresh that went out.
 func newP2PListener(
+	ctx context.Context,
 	broker *BrokerClient, brokerAddr string, token, peerKey []byte,
 	bindAddr string, onRefresh func(l *p2pListener, at time.Time),
 ) (*p2pListener, error) {
@@ -102,7 +104,9 @@ func newP2PListener(
 		return nil, fmt.Errorf("bind punch socket: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// The listener outlives startServer. Close cancels this context.
+	// The start context only bounds broker echo and register below.
+	life, cancel := newListenerLifetime()
 	l := &p2pListener{
 		bindAddr:    bindAddr,
 		broker:      broker,
@@ -111,7 +115,7 @@ func newP2PListener(
 		matches:     make(map[string]peerMatch),
 		matchSignal: make(chan struct{}),
 		conn:        conn,
-		ctx:         ctx,
+		ctx:         life,
 		cancel:      cancel,
 	}
 
@@ -185,6 +189,13 @@ func newP2PListener(
 	go l.refreshLoop()
 
 	return l, nil
+}
+
+// newListenerLifetime is the context Close cancels. It is not the start
+// context: startServer returns while the listener is still running, and
+// a later cancel of that start context must not stop a running listener.
+func newListenerLifetime() (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.Background())
 }
 
 // Accept returns the next KCP session that a peer opened on the punch

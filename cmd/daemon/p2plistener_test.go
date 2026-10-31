@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"net"
@@ -92,6 +93,27 @@ func (b *matchBroker) serve() {
 	}
 }
 
+func TestNewP2PListenerCancelledSetup(t *testing.T) {
+	a := require.New(t)
+	blackhole, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+	)
+	a.NoError(err)
+	defer blackhole.Close()
+
+	client, err := NewBrokerClient()
+	a.NoError(err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	_, err = newP2PListener(
+		ctx, client, blackhole.LocalAddr().String(),
+		[]byte(strings.Repeat("m", 32)), nil, "127.0.0.1:0", nil,
+	)
+	a.Error(err)
+	a.Less(time.Since(start), 500*time.Millisecond)
+}
+
 // A p2p dial reaches a p2p server through the broker.
 func TestP2PDialReachesServer(t *testing.T) {
 	a := require.New(t)
@@ -153,7 +175,7 @@ func TestP2PListenerHandlesPeerMatched(t *testing.T) {
 	a.NoError(err)
 	token := []byte(strings.Repeat("m", 32))
 	l, err := newP2PListener(
-		client, broker.addr(), token, nil, "127.0.0.1:0", nil,
+		t.Context(), client, broker.addr(), token, nil, "127.0.0.1:0", nil,
 	)
 	a.NoError(err)
 	defer l.Close()
@@ -235,7 +257,7 @@ func TestP2PListenerForgetsPeersOfRemovedTokens(t *testing.T) {
 	own := []byte(strings.Repeat("m", 32))
 	extra := []byte(strings.Repeat("n", 32))
 	l, err := newP2PListener(
-		client, broker.addr(), own, nil, "127.0.0.1:0", nil,
+		t.Context(), client, broker.addr(), own, nil, "127.0.0.1:0", nil,
 	)
 	a.NoError(err)
 	defer l.Close()

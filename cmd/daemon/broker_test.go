@@ -705,7 +705,7 @@ func TestBrokerEchoIgnoresStrayDatagrams(t *testing.T) {
 
 	token := []byte(strings.Repeat("s", 32))
 	l, err := newP2PListener(
-		client, broker.addr(), token, nil, "127.0.0.1:0", nil,
+		t.Context(), client, broker.addr(), token, nil, "127.0.0.1:0", nil,
 	)
 	a.NoError(err, "the p2p listener did not start")
 	t.Cleanup(func() { _ = l.Close() })
