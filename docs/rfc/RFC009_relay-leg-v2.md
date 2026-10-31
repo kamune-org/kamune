@@ -2,6 +2,9 @@
 
 **Status:** Draft
 
+This proposal is not in the tree. The relay leg is still `pkg/exchange`
+plus [RELAY.md](../RELAY.md).
+
 **Target:** Kamune Protocol Specification before v1.0 (not scheduled)
 
 **Relates to:** §9.3 (Relay), §9.4 (Connection Contract), §13 (Constants and

@@ -79,20 +79,19 @@ breached), the attacker can:
   the only effect is to drop traffic or cause disconnects.
 - **Read the PSK and tokens** that clients send: the HPKE channel between a
   client and the relay ends at the relay.
-- **Read the peers' introductions** by running the kamune Exchange separately
-  with each peer and re-encrypting the frames between them. That Exchange is
-  unauthenticated HPKE and nothing later in the kamune handshake binds it, so
-  neither peer notices. The relay then reads both Introduce messages (name,
-  identity public key, app version), the session ID, and, when a peer resumes a
-  session, its resumption token. With the two public keys it can compute the
-  pair's static token and link the pair's sessions over time.
+- **See the handshake hellos, not the identities.** ClientHello and
+  ServerHello travel in the clear on the byte stream the relay
+  forwards. They carry hybrid public keys, not names, identity keys,
+  or the session id. An active relay that runs the handshake with
+  each peer separately fails the transcript checks, so neither peer
+  accepts the other. The relay does not learn a resumption secret.
 
 The attacker **cannot**:
 
-- Read message contents. The session keys come from the kamune handshake
-  (ML-KEM-768), whose messages each peer signs with its identity key, so a
-  relay that splits the Exchange still cannot learn them, provided each peer
-  checks the other's identity key.
+- Read message contents. The session keys come from the four-flight
+  handshake (ML-KEM-768 and X25519). Each peer signs that transcript
+  and checks a Finished MAC, so a relay that splits the handshake
+  cannot learn the keys when each peer checks the other's identity.
 - Impersonate a peer to a user who checks that peer's identity key (no
   long-term keys are exchanged with the relay; peers authenticate each other
   after rendezvous).
@@ -773,7 +772,7 @@ keys can compute them and then probe, take or block the pair's relay session
 solve this by deriving tokens from an ephemeral key exchange performed _after_
 the kamune handshake completes. The tokens are not computable from public keys
 alone, and the ephemeral keys travel inside the established kamune session, so
-a relay that splits the kamune Exchange still cannot read them, provided each
+a relay that splits the handshake still cannot read them, provided each
 peer checks the other's identity key.
 
 ### Derivation
@@ -922,10 +921,10 @@ The task ends when:
 - The user removes the reconnect token from the server's token list, or, in
   the daemon, deletes the session from the history. The session then cannot
   resume through the relay, and its pool is deleted.
-- Before it registers a token, the task finds that the session can no longer
-  be resumed (it has no kamune resumption tokens left, as after a close on
-  either side or once it is deleted from the history), or that no reconnect
-  token is left.
+- Before it registers a token, the task finds that the session can no
+  longer be resumed (neither role row is stored, as after a close on
+  either side or once it is deleted from the history), or that no
+  reconnect token is left.
 - 10 minutes after the drop. The daemon registers no new listener after that.
   The bus stops the live listener then, so that the relay drops its token; a
   session already on it carries on.

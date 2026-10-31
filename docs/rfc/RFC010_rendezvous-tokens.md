@@ -2,6 +2,10 @@
 
 **Status:** Draft
 
+This proposal is not in the tree. Pair tokens and reconnect tokens
+from the handshake exporter are not a shipped wire format. The relay
+and broker tokens in the tree are the ones in [RELAY.md](../RELAY.md).
+
 **Target:** Kamune Protocol Specification before v1.0 (not scheduled)
 
 **Relates to:** §5.2 (Session Data), §6 (Protocol Flow), §7 (Encryption and

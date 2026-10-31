@@ -2,6 +2,9 @@
 
 **Status:** Draft
 
+This proposal is not in the tree. `AppVersion` is `0.9.0`. The
+`"0.7.0"` figure below is the value when this draft was written.
+
 **Target:** Kamune Protocol Specification after v0.7.0 (not scheduled)
 
 **Relates to:** §4 (Wire Format), §5 (Routes), §7 (Encryption and Key

@@ -563,9 +563,10 @@ A dialog waits 2 minutes for an answer and then rejects the peer.
 **Accept** stays disabled for 1 second after a dialog appears, and a click
 outside the dialog rejects the peer. At most one dialog is open. A handshake
 that needs another is rejected at once. After 6 dialogs in a rolling minute,
-an unknown key is rejected with no dialog until that minute passes. Stopping
-or restarting the server, or cancelling a connect, closes the open dialog
-and rejects its peer.
+an unknown key is rejected with no dialog until that minute passes. The
+open dialog closes, and its peer is rejected, when the server stops or
+restarts, when a connect is cancelled, or when the handshake context
+ends.
 
 ### Resumed Sessions
 

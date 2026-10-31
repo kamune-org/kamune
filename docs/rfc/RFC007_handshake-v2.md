@@ -35,8 +35,15 @@ per-session secret.
 The change is a wire-incompatible hard cut, as in RFC004. The peer wire
 protocol, the on-disk resumption format and the exported Go APIs change; a v1
 peer and a v2 peer cannot complete a handshake, and there is no negotiation.
-This RFC is not implemented. It is one part of the pre-v1.0 rework that
-RFC006 describes.
+The four-flight handshake is in the tree: SHA-512 transcript, X-Wing HPKE,
+per-role resumption, hello-stage admission, the exporter, and client Strict,
+Quick, and Auto-Accept modes. `AppVersion` is `0.9.0`. `ver` is `0x02`.
+Status stays Draft. Still open: the §22.7 cross-RFC run, the contact-only
+listener, §26 groups 4 and 5, and the two §27 questions. `pkg/exchange` is
+still the relay leg (`conn.go`, `pkg/relayconn`, `cmd/relay`). The wire text
+below is the design that landed in SPEC. Where this RFC and SPEC disagree,
+SPEC is the living description of the tree. This RFC is one part of the
+pre-v1.0 rework that RFC006 describes.
 
 It closes KAM-01, KAM-02, KAM-03, KAM-08, KAM-15, KAM-26, KAM-27, KAM-28 and
 KAM-32 of `docs/RED_TEAM_REVIEW.md`, and partly closes KAM-10 and KAM-31
@@ -46,9 +53,11 @@ In the **Relates to** line, as in the other RFCs, § numbers are sections of
 `docs/SPEC.md`. Everywhere else, section numbers without a prefix refer to
 this RFC, and "SPEC §n" refers to `docs/SPEC.md`.
 
-## 2. Current Behavior
+## 2. Behavior this RFC replaced
 
-Session establishment runs four phases in sequence (SPEC §6.1 to §6.4):
+This section describes the peer handshake this RFC replaced, not the
+tree. Session establishment then ran four phases (the old SPEC §6.1 to
+§6.4):
 
 1. **Exchange.** `exchange.Initiate` and `exchange.Accept`
    (`pkg/exchange/channel.go`) run an ephemeral HPKE exchange
@@ -159,7 +168,7 @@ code; §24 records what closes each finding in the new design.
 
 | Question                         | Decision                                                                                                                                                                                                                                                                                                                                               |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Rollout                          | **Maintainer decision: not implemented now.** Draft, targeted before v1.0, not scheduled. A wire-incompatible hard cut with no version negotiation and no backward compatibility: the peer wire protocol, the on-disk resumption format and the exported Go APIs change.                                                                                               |
+| Rollout                          | **Maintainer decision: handshake landed; status stays Draft until the open items above close.** Draft, targeted before v1.0, not scheduled. A wire-incompatible hard cut with no version negotiation and no backward compatibility: the peer wire protocol, the on-disk resumption format and the exported Go APIs change.                                                                                               |
 | Key exchange                     | **One ephemeral X-Wing encapsulation** (`crypto/hpke`, `MLKEM768X25519`, `HKDF-SHA512`, `ExportOnly`) replaces the HPKE Exchange, the Introduction, the ML-KEM-768 Handshake and the Challenge. Identities, names, versions, session ID, resumption data and all traffic sit behind ML-KEM-768 and X25519 together. 1.5 RTT for the responder, 2 RTT for the initiator. |
 | Authentication                   | **SIGMA-I, sign-and-MAC** (TLS 1.3 `CertificateVerify` plus `Finished`). The responder proves its key first. The initiator sends its identity only after it has checked the responder's signature and either matched a pin or had its verifier accept the responder. The responder sends its name and version only after it has authenticated and accepted the initiator. |
 | Transcript                       | **One SHA-512 transcript** over every handshake byte, both hellos included. Both signatures and all three Finished MACs cover it, and every later key derives from it. A split key exchange (KAM-02), a replayed message (KAM-01) or a mismatched transcript (KAM-27) fails at the first signature or MAC check.                                  |

@@ -41,9 +41,10 @@ EOF
 cat; } | ./daemon
 ```
 
-In the default verification mode, Quick, each side asks about a peer it does
-not know yet: the server emits `verify_peer` first, and the client once the
-server has accepted. Compare the `numeric` fingerprint in each `verify_peer`
+In the default verification mode, Quick, the listener asks about a key
+it has not saved, and the dialer asks unless that key was pinned. Here
+the server emits `verify_peer` first, and the client once the server
+has accepted. Compare the `numeric` fingerprint in each `verify_peer`
 event with the `numeric` that the other side shows in its
 `fingerprint_changed` event, then answer in each terminal with the
 `request_id` of its event:

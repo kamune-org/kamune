@@ -2,6 +2,8 @@
 
 **Status:** Draft — Third Revision
 
+This proposal is not in the tree. `AppVersion` is `0.9.0`.
+
 **Target:** Kamune Protocol Specification after v0.7.0 (not scheduled)
 
 **Relates to:** §4 (Wire Format), §5 (Routes), §6.2 (Introduction),

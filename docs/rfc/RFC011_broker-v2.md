@@ -2,6 +2,9 @@
 
 **Status:** Draft
 
+This proposal is not in the tree. The broker in the tree is still the
+one in [RELAY.md](../RELAY.md).
+
 **Target:** Kamune Protocol Specification before v1.0 (not scheduled)
 
 **Relates to:** §9.2 (UDP (via KCP)), §9.3 (Relay); RELAY.md "Broker:

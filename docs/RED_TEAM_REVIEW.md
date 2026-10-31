@@ -4,6 +4,12 @@
 - Commit: `36b6e1c` on `main`
 - Scope: all five Go modules (root `kamune`, `cmd/relay`, `cmd/daemon`, `cmd/bus`, `cmd/tui`), the bus Svelte frontend, build and packaging scripts, and the documentation in `README.md`, `AGENTS.md`, `docs/` and the module READMEs.
 
+> This review describes commit `36b6e1c` (2026-10-03). The four-flight
+> handshake has since landed in the tree. Finding text below is not
+> re-verified and is not a description of the current code. RFC007 §24
+> records which of those findings the handshake was meant to close.
+> RFC008 through RFC011 are not in the tree.
+
 ## Contents
 
 1. [Summary](#summary)

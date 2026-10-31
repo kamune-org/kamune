@@ -31,8 +31,9 @@ compatibility is kept: the peer wire protocol, the UDP, relay-leg and broker
 wire formats, the on-disk resumption and token formats, the relay
 configuration, the daemon JSON API and the exported Go APIs all change. A v1
 peer, relay or broker drops or refuses v2 traffic, and the reverse.
-`kamune.AppVersion` becomes `0.8.0` in RFC007's switch commit, so logs and
-share data show which peers speak v2.
+`kamune.AppVersion` is `0.9.0` from RFC007's switch commit. RFC008
+through RFC011 are not in the tree. Logs and share data show which
+peers speak the four-flight handshake.
 
 This RFC holds what crosses the five parts: the findings they close, how the
 parts fit together, the decisions, the shared constants and domain-separation
@@ -43,24 +44,16 @@ RFC007 to RFC011.
 
 ## 2. Current Behavior
 
-**Peer handshake** (SPEC §6.1 to §6.4). Dialer and server run an ephemeral
-HPKE exchange (`exchange.Initiate` and `exchange.Accept` in `pkg/exchange`) in
-which no long-term key takes part. Inside it the initiator sends a signed
-`Introduce{Name, PublicKey, AppVersion}`; the responder checks the version,
-runs the `RemoteVerifier` and answers with its own Introduce
-(`Server.handleNewConnection`). ML-KEM-768 then runs inside the tunnel
-(`requestHandshake`, `acceptHandshake`), and the Challenge is the first use of
-the session keys. `RemoteVerifier` is
-`func(store *storage.Storage, peer *storage.Peer) error`.
+**Peer handshake** (SPEC §6). Four flights, `ver` `0x02`. The dialer sends
+ClientHello in the clear. ServerHello and ResponderAuth, InitiatorAuth,
+and Confirm follow. `pkg/exchange` is not on this path. It remains the
+relay leg.
 
-**Resumption** (SPEC §6.8). A session stores 20 single-use tokens in the
-`resumption_tokens` meta. A `ResumeRequest{SessionID, Token}` signed by the
-initiator takes the place of the Introduction. `Server.handleResume` checks the
-token length, the stored peer, the signature and a 24 h window counted from
-`established_at`, which only a cold handshake writes. With resumption enabled
-it answers every request with a signed `ResumeAccept` (`rejectResume` for a
-refusal, including a refusal for a bad signature), and the verifier does not
-run for a resumed session.
+**Resumption** (SPEC §6.8). The tree stores one secret per role
+(`resumption_i` and `resumption_r`), not 20 single-use tokens. A later
+dial resumes inside the four-flight handshake. The window is 24 hours
+from the refreshed time and 7 days from the cold handshake. The
+verifier still runs.
 
 **UDP** (SPEC §9.2). `ServeWithUDP` runs `kcp.Listen` on the server address
 and `DialWithUDP` runs `kcp.Dial`. KCP packets carry no authentication and FEC
@@ -406,7 +399,7 @@ defaults sections list them all and hold the detail.
 | Relay leg | RFC009 | WebSocket message or 2-byte length-prefixed frame | `"KR"` (`0x4B 0x52`), `version[1]`, `type[1]` | `0x02` | 0x01 KeyRequest 4, 0x02 KeyResponse 36, 0x03 ClientHello 1,289, 0x04 ServerHello 1,156, 0x05 Alert 5; alerts 1 `bad_message`, 2 `psk_unexpected`, 3 `unknown_key`; `flags` bit 0 = PSK |
 | Relay records | RFC009, RFC010 | `pb.Frame` `oneof kind` | protobuf | n/a | 1 Register, 2 Registered, 3 Message, 4 Ping, 5 Pong, 6 reserved (`auth`, RFC009), 7 Refused (RFC010). `Refused.Reason`: 0 REASON_UNSPECIFIED, 1 TOKEN_NOT_FOUND, 2 TOKEN_IN_USE, 3 TOKEN_INVALID, 4 SESSION_FULL, 5 SESSION_EXPIRED, 6 BAD_REGISTER |
 | Broker | RFC011 | UDP datagram | `"KBRK"` + `VER[1]` + `TYPE[1]` | `0x02` | 0x01 COOKIE 68, 0x02 REGISTER 174, 0x03 SEALED 118; downlink kinds 1 REGISTERED, 2 MATCHED, 3 REJECTED, 4 REPLACED; reasons 1 STALE, 2 FULL, 3 IP_QUOTA, 4 BAD_FIELDS; roles 1 LISTEN, 2 DIAL |
-| Library version | RFC007 | `kamune.AppVersion` | | | `0.8.0` in the switch commit; at most 32 bytes |
+| Library version | RFC007 | `kamune.AppVersion` | | | `0.9.0` in the switch commit; at most 32 bytes |
 
 No two protocols share a carrier and a first byte. Peer handshake frames ride
 inside a `kamune.Conn` (relay records, KCP over RFC008 DATA, TCP framing) and
@@ -698,7 +691,7 @@ Labels used below. Each RFC's own implementation plan holds the content.
 | H3 | `kamune: add per-role resumption state to storage` (new API beside the old one, sweep) |
 | H4 | `kamune: add signature context registry` (`pkg/attest/contexts.go`) |
 | H5 | `kamune: add fingerprint safety number` |
-| H6 | `kamune: switch to handshake v2` (dial, server, admission stages, verifier, transport, old phases and routes deleted, protobuf regenerated, root tests migrated, `AppVersion` 0.8.0) |
+| H6 | `kamune: switch to handshake v2` (dial, server, admission stages, verifier, transport, old phases and routes deleted, protobuf regenerated, root tests migrated, `AppVersion` 0.9.0) |
 | H7 | `relayconn: adapt tests to the new verifier` |
 | H8 | `relay:`, `bus:`, `daemon:`, `tui:` compile commits for the new `RemoteVerifier` |
 | H9 | `kamune: remove resumption token storage helpers` |

@@ -2514,9 +2514,9 @@ At most one prompt is open. A handshake that needs a prompt while one is
 open is rejected at once, with no event. An unknown key is also rejected
 with no event after 6 prompts in the last minute, until that minute passes.
 Known keys count toward the one open prompt, not toward the 6. A peer the
-user dials is subject to the same one-prompt rule. The library does not tell
-the daemon when the connection of a prompt goes away, so a prompt can
-outlive its connection; accepting it then admits nobody. While a prompt is
+user dials is subject to the same one-prompt rule. When the handshake
+context ends, the prompt ends with it. A later `verify_response` names
+no pending prompt and admits nobody. While a prompt is
 open the status is `verifying`; when it ends, the status before it comes
 back.
 

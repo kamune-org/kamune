@@ -40,8 +40,9 @@ so a root command such as `go build ./cmd/daemon` fails.
   golangci-lint v2.15.0 and writes nothing. The tree is not clean yet.
   `.golangci.yaml` turns on every `govet` analyzer except shadow, plus
   the bug linters named there. Field alignment does not report on
-  `*_test.go`. `make fmt` is `gofmt -s` plus `goimports` with local
-  prefix `github.com/kamune-org/kamune`, and it skips `*.pb.go`.
+  `*_test.go`. `make fmt` runs `golangci-lint fmt` in each module.
+  That applies `gofmt -s` and `goimports` with local prefix
+  `github.com/kamune-org/kamune`, and it skips `*.pb.go`.
   `make align-structs` is an alias of `make lint` and does not reorder
   fields.
 - **Regenerate protobuf** (root only): `make gen-proto` regenerates
@@ -90,16 +91,18 @@ runs have no race detector.
 ## Architecture notes
 
 - Core abstraction: `Server`, `Dialer`, `Transport`, `Conn` — bidirectional encrypted channels
-- Protocol flow: Exchange (HPKE) → Introduction → Handshake (ML-KEM-768) → Challenge → Communication
-- Session resumption: parallel path that skips Introduction for reconnections
-  (still performs Handshake and Challenge)
+- Protocol flow: ClientHello, ServerHello and ResponderAuth,
+  InitiatorAuth, Confirm, then communication. `ver` is `0x02`.
+- Session resumption runs that handshake again, with new keys, within
+  24 hours of the refreshed time and 7 days of the cold handshake.
+  The verifier still runs. See SPEC §6.8.
 - Cipher suite: `Ed25519_MLKEM768_HKDF-SHA512_ChaCha20-Poly1305X`
 - `pkg/` public packages: `attest`, `exchange`, `fingerprint`, `relayconn`, `storage`
-- `internal/` private packages: `box/pb`, `clock`, `engine`, `enigma`
+- `internal/` private packages: `admit`, `box/pb`, `clock`, `engine`, `enigma`
 - Key verification: verifiers should show `fingerprint.Numeric` (about 132.9
-  bits) for users to compare. Bus and tui show it first on their verify
-  screens, with `fingerprint.Emoji` and `fingerprint.Hex` below it, and the
-  daemon sends all three in `verify_peer`.
+  bits) for users to compare. Bus and the TUI show two labelled codes and
+  do not show emoji or hex on the verify screen. The daemon sends
+  `own_code`, `peer_code` and `safety_number` in `verify_peer`.
   `fingerprint.Emoji` (about 52.7 bits) is not enough on its own, and
   `fingerprint.Pseudonym` (about 29.6 bits) is a display nickname, never a
   fingerprint
