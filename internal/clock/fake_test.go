@@ -4,10 +4,14 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestFakeConcurrentNowAndAdvance(t *testing.T) {
-	f := NewFake(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+	a := require.New(t)
+	start := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	f := NewFake(start)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
@@ -23,4 +27,5 @@ func TestFakeConcurrentNowAndAdvance(t *testing.T) {
 		}
 	}()
 	wg.Wait()
+	a.True(f.Now().Equal(start.Add(100 * time.Second)))
 }
