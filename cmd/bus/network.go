@@ -995,6 +995,9 @@ func (a *App) ConnectToServer(
 				baseOpts...,
 			)
 
+			// preDialed is a conn opened before NewDialer, which closes
+			// nothing when it fails.
+			var preDialed kamune.Conn
 			switch {
 			case isDirectP2P:
 				sess, err := directP2PDial(reconnectCtx, directAddr)
@@ -1002,6 +1005,7 @@ func (a *App) ConnectToServer(
 					return nil, fmt.Errorf("direct p2p redial: %w", err)
 				}
 				pConn := kamune.NewConn(sess)
+				preDialed = pConn
 				resumeOpts = append(resumeOpts, kamune.DialWithFunc(
 					func(string) (kamune.Conn, error) {
 						return pConn, nil
@@ -1047,6 +1051,9 @@ func (a *App) ConnectToServer(
 				targetAddr, store, a.getVerifier(), resumeOpts...,
 			)
 			if err != nil {
+				if preDialed != nil {
+					_ = preDialed.Close()
+				}
 				return nil, err
 			}
 			t, err := d.DialContext(reconnectCtx)
