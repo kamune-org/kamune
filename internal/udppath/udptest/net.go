@@ -54,12 +54,14 @@ func New() *Net {
 }
 
 // Listen binds addr. "127.0.0.1:0" keeps that IP and picks a free
-// port. The conn's network name is "udp".
+// port. The conn's network name is "udp". An IPv4-in-IPv6 address
+// binds its IPv4 form.
 func (n *Net) Listen(addr string) (net.PacketConn, error) {
 	ap, err := netip.ParseAddrPort(addr)
 	if err != nil {
 		return nil, opErr("listen", nil, nil, err)
 	}
+	ap = unmap(ap)
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if ap.Port() == 0 {
@@ -102,9 +104,10 @@ func (n *Net) freePort(ip netip.Addr) (netip.AddrPort, bool) {
 }
 
 // Inject queues a copy of pkt at to, from an address with no conn.
-// A missing listener or a full queue drops that copy.
+// A missing listener or a full queue drops that copy. Both
+// addresses lose any IPv4-in-IPv6 mapping, as WriteTo's do.
 func (n *Net) Inject(from, to netip.AddrPort, pkt []byte) {
-	n.deliver(from, to, pkt)
+	n.deliver(unmap(from), unmap(to), pkt)
 }
 
 // SetFilter installs fn. fn returns how many copies to queue.
@@ -300,6 +303,9 @@ func (n *Net) remove(c *packetConn) {
 	}
 }
 
+// udpAddrPort converts addr. net.ResolveUDPAddr and net.ParseIP give
+// IPv4 in its 16-byte form, which AddrPort maps into IPv6; unmapping
+// it reaches the conn bound to the IPv4 address, as a socket does.
 func udpAddrPort(addr net.Addr) (netip.AddrPort, error) {
 	ua, ok := addr.(*net.UDPAddr)
 	if !ok || ua == nil {
@@ -312,7 +318,12 @@ func udpAddrPort(addr net.Addr) (netip.AddrPort, error) {
 	if !ap.IsValid() {
 		return netip.AddrPort{}, errors.New("invalid IP")
 	}
-	return ap, nil
+	return unmap(ap), nil
+}
+
+// unmap removes an IPv4-in-IPv6 mapping from ap.
+func unmap(ap netip.AddrPort) netip.AddrPort {
+	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
 }
 
 func opErr(op string, src, addr net.Addr, err error) error {

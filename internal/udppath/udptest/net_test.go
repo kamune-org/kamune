@@ -51,6 +51,37 @@ func TestInjectFromNowhere(t *testing.T) {
 	a.Equal(from, addr.(*net.UDPAddr).AddrPort())
 }
 
+func TestMappedIPv4(t *testing.T) {
+	a := require.New(t)
+	n := New()
+	src := listen(t, n)
+	dst := listen(t, n)
+	to, err := net.ResolveUDPAddr("udp", dst.LocalAddr().String())
+	a.NoError(err)
+	a.Len(to.IP, net.IPv6len)
+
+	_, err = src.WriteTo([]byte("resolved"), to)
+	a.NoError(err)
+	got, addr := readFrom(t, dst)
+	a.Equal([]byte("resolved"), got)
+	a.Equal(src.LocalAddr().String(), addr.String())
+
+	dstAP := dst.LocalAddr().(*net.UDPAddr).AddrPort()
+	mappedTo := netip.AddrPortFrom(
+		netip.AddrFrom16(dstAP.Addr().As16()), dstAP.Port(),
+	)
+	mappedFrom := netip.MustParseAddrPort("[::ffff:192.0.2.8]:4000")
+	n.Inject(mappedFrom, mappedTo, []byte("injected"))
+	got, addr = readFrom(t, dst)
+	a.Equal([]byte("injected"), got)
+	a.Equal("192.0.2.8:4000", addr.String())
+
+	c, err := n.Listen("[::ffff:127.0.0.1]:0")
+	a.NoError(err)
+	t.Cleanup(func() { _ = c.Close() })
+	a.Equal("127.0.0.1", c.LocalAddr().(*net.UDPAddr).IP.String())
+}
+
 func TestFilterDrop(t *testing.T) {
 	a := require.New(t)
 	n := New()
