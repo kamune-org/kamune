@@ -1347,11 +1347,15 @@ func (d *Daemon) makeReconnectFn(
 		if len(peerKey) > 0 {
 			resumeOpts = append(resumeOpts, kamune.DialWithPeerKey(peerKey))
 		}
+		// preDialed is a conn opened before NewDialer, which closes
+		// nothing when it fails.
+		var preDialed kamune.Conn
 		if isDirectP2P {
 			pConn, err := directP2PDial(ctx, directPeerAddr)
 			if err != nil {
 				return nil, fmt.Errorf("direct p2p redial: %w", err)
 			}
+			preDialed = pConn
 			resumeOpts = append(resumeOpts, kamune.DialWithFunc(
 				func(_ string) (kamune.Conn, error) {
 					return pConn, nil
@@ -1379,6 +1383,9 @@ func (d *Daemon) makeReconnectFn(
 			resumeOpts...,
 		)
 		if err != nil {
+			if preDialed != nil {
+				_ = preDialed.Close()
+			}
 			return nil, err
 		}
 		t, err := dl.DialContext(ctx)
