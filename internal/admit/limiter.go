@@ -1,7 +1,9 @@
 package admit
 
 import (
+	"fmt"
 	"hash/maphash"
+	"math"
 	"sync"
 
 	"github.com/kamune-org/kamune/internal/clock"
@@ -12,6 +14,23 @@ import (
 type Rate struct {
 	PerSecond float64
 	Burst     int
+}
+
+// Validate reports an error for a rate that no bucket can apply: a
+// negative, infinite or NaN PerSecond, or an enabled rate whose Burst
+// is below one, which would refuse every key.
+func (r Rate) Validate() error {
+	switch {
+	case math.IsNaN(r.PerSecond) || math.IsInf(r.PerSecond, 0):
+		return fmt.Errorf("rate per second is not finite: %v", r.PerSecond)
+	case r.PerSecond < 0:
+		return fmt.Errorf("rate per second is negative: %v", r.PerSecond)
+	case r.Burst < 0:
+		return fmt.Errorf("rate burst is negative: %d", r.Burst)
+	case r.PerSecond > 0 && r.Burst < 1:
+		return fmt.Errorf("rate burst is below one: %d", r.Burst)
+	}
+	return nil
 }
 
 // slot is one token bucket. Keys that share a slot share its tokens.
@@ -37,8 +56,16 @@ type Limiter struct {
 }
 
 // NewLimiter returns a limiter with slots buckets. A nil clock uses
-// clock.Real. slots must be positive when the rate is enabled.
+// clock.Real. It panics when r fails [Rate.Validate], when slots is
+// negative, or when the rate is enabled and slots is zero: callers
+// check user input first.
 func NewLimiter(r Rate, slots int, clk clock.Clock) *Limiter {
+	if err := r.Validate(); err != nil {
+		panic("admit: " + err.Error())
+	}
+	if slots < 0 || (r.PerSecond > 0 && slots < 1) {
+		panic(fmt.Sprintf("admit: limiter slots out of range: %d", slots))
+	}
 	if clk == nil {
 		clk = clock.Real()
 	}

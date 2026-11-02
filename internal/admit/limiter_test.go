@@ -1,6 +1,7 @@
 package admit_test
 
 import (
+	"math"
 	"net/netip"
 	"testing"
 	"time"
@@ -158,4 +159,42 @@ func drainAllows(lim *admit.Limiter, keys []string) int {
 		}
 	}
 	return n
+}
+
+func TestRateValidate(t *testing.T) {
+	tests := []struct {
+		name  string
+		rate  admit.Rate
+		valid bool
+	}{
+		{name: "disabled", rate: admit.Rate{}, valid: true},
+		{name: "enabled", rate: admit.Rate{PerSecond: 4, Burst: 8}, valid: true},
+		{name: "negative rate", rate: admit.Rate{PerSecond: -1, Burst: 8}},
+		{name: "infinite rate", rate: admit.Rate{PerSecond: math.Inf(1), Burst: 8}},
+		{name: "nan rate", rate: admit.Rate{PerSecond: math.NaN(), Burst: 8}},
+		{name: "negative burst", rate: admit.Rate{Burst: -1}},
+		{name: "enabled zero burst", rate: admit.Rate{PerSecond: 4}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			err := tc.rate.Validate()
+			if tc.valid {
+				a.NoError(err)
+				a.NotPanics(func() { admit.NewLimiter(tc.rate, 1, nil) })
+				return
+			}
+			a.Error(err)
+			a.Panics(func() { admit.NewLimiter(tc.rate, 1, nil) })
+		})
+	}
+}
+
+func TestNewLimiterSlots(t *testing.T) {
+	a := require.New(t)
+	enabled := admit.Rate{PerSecond: 4, Burst: 8}
+	a.Panics(func() { admit.NewLimiter(enabled, 0, nil) })
+	a.Panics(func() { admit.NewLimiter(admit.Rate{}, -1, nil) })
+	lim := admit.NewLimiter(admit.Rate{}, 0, nil)
+	a.True(lim.Allow("198.51.100.10"))
 }
