@@ -25,10 +25,10 @@ type hsEvent struct {
 	typ    byte
 }
 
-// accepted is one ACCEPT that the test responder sent.
+// accepted is the server path of one ACCEPT that the test responder sent.
 type accepted struct {
-	out acceptOut
-	sid uint32
+	path *Path
+	sid  uint32
 }
 
 // responder is the server half of the path handshake, built from the same
@@ -37,7 +37,11 @@ type responder struct {
 	pc       net.PacketConn
 	events   chan hsEvent
 	accepted chan accepted
-	secret   []byte
+	stats    *counters
+	// paths is the responder's path table. Only run uses it, so it is
+	// also the reader of every server path.
+	paths  map[uint32]*Path
+	secret []byte
 	// dropInit answers no INIT.
 	dropInit bool
 	// cookieOnInit sends a COOKIE under another secret before each ACCEPT.
@@ -56,6 +60,8 @@ func startResponder(
 		pc:       pc,
 		events:   make(chan hsEvent, 256),
 		accepted: make(chan accepted, 16),
+		stats:    &counters{},
+		paths:    make(map[uint32]*Path),
 		secret:   bytes.Repeat([]byte{9}, 32),
 	}
 	if configure != nil {
@@ -126,22 +132,34 @@ func (r *responder) run() {
 				_, _ = r.pc.WriteTo(bad, from)
 			}
 			_, _ = r.pc.WriteTo(out.pkt, from)
+			sp := newPath(roleServer, r.pc, r.stats, src, m.cid, sid, out.keys)
+			r.paths[sid] = sp
 			select {
-			case r.accepted <- accepted{out: out, sid: sid}:
+			case r.accepted <- accepted{path: sp, sid: sid}:
 			default:
 			}
+		case typeData, typeClose:
+			m, err := parseSealed(pkt)
+			if err != nil {
+				continue
+			}
+			sp := r.paths[m.rid]
+			if sp == nil || sp.raddr != src {
+				continue
+			}
+			sp.input(m, pkt)
 		}
 	}
 }
 
-// keysFor returns the keys of the ACCEPT the responder sent for sid.
-func (r *responder) keysFor(t *testing.T, sid uint32) pathKeys {
+// pathFor returns the server path of the ACCEPT the responder sent for sid.
+func (r *responder) pathFor(t *testing.T, sid uint32) *Path {
 	t.Helper()
 	for {
 		select {
 		case acc := <-r.accepted:
 			if acc.sid == sid {
-				return acc.out.keys
+				return acc.path
 			}
 		case <-time.After(time.Second):
 			require.New(t).FailNow("no ACCEPT for the path's sid")
@@ -164,16 +182,17 @@ func testCtx(t *testing.T, d time.Duration) context.Context {
 	return ctx
 }
 
-// checkKeys checks that p and the responder hold the same path keys.
-func checkKeys(t *testing.T, p *Path, keys pathKeys) {
+// checkKeys checks that the client path p and the server path sp hold the
+// same keys, each sealing what the other opens.
+func checkKeys(t *testing.T, p, sp *Path) {
 	t.Helper()
 	a := require.New(t)
 	n := nonce(1)
 	sealed := p.send.Seal(nil, n[:], []byte("c2s"), nil)
-	opened, err := keys.c2s.Open(nil, n[:], sealed, nil)
+	opened, err := sp.recv.Open(nil, n[:], sealed, nil)
 	a.NoError(err)
 	a.Equal([]byte("c2s"), opened)
-	sealed = keys.s2c.Seal(nil, n[:], []byte("s2c"), nil)
+	sealed = sp.send.Seal(nil, n[:], []byte("s2c"), nil)
 	opened, err = p.recv.Open(nil, n[:], sealed, nil)
 	a.NoError(err)
 	a.Equal([]byte("s2c"), opened)
@@ -205,7 +224,7 @@ func TestDial(t *testing.T) {
 			a.Equal(r.addr().String(), p.RemoteUDPAddr().String())
 			a.Same(p.RemoteUDPAddr(), p.RemoteUDPAddr())
 			a.NotZero(p.Conv())
-			checkKeys(t, p, r.keysFor(t, p.sid))
+			checkKeys(t, p, r.pathFor(t, p.sid))
 
 			// Every INIT carries the first cookie, so the second COOKIE
 			// started nothing.
@@ -442,7 +461,7 @@ func TestDialSurvivesReadErrors(t *testing.T) {
 	pc.fail.Store(maxReadErrors + 6)
 	p, err := Dial(testCtx(t, 5*time.Second), pc, r.addr(), Config{})
 	a.NoError(err)
-	checkKeys(t, p, r.keysFor(t, p.sid))
+	checkKeys(t, p, r.pathFor(t, p.sid))
 }
 
 func TestDialKnockKey(t *testing.T) {

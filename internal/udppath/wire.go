@@ -12,7 +12,64 @@ const (
 	typeCookie = 0x02
 	typeInit   = 0x03
 	typeAccept = 0x04
+	typeData   = 0x05
+	typeClose  = 0x06
 )
+
+// First-byte ranges on a socket the layer reads.
+const (
+	firstKick    = 0x00 // a NAT kick, a 1-byte datagram
+	firstOursMax = 0x0F // 0x01 to 0x0F belong to this layer
+)
+
+// class is what the first byte says a datagram is.
+type class uint8
+
+const (
+	classKick class = iota + 1
+	classOurs
+	classForeign
+)
+
+// classify sorts a datagram by its first byte. An empty datagram counts as
+// a kick.
+func classify(pkt []byte) class {
+	switch {
+	case len(pkt) == 0 || pkt[0] == firstKick:
+		return classKick
+	case pkt[0] <= firstOursMax:
+		return classOurs
+	default:
+		return classForeign
+	}
+}
+
+// validPacket reports whether pkt has a known type, a valid header, the
+// exact length of its type (DATA: within its range) and non-zero ids. The
+// parsers of each type check the rest.
+func validPacket(pkt []byte) bool {
+	if len(pkt) < headerLen || pkt[1] != Version || pkt[2] != 0 ||
+		pkt[3] != 0 {
+		return false
+	}
+	var sized bool
+	switch pkt[0] {
+	case typeHello:
+		sized = len(pkt) == HelloSize
+	case typeCookie:
+		sized = len(pkt) == CookieSize
+	case typeInit:
+		sized = len(pkt) == InitSize
+	case typeAccept:
+		sized = len(pkt) == AcceptSize &&
+			binary.BigEndian.Uint32(pkt[acceptSID:]) != 0
+	case typeData:
+		sized = len(pkt) > DataOverhead && len(pkt) <= MaxDatagram
+	case typeClose:
+		sized = len(pkt) == CloseSize
+	}
+	return sized && binary.BigEndian.Uint32(pkt[4:]) != 0
+}
 
 // Field sizes.
 const (

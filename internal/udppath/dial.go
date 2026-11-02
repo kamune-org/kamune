@@ -56,6 +56,7 @@ type dialer struct {
 	pc       net.PacketConn
 	priv     *ecdh.PrivateKey // c_eph, while INIT_SENT
 	raddrUDP *net.UDPAddr
+	stats    *counters
 	nextAt   time.Time // when the retransmit timer fires; zero is never
 	cookieAt time.Time
 	raddr    netip.AddrPort
@@ -80,6 +81,9 @@ type dialer struct {
 // or once its cookie is 8 s old, the dialer starts again with a new client
 // id. Dial runs until the path is established, a write to pc fails, or ctx
 // ends; the error then wraps ctx.Err().
+//
+// Once established, the path owns pc: one goroutine reads it, and closing
+// the path closes pc.
 func Dial(
 	ctx context.Context, pc net.PacketConn, raddr netip.AddrPort, cfg Config,
 ) (*Path, error) {
@@ -97,6 +101,7 @@ func Dial(
 		pc:       pc,
 		raddr:    raddr,
 		raddrUDP: net.UDPAddrFromAddrPort(raddr),
+		stats:    &counters{},
 		knock:    cfg.KnockKey,
 		budget:   MaxHellos,
 	}
@@ -130,7 +135,7 @@ func Dial(
 				// errors on Windows are.
 				if errs++; errs >= maxReadErrors {
 					backoff = nextBackoff(backoff)
-					if !pause(ctx, backoff) {
+					if !pauseUntil(ctx.Done(), backoff) {
 						return nil, fmt.Errorf(
 							"udp path handshake: %w", ctx.Err(),
 						)
@@ -148,6 +153,9 @@ func Dial(
 			return nil, err
 		}
 		if p != nil {
+			dl.finish()
+			p.rd = newReader(pc, clientSocket{p: p}, d.stats)
+			go p.rd.run()
 			return p, nil
 		}
 	}
@@ -231,7 +239,8 @@ func (d *dialer) onPacket(pkt []byte, now time.Time) (*Path, error) {
 		if err != nil {
 			return nil, nil
 		}
-		return newPath(roleClient, d.raddr, d.cid, m.sid, keys), nil
+		p := newPath(roleClient, d.pc, d.stats, d.raddr, d.cid, m.sid, keys)
+		return p, nil
 	}
 	return nil, nil
 }
@@ -300,6 +309,7 @@ func (r *readDeadline) set(t time.Time) error {
 }
 
 // finish clears the read deadline. A ctx that ends later changes nothing.
+// It may be called more than once.
 func (r *readDeadline) finish() {
 	r.stop()
 	r.mu.Lock()
@@ -317,14 +327,27 @@ func nextBackoff(prev time.Duration) time.Duration {
 	return min(2*prev, maxErrBackoff)
 }
 
-// pause waits for d and reports true, or reports false once ctx ends.
-func pause(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return true
-	case <-ctx.Done():
-		return false
-	}
+// clientSocket dispatches what the reader of a client path's socket accepts:
+// DATA and CLOSE from the peer for this path. Everything else is dropped.
+type clientSocket struct {
+	p *Path
 }
+
+func (c clientSocket) handle(src netip.AddrPort, pkt []byte) {
+	if pkt[0] != typeData && pkt[0] != typeClose {
+		c.p.stats.Unexpected.Add(1)
+		return
+	}
+	m, err := parseSealed(pkt)
+	if err != nil {
+		c.p.stats.Malformed.Add(1)
+		return
+	}
+	if m.rid != c.p.cid || src != c.p.raddr {
+		c.p.stats.NoPath.Add(1)
+		return
+	}
+	c.p.input(m, pkt)
+}
+
+func (c clientSocket) socketClosed() { c.p.close(reasonSocket) }
