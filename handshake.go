@@ -541,6 +541,13 @@ func runResponder(
 	if err = ctx.Err(); err != nil {
 		return failHS(cn, fmt.Errorf("%w: %w", ErrClosedServer, err))
 	}
+	// Restore the handshake deadline, so a late accept still leaves the
+	// commit and the Confirm write their own time.
+	if err = cn.SetDeadline(
+		time.Now().Add(defaultHandshakeTimeout),
+	); err != nil {
+		return failHS(cn, err)
+	}
 	psk := []byte(nil)
 	if dec.resumed {
 		psk, err = resPSK(dec.used)

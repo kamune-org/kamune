@@ -1126,6 +1126,39 @@ func TestPostVerifyDeadlineUsesConfiguredTimeout(t *testing.T) {
 	a.InDelta(float64(want), float64(remain), float64(3*time.Second))
 }
 
+// TestResponderRestoresDeadlineAfterVerify checks that the responder sets the
+// handshake deadline again once its verifier accepts, instead of leaving the
+// commit and Confirm write the rest of the verify window.
+func TestResponderRestoresDeadlineAfterVerify(t *testing.T) {
+	a := require.New(t)
+	store := openStore(t)
+	ia, ra := hsIdent(t), hsIdent(t)
+	ic, rc := pipeConns(t)
+	dc := &deadlineConn{Conn: rc}
+	limit := time.Hour
+	iCh := startInitiator(ic, initiatorInput{
+		attest: ia, store: store, name: "ada",
+		verifyTimeout: limit, verify: acceptVerify(nil, nil),
+	})
+	rCh := startResponder(dc, responderInput{
+		attest: ra, store: store, name: "bob", resumeEnabled: true,
+		verifyTimeout: limit, verify: acceptVerify(nil, nil),
+	})
+	gi, gr := <-iCh, <-rCh
+	a.NoError(gi.err)
+	a.NoError(gr.err)
+	dc.mu.Lock()
+	got := append([]time.Time(nil), dc.deadlines...)
+	dc.mu.Unlock()
+	a.GreaterOrEqual(len(got), 2)
+	a.True(got[len(got)-1].IsZero())
+	remain := time.Until(got[len(got)-2])
+	a.InDelta(
+		float64(defaultHandshakeTimeout), float64(remain),
+		float64(3*time.Second),
+	)
+}
+
 func TestHandshakeIOIncludesContext(t *testing.T) {
 	a := require.New(t)
 	ctx, cancel := context.WithCancel(context.Background())
