@@ -359,6 +359,20 @@ func TestDialWithoutPersistenceRejectsResume(t *testing.T) {
 	a.ErrorContains(err, "resume requires persistence")
 }
 
+// TestNewDialerRejectsMissingResumeRow checks that offering to resume a
+// session with no initiator row fails in NewDialer (SPEC §6.8.2).
+func TestNewDialerRejectsMissingResumeRow(t *testing.T) {
+	a := require.New(t)
+	store := newTransportTestStorage(t)
+	accept := func(context.Context, *storage.Storage, VerifyRequest) error {
+		return nil
+	}
+	_, err := NewDialer(
+		"", store, accept, DialWithResume("ABCDEFGHIJKLMNOPQRSTUVWX"),
+	)
+	a.ErrorIs(err, ErrNoResumptionState)
+}
+
 type metaConn struct {
 	Conn
 	v any

@@ -158,12 +158,33 @@ func NewDialer(
 	if d.handshakeOpts.noPersistence && d.handshakeOpts.sessionID != "" {
 		return nil, errors.New("dial: resume requires persistence")
 	}
+	if err := d.checkResumeRow(); err != nil {
+		return nil, err
+	}
 	if len(d.handshakeOpts.pin) > 0 &&
 		!attest.IsValidPublicKey(d.handshakeOpts.pin) {
 		return nil, errors.New("dial: peer key is not a valid public key")
 	}
 
 	return d, nil
+}
+
+// checkResumeRow returns [ErrNoResumptionState] when the dialer offers to
+// resume a session that has no initiator row. Dial reads the row again under
+// the resume lock, since it may change in between.
+func (d *Dialer) checkResumeRow() error {
+	sid := d.handshakeOpts.sessionID
+	if sid == "" {
+		return nil
+	}
+	_, err := d.storage.GetResumption(sid, storage.ResumeRoleInitiator)
+	if errors.Is(err, storage.ErrNoResumption) {
+		return fmt.Errorf("dial: %w: %s", ErrNoResumptionState, sid)
+	}
+	if err != nil {
+		return fmt.Errorf("dial: reading resumption state: %w", err)
+	}
+	return nil
 }
 
 // DialOption configures the dialer. Returning an error from an option causes
@@ -232,7 +253,9 @@ func DialWithClientName(name string) DialOption {
 
 // DialWithResume offers to resume sessionID. The stored peer key of the
 // initiator row is pinned. A cold answer is a new session unless
-// [DialWithResumeOnly] is set. The verifier runs either way.
+// [DialWithResumeOnly] is set. The verifier runs either way. [NewDialer]
+// returns [ErrNoResumptionState] when the store has no initiator row for
+// sessionID.
 func DialWithResume(sessionID string) DialOption {
 	return func(d *Dialer) error {
 		d.handshakeOpts.sessionID = sessionID
