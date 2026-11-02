@@ -548,8 +548,8 @@ func (s *Server) sweepOnce() {
 		now, defaultResumeIdle, defaultResumeMaxAge,
 	)
 	if err != nil {
+		// A sweep that skipped some sessions still deleted n others.
 		slog.Error("sweep sessions", slog.Any("error", err))
-		return
 	}
 	if n > 0 {
 		slog.Info("swept idle sessions", slog.Int("deleted", n))

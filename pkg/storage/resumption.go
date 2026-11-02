@@ -260,13 +260,23 @@ func (s *Storage) heldSessions() map[string]struct{} {
 // sessions they leave behind. A session held by [HoldResumption] is left
 // in place, including one past the idle window or the maximum age. It
 // returns how many sessions were deleted.
+//
+// A session it cannot read or change is left in place and the sweep goes
+// on with the others, so one damaged row does not stop every later sweep.
+// The count then comes with an error that names each such session.
 func (s *Storage) SweepSessions(
 	now time.Time, idle, maxAge time.Duration,
 ) (int, error) {
 	held := s.heldSessions()
 	deleted := 0
+	var skipped []error
 	err := s.engine.Command(func(b engine.Namespace) error {
 		sessions := b.Sub([]byte(engine.SessionsNamespace))
+		bad := make(map[string]struct{})
+		skip := func(name string, err error) {
+			bad[name] = struct{}{}
+			skipped = append(skipped, fmt.Errorf("session %s: %w", name, err))
+		}
 		for _, name := range sessions.ListSubNamespaces() {
 			if _, ok := held[string(name)]; ok {
 				continue
@@ -275,20 +285,25 @@ func (s *Storage) SweepSessions(
 			if err := expireResumption(
 				meta, now, idle, maxAge,
 			); err != nil {
-				return err
+				skip(name, err)
 			}
 		}
 		for _, name := range sessions.ListSubNamespaces() {
+			if _, ok := bad[name]; ok {
+				continue
+			}
 			session := sessions.Sub([]byte(name))
 			idle, err := idleUnnamedSession(session, now, maxAge)
 			if err != nil {
-				return err
+				skip(name, err)
+				continue
 			}
 			if !idle {
 				continue
 			}
 			if err := sessions.DeleteNamespace([]byte(name)); err != nil {
-				return fmt.Errorf("delete idle session: %w", err)
+				skip(name, fmt.Errorf("delete idle session: %w", err))
+				continue
 			}
 			deleted++
 		}
@@ -296,6 +311,12 @@ func (s *Storage) SweepSessions(
 	})
 	if err != nil {
 		return 0, fmt.Errorf("sweep sessions: %w", err)
+	}
+	if len(skipped) > 0 {
+		return deleted, fmt.Errorf(
+			"sweep sessions: skipped %d: %w",
+			len(skipped), errors.Join(skipped...),
+		)
 	}
 	return deleted, nil
 }

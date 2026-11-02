@@ -317,6 +317,58 @@ func TestSweepSessions_BadNameDeletesNothing(t *testing.T) {
 	a.False(sessions.deleted)
 }
 
+// TestSweepSessions_SkipsUnreadableSession checks that a session whose
+// resumption row or name cannot be read is kept and reported, while the
+// sweep still deletes an idle session beside it.
+func TestSweepSessions_SkipsUnreadableSession(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{name: "initiator row", key: resumptionInitiatorKey},
+		{name: "responder row", key: resumptionResponderKey},
+		{name: "session name", key: "name"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			bad := &stubNS{subs: map[string]engine.Namespace{
+				"meta": &stubNS{errs: map[string]error{
+					tc.key: errors.New("decrypt"),
+				}},
+			}}
+			idleSession := &stubNS{subs: map[string]engine.Namespace{
+				"meta": &stubNS{},
+			}}
+			sessions := &deleteRecorder{stubNS: stubNS{
+				list: []string{"bad", "idle"},
+				subs: map[string]engine.Namespace{
+					"bad": bad, "idle": idleSession,
+				},
+			}}
+			root := &stubNS{subs: map[string]engine.Namespace{
+				engine.SessionsNamespace: sessions,
+			}}
+			s := &Storage{engine: stubStore{root: root}}
+			n, err := s.SweepSessions(time.Now(), time.Hour, 7*24*time.Hour)
+			a.ErrorContains(err, "session bad")
+			a.Equal(1, n)
+			a.Equal([]string{"idle"}, sessions.names)
+		})
+	}
+}
+
+// deleteRecorder is a stubNS that records which namespaces were deleted.
+type deleteRecorder struct {
+	stubNS
+	names []string
+}
+
+func (d *deleteRecorder) DeleteNamespace(name []byte) error {
+	d.names = append(d.names, string(name))
+	return nil
+}
+
 type stubStore struct{ root engine.Namespace }
 
 func (s stubStore) Close() error                                  { return nil }
