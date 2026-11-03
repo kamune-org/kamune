@@ -15,7 +15,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
+
+	"github.com/kamune-org/kamune/internal/clock"
 )
 
 const (
@@ -55,6 +58,16 @@ const (
 	// PathInbound is how many opened KCP packets a path holds for ReadFrom.
 	// A packet that finds the queue full is dropped.
 	PathInbound = 128
+
+	// HalfOpenTimeout is how long a server path waits, in HALF_OPEN, for the
+	// first DATA of its client. QueuedTimeout is how long a QUEUED path waits
+	// for [Server.Accept].
+	HalfOpenTimeout = 5 * time.Second
+	QueuedTimeout   = 10 * time.Second
+
+	// HandshakeQueue is how many HELLO and INIT packets wait for the server's
+	// handshake worker. A packet that finds the queue full is dropped.
+	HandshakeQueue = 256
 )
 
 // knockKeyLen is the size of a knock key.
@@ -69,18 +82,39 @@ var (
 	// so kamune reads it as a dropped connection.
 	ErrPathClosed = fmt.Errorf("udp path closed: %w", net.ErrClosed)
 
+	// ErrListenerClosed is returned by [Server.Accept] once the server is
+	// closed. It wraps [net.ErrClosed].
+	ErrListenerClosed = fmt.Errorf(
+		"udp path listener closed: %w", net.ErrClosed,
+	)
+
 	// errPacketSize is a KCP packet that a DATA cannot carry.
 	errPacketSize = fmt.Errorf(
 		"udp path: kcp packet must be 1 to %d bytes", KCPMTU,
 	)
 )
 
-// Config configures one end of the path layer.
+// Config configures one end of the path layer. The fields marked as
+// server-only are read by [NewServer] and ignored by [Dial].
 type Config struct {
+	// Clock is the time source of a server, for cookies, timeouts and the
+	// INIT limiter. Nil uses [clock.Real]. Server-only.
+	Clock clock.Clock
+
+	// Allow, when set, is asked about the source of every HELLO and INIT a
+	// server reads. False drops the packet with no reply and counts it as
+	// Filtered. Nil admits every source. Server-only. Allow runs on the
+	// handshake worker, which Close waits for, so it must not block.
+	Allow func(from netip.AddrPort) bool
+
 	// KnockKey is nil or a 32-byte key that both peers hold. With it, a
 	// listener ignores HELLO and INIT from anyone without the key, and a
 	// dialer fills the mac1 field of the packets it sends.
 	KnockKey []byte
+
+	// Limits bounds the state and the admission of a server. Its zero value
+	// is the default. Server-only.
+	Limits Limits
 }
 
 func (c Config) validate() error {

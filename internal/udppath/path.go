@@ -28,6 +28,12 @@ const (
 	// reasonSocket is the socket closed under the reader: nothing can be
 	// sent.
 	reasonSocket
+	// reasonExpired is a HALF_OPEN or QUEUED server path past its timeout.
+	reasonExpired
+	// reasonEvicted is a server path that a new INIT pushed out at a cap.
+	reasonEvicted
+	// reasonShutdown is Server.Close, for a path Accept has not returned.
+	reasonShutdown
 )
 
 var (
@@ -52,7 +58,10 @@ type Path struct {
 	raddrUDP *net.UDPAddr
 	stats    *counters
 	// rd is the reader of a client path's socket, which the path owns.
-	rd      *reader
+	rd *reader
+	// entry is the server-only state of a server path, nil on a client
+	// path.
+	entry   *serverEntry
 	in      chan inbound
 	started chan struct{}
 	done    chan struct{}
@@ -201,14 +210,17 @@ func (p *Path) Close() error {
 }
 
 // close ends the path once: ReadFrom drains and then fails, WriteTo fails,
-// and the peer gets CLOSE twice unless it closed the path or the socket is
-// gone.
+// and the peer gets CLOSE twice unless it sent the CLOSE or the socket is
+// gone. A server path then leaves its server's tables.
 func (p *Path) close(reason closeReason) {
 	p.closeOnce.Do(func() {
 		close(p.done)
-		if reason == reasonLocal {
+		if reason != reasonPeer && reason != reasonSocket {
 			p.sendClose()
 			p.sendClose()
+		}
+		if p.entry != nil {
+			p.entry.srv.remove(p)
 		}
 	})
 }
@@ -227,34 +239,35 @@ func (p *Path) sendClose() {
 
 // input takes a DATA or CLOSE for this path from its address. It runs on
 // the reader goroutine: it checks the counter against the window, opens
-// the packet, and only then records the counter.
-func (p *Path) input(m sealedMsg, pkt []byte) {
+// the packet, and only then records the counter. It reports whether a DATA
+// opened, whether or not the packet was queued for ReadFrom.
+func (p *Path) input(m sealedMsg, pkt []byte) bool {
 	if !p.win.check(m.ctr) {
 		p.stats.Replay.Add(1)
-		return
+		return false
 	}
 	if m.typ == typeClose {
 		if _, err := openPacket(nil, p.recv, m.ctr, pkt); err != nil {
 			p.stats.BadTag.Add(1)
-			return
+			return false
 		}
 		p.win.update(m.ctr)
 		p.stats.CloseReceived.Add(1)
 		p.close(reasonPeer)
-		return
+		return false
 	}
 	buf := inPool.Get().(*[KCPMTU]byte)
 	plain, err := openPacket(buf[:], p.recv, m.ctr, pkt)
 	if err != nil {
 		inPool.Put(buf)
 		p.stats.BadTag.Add(1)
-		return
+		return false
 	}
 	p.win.update(m.ctr)
 	select {
 	case <-p.done:
 		inPool.Put(buf)
-		return
+		return true
 	default:
 	}
 	select {
@@ -263,6 +276,7 @@ func (p *Path) input(m sealedMsg, pkt []byte) {
 		inPool.Put(buf)
 		p.stats.InboundDropped.Add(1)
 	}
+	return true
 }
 
 // unmap removes an IPv4-in-IPv6 mapping from ap.
