@@ -2107,7 +2107,8 @@ func TestCloseStopsHandshakesInProgress(t *testing.T) {
 				_ = clientConn.Close()
 				_ = serverConn.Close()
 			})
-			l.conns <- tc.wrap(serverConn)
+			wrapped := tc.wrap(serverConn)
+			l.conns <- wrapped
 
 			dialer, err := NewDialer(
 				"",
@@ -2150,6 +2151,11 @@ func TestCloseStopsHandshakesInProgress(t *testing.T) {
 			a.NoError(err)
 			a.Empty(sessions, "session stored for a handshake dropped at Close")
 
+			// The server cannot close a stubborn conn, so the dialer would
+			// wait out its own deadline. Drop the pipe as the network would.
+			if _, ok := wrapped.(stubbornConn); ok {
+				_ = serverNet.Close()
+			}
 			got := <-dialed
 			a.Error(got.dialErr)
 		})
@@ -2797,7 +2803,10 @@ func TestAuthenticatedConnIsNotDropped(t *testing.T) {
 }
 
 func TestServer_F1FloodDoesNotBlock(t *testing.T) {
-	const floodN = 10000
+	// Each hello costs the server an X-Wing encapsulation and a signature,
+	// which are slow under -race. 2000 is still far over the hello-stage
+	// cap of 256, so eviction runs throughout.
+	const floodN = 2000
 	a := require.New(t)
 	var lim unix.Rlimit
 	a.NoError(unix.Getrlimit(unix.RLIMIT_NOFILE, &lim))

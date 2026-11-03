@@ -506,6 +506,8 @@ func TestExporter(t *testing.T) {
 		store := openStore(t)
 		it, rt, _, _ := coldPair(t, store, nil)
 		defer rt.CloseAbort()
+		// rt never reads, so the close frame cannot go out over the pipe.
+		it.closeTimeout = 50 * time.Millisecond
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() {
@@ -1642,6 +1644,8 @@ func TestResume_PeerCloseEndsIt(t *testing.T) {
 	sid := it.SessionID()
 	remember(t, store, ia)
 	remember(t, store, ra)
+	// rt never reads, so the close frame cannot go out over the pipe.
+	it.closeTimeout = 50 * time.Millisecond
 	a.NoError(it.Close())
 	_ = rt.CloseAbort()
 	_, err := store.GetResumption(sid, storage.ResumeRoleInitiator)
