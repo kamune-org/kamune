@@ -9,8 +9,6 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/xtaci/kcp-go/v5"
-
 	"github.com/kamune-org/kamune/pkg/attest"
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/storage"
@@ -21,6 +19,7 @@ type Dialer struct {
 	attest        *attest.Attest
 	storage       *storage.Storage
 	dialFunc      func(addr string) (Conn, error)
+	dialCtx       func(ctx context.Context, addr string) (Conn, error)
 	clientName    string
 	version       string
 	address       string
@@ -59,6 +58,9 @@ func (d *Dialer) DialContext(ctx context.Context) (*Transport, error) {
 }
 
 func (d *Dialer) dial(ctx context.Context, addr string) (Conn, error) {
+	if d.dialCtx != nil {
+		return d.dialCtx(ctx, addr)
+	}
 	if d.dialFunc != nil {
 		return d.dialFunc(addr)
 	}
@@ -197,6 +199,7 @@ type DialOption func(*Dialer) error
 func DialWithFunc(fn func(addr string) (Conn, error)) DialOption {
 	return func(d *Dialer) error {
 		d.dialFunc = fn
+		d.dialCtx = nil
 		return nil
 	}
 }
@@ -210,20 +213,51 @@ func DialWithTCP(opts ...ConnOption) DialOption {
 	return func(d *Dialer) error {
 		d.connOpts = append(d.connOpts, opts...)
 		d.dialFunc = nil
+		d.dialCtx = nil
 		return nil
 	}
 }
 
-// DialWithUDP configures the dialer to use UDP/KCP connections. The dialer
-// will fail at [NewDialer] time if the UDP dialer cannot be created.
-func DialWithUDP(opts ...ConnOption) DialOption {
+// DialWithUDP configures the dialer to use UDP connections, through the path
+// layer of RFC008. Each dial binds a socket of its own, runs the path
+// handshake and then the kamune handshake. The dial timeout (see
+// [DialWithDialTimeout]) bounds the path handshake, so a server that does not
+// answer fails the dial with an error wrapping [ErrUDPHandshakeTimeout]. The
+// options are checked here, so a bad one makes [NewDialer] fail. The
+// server-only options have no effect on a dialer. A later [DialWithFunc] or
+// [DialWithTCP] replaces that dial.
+func DialWithUDP(opts ...UDPOption) DialOption {
 	return func(d *Dialer) error {
-		d.dialFunc = func(addr string) (Conn, error) {
-			c, err := kcp.Dial(addr)
+		cfg, err := newUDPConfig(opts)
+		if err != nil {
+			return err
+		}
+		d.dialFunc = nil
+		d.dialCtx = func(ctx context.Context, addr string) (Conn, error) {
+			ua, err := net.ResolveUDPAddr("udp", addr)
 			if err != nil {
 				return nil, fmt.Errorf("dialing udp: %w", err)
 			}
-			return newConn(c, opts...), nil
+			dst := ua.AddrPort()
+			network := "udp"
+			if dst.Addr().Unmap().Is4() {
+				network = "udp4"
+			}
+			pc, err := net.ListenUDP(network, nil)
+			if err != nil {
+				return nil, fmt.Errorf("dialing udp: %w", err)
+			}
+			if d.dialTimeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, d.dialTimeout)
+				defer cancel()
+			}
+			c, err := dialUDP(ctx, pc, dst, cfg)
+			if err != nil {
+				_ = pc.Close()
+				return nil, fmt.Errorf("dialing udp: %w", err)
+			}
+			return c, nil
 		}
 		return nil
 	}

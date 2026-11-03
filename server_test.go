@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -15,11 +16,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/xtaci/kcp-go/v5"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/kamune-org/kamune/internal/clock"
+	"github.com/kamune-org/kamune/internal/udppath"
 	"github.com/kamune-org/kamune/pkg/storage"
 )
 
@@ -1520,137 +1521,108 @@ func TestHandlerReturnReleasesResumptionHold(t *testing.T) {
 	a.ErrorIs(err, storage.ErrNoResumption)
 }
 
-// kcpPush returns a KCP segment that pushes one byte on conversation conv.
-// It is all a kcp-go listener needs to accept a new session from the
-// datagram's source address.
-func kcpPush(conv uint32) []byte {
-	const cmdPush = 81
-	b := make([]byte, 25)
-	binary.LittleEndian.PutUint32(b[0:], conv)
-	b[4] = cmdPush
-	binary.LittleEndian.PutUint16(b[6:], 32) // window
-	binary.LittleEndian.PutUint32(b[20:], 1) // payload length
+// bogusHandshake returns a HELLO or an INIT of size bytes. Its id is 1, and its
+// cookie is all zeros, which is no valid cookie.
+func bogusHandshake(typ byte, size int) []byte {
+	b := make([]byte, size)
+	b[0], b[1] = typ, udppath.Version
+	binary.BigEndian.PutUint32(b[4:], 1)
 	return b
 }
 
-// acceptCalls is a Listener that reports each Accept call on calls.
-type acceptCalls struct {
+// recordingListener is a Listener that records the remote address of each
+// Conn that it returns.
+type recordingListener struct {
 	Listener
-	calls chan struct{}
+	mu      sync.Mutex
+	remotes []string
 }
 
-func (l *acceptCalls) Accept() (Conn, error) {
-	select {
-	case l.calls <- struct{}{}:
-	default:
-	}
-	return l.Listener.Accept()
-}
-
-func TestKCPFloodFromManySourcesDoesNotDropDialer(t *testing.T) {
-	const sources = defaultMaxPendingHandshakes + 64
-	a := require.New(t)
-	// Each idle session comes from an address of its own, as a sender
-	// that forges its source address would make them. The addresses lie
-	// in two /24 networks, as in a flood from one site, so the server
-	// makes room by dropping idle sessions rather than the dialer's.
-	sourceIP := func(i int) net.IP {
-		return net.IPv4(127, 1, byte(i/250), byte(i%250+1))
-	}
-	probe, err := net.ListenUDP(
-		"udp4", &net.UDPAddr{IP: sourceIP(sources - 1)},
-	)
+// Accept returns the next Conn of the wrapped Listener, and records its remote
+// address.
+func (l *recordingListener) Accept() (Conn, error) {
+	cn, err := l.Listener.Accept()
 	if err != nil {
-		t.Skipf("cannot bind %s: %v", sourceIP(sources-1), err)
+		return nil, err
 	}
-	_ = probe.Close()
+	remote := ""
+	if ra, ok := cn.(interface{ RemoteAddr() net.Addr }); ok {
+		remote = ra.RemoteAddr().String()
+	}
+	l.mu.Lock()
+	l.remotes = append(l.remotes, remote)
+	l.mu.Unlock()
+	return cn, nil
+}
 
-	serverStore, cleanupServer := newTestStore(t)
-	t.Cleanup(cleanupServer)
-	clientStore, cleanupClient := newTestStore(t)
-	t.Cleanup(cleanupClient)
-	verifier := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
-	kl, err := kcp.Listen("127.0.0.1:0")
-	a.NoError(err)
-	addr := kl.Addr().String()
-	l := &acceptCalls{
-		Listener: &udpListener{Listener: kl},
-		calls:    make(chan struct{}, 1),
-	}
-	server, err := NewServer(
-		"",
-		func(*Transport) error { return nil },
-		serverStore,
-		verifier,
-		ServeWithListener(l),
-		// Keep the idle sessions for the whole test.
-		ServeWithIntroTimeout(time.Hour),
+// accepted returns the remote address of each Conn that Accept has returned.
+func (l *recordingListener) accepted() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.remotes...)
+}
+
+// TestUDPSpoofFloodDoesNotDropDialer floods a UDP server with 20,000 HELLOs and
+// 20,000 INITs that carry bogus cookies. They come from forged addresses in
+// 1,000 IPv4 /24 networks, while a real dialer connects. The dialer must get its
+// session, and no forged source may reach the admission of the kamune server.
+func TestUDPSpoofFloodDoesNotDropDialer(t *testing.T) {
+	const (
+		floods   = 20000
+		networks = 1000
+		// pause is how many pairs of datagrams the flood sends between two
+		// short pauses, which let the server drain its queues.
+		pause = 128
 	)
+	a := require.New(t)
+	n, serverPC, clientPC := udpPair(t)
+	serverAddr := udpAddrPort(serverPC)
+	l, err := ListenUDP(serverPC)
 	a.NoError(err)
-	go func() { _ = server.ListenAndServe() }()
-	t.Cleanup(func() { _ = server.Close() })
-	waitAccept := func() bool {
-		select {
-		case <-l.calls:
-			return true
-		case <-time.After(time.Second):
-			return false
-		}
-	}
-	a.True(waitAccept(), "the server did not call Accept")
+	rec := &recordingListener{Listener: l}
+	_, sessions, _ := udpServe(t, "", ServeWithListener(rec))
 
-	// The dialer does not get the server's reply until the gate opens, as
-	// on a slow link.
-	gate, openGate := newGate(t)
-	dialer, err := NewDialer(
-		addr, clientStore, verifier,
-		DialWithFunc(func(addr string) (Conn, error) {
-			c, err := kcp.Dial(addr)
-			if err != nil {
-				return nil, err
-			}
-			return &gatedConn{Conn: newConn(c), gate: gate}, nil
-		}),
-	)
-	a.NoError(err)
-	dialed := dialAsync(dialer)
-	// The server calls Accept again once it has taken the dialer's
-	// session.
-	accepted := false
-	for range 10 {
-		if accepted = waitAccept(); accepted {
-			break
-		}
-	}
-	a.True(accepted, "the server did not accept the dialer")
-
-	// When every source had one session waiting, the oldest was dropped
-	// for each new one, so the dialer was dropped after the next 256.
-	for i := range sources {
-		c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: sourceIP(i)})
-		a.NoError(err)
-		t.Cleanup(func() { _ = c.Close() })
-		to, err := net.ResolveUDPAddr("udp4", addr)
-		a.NoError(err)
-		// Send again in case the datagram was lost.
-		accepted = false
-		for range 10 {
-			_, err = c.WriteToUDP(kcpPush(uint32(i+1)), to)
-			a.NoError(err)
-			if accepted = waitAccept(); accepted {
-				break
+	// Inject copies each datagram, so one of each serves the whole flood. The
+	// server answers a bogus INIT before it makes any state, so the id can be
+	// the same for every source.
+	hello := bogusHandshake(udpTypeHello, udppath.HelloSize)
+	bogusInit := bogusHandshake(udpTypeInit, udppath.InitSize)
+	flood := make(chan struct{})
+	go func() {
+		defer close(flood)
+		for i := range floods {
+			nw := i % networks
+			src := netip.AddrPortFrom(
+				netip.AddrFrom4([4]byte{
+					10, byte(nw >> 8), byte(nw), byte(1 + i%254),
+				}),
+				uint16(1024+i%60000),
+			)
+			n.Inject(src, serverAddr, hello)
+			n.Inject(src, serverAddr, bogusInit)
+			if i%pause == 0 {
+				time.Sleep(time.Millisecond)
 			}
 		}
-		a.True(accepted, "the server did not accept session %d", i)
-	}
+	}()
 
-	openGate()
-	select {
-	case err := <-dialed:
-		a.NoError(err)
-	case <-time.After(30 * time.Second):
-		a.FailNow("the dial did not complete")
-	}
+	store, cleanup := newTestStore(t)
+	t.Cleanup(cleanup)
+	cli, err := udpDialer(t, store, clientPC, serverAddr.String()).Dial()
+	a.NoError(err)
+	t.Cleanup(func() { _ = cli.Close() })
+	srv := recv(t, sessions)
+	recv(t, flood)
+	sendRecv(t, cli, srv, []byte("dialer, through the flood"))
+	sendRecv(t, srv, cli, []byte("server, through the flood"))
+
+	// Only the dialer's path was accepted, so the server's admission saw no
+	// forged source.
+	a.Equal([]string{clientPC.LocalAddr().String()}, rec.accepted())
+	// The forged INITs were refused for their cookies, and no path came of
+	// them.
+	stats := l.(*pathListener).srv.Stats()
+	a.Positive(stats.BadCookie)
 }
 
 func TestIntroducedConnIsNotDropped(t *testing.T) {

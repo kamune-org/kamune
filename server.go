@@ -12,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xtaci/kcp-go/v5"
-
 	"github.com/kamune-org/kamune/internal/admit"
 	"github.com/kamune-org/kamune/internal/clock"
 	"github.com/kamune-org/kamune/pkg/attest"
@@ -33,19 +31,6 @@ type tcpListener struct {
 }
 
 func (l *tcpListener) Accept() (Conn, error) {
-	c, err := l.Listener.Accept()
-	if err != nil {
-		return nil, err
-	}
-	return newConn(c, l.connOpts...), nil
-}
-
-type udpListener struct {
-	net.Listener
-	connOpts []ConnOption
-}
-
-func (l *udpListener) Accept() (Conn, error) {
 	c, err := l.Listener.Accept()
 	if err != nil {
 		return nil, err
@@ -337,7 +322,8 @@ func (s *Server) endHandshake(p *pendingConn) bool {
 }
 
 // isListenerClosed reports whether an Accept error means the listener was
-// closed. kcp-go reports a closed listener as io.ErrClosedPipe.
+// closed. A listener may report that as io.ErrClosedPipe instead of
+// net.ErrClosed.
 func isListenerClosed(err error) bool {
 	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.ErrClosedPipe)
 }
@@ -680,22 +666,36 @@ func ServeWithTCP(opts ...ConnOption) ServerOptions {
 	}
 }
 
-// ServeWithUDP configures the server to use UDP/KCP connections. [NewServer]
-// binds the address once everything else has succeeded, and returns the error
-// if binding fails. Anyone can forge the source address of a UDP datagram, and
-// kcp-go starts a session for any datagram from a new address; see
+// ServeWithUDP configures the server to use UDP connections, through the path
+// layer of RFC008, with the given [UDPOption]s. The path layer answers only
+// dialers that receive packets at their source address, so a sender that forges
+// a source address gets no session, and the kamune handshake starts only on a
+// path whose dialer has proved that it is return-routable. See
 // [ServeWithMaxPendingHandshakes] and [ServeWithMaxPendingPerSource] for how
-// their caps treat such connections.
-func ServeWithUDP(opts ...ConnOption) ServerOptions {
+// their caps treat the connections over UDP. [NewServer] binds the address once
+// everything else has succeeded, and returns the error if binding fails.
+func ServeWithUDP(opts ...UDPOption) ServerOptions {
 	return func(s *Server) error {
-		s.connOpts = opts
+		cfg, err := newUDPConfig(opts)
+		if err != nil {
+			return err
+		}
 		s.listener = nil
 		s.listen = func() (Listener, error) {
-			l, err := kcp.Listen(s.addr)
+			ua, err := net.ResolveUDPAddr("udp", s.addr)
+			if err != nil {
+				return nil, fmt.Errorf("resolving udp address: %w", err)
+			}
+			pc, err := net.ListenUDP("udp", ua)
 			if err != nil {
 				return nil, fmt.Errorf("listening udp: %w", err)
 			}
-			return &udpListener{Listener: l, connOpts: opts}, nil
+			l, err := listenUDP(pc, cfg)
+			if err != nil {
+				_ = pc.Close()
+				return nil, fmt.Errorf("listening udp: %w", err)
+			}
+			return l, nil
 		}
 		return nil
 	}

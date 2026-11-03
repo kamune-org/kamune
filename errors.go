@@ -73,4 +73,8 @@ var (
 	// ErrResumeRefused is returned when a resume-only dial is answered with a
 	// cold session.
 	ErrResumeRefused = errors.New("peer did not resume the session")
+	// ErrUDPHandshakeTimeout is returned when the UDP path handshake does not
+	// complete before the deadline of its context, as when the dial timeout of
+	// [DialWithUDP] passes.
+	ErrUDPHandshakeTimeout = errors.New("udp path handshake timed out")
 )
