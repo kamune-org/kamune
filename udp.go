@@ -253,6 +253,11 @@ type kcpPath struct {
 	closed atomic.Bool
 }
 
+// ReturnRoutable is true. The path handshake has shown that the peer receives
+// packets at its source address, which a forged source cannot do, so the server
+// counts the source against the per-source cap at accept.
+func (c *kcpPath) ReturnRoutable() bool { return true }
+
 // Read reads from the session.
 func (c *kcpPath) Read(b []byte) (int, error) {
 	n, err := c.UDPSession.Read(b)

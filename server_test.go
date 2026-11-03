@@ -739,24 +739,34 @@ func (l *testListener) Close() error {
 	return nil
 }
 
-// sourceConn reports a chosen remote address and records when it is closed.
+// sourceConn reports a chosen remote address and records when it is closed. It
+// is return-routable only when routable is set. A sourceConn embeds the Conn
+// interface, so [*conn].ReturnRoutable is not promoted to it, and the method
+// is defined here instead.
 type sourceConn struct {
 	Conn
-	addr   net.Addr
-	closed chan struct{}
-	once   sync.Once
+	addr     net.Addr
+	closed   chan struct{}
+	once     sync.Once
+	routable bool
 }
 
+// newSourceConn is a sourceConn for a TCP connection, which is return-routable.
 func newSourceConn(cn Conn, addr string) *sourceConn {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		panic(err)
 	}
-	return &sourceConn{Conn: cn, addr: tcpAddr, closed: make(chan struct{})}
+	return &sourceConn{
+		Conn:     cn,
+		addr:     tcpAddr,
+		closed:   make(chan struct{}),
+		routable: true,
+	}
 }
 
-// newUDPSourceConn is newSourceConn for a connection over UDP, whose source
-// address can be forged.
+// newUDPSourceConn is newSourceConn for a connection over raw UDP, whose source
+// address can be forged. It reports ReturnRoutable as false.
 func newUDPSourceConn(cn Conn, addr string) *sourceConn {
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -766,6 +776,9 @@ func newUDPSourceConn(cn Conn, addr string) *sourceConn {
 }
 
 func (c *sourceConn) RemoteAddr() net.Addr { return c.addr }
+
+// ReturnRoutable reports whether the source address of c is return-routable.
+func (c *sourceConn) ReturnRoutable() bool { return c.routable }
 
 func (c *sourceConn) Close() error {
 	c.once.Do(func() { close(c.closed) })
@@ -1390,16 +1403,22 @@ func TestServer_HelloStageEviction(t *testing.T) {
 	a.False(extra.isClosed())
 }
 
-func TestPendingCapsByTransport(t *testing.T) {
+// TestPendingCapsByRoutability checks both caps for a connection whose source is
+// return-routable, as TCP's is, and for one whose source can be forged, as raw
+// UDP's can. The per-source cap counts the first from accept and the second only
+// once its dialer has authenticated. The cap on waiting connections applies to
+// both.
+func TestPendingCapsByRoutability(t *testing.T) {
 	cases := []struct {
 		newConn func(cn Conn, addr string) *sourceConn
 		name    string
 		// atAccept is whether the per-source cap counts a connection from
-		// the moment it is accepted, rather than from the introduction.
+		// the moment it is accepted, which only a routable source allows,
+		// rather than from authentication.
 		atAccept bool
 	}{
-		{name: "tcp", newConn: newSourceConn, atAccept: true},
-		{name: "udp", newConn: newUDPSourceConn},
+		{name: "routable", newConn: newSourceConn, atAccept: true},
+		{name: "forgeable", newConn: newUDPSourceConn},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

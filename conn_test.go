@@ -6,6 +6,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -289,4 +290,124 @@ func TestReceivePayload_TimeoutMidFrameIsConnClosed(t *testing.T) {
 	_, _, err := tr.ReceivePayload()
 	a.ErrorIs(err, ErrConnClosed)
 	a.NotErrorIs(err, ErrReceiveTimeout)
+}
+
+// returnRoutableConn is a net.Conn that reports whether its source address is
+// return-routable.
+type returnRoutableConn struct {
+	net.Conn
+	routable bool
+}
+
+func (c returnRoutableConn) ReturnRoutable() bool { return c.routable }
+
+// dialedTCP returns the dialing end of a TCP connection over loopback.
+func dialedTCP(t *testing.T) net.Conn {
+	t.Helper()
+	a := require.New(t)
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	a.NoError(err)
+	defer func() { _ = ln.Close() }()
+	var d net.Dialer
+	cn, err := d.DialContext(t.Context(), "tcp", ln.Addr().String())
+	a.NoError(err)
+	t.Cleanup(func() { _ = cn.Close() })
+	return cn
+}
+
+// dialedUnix returns the dialing end of a Unix socket connection.
+func dialedUnix(t *testing.T) net.Conn {
+	t.Helper()
+	a := require.New(t)
+	// A short directory name keeps the socket path within the system's limit.
+	dir, err := os.MkdirTemp("", "kamune")
+	a.NoError(err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "s")
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "unix", path)
+	a.NoError(err)
+	defer func() { _ = ln.Close() }()
+	var d net.Dialer
+	cn, err := d.DialContext(t.Context(), "unix", path)
+	a.NoError(err)
+	t.Cleanup(func() { _ = cn.Close() })
+	return cn
+}
+
+// pipeEnd returns one end of a net.Pipe.
+func pipeEnd(t *testing.T) net.Conn {
+	t.Helper()
+	left, right := net.Pipe()
+	t.Cleanup(func() {
+		_ = left.Close()
+		_ = right.Close()
+	})
+	return left
+}
+
+func TestConnReturnRoutable(t *testing.T) {
+	cases := []struct {
+		open func(t *testing.T) Conn
+		name string
+		want bool
+	}{
+		{
+			name: "tcp",
+			open: func(t *testing.T) Conn { return newConn(dialedTCP(t)) },
+			want: true,
+		},
+		{
+			name: "unix",
+			open: func(t *testing.T) Conn { return newConn(dialedUnix(t)) },
+			want: true,
+		},
+		{
+			name: "pipe",
+			open: func(t *testing.T) Conn { return newConn(pipeEnd(t)) },
+			want: false,
+		},
+		{
+			name: "wrapped conn that reports routable",
+			open: func(t *testing.T) Conn {
+				cn := returnRoutableConn{Conn: pipeEnd(t), routable: true}
+				return newConn(cn)
+			},
+			want: true,
+		},
+		{
+			name: "wrapped conn that reports not routable",
+			open: func(t *testing.T) Conn {
+				cn := returnRoutableConn{Conn: pipeEnd(t)}
+				return newConn(cn)
+			},
+			want: false,
+		},
+		{
+			// The method of a *conn is not promoted through an embedded Conn,
+			// so a wrapper of a TCP conn is forgeable unless it defines the
+			// method itself.
+			name: "wrapper of a tcp conn without the method",
+			open: func(t *testing.T) Conn {
+				return remoteAddrConn{Conn: newConn(dialedTCP(t))}
+			},
+			want: false,
+		},
+		{
+			name: "conn that is not a *conn and has no method",
+			open: func(t *testing.T) Conn { return stubbornConn{} },
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			cn := tc.open(t)
+			a.Equal(tc.want, isReturnRoutable(cn))
+			if c, ok := cn.(*conn); ok {
+				a.Equal(tc.want, c.ReturnRoutable())
+			}
+		})
+	}
 }

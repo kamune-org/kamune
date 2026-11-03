@@ -258,6 +258,33 @@ func (c *conn) checkWriteDeadlineLocked(deadline time.Duration) error {
 func (c *conn) LocalAddr() net.Addr  { return c.conn.LocalAddr() }
 func (c *conn) RemoteAddr() net.Addr { return c.conn.RemoteAddr() }
 
+// returnRoutable is implemented by a connection whose source address cannot be
+// forged, because its peer has shown that it receives packets at that address.
+// [Server] counts such a connection against the per-source cap at accept.
+type returnRoutable interface{ ReturnRoutable() bool }
+
+// ReturnRoutable reports whether the source address of c is return-routable:
+// the wrapped net.Conn is a *net.TCPConn or a *net.UnixConn, or implements
+// ReturnRoutable and returns true.
+func (c *conn) ReturnRoutable() bool {
+	switch nc := c.conn.(type) {
+	case *net.TCPConn, *net.UnixConn:
+		return true
+	case returnRoutable:
+		return nc.ReturnRoutable()
+	default:
+		return false
+	}
+}
+
+// isReturnRoutable reports whether the source address of cn is
+// return-routable. A Conn that does not implement ReturnRoutable is not, so its
+// source may be forged.
+func isReturnRoutable(cn Conn) bool {
+	rr, ok := cn.(returnRoutable)
+	return ok && rr.ReturnRoutable()
+}
+
 func (c *conn) SetDeadline(t time.Time) error {
 	c.deadlineMu.Lock()
 	defer c.deadlineMu.Unlock()
@@ -298,7 +325,14 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 
 // NewConn wraps a pre-established [net.Conn] in the kamune conn adapter and
 // returns it as a [Conn]. Use with [DialWithFunc] when the dial step happens
-// outside [NewDialer] (e.g. P2P hole-punched sockets).
+// outside [NewDialer].
+//
+// A [Server] treats the source address of the result as forgeable unless the
+// wrapped net.Conn is a *net.TCPConn or a *net.UnixConn, or implements
+// ReturnRoutable() bool and returns true. Returning true means that the peer
+// has shown it receives packets at its source address, which a forged source
+// cannot do. A forgeable source counts against the per-source cap only once its
+// dialer has authenticated.
 func NewConn(c net.Conn, opts ...ConnOption) Conn {
 	return newConn(c, opts...)
 }

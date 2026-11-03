@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"runtime/debug"
-	"strings"
 	"sync"
 	"time"
 
@@ -111,8 +110,9 @@ type pendingConn struct {
 	network string
 	// where is the pre-authentication list p is on, or admitNone.
 	where admitPlace // guarded by Server.mu
-	// forgeable is whether the connection's source address can be forged, as
-	// over UDP. The per-source cap then counts it only once the dialer has
+	// forgeable is whether the connection's source address can be forged,
+	// that is, the connection is not return-routable (see isReturnRoutable).
+	// The per-source cap then counts it only once the dialer has
 	// authenticated, which needs the server's reply.
 	forgeable bool
 	// counted is whether the per-source cap counts the connection.
@@ -139,8 +139,10 @@ type pendingConn struct {
 // of a waiting one, which is closed, from the networks that hold the most
 // places. Idle connections from fewer networks than the cap thus cannot keep
 // out a dialer that sends ClientHello within a few round trips. One source may
-// have at most 16 connections in the handshake at once; over UDP, whose source
-// address can be forged, only those whose dialer has authenticated count. See
+// have at most 16 connections in the handshake at once. A connection whose
+// source address can be forged, such as a raw UDP or KCP connection that a
+// custom [Listener] returns, counts only once its dialer has authenticated.
+// TCP connections and the UDP paths of [ServeWithUDP] count from accept. See
 // [ServeWithIntroTimeout], [ServeWithMaxPendingHandshakes], and
 // [ServeWithMaxPendingPerSource].
 func (s *Server) ListenAndServe() error {
@@ -230,13 +232,13 @@ func (s *Server) ListenAndServe() error {
 // the connections from the networks that hold the most places are the least
 // likely to be real dialers.
 //
-// A connection over UDP is not checked against the per-source cap here: its
-// source address may be forged, and a sender could then use up the places of
-// the host it names. authenticated checks it instead.
+// A connection whose source address may be forged is not checked against the
+// per-source cap here: a sender could then use up the places of the host it
+// names. authenticated checks it once its dialer has authenticated.
 func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 	p := &pendingConn{conn: cn}
 	if addr := connAddr(cn); addr != nil {
-		p.forgeable = forgeableAddr(addr)
+		p.forgeable = !isReturnRoutable(cn)
 		p.source = admit.SourceKey(addr)
 		p.network = admit.NetworkKey(addr)
 	}
@@ -363,12 +365,6 @@ func connAddr(cn Conn) net.Addr {
 		return nil
 	}
 	return ra.RemoteAddr()
-}
-
-// forgeableAddr reports whether addr is a source address that a sender can
-// forge without receiving anything back, as on UDP.
-func forgeableAddr(addr net.Addr) bool {
-	return strings.HasPrefix(addr.Network(), "udp")
 }
 
 // Close shuts the server down. It closes the listener, so that
@@ -670,10 +666,10 @@ func ServeWithTCP(opts ...ConnOption) ServerOptions {
 // layer of RFC008, with the given [UDPOption]s. The path layer answers only
 // dialers that receive packets at their source address, so a sender that forges
 // a source address gets no session, and the kamune handshake starts only on a
-// path whose dialer has proved that it is return-routable. See
-// [ServeWithMaxPendingHandshakes] and [ServeWithMaxPendingPerSource] for how
-// their caps treat the connections over UDP. [NewServer] binds the address once
-// everything else has succeeded, and returns the error if binding fails.
+// path whose dialer has proved that it is return-routable. Such a path counts
+// against [ServeWithMaxPendingPerSource] from accept, as a TCP connection does.
+// [NewServer] binds the address once everything else has succeeded, and returns
+// the error if binding fails.
 func ServeWithUDP(opts ...UDPOption) ServerOptions {
 	return func(s *Server) error {
 		cfg, err := newUDPConfig(opts)
@@ -772,10 +768,11 @@ func ServeWithoutPersistence() ServerOptions {
 // Idle connections from more networks than the cap can: each new one then
 // closes a connection in that stage at random, so a dialer is more likely to
 // lose its place the more of them arrive before it sends ClientHello. That
-// takes many addresses on TCP, but over UDP, including KCP, a sender can forge
-// as many source addresses as it likes without receiving a reply. The cap still
-// applies there, since each KCP session costs a few hundred kilobytes and
-// without it such a sender could hold any number of them.
+// takes many addresses on TCP, but a raw UDP or KCP connection of a custom
+// [Listener] has a source that a sender can forge as many times as it likes,
+// without receiving a reply. The cap still applies there, since each KCP
+// session costs a few hundred kilobytes and without it such a sender could hold
+// any number of them.
 //
 // A connection whose dialer has authenticated, for example one waiting for the
 // [RemoteVerifier], no longer counts and is never closed this way, and neither
@@ -802,11 +799,13 @@ func ServeWithMaxPendingHandshakes(n int) ServerOptions {
 // one host commonly holds a whole /64. A connection that does not report a
 // remote address, such as a relay connection, is not limited.
 //
-// Over UDP, including KCP, a sender could forge another host's address and use
-// up that host's places, so there a connection counts only once the dialer has
-// authenticated, which it cannot do without the server's reply, and one over
-// the cap is closed then. The default is 16; n == 0 removes the cap, and a
-// negative n is an error.
+// A connection whose source address can be forged, such as a raw UDP or KCP
+// connection of a custom [Listener], counts only once its dialer has
+// authenticated. Until then the dialer cannot have had the server's reply, and
+// a sender could otherwise forge another host's address and use up that host's
+// places. Such a connection over the cap is closed at that point. TCP
+// connections and the UDP paths of [ServeWithUDP] count from accept. The
+// default is 16; n == 0 removes the cap, and a negative n is an error.
 func ServeWithMaxPendingPerSource(n int) ServerOptions {
 	return func(s *Server) error {
 		if n < 0 {

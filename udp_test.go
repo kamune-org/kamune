@@ -445,6 +445,73 @@ func TestUDPRedialFromSameSource(t *testing.T) {
 	a.NotEqual(pathOf(cli).Conv(), pathOf(cli2).Conv())
 }
 
+// TestUDPPathCountsAgainstPerSourceCapAtAccept checks that a path counts
+// against ServeWithMaxPendingPerSource when the server accepts it, as a TCP
+// connection does, and not only once its dialer has authenticated. The server
+// allows one connection per source. Two dialers share an IP address, and each
+// path is taken from Accept and passed to admit directly, so the check is
+// deterministic: admit takes the first path and refuses the second before any
+// kamune handshake message is read.
+func TestUDPPathCountsAgainstPerSourceCapAtAccept(t *testing.T) {
+	a := require.New(t)
+	n, serverPC, firstPC := udpPair(t)
+	secondPC, err := n.Listen("127.0.0.1:0")
+	a.NoError(err)
+	serverAddr := udpAddrPort(serverPC)
+	l, err := ListenUDP(serverPC)
+	a.NoError(err)
+	t.Cleanup(func() { _ = l.Close() })
+
+	store, cleanup := newTestStore(t)
+	t.Cleanup(cleanup)
+	server, err := NewServer(
+		"",
+		func(*Transport) error { return nil },
+		store,
+		allowAll,
+		ServeWithListener(l),
+		ServeWithMaxPendingPerSource(1),
+	)
+	a.NoError(err)
+
+	// dialPath runs the path handshake from pc and sends one datagram, which
+	// makes the path ready for Accept.
+	dialPath := func(pc net.PacketConn) {
+		ctx, cancel := context.WithTimeout(context.Background(), udpTimeout)
+		defer cancel()
+		cn, err := DialUDP(ctx, pc, serverAddr)
+		a.NoError(err)
+		t.Cleanup(func() { _ = cn.Close() })
+		a.NoError(cn.WriteBytes([]byte("hello")))
+	}
+	// accept returns the next path of l, once its dialer has sent data.
+	type accepted struct {
+		cn  Conn
+		err error
+	}
+	accept := func() Conn {
+		got := make(chan accepted, 1)
+		go func() {
+			cn, err := l.Accept()
+			got <- accepted{cn: cn, err: err}
+		}()
+		r := recv(t, got)
+		a.NoError(r.err)
+		t.Cleanup(func() { _ = r.cn.Close() })
+		return r.cn
+	}
+
+	dialPath(firstPC)
+	first := accept()
+	_, _, ok := server.admit(first)
+	a.True(ok, "the first connection of a source was refused")
+
+	dialPath(secondPC)
+	second := accept()
+	_, _, ok = server.admit(second)
+	a.False(ok, "a second connection from the same source was admitted")
+}
+
 // TestUDPDualStack serves ServeWithUDP on a dual-stack socket and dials it
 // once over IPv4 and once over IPv6, on real sockets. Both dials complete a
 // handshake, and the server keys the IPv4 session by its unmapped address.
