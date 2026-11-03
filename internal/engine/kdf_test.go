@@ -126,6 +126,58 @@ func TestNewBoltDB_WrapsWithArgon2id(t *testing.T) {
 	a.NoError(db.Close())
 }
 
+func TestNewBoltDB_EmptyPassphraseIsNotStretched(t *testing.T) {
+	a := require.New(t)
+	path := filepath.Join(t.TempDir(), "db")
+
+	db, err := NewBoltDB(path, []byte(""))
+	a.NoError(err)
+	a.NoError(db.Close())
+	before := readMeta(t, path)
+	a.Equal(emptyPassKDF, before.wrap.kdf)
+
+	_, err = NewBoltDB(path, []byte("guess"))
+	a.ErrorIs(err, ErrWrongPassphrase)
+	db, err = NewBoltDB(path, nil)
+	a.NoError(err)
+	a.NoError(db.UpgradeErr())
+	a.NoError(db.Close())
+	a.Equal(before, readMeta(t, path), "no rewrap")
+}
+
+func TestNewBoltDB_LowersEmptyPassphraseWrapping(t *testing.T) {
+	cases := []struct {
+		name   string
+		params kdfParams
+		bound  bool
+	}{
+		{"legacy hkdf", legacyKDF, false},
+		{"argon2id", defaultKDF, false},
+		{"argon2id bound", defaultKDF, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			path := filepath.Join(t.TempDir(), "db")
+			writeStoreBound(t, path, []byte(""), tc.params, tc.bound)
+
+			db, err := NewBoltDB(path, []byte(""))
+			a.NoError(err)
+			a.NoError(db.UpgradeErr())
+			requirePeerData(t, db)
+			a.NoError(db.Close())
+
+			after := readMeta(t, path)
+			a.Equal(emptyPassKDF, after.wrap.kdf)
+			db, err = NewBoltDB(path, []byte(""))
+			a.NoError(err)
+			requirePeerData(t, db)
+			a.NoError(db.Close())
+			a.Equal(after, readMeta(t, path), "no second upgrade")
+		})
+	}
+}
+
 func TestNewBoltDB_UpgradesWeakWrapping(t *testing.T) {
 	weak := kdfParams{alg: kdfArgon2id, time: 1, memory: 64, threads: 1}
 	cases := []struct {
@@ -217,11 +269,13 @@ func TestParseKDFParams(t *testing.T) {
 		{"max memory", argon(1, maxKDFMemory, 4), true},
 		{"max time", argon(maxKDFTime, 64*1024, 4), true},
 		{"max work", argon(4, maxKDFMemory, 4), true},
+		{"none", emptyPassKDF.marshal(), true},
 		{"empty", []byte{}, false},
 		{"short", valid[:9], false},
 		{"long", append(append([]byte(nil), valid...), 0), false},
 		{"legacy algorithm id", with(0, byte(kdfLegacyHKDF)), false},
 		{"unknown algorithm", with(0, 7), false},
+		{"none with a cost", with(0, byte(kdfNone)), false},
 		{"zero time", kdfParams{
 			alg: kdfArgon2id, time: 0, memory: 64, threads: 1,
 		}.marshal(), false},
@@ -310,6 +364,7 @@ func TestKDFParams_AtLeast(t *testing.T) {
 		want   kdfParams
 	}{
 		{"legacy", legacyKDF, defaultKDF},
+		{"none", emptyPassKDF, defaultKDF},
 		{"default", defaultKDF, defaultKDF},
 		{"weaker", argon(1, 64, 1), defaultKDF},
 		{"low time high memory", argon(1, 1<<20, 4), argon(3, 1<<20, 4)},
@@ -357,6 +412,39 @@ func TestRotation_KeepsStrongerKDF(t *testing.T) {
 			a.NoError(db.Close())
 
 			a.Equal(strong, readMeta(t, path).wrap.kdf)
+		})
+	}
+}
+
+func TestRotation_ToAndFromEmptyPassphrase(t *testing.T) {
+	cases := []struct {
+		name   string
+		rotate func(s *BoltStore, old, new []byte) error
+	}{
+		{"passphrase", (*BoltStore).RotatePassphrase},
+		{"data key", (*BoltStore).RotateDataKey},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			path := filepath.Join(t.TempDir(), "db")
+			writeStore(t, path, []byte("old"), defaultKDF)
+
+			db, err := NewBoltDB(path, []byte("old"))
+			a.NoError(err)
+			a.NoError(tc.rotate(db, []byte("old"), []byte("")))
+			a.Equal(emptyPassKDF, readMetaOf(t, db).wrap.kdf)
+			a.NoError(tc.rotate(db, []byte(""), []byte("new")))
+			a.Equal(defaultKDF, readMetaOf(t, db).wrap.kdf)
+			requirePeerData(t, db)
+			a.NoError(db.Close())
+
+			_, err = NewBoltDB(path, []byte(""))
+			a.ErrorIs(err, ErrWrongPassphrase)
+			db, err = NewBoltDB(path, []byte("new"))
+			a.NoError(err)
+			requirePeerData(t, db)
+			a.NoError(db.Close())
 		})
 	}
 }

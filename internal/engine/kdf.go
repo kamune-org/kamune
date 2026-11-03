@@ -20,7 +20,24 @@ const (
 	kdfLegacyHKDF kdfAlgorithm = 0
 	// kdfArgon2id is Argon2id (RFC 9106) with the stored parameters.
 	kdfArgon2id kdfAlgorithm = 1
+	// kdfNone does not stretch. It wraps only under an empty passphrase,
+	// which a guesser tries first, so a work factor would protect nothing
+	// and only slow every open.
+	kdfNone kdfAlgorithm = 2
 )
+
+func (a kdfAlgorithm) String() string {
+	switch a {
+	case kdfLegacyHKDF:
+		return "legacy-hkdf"
+	case kdfArgon2id:
+		return "argon2id"
+	case kdfNone:
+		return "none"
+	default:
+		return fmt.Sprintf("unknown(%d)", uint8(a))
+	}
+}
 
 const (
 	kdfParamsSize  = 10
@@ -60,6 +77,10 @@ var (
 	defaultKDF = kdfParams{
 		alg: kdfArgon2id, time: 3, memory: 64 * 1024, threads: 4,
 	}
+
+	// emptyPassKDF wraps under an empty passphrase. Its cost fields are
+	// zero.
+	emptyPassKDF = kdfParams{alg: kdfNone}
 )
 
 func (p kdfParams) marshal() []byte {
@@ -83,7 +104,16 @@ func parseKDFParams(b []byte) (kdfParams, error) {
 		memory:  binary.BigEndian.Uint32(b[5:9]),
 		threads: b[9],
 	}
-	if p.alg != kdfArgon2id {
+	switch p.alg {
+	case kdfArgon2id:
+	case kdfNone:
+		if p != emptyPassKDF {
+			return kdfParams{}, fmt.Errorf(
+				"%w: kdf none with a cost", ErrCorruptMetadata,
+			)
+		}
+		return p, nil
+	default:
 		return kdfParams{}, fmt.Errorf(
 			"%w: unknown kdf algorithm %d", ErrCorruptMetadata, p.alg,
 		)
@@ -102,7 +132,9 @@ func parseKDFParams(b []byte) (kdfParams, error) {
 
 // derive stretches pass with salt into the input of the key-encryption
 // cipher. That cipher applies HKDF with its own salt and label, which keeps
-// the derived key separate from any other use.
+// the derived key separate from any other use. [kdfNone] takes only an
+// empty pass, and any other is [ErrWrongPassphrase], so a passphrase is
+// never wrapped without a work factor.
 func (p kdfParams) derive(pass, salt []byte) ([]byte, error) {
 	switch p.alg {
 	case kdfArgon2id:
@@ -111,6 +143,13 @@ func (p kdfParams) derive(pass, salt []byte) ([]byte, error) {
 		), nil
 	case kdfLegacyHKDF:
 		return enigma.Derive(pass, salt, []byte(dpk), derivedKeySize)
+	case kdfNone:
+		if len(pass) != 0 {
+			return nil, fmt.Errorf(
+				"%w: store has no passphrase", ErrWrongPassphrase,
+			)
+		}
+		return []byte{}, nil
 	default:
 		return nil, fmt.Errorf(
 			"%w: unknown kdf algorithm %d", ErrCorruptMetadata, p.alg,
@@ -134,4 +173,15 @@ func (p kdfParams) atLeast(q kdfParams) kdfParams {
 		memory:  max(p.memory, q.memory),
 		threads: max(p.threads, q.threads),
 	}
+}
+
+// forPass returns the parameters to wrap under pass with when p is stored:
+// [emptyPassKDF] for an empty pass, and p.atLeast([defaultKDF]) otherwise.
+// A stored Argon2id wrapping of an empty pass is thus lowered, and one of
+// [kdfNone] is raised to [defaultKDF] once a passphrase is set.
+func (p kdfParams) forPass(pass []byte) kdfParams {
+	if len(pass) == 0 {
+		return emptyPassKDF
+	}
+	return p.atLeast(defaultKDF)
 }

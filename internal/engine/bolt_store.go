@@ -39,10 +39,12 @@ type BoltStore struct {
 }
 
 // NewBoltDB creates a new BoltStore at the given path, encrypting values with
-// the provided passphrase. The passphrase is stretched with Argon2id. A store
-// whose key is wrapped with the legacy HKDF derivation, or with weaker
-// Argon2id parameters, is re-wrapped on its first successful open, and its
-// file is rewritten so the old wrapped key does not remain in a free page.
+// the provided passphrase. The passphrase is stretched with Argon2id, unless
+// it is empty (see [kdfNone]). A store whose key is wrapped with the legacy
+// HKDF derivation, or with weaker Argon2id parameters, or with Argon2id
+// under an empty passphrase, is re-wrapped on its first successful open,
+// and its file is rewritten so the old wrapped key does not remain in a
+// free page.
 // A store whose values are not all bound to their location gets a new data
 // key on that open, with every value re-sealed under it with its location
 // (see [valueAD]).
@@ -390,7 +392,8 @@ func (s *BoltStore) open(pass []byte) error {
 		return err
 	}
 
-	rewrap := meta.wrap.kdf.atLeast(defaultKDF) != meta.wrap.kdf
+	params := meta.wrap.kdf.forPass(pass)
+	rewrap := params != meta.wrap.kdf
 	if !rewrap && s.bound {
 		return nil
 	}
@@ -401,7 +404,7 @@ func (s *BoltStore) open(pass []byte) error {
 		if rewrap {
 			slog.Info(
 				"upgraded database key wrapping",
-				slog.String("kdf", "argon2id"),
+				slog.String("kdf", params.alg.String()),
 			)
 		}
 		if bind {
@@ -421,10 +424,9 @@ func (s *BoltStore) open(pass []byte) error {
 
 // upgrade rewrites the store file, through [BoltStore.rewrite], with the
 // changes an older store needs. open asks for an upgrade when the stored
-// wrapping is legacy HKDF, or its Argon2id time or memory is below
-// [defaultKDF], and when the store is not bound. Either way the data key
-// ends up wrapped with fresh salts under the parameters [kdfParams.atLeast]
-// gives for [defaultKDF].
+// wrapping differs from what [kdfParams.forPass] gives for pass, and when
+// the store is not bound. Either way the data key ends up wrapped with
+// fresh salts under those parameters.
 //
 // Without bind, the secret is wrapped again. With bind, the store is bound:
 // the data key is replaced, as [BoltStore.RotateDataKey] does, every value
@@ -439,7 +441,7 @@ func (s *BoltStore) open(pass []byte) error {
 func (s *BoltStore) upgrade(
 	meta cipherMeta, secret, pass []byte, bind bool,
 ) error {
-	params := meta.wrap.kdf.atLeast(defaultKDF)
+	params := meta.wrap.kdf.forPass(pass)
 	if !bind {
 		w, err := wrapSecret(secret, pass, params)
 		if err != nil {
@@ -489,10 +491,11 @@ func (s *BoltStore) rewrite(op rewriteOp) (bool, error) {
 	return replaced, err
 }
 
-// createCipher writes a new key hierarchy wrapped under [defaultKDF], for a
-// bound store. Only a store without any data may get one. Anything else
-// means the metadata was removed, and writing a new wrapped key would
-// accept any passphrase and orphan the data.
+// createCipher writes a new key hierarchy wrapped under [defaultKDF], or
+// [emptyPassKDF] for an empty pass, for a bound store. Only a store without
+// any data may get one. Anything else means the metadata was removed, and
+// writing a new wrapped key would accept any passphrase and orphan the
+// data.
 func createCipher(tx *bolt.Tx, pass []byte) (*enigma.Enigma, error) {
 	populated, err := hasData(tx)
 	if err != nil {
@@ -504,7 +507,7 @@ func createCipher(tx *bolt.Tx, pass []byte) (*enigma.Enigma, error) {
 		)
 	}
 
-	key, err := newDataKey(pass, defaultKDF)
+	key, err := newDataKey(pass, defaultKDF.forPass(pass))
 	if err != nil {
 		return nil, err
 	}
@@ -571,7 +574,8 @@ func (s *BoltStore) Compact() error {
 
 // RotatePassphrase re-wraps the data encryption key under a new passphrase,
 // with key derivation parameters no weaker than the stored ones or
-// [defaultKDF] (see [kdfParams.atLeast]). Encrypted data is untouched,
+// [defaultKDF], or without stretching when new is empty (see
+// [kdfParams.forPass]). Encrypted data is untouched,
 // so anyone who learned the key under the old passphrase can still use it;
 // use [BoltStore.RotateDataKey] when the old passphrase may be known.
 //
@@ -588,9 +592,7 @@ func (s *BoltStore) RotatePassphrase(old, new []byte) error {
 		if err != nil {
 			return fmt.Errorf("unlock with old passphrase: %w", err)
 		}
-		w, err := wrapSecret(
-			secret, new, meta.wrap.kdf.atLeast(defaultKDF),
-		)
+		w, err := wrapSecret(secret, new, meta.wrap.kdf.forPass(new))
 		if err != nil {
 			return fmt.Errorf("wrap with new passphrase: %w", err)
 		}
@@ -631,7 +633,7 @@ func (s *BoltStore) RotateDataKey(old, new []byte) error {
 			return err
 		}
 
-		key, err := newDataKey(new, meta.wrap.kdf.atLeast(defaultKDF))
+		key, err := newDataKey(new, meta.wrap.kdf.forPass(new))
 		if err != nil {
 			return fmt.Errorf("new data key: %w", err)
 		}
