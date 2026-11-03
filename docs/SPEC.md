@@ -1363,10 +1363,18 @@ and about a tenth of a second on a current laptop; opening the database costs
 the same. The HKDF in step 2 keeps the KEK separate from any other use of
 `derivedPass`.
 
+An empty passphrase is not stretched: `derivedPass` is empty, and
+`kdf-params` names the algorithm `none` (2) with all cost fields zero. A
+guesser tries the empty passphrase first, so a work factor would protect
+nothing and only slow every open. Such a database opens with no other
+passphrase. Setting a passphrase on it wraps the secret under Argon2id with the
+default parameters; removing one wraps it under `none`.
+
 The three salts (`deriveSalt`, `wrappedSalt`, `secretSalt`, 32 random bytes
 each), the wrapped key and the Argon2id parameters (`kdf-params`) are stored as
 plaintext metadata. The passphrase itself is not stored in the database.
-`kdf-params` is 10 bytes: an algorithm identifier (1 for Argon2id), the time
+`kdf-params` is 10 bytes: an algorithm identifier (1 for Argon2id, 2 for
+`none`), the time
 cost and the memory cost in KiB as big-endian uint32 values, and the
 parallelism as one byte. An open rejects stored parameters above 1 GiB of
 memory or 4 GiB of total work (time × memory). It also rejects key metadata
@@ -1385,8 +1393,10 @@ Databases written before `kdf-params` existed derived `derivedPass` with
 no work factor. The first successful open of such a database, or of one whose
 Argon2id parameters are below the defaults, wraps the secret again under
 Argon2id, with each parameter raised to at least its default, and with fresh
-`deriveSalt` and `wrappedSalt`. The database file is then rewritten so that the
-old wrapped key does not remain in it.
+`deriveSalt` and `wrappedSalt`. A database without a passphrase is wrapped
+again under `none` instead, on its first open by a release that has it. The
+database file is then rewritten so that the old wrapped key does not remain in
+it.
 
 Every value that is sealed under the DEK carries associated data that names
 where it is stored: a version byte (1), the number of buckets on its path as a
