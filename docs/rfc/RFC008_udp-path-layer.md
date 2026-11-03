@@ -31,12 +31,15 @@ connection's source address against its per-source cap only when the
 connection proves return routability.
 
 This RFC is one part of the pre-v1.0 protocol rework described in RFC006.
-The rework is not implemented now. The change is a wire-incompatible hard
-cut, as RFC004 is, and no backward compatibility is kept: the UDP wire
-format, the `ServeWithUDP` and `DialWithUDP` signatures, the server's
-source accounting and the hole-punch helpers in `cmd/bus` and `cmd/daemon`
-all change. A peer running today's KCP code cannot talk to a peer running
-this layer.
+Groups 1 and 2 of section 18 have landed: `internal/admit`,
+`internal/udppath/udptest` and the path layer in `internal/udppath`, which
+nothing uses yet. The root integration, the clients and the docs have not.
+RFC007's handshake v2 landed first, so this RFC now builds on the switched
+`server.go`. The change is a wire-incompatible hard cut, as RFC004 is, and
+no backward compatibility is kept: the UDP wire format, the `ServeWithUDP`
+and `DialWithUDP` signatures, the server's source accounting and the
+hole-punch helpers in `cmd/bus` and `cmd/daemon` all change. A peer
+running today's KCP code cannot talk to a peer running this layer.
 
 It closes KAM-11 and the rest of KAM-05 (section 3). The work lives in the
 root module, with follow-up changes in `cmd/bus` and `cmd/daemon`.
@@ -58,10 +61,11 @@ Root module (`kamune`):
   timeout (`defaultHandshakeTimeout`).
 - `Server.admit` sets `pendingConn.forgeable` from `forgeableAddr`: any
   address whose network starts with `udp` counts against the per-source cap
-  only once the dialer has introduced itself (`Server.introduced`); any other
-  address counts at accept, whatever the `Listener`. SPEC §10.1 describes this
-  rule and its gap: a sender that forges source addresses from many networks
-  can still push out an initiator that has not introduced itself.
+  only once the dialer has authenticated (`Server.authenticated`,
+  InitiatorAuth verified); any other address counts at accept, whatever the
+  `Listener`. SPEC §10.1 describes this rule and its gap: a sender that
+  forges source addresses from many networks can still push out an
+  initiator that has not authenticated.
 - kcp-go's listener read loop (`Listener.monitor`) and each client
   session's `readLoop`, batched or not, read into 1,500-byte buffers
   (`mtuLimit`). Any read error ends the loop and reaches every session of
@@ -365,8 +369,11 @@ the reason: ACCEPT goes only to a cookie-verified address.
 - Receiver (the reader goroutine of the path's socket, section 8.1): look up
   `rid`; check that the source equals the path address; check `ctr` against
   the window; open; only then update the window. The window is 2048 packets
-  (a bitmap of 32 `uint64`, RFC 6479): drop if `ctr + 2048 <= highest` or
-  the bit is set.
+  (a bitmap of 33 `uint64`, RFC 6479): drop if `ctr + 2048 <= highest` or
+  the bit is set. RFC 6479 sizes the bitmap at N/64 words, 32 here, but the
+  2048 counters of a window can span 33 words. With 32, the word of the
+  highest counter is also the word of counters up to 2047 behind it, so
+  clearing it when the window slides would accept those counters again.
 - The AEAD also encrypts the KCP header (`conv`, `cmd`, `sn`, `una`, `wnd`),
   which hides it from passive observers and stops on-path tampering. No
   claim is made about content confidentiality (section 7.2).
@@ -448,13 +455,14 @@ DATA, CLOSE:
     open (fail: BadTag++; drop); p.win.update(ctr); p.lastRecv = now
     if CLOSE: p.close(peerClosed); continue
     if p.state == HALF_OPEN (under lock, re-checked):
-        p.state = QUEUED; p.queuedAt = now; push p to acceptQ
+        p.state = QUEUED; p.queuedAt = now; append p to acceptQ; wake Accept
     push plaintext (pooled buffer) to p.in (cap 128); if full: InboundDropped++
 COOKIE, ACCEPT: Unexpected++; drop
 ```
 
-`acceptQ` has capacity `MaxPending`, and pending paths never exceed
-`MaxPending`, so the push never blocks.
+`acceptQ` is a list under the lock that holds exactly the QUEUED paths,
+oldest first. Appending never blocks, and a path that leaves QUEUED for any
+reason leaves the list.
 
 **Handshake worker.**
 
@@ -481,9 +489,10 @@ INIT:
     generate s_eph, sid; X25519 (error -> drop); derive keys; build ACCEPT
     lock
     if closing: unlock; drop
-    if pending >= MaxPending: v = victim(pending scope, src); close v (Evicted)
-    if paths >= MaxPaths:     v = victim(all scope, src);     close v (Evicted)
-        (if a victim rule picks the new INIT itself: PathsFull++; drop)
+    if pending >= MaxPending: v1 = victim(pending scope, src)
+    if paths - (v1 ? 1 : 0) >= MaxPaths: v2 = victim(all scope, src, not v1)
+        (if a needed victim is nil: PathsFull++; unlock; drop)
+    close v1, v2 (Evicted)
     ensure sid unique in byID (draw again on collision)
     insert p{state HALF_OPEN, addr src, cid, sid, cEph, keys, acceptBytes,
              createdAt now} into byID, byInit, counts, pending list
@@ -500,12 +509,16 @@ There is no takeover rule between paths of one address.
 
 **Victim selection.** A layer-local rule of about 30 lines;
 `Server.dropCandidateLocked` in `server.go` is not touched. Count paths per
-`NetworkKey` within the scope, the new INIT counted; take the networks with
-the highest count; pick one of them at random. Pending scope: drop that
-network's oldest HALF_OPEN path, else its oldest QUEUED path. All scope:
-drop its oldest path in any state. If the pick is the new INIT's network and
-that network holds no existing path in scope, the new INIT is dropped
-instead.
+`NetworkKey` within the scope, with the new INIT counted in its network and
+a victim already chosen for this INIT left out; take the highest count. If
+it is below 2, every network in scope holds at most one path, the new INIT
+included, and `victim` returns nil: the INIT is refused, and a network's
+only path is never evicted, not even for a dialer from another network.
+Otherwise pick one of the networks with that count at random. Pending
+scope: drop that network's oldest HALF_OPEN path, else its oldest QUEUED
+path. All scope: drop its oldest path in any state. A pick of the new
+INIT's network always has an existing path to drop, because its count is at
+least 2.
 
 **Sweep.** Runs on the 1 s ticker, at the start of INIT handling, and in
 `Accept`: close HALF_OPEN paths older than 5 s and QUEUED paths older than
@@ -515,12 +528,14 @@ instead.
 
 ```
 loop:
-    select p = <-acceptQ:
-        lock
-        if p.closed or now - p.queuedAt > 10 s:
-            unlock; p.close(Expired); continue
-        p.state = ACCEPTED; unlock; return p
-    case <-done: return nil, ErrListenerClosed (wraps net.ErrClosed)
+    sweep(now)                       // expired QUEUED paths leave acceptQ
+    lock
+    if p = pop oldest from acceptQ:
+        p.state = ACCEPTED; if acceptQ not empty: wake Accept
+        unlock; return p
+    if closing: unlock; return nil, ErrListenerClosed (wraps net.ErrClosed)
+    unlock
+    wait for a wake or done (done: return nil, ErrListenerClosed)
 ```
 
 **Path removal** (`p.close(reason)`, idempotent): remove the path from the
@@ -856,8 +871,8 @@ p.forgeable = !isReturnRoutable(cn)
 A connection with an address but without return routability (a custom
 `Listener` that wraps raw kcp-go, a test conn) keeps today's rule: it
 counts against the per-source cap only once the dialer has shown that it
-receives the server's replies (today at the introduction; after RFC007, on
-entering the authenticated stage). Path connections and TCP count at
+receives the server's replies, on entering the authenticated stage
+(`Server.authenticated`). Path connections and TCP count at
 accept. Relay connections report no address and are not counted per
 source. `NewConn` stays exported (the TUI's relay entry point in
 `cmd/tui/client.go` uses it); its doc drops "P2P hole-punched sockets" and
@@ -1108,8 +1123,9 @@ is).
   - This RFC owns the handshake rate limit (`ServeWithHandshakeRate`, in
     `admit`). RFC007 adds no limiter of its own and keeps `admit` ahead of
     the first KEM operation. KAM-05 is listed under this RFC only. RFC007
-    keeps `admit`, splits `introduced` into `helloReceived` and
-    `authenticated`, and adds no limiter, which matches.
+    has landed: it kept `admit`, split `introduced` into `helloReceived` and
+    `authenticated`, and added no limiter, which matches. Group 3 adds the
+    rate check at the top of the switched `admit`.
   - RFC007's rule "a forgeable conn is counted on entering the
     authenticated stage (frame 0x04, InitiatorAuth, verified)" applies only
     to conns without `ReturnRoutable`; path conns are not forgeable and
@@ -1270,7 +1286,7 @@ seconds are named below.
 - Per-source accounting: a path conn counts against
   `ServeWithMaxPendingPerSource` at accept; a conn without `ReturnRoutable`
   (`newUDPSourceConn`, now a conn type without the method) counts at the
-  introduction (at the authenticated stage after RFC007).
+  authenticated stage.
   `TestPendingCapsByTransport` is rewritten on this basis.
 - `ServeWithHandshakeRate` (fake clock, through `server.admit`, no
   production hooks): 17 calls with `newSourceConn(nil, "10.0.0.1:N")` in one
@@ -1384,7 +1400,7 @@ removes the Windows trigger.
 
 | Question | Decision |
 | -------- | -------- |
-| Rollout | **Maintainer decision: not implemented now.** Draft, targeted before v1.0, not scheduled. A wire-incompatible hard cut, as RFC004 is, with no version negotiation and no backward compatibility (section 17). |
+| Rollout | **In progress.** Draft, targeted before v1.0. Groups 1 and 2 have landed (section 18); group 3 is next. A wire-incompatible hard cut, as RFC004 is, with no version negotiation and no backward compatibility (section 17). |
 | Where KCP packets are authenticated | In the layer, every packet from the first DATA, with the path key. Rejected: kcp-go `BlockCrypt` (fixed at session creation, before the kamune handshake; kcp-go's AEAD mode uses random nonces and has no replay check); rekeying from a kamune exporter after the handshake (needs an agreed switch point while KCP retransmits older packets, and adds nothing against an off-path attacker). Cost: one ChaCha20-Poly1305 operation per packet. |
 | kcp-go `Listener` | Not used. One `NewConn4` session per path. Cost: one channel hop and one copy per inbound packet, and kcp-go's `readLoop` goroutine per server session. kcp-go's `recvmmsg`/`sendmmsg` batching (`newBatchConn` in `platform_linux.go`) needs a `*net.UDPConn`-like socket, so any wrapper loses it, as the clients' `punchFilter` and `punchConn` already do. |
 | Several paths from one address | Allowed, with no takeover rule. DATA is routed by `rid`, and each kcp-go session holds its own `*Path`, so kcp-go never keys anything by address. |
@@ -1440,36 +1456,35 @@ existing version policy (RFC006).
 ## 18. Implementation Plan
 
 Commits follow AGENTS.md (`kamune:`, `bus:`, `daemon:`, `docs:`), each
-small, in the order below. Groups 1 and 2 are mostly new packages
-(`internal/admit`, `internal/udppath`, `internal/udppath/udptest`) and can
-be developed in parallel with the new packages of RFC007, RFC009, RFC010
-and RFC011. One group 1 commit edits files shared with RFC007:
-`kamune: move source and network keys into internal/admit` edits
-`server.go` (it removes `sourceKey`, `networkKey`, `prefixKey` and
-`hostIP`) and `server_test.go` (it moves `TestSourceKey`) ahead of RFC007,
-in the order the file table below gives. The fake-clock commit edits only
+small, in the order below. Groups 1 and 2 have landed, after RFC007's
+switch (`kamune: switch to handshake v2`, 58b2c1c). Group 1 is b63fbd0,
+e169d1e, ef0da3f and 861aa43. Group 2 is 5c8c678, 98fd341 and 7049afa.
+`kamune: move source and network keys into internal/admit` (e169d1e)
+edited the switched `server.go` and `server_test.go`: it moved
+`sourceKey`, `networkKey`, `prefixKey` and `hostIP` into `internal/admit`
+and moved `TestSourceKey`. The fake-clock commit edited only
 `internal/clock/fake.go`, which this RFC owns, but the tests of the other
-RFCs depend on it, so it lands first as a shared prerequisite of the whole
-rework (RFC006).
+RFCs depend on it, so it has landed first as a shared prerequisite of the
+whole rework (RFC006).
 
 | Group | Module | Commits, in order | Depends on |
 | ----- | ------ | ----------------- | ---------- |
-| 1. Prerequisites | root | `kamune: guard the fake clock with a mutex`; `kamune: move source and network keys into internal/admit`; `kamune: add fixed-memory keyed rate limiter to internal/admit`; `kamune: add in-memory packet network for udp tests` | nothing; the fake-clock commit is a shared prerequisite of the whole rework and lands first |
-| 2. Path layer | root (`internal/udppath`) | `kamune: add udp path handshake with return-routability cookies`; `kamune: seal udp path packets with a replay window and close`; `kamune: add udp path server with caps, eviction and accept` (each with its unit tests) | group 1 |
-| 3. Root integration | root | `kamune: run udp listeners and dialers over the path layer` (`ListenUDP`, `DialUDP`, the new `ServeWithUDP` and `DialWithUDP`, `ErrUDPHandshakeTimeout`, close linger, KAM-11 regression); `kamune: trust source addresses only from return-routable conns`; `kamune: rate-limit handshakes per source, network and in total`; `kamune: add udp end-to-end test`; `kamune: fuzz udp path input` | group 2; `errors.go` after RFC010's `ErrPeerKeyMismatch`; lands before RFC007's root switch, which rebases once onto the first three commits and keeps the rate check first in `admit` and the `forgeable` computation |
-| 4. Clients | bus, daemon | `bus: hole-punch over the kamune udp path layer`; `daemon: hole-punch over the kamune udp path layer` | group 3; after the RFC009, RFC011 and RFC010 client commits in the same files; before RFC010's reconnect-root commits and RFC007's client commits; the knock key needs RFC010's `PunchKey`; if `PunchKey` lands later, the knock-key wiring follows in its own commit |
-| 5. Docs | docs | `docs: describe the udp path layer in SPEC 9.2`; `docs: update server limits, constants and errors for udp paths`; `docs: update daemon transport table and broker socket text`; `docs: list admit and udppath internal packages` | the code groups; SPEC after RFC007's SPEC edits; the RELAY.md broker text after RFC011's rewrite of that section; DAEMON.md after RFC009, RFC011 and RFC010 and before RFC007 |
+| 1. Prerequisites | root | `kamune: guard the fake clock with a mutex`; `kamune: move source and network keys into internal/admit`; `kamune: add fixed-memory keyed rate limiter to internal/admit`; `kamune: add in-memory packet network for udp tests` | nothing; landed (b63fbd0, e169d1e, ef0da3f, 861aa43); the fake-clock commit is a shared prerequisite of the whole rework and landed first |
+| 2. Path layer | root (`internal/udppath`) | `kamune: add udp path handshake with return-routability cookies`; `kamune: seal udp path packets with a replay window and close`; `kamune: add udp path server with caps, eviction and accept` (each with its unit tests) | group 1; landed (5c8c678, 98fd341, 7049afa) |
+| 3. Root integration | root | `kamune: run udp listeners and dialers over the path layer` (`ListenUDP`, `DialUDP`, the new `ServeWithUDP` and `DialWithUDP`, `ErrUDPHandshakeTimeout`, close linger, KAM-11 regression); `kamune: trust source addresses only from return-routable conns`; `kamune: rate-limit handshakes per source, network and in total`; `kamune: add udp end-to-end test`; `kamune: fuzz udp path input` | group 2; `errors.go` after RFC010's `ErrPeerKeyMismatch` (it exists already); RFC007's root switch has landed, and group 3 builds on the switched `server.go`, `dial.go` and `errors.go`: the rate check goes first in the switched `admit` and `forgeable` is computed from `ReturnRoutable` |
+| 4. Clients | bus, daemon | `bus: hole-punch over the kamune udp path layer`; `daemon: hole-punch over the kamune udp path layer` | group 3; after RFC007's client commits, which have landed; after the RFC009, RFC011 and RFC010 client commits in the same files; before RFC010's reconnect-root commits; the knock key needs RFC010's `PunchKey`; if `PunchKey` lands later, the knock-key wiring follows in its own commit |
+| 5. Docs | docs | `docs: describe the udp path layer in SPEC 9.2`; `docs: update server limits, constants and errors for udp paths`; `docs: update daemon transport table and broker socket text`; `docs: list admit and udppath internal packages` | the code groups; SPEC after RFC007's SPEC edits, which have landed (`docs: match the docs to the current handshake`, 41b91e9); the RELAY.md broker text after RFC011's rewrite of that section; DAEMON.md after RFC007's DAEMON.md edits, which have landed (41b91e9), and after RFC009, RFC011 and RFC010 |
 
 Files shared with other RFCs, and the order of changes:
 
 | File | Order | This RFC changes |
 | ---- | ----- | ---------------- |
-| `server.go` | RFC008, then RFC007 | `ServeWithUDP` body (binds and calls `ListenUDP`), `ServeWithHandshakeRate`, the rate check at the top of `admit`, `p.forgeable = !isReturnRoutable(cn)`, removal of `forgeableAddr`, `sourceKey`, `networkKey`, `prefixKey`, `hostIP` (moved to `internal/admit`) and of today's `udpListener` (`ListenUDP` returns the new `pathListener` in `udp.go`) |
-| `dial.go` | RFC008, then RFC007 | `DialWithUDP` |
+| `server.go` | RFC007, then RFC008 | `ServeWithUDP` body (binds and calls `ListenUDP`), `ServeWithHandshakeRate`, the rate check at the top of `admit`, `p.forgeable = !isReturnRoutable(cn)`, removal of `forgeableAddr` and of today's `udpListener` (`ListenUDP` returns the new `pathListener` in `udp.go`); group 1 (e169d1e) already moved `sourceKey`, `networkKey`, `prefixKey` and `hostIP` to `internal/admit` |
+| `dial.go` | RFC007, then RFC008 | `DialWithUDP` |
 | `conn.go` | RFC008, then final cleanup | `returnRoutable`, `(*conn).ReturnRoutable`, `NewConn` doc |
-| `errors.go` | RFC010, RFC008, RFC007 | `ErrUDPHandshakeTimeout` |
-| `server_test.go` | RFC008, then RFC007 | KCP flood test rewrite, `TestPendingCapsByTransport` udp case, `TestSourceKey` move, rate-limit opt-outs |
-| bus and daemon `broker.go`, `p2plistener.go`, `directp2p.go`, `network.go` | RFC009, RFC011, RFC010, RFC008, then RFC010 (reconnect roots), RFC007 | the KCP lines only (section 12) |
+| `errors.go` | RFC007, RFC010, then RFC008 | `ErrUDPHandshakeTimeout` |
+| `server_test.go` | RFC007, then RFC008 | KCP flood test rewrite, `TestPendingCapsByTransport` udp case, rate-limit opt-outs; group 1 already moved `TestSourceKey` |
+| bus and daemon `broker.go`, `p2plistener.go`, `directp2p.go`, `network.go` | RFC007, then RFC009, RFC011, RFC010, RFC008, then RFC010 (reconnect roots) | the KCP lines only (section 12) |
 | `AGENTS.md` | RFC008, then final cleanup | `admit`, `udppath` in the root `internal/` list |
 
 Rate-limit opt-outs that bus and daemon tests need go in their own `bus:`
