@@ -185,6 +185,9 @@ func TestRun_SurvivesOversizedDatagram(t *testing.T) {
 	a.GreaterOrEqual(readBufSize, maxIPv4UDPPayload)
 	b := newTestBroker(t, time.Minute)
 	client := newTestClient(t)
+	// macOS refuses to send a datagram larger than the send buffer, which
+	// defaults to 9216 bytes there.
+	a.NoError(client.SetWriteBuffer(1 << 17))
 
 	// Larger than an Ethernet MTU. No valid header, so the only response
 	// the client sees is to the echo that follows.
