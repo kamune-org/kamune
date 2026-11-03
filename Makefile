@@ -12,7 +12,13 @@ fuzz:
 		-fuzztime $(FUZZ_TIME)
 	go test . -run '^$$' -fuzz '^FuzzTransportReceiveRaw$$' \
 		-fuzztime $(FUZZ_TIME)
-	go test . -run '^$$' -fuzz '^FuzzPreAuthEnvelopeValidation$$' \
+	go test . -run '^$$' -fuzz '^FuzzParseClientHello$$' \
+		-fuzztime $(FUZZ_TIME)
+	go test . -run '^$$' -fuzz '^FuzzParseServerHello$$' \
+		-fuzztime $(FUZZ_TIME)
+	go test . -run '^$$' -fuzz '^FuzzParseAuthPlain$$' \
+		-fuzztime $(FUZZ_TIME)
+	go test . -run '^$$' -fuzz '^FuzzParseConfirmPlain$$' \
 		-fuzztime $(FUZZ_TIME)
 	go test . -run '^$$' -fuzz '^FuzzServerServe$$' \
 		-fuzztime $(FUZZ_TIME)
