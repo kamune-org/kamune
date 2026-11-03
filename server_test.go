@@ -1015,7 +1015,13 @@ func TestListenAndServeLimitsPerSourceByDefault(t *testing.T) {
 	a := require.New(t)
 	l := newTestListener(net.ErrClosed)
 	// Keep the idle connections pending for the whole test.
-	startTestServer(t, l, ServeWithIntroTimeout(time.Hour))
+	startTestServer(
+		t, l,
+		ServeWithIntroTimeout(time.Hour),
+		// The default source rate also stops the 17th connection. Turn it
+		// off, so that the per-source cap is what closes it.
+		ServeWithHandshakeRate(RateLimit{}, RateLimit{}, RateLimit{}),
+	)
 
 	// All addresses are in one /64, so they count as one source.
 	conns := make([]*sourceConn, defaultMaxPendingPerSource+1)
@@ -1089,6 +1095,9 @@ func TestIdleTCPConnsFromOneHostDoNotBlockDialer(t *testing.T) {
 		serverStore,
 		verifier,
 		ServeWithTCP(),
+		// The test is about the pending caps. Its idle sockets are far more
+		// than the handshake rate lets one host or network start.
+		ServeWithHandshakeRate(RateLimit{}, RateLimit{}, RateLimit{}),
 	)
 	a.NoError(err)
 	addr := server.listener.(*tcpListener).Addr().String()
@@ -1161,6 +1170,9 @@ func TestIdleTCPConnsFromManyHostsDoNotBlockDialer(t *testing.T) {
 		serverStore,
 		verifier,
 		ServeWithTCP(),
+		// The test is about the pending caps. Its idle sockets are far more
+		// than the handshake rate lets one host or network start.
+		ServeWithHandshakeRate(RateLimit{}, RateLimit{}, RateLimit{}),
 	)
 	a.NoError(err)
 	addr := server.listener.(*tcpListener).Addr().String()
@@ -1273,7 +1285,13 @@ func TestIdleConnsFromOneNetworkDoNotDropDialer(t *testing.T) {
 	verifier := func(context.Context, *storage.Storage, VerifyRequest) error { return nil }
 	l := newTestListener(net.ErrClosed)
 	// Keep the idle connections waiting for the whole test.
-	startTestServer(t, l, ServeWithIntroTimeout(time.Hour))
+	startTestServer(
+		t, l,
+		ServeWithIntroTimeout(time.Hour),
+		// The 768 idle connections share one /48, which is over the network
+		// burst. The test is about the cap on waiting connections.
+		ServeWithHandshakeRate(RateLimit{}, RateLimit{}, RateLimit{}),
+	)
 
 	// Every idle connection comes from its own /64, so each is a source
 	// with nothing else waiting, but all of them are in one /48.
@@ -1432,6 +1450,10 @@ func TestPendingCapsByRoutability(t *testing.T) {
 					store,
 					func(context.Context, *storage.Storage, VerifyRequest) error { return nil },
 					ServeWithListener(newTestListener(net.ErrClosed)),
+					// The test is about the pending caps. Its 17 admits from
+					// one source would exceed the source burst of 16, and the
+					// forgeable ones share one network bucket.
+					ServeWithHandshakeRate(RateLimit{}, RateLimit{}, RateLimit{}),
 				)
 				a.NoError(err)
 				return server
@@ -2832,6 +2854,11 @@ func TestServer_F1FloodDoesNotBlock(t *testing.T) {
 		},
 		ServeWithListener(&floodListener{Listener: ln}),
 		ServeWithIntroTimeout(time.Hour),
+		// The test is about the hello-stage cap. Its 2,000 conns are
+		// forgeable, since remoteAddrConn has no ReturnRoutable, so they and
+		// the dialer share one network bucket, and they exceed the global
+		// rate of a small machine.
+		ServeWithHandshakeRate(RateLimit{}, RateLimit{}, RateLimit{}),
 	)
 	a.NoError(err)
 	go func() { _ = server.ListenAndServe() }()

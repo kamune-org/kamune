@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"runtime"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -58,6 +59,30 @@ const (
 	minAcceptDelay = 5 * time.Millisecond
 	maxAcceptDelay = time.Second
 
+	// The default handshake rate limits, unless [ServeWithHandshakeRate]
+	// changes them. Each level lets a burst of handshakes through and then
+	// refills at its rate. The global rate scales with the cores, since each
+	// ClientHello costs the server one X-Wing encapsulation and one Ed25519
+	// signature, about 0.6 ms of one core.
+	defaultSourceRatePerSecond  = 8
+	defaultSourceRateBurst      = 16
+	defaultNetworkRatePerSecond = 32
+	defaultNetworkRateBurst     = 64
+	defaultGlobalRatePerCore    = 512
+	defaultGlobalBurstPerCore   = 1024
+
+	// The number of token buckets behind each handshake rate level. Keys that
+	// share a bucket share its tokens. The global level has a single key.
+	sourceRateSlots  = 65536
+	networkRateSlots = 16384
+	globalRateSlots  = 1
+
+	// addresslessKey is the network-level key of every connection that is
+	// forgeable or reports no address. They have no key of their own, so a
+	// sender that forges another host's address cannot drain that host's
+	// bucket.
+	addresslessKey = "addressless"
+
 	// sweepInterval is how often a persistence server sweeps resumption rows.
 	// The timestamp comes from the server clock; the wait is wall time, because
 	// [clock.Clock] has no ticker.
@@ -79,6 +104,9 @@ type Server struct {
 	// handshake, for the per-source cap.
 	sources map[string]int
 	pending map[*pendingConn]struct{}
+	// limiters are the handshake rate limiters. admit builds them on its
+	// first call.
+	limiters *handshakeLimiters // guarded by mu
 	// waiting and hello are the two pre-authentication stages. Each is capped
 	// by maxPending. A ClientHello flood can evict only hello.
 	waiting       stage
@@ -88,6 +116,7 @@ type Server struct {
 	addr          string
 	connOpts      []ConnOption
 	handshakeOpts handshakeOpts
+	rates         handshakeRates
 	introTimeout  time.Duration
 	maxPending    int
 	maxPerSource  int
@@ -96,6 +125,18 @@ type Server struct {
 	resumeEnabled bool
 	sweepStarted  bool
 	closed        bool
+}
+
+// handshakeRates are the rates of the three handshake rate levels. A rate
+// with a PerSecond of zero turns its level off.
+type handshakeRates struct {
+	source, network, global admit.Rate
+}
+
+// handshakeLimiters are the limiters of the three handshake rate levels. A
+// level that is off has a nil limiter, which allows everything.
+type handshakeLimiters struct {
+	source, network, global *admit.Limiter
 }
 
 // pendingConn is a connection accepted by ListenAndServe whose handshake has
@@ -142,8 +183,13 @@ type pendingConn struct {
 // have at most 16 connections in the handshake at once. A connection whose
 // source address can be forged, such as a raw UDP or KCP connection that a
 // custom [Listener] returns, counts only once its dialer has authenticated.
-// TCP connections and the UDP paths of [ServeWithUDP] count from accept. See
-// [ServeWithIntroTimeout], [ServeWithMaxPendingHandshakes], and
+// TCP connections and the UDP paths of [ServeWithUDP] count from accept.
+//
+// Before any of that, a connection must pass the handshake rate limit per
+// source, per network and in total, or it is closed at once. See
+// [ServeWithHandshakeRate].
+//
+// See also [ServeWithIntroTimeout], [ServeWithMaxPendingHandshakes], and
 // [ServeWithMaxPendingPerSource].
 func (s *Server) ListenAndServe() error {
 	s.mu.Lock()
@@ -223,8 +269,12 @@ func (s *Server) ListenAndServe() error {
 
 // admit records cn as being in the handshake, so that Close can close it and
 // Shutdown waits for it, and as waiting for ClientHello. It reports false and
-// records nothing when the server is closed or when cn's source is at the
-// per-source cap.
+// records nothing when the server is closed, when cn is over a handshake rate
+// limit, or when cn's source is at the per-source cap.
+//
+// The handshake rate is checked first, before cn is recorded anywhere and so
+// before the server does any key exchange for it. See
+// [ServeWithHandshakeRate].
 //
 // When the waiting connections are at the cap already, admit drops one of them
 // to make room and returns its conn for the caller to close (see
@@ -237,10 +287,15 @@ func (s *Server) ListenAndServe() error {
 // names. authenticated checks it once its dialer has authenticated.
 func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 	p := &pendingConn{conn: cn}
-	if addr := connAddr(cn); addr != nil {
+	addr := connAddr(cn)
+	if addr != nil {
 		p.forgeable = !isReturnRoutable(cn)
 		p.source = admit.SourceKey(addr)
 		p.network = admit.NetworkKey(addr)
+	}
+	rateSource, rateNetwork := p.source, p.network
+	if addr == nil || p.forgeable {
+		rateSource, rateNetwork = "", addresslessKey
 	}
 	if s.maxPerSource == 0 {
 		p.source = ""
@@ -249,6 +304,9 @@ func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
+		return nil, nil, false
+	}
+	if !s.allowHandshakeLocked(rateSource, rateNetwork) {
 		return nil, nil, false
 	}
 	if p.source != "" && !p.forgeable && !s.countSourceLocked(p) {
@@ -275,6 +333,61 @@ func (s *Server) admit(cn Conn) (*pendingConn, Conn, bool) {
 	s.pending[p] = struct{}{}
 	s.wg.Add(1)
 	return p, dropped, true
+}
+
+// allowHandshakeLocked takes one handshake token from each rate level that
+// applies to a connection and reports whether it got them all. source is the
+// connection's source key, or "" when it has none and only the network and
+// global levels apply; network is its network key. The first call builds the
+// limiters, with the server clock.
+func (s *Server) allowHandshakeLocked(source, network string) bool {
+	if s.limiters == nil {
+		s.limiters = s.newLimiters()
+	}
+	l := s.limiters
+	switch {
+	case source != "" && !rateAllows(l.source, source):
+		slog.Debug(
+			"handshake rate limited",
+			slog.String("level", "source"),
+			slog.String("source", source),
+		)
+	case !rateAllows(l.network, network):
+		slog.Debug(
+			"handshake rate limited",
+			slog.String("level", "network"),
+			slog.String("network", network),
+		)
+	case !rateAllows(l.global, ""):
+		slog.Debug(
+			"handshake rate limited",
+			slog.String("level", "global"),
+		)
+	default:
+		return true
+	}
+	return false
+}
+
+// rateAllows reports whether key has a token at l. A nil limiter, which is a
+// level that is off, allows everything.
+func rateAllows(l *admit.Limiter, key string) bool {
+	return l == nil || l.Allow(key)
+}
+
+// newLimiters builds the limiters for s.rates. A level that is off gets none.
+func (s *Server) newLimiters() *handshakeLimiters {
+	build := func(r admit.Rate, slots int) *admit.Limiter {
+		if r.PerSecond == 0 {
+			return nil
+		}
+		return admit.NewLimiter(r, slots, s.clock)
+	}
+	return &handshakeLimiters{
+		source:  build(s.rates.source, sourceRateSlots),
+		network: build(s.rates.network, networkRateSlots),
+		global:  build(s.rates.global, globalRateSlots),
+	}
 }
 
 // countSourceLocked counts p for the per-source cap, or reports false when its
@@ -576,6 +689,7 @@ func NewServer(
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	cores := runtime.GOMAXPROCS(0)
 	s := &Server{
 		version:     version,
 		addr:        addr,
@@ -596,6 +710,20 @@ func NewServer(
 		maxPending:    defaultMaxPendingHandshakes,
 		maxPerSource:  defaultMaxPendingPerSource,
 		resumeEnabled: true,
+		rates: handshakeRates{
+			source: admit.Rate{
+				PerSecond: defaultSourceRatePerSecond,
+				Burst:     defaultSourceRateBurst,
+			},
+			network: admit.Rate{
+				PerSecond: defaultNetworkRatePerSecond,
+				Burst:     defaultNetworkRateBurst,
+			},
+			global: admit.Rate{
+				PerSecond: float64(defaultGlobalRatePerCore * cores),
+				Burst:     defaultGlobalBurstPerCore * cores,
+			},
+		},
 	}
 
 	for _, o := range opts {
@@ -827,6 +955,76 @@ func ServeWithIntroTimeout(d time.Duration) ServerOptions {
 			return fmt.Errorf("intro timeout is not positive: %v", d)
 		}
 		s.introTimeout = d
+		return nil
+	}
+}
+
+// RateLimit is one level of the handshake rate limit: a token bucket that
+// holds at most Burst tokens and refills PerSecond tokens a second. Each
+// handshake takes one token. The zero value turns the level off.
+type RateLimit struct {
+	// PerSecond is how many tokens the bucket gains a second. Zero turns the
+	// level off.
+	PerSecond float64
+	// Burst is the most tokens the bucket holds, which is how many
+	// handshakes may start at once. It must be at least 1 when PerSecond is
+	// not zero.
+	Burst int
+}
+
+// ServeWithHandshakeRate sets how fast the server accepts new connections
+// into the handshake, per source, per network and in total. Each ClientHello
+// costs the server a key encapsulation and a signature, so the limit keeps a
+// flood of connections from using up the CPU. It is checked when a connection
+// is accepted, before the server does any of that work.
+//
+// Every accepted connection takes one token from each level that applies to
+// it. A connection over any level is closed at once and does not enter the
+// handshake. The levels are:
+//
+//   - source: one bucket per IPv4 address or IPv6 /64. The default is 8 a
+//     second with a burst of 16.
+//   - network: one bucket per IPv4 /24 or IPv6 /48. The default is 32 a second
+//     with a burst of 64.
+//   - global: one bucket for all connections. The default is 512 a second
+//     with a burst of 1024, both times the value of runtime.GOMAXPROCS when
+//     [NewServer] runs.
+//
+// A connection whose source address can be forged, such as a raw UDP or KCP
+// connection of a custom [Listener], and one that reports no address, such as
+// a relay connection, counts against no source or network of its own. They
+// share a single bucket at the network level, and then the global one, so a
+// sender that forges the address of another host cannot use up that host's
+// tokens. TCP connections and the UDP paths of [ServeWithUDP] are checked
+// against their own source and network.
+//
+// RateLimit{} turns a level off. An off level takes no memory. A negative or
+// not finite PerSecond, a negative Burst, or a Burst below 1 with a PerSecond
+// above zero makes [NewServer] fail with an error that names the level. The
+// buckets of the enabled levels take about 1.3 MiB, which the server allocates
+// when it accepts its first connection. Keys that hash to one bucket share its
+// tokens, which only makes the limit stricter. A refused connection logs at
+// debug level.
+func ServeWithHandshakeRate(source, network, global RateLimit) ServerOptions {
+	return func(s *Server) error {
+		levels := []struct {
+			name string
+			rate RateLimit
+		}{
+			{"source", source},
+			{"network", network},
+			{"global", global},
+		}
+		for _, l := range levels {
+			if err := admit.Rate(l.rate).Validate(); err != nil {
+				return fmt.Errorf("handshake rate, %s level: %w", l.name, err)
+			}
+		}
+		s.rates = handshakeRates{
+			source:  admit.Rate(source),
+			network: admit.Rate(network),
+			global:  admit.Rate(global),
+		}
 		return nil
 	}
 }
