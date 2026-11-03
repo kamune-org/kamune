@@ -5,6 +5,8 @@ test:
 FUZZ_TIME ?= 10s
 
 .PHONY: fuzz
+# The two udppath lines cap minimizer time, so that inputs bred from the
+# 65535-byte seed do not spend the fuzz budget in the minimizer.
 fuzz:
 	go test . -run '^$$' -fuzz '^FuzzTransportReceiveEnvelope$$' \
 		-fuzztime $(FUZZ_TIME)
@@ -24,6 +26,10 @@ fuzz:
 		-fuzztime $(FUZZ_TIME)
 	go test ./pkg/storage -run '^$$' -fuzz '^FuzzPackedListCodec$$' \
 		-fuzztime $(FUZZ_TIME)
+	go test ./internal/udppath -run '^$$' -fuzz '^FuzzServerInput$$' \
+		-fuzztime $(FUZZ_TIME) -fuzzminimizetime 5s
+	go test ./internal/udppath -run '^$$' -fuzz '^FuzzClientInput$$' \
+		-fuzztime $(FUZZ_TIME) -fuzzminimizetime 5s
 
 .PHONY: bench
 bench:
