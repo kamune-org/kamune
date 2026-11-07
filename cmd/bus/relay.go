@@ -56,15 +56,14 @@ func logToken(tok string) string {
 
 type tokenTracker struct {
 	kamune.Listener
-	token      string
-	ttl        time.Duration
-	sessionTTL time.Duration
-	expiresAt  time.Time
-	app        *App
-	expiryOnce sync.Once
-	expiryFn   func()
-	dead       chan struct{}
-	deadOnce   sync.Once
+	token     string
+	expiresAt time.Time
+	app       *App
+	// expiryFn stops the expiry timer, or is nil when no timer was started.
+	// startExpiryTimer writes it under expiryMu, and cancelExpiry reads it
+	// under expiryMu.
+	expiryFn func()
+	dead     chan struct{}
 	// sessionID is the session that ran on the token's connection. It is
 	// written and read under app.mu.
 	sessionID string
@@ -73,12 +72,20 @@ type tokenTracker struct {
 	// listener; see admitsSession. It is set before the listener is in use
 	// and not changed after.
 	resumeOf string
-	consumed atomic.Bool
+	// peers holds the key of the peer a static token was derived for.
+	peers      peerKeySet
+	ttl        time.Duration
+	sessionTTL time.Duration
+	// expiryMu guards expiryFn. startExpiryTimer holds it while it creates
+	// the expiry timer and stores expiryFn, so that a timer which fires at
+	// once waits for the store before cancelExpiry reads expiryFn.
+	expiryMu   sync.Mutex
+	expiryOnce sync.Once
+	deadOnce   sync.Once
+	consumed   atomic.Bool
 	// removed is set once the user removes the token from the list; see
 	// App.RemoveRelayToken.
 	removed atomic.Bool
-	// peers holds the key of the peer a static token was derived for.
-	peers peerKeySet
 }
 
 type trackingConn struct {
@@ -198,8 +205,11 @@ func loadRelayPool(store *storage.Storage, sessionID string) [][]byte {
 
 func (t *tokenTracker) cancelExpiry() {
 	t.expiryOnce.Do(func() {
-		if t.expiryFn != nil {
-			t.expiryFn()
+		t.expiryMu.Lock()
+		fn := t.expiryFn
+		t.expiryMu.Unlock()
+		if fn != nil {
+			fn()
 		}
 	})
 }
@@ -208,6 +218,10 @@ func startExpiryTimer(t *tokenTracker) {
 	if t.ttl <= 0 {
 		return
 	}
+	// The lock keeps the timer's callback from reading expiryFn before it
+	// is stored below.
+	t.expiryMu.Lock()
+	defer t.expiryMu.Unlock()
 	timer := time.AfterFunc(t.ttl, func() {
 		t.Stop()
 		t.app.addLogEntry("INFO", "Relay token expired: "+logToken(t.token))

@@ -525,6 +525,36 @@ func TestTokenTracker_DeadIdempotent(t *testing.T) {
 	tt.Stop()
 }
 
+// TestRelayTokenExpiryRace guards startExpiryTimer against a data race on
+// tokenTracker.expiryFn. With a nanosecond TTL the expiry timer fires at
+// once, and its callback reads expiryFn; under -race that read must be
+// ordered after the write in startExpiryTimer, or the race is reported. Every
+// tracker must also see its Dead channel close when its token expires.
+func TestRelayTokenExpiryRace(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	t.Cleanup(cleanup)
+
+	const count = 200
+	trackers := make([]*tokenTracker, 0, count)
+	for range count {
+		tt := &tokenTracker{
+			ttl:  time.Nanosecond,
+			dead: make(chan struct{}),
+			app:  app,
+		}
+		startExpiryTimer(tt)
+		trackers = append(trackers, tt)
+	}
+	for i, tt := range trackers {
+		select {
+		case <-tt.Dead():
+		case <-time.After(testWait):
+			a.FailNow("dead channel not closed after expiry", "tracker %d", i)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // multiListener
 // ---------------------------------------------------------------------------
