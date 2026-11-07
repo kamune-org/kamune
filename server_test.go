@@ -1603,49 +1603,92 @@ func (l *recordingListener) accepted() []string {
 	return append([]string(nil), l.remotes...)
 }
 
-// TestUDPSpoofFloodDoesNotDropDialer floods a UDP server with 20,000 HELLOs and
-// 20,000 INITs that carry bogus cookies. They come from forged addresses in
-// 1,000 IPv4 /24 networks, while a real dialer connects. The dialer must get its
-// session, and no forged source may reach the admission of the kamune server.
+// TestUDPSpoofFloodDoesNotDropDialer floods a UDP server with HELLOs and INITs
+// that carry bogus cookies. They come from forged addresses in 1,000 IPv4 /24
+// networks. The flood is under way when a real dialer starts, and it keeps going
+// until the dialer has exchanged its messages and the flood has sent at least
+// 20,000 pairs. The dialer must get its session, and no forged source may get a
+// path from the server.
 func TestUDPSpoofFloodDoesNotDropDialer(t *testing.T) {
 	const (
 		floods   = 20000
 		networks = 1000
-		// pause is how many pairs of datagrams the flood sends between two
-		// short pauses, which let the server drain its queues.
+		// warm is how many pairs the flood sends before the dial starts. A pair
+		// is two datagrams.
+		warm = 2000
+		// pause is how many pairs the flood sends between two 1 ms pauses. The
+		// pauses let the server drain its queues. With runtime.Gosched in their
+		// place, the queues stayed full, the dialer's HELLOs were dropped so
+		// often that one dial timed out.
 		pause = 128
 	)
 	a := require.New(t)
 	n, serverPC, clientPC := udpPair(t)
 	serverAddr := udpAddrPort(serverPC)
+	clientAddr := udpAddrPort(clientPC)
 	l, err := ListenUDP(serverPC)
 	a.NoError(err)
 	rec := &recordingListener{Listener: l}
 	_, sessions, _ := udpServe(t, "", ServeWithListener(rec))
+
+	// The filter records the destination of each ACCEPT that the server sends.
+	// It runs on the sending goroutine, so the list is locked.
+	var (
+		acceptMu sync.Mutex
+		accepts  []netip.AddrPort
+	)
+	n.SetFilter(func(from, to netip.AddrPort, pkt []byte) int {
+		if from == serverAddr && len(pkt) == udppath.AcceptSize &&
+			pkt[0] == udpTypeAccept {
+			acceptMu.Lock()
+			accepts = append(accepts, to)
+			acceptMu.Unlock()
+		}
+		return 1
+	})
 
 	// Inject copies each datagram, so one of each serves the whole flood. The
 	// server answers a bogus INIT before it makes any state, so the id can be
 	// the same for every source.
 	hello := bogusHandshake(udpTypeHello, udppath.HelloSize)
 	bogusInit := bogusHandshake(udpTypeInit, udppath.InitSize)
-	flood := make(chan struct{})
+	warmed := make(chan struct{})
+	stop := make(chan struct{})
+	flood := make(chan int, 1)
+	var stopOnce sync.Once
+	endFlood := func() { stopOnce.Do(func() { close(stop) }) }
+	// A test that fails before it ends the flood must not leave it running.
+	t.Cleanup(endFlood)
 	go func() {
-		defer close(flood)
-		for i := range floods {
-			nw := i % networks
+		for pairs := 0; ; pairs++ {
+			if pairs == warm {
+				close(warmed)
+			}
+			if pairs >= floods {
+				select {
+				case <-stop:
+					flood <- pairs
+					return
+				default:
+				}
+			}
+			nw := pairs % networks
 			src := netip.AddrPortFrom(
 				netip.AddrFrom4([4]byte{
-					10, byte(nw >> 8), byte(nw), byte(1 + i%254),
+					10, byte(nw >> 8), byte(nw), byte(1 + pairs%254),
 				}),
-				uint16(1024+i%60000),
+				uint16(1024+pairs%60000),
 			)
 			n.Inject(src, serverAddr, hello)
 			n.Inject(src, serverAddr, bogusInit)
-			if i%pause == 0 {
+			if pairs%pause == 0 {
 				time.Sleep(time.Millisecond)
 			}
 		}
 	}()
+	// The dial starts once the flood is under way, and the flood keeps going
+	// for the whole of it.
+	recv(t, warmed)
 
 	store, cleanup := newTestStore(t)
 	t.Cleanup(cleanup)
@@ -1653,13 +1696,24 @@ func TestUDPSpoofFloodDoesNotDropDialer(t *testing.T) {
 	a.NoError(err)
 	t.Cleanup(func() { _ = cli.Close() })
 	srv := recv(t, sessions)
-	recv(t, flood)
 	sendRecv(t, cli, srv, []byte("dialer, through the flood"))
 	sendRecv(t, srv, cli, []byte("server, through the flood"))
+
+	endFlood()
+	a.GreaterOrEqual(recv(t, flood), floods, "the flood stopped early")
 
 	// Only the dialer's path was accepted, so the server's admission saw no
 	// forged source.
 	a.Equal([]string{clientPC.LocalAddr().String()}, rec.accepted())
+	// The server sent its ACCEPT only to the dialer, and at least once. A
+	// resent INIT gets its ACCEPT again, so there may be more than one.
+	acceptMu.Lock()
+	sent := append([]netip.AddrPort(nil), accepts...)
+	acceptMu.Unlock()
+	a.NotEmpty(sent, "the dialer got no ACCEPT")
+	for _, to := range sent {
+		a.Equal(clientAddr, to, "the server sent an ACCEPT to a forged source")
+	}
 	// The forged INITs were refused for their cookies, and no path came of
 	// them.
 	stats := l.(*pathListener).srv.Stats()

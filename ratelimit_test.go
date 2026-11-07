@@ -340,3 +340,43 @@ func TestHandshakeRateDefaults(t *testing.T) {
 		2*int(server.rates.global.PerSecond), server.rates.global.Burst,
 	)
 }
+
+// TestHandshakeRateClosesRefusedConn serves two conns from one source through
+// ListenAndServe. The source rate admits one of them, so the server closes the
+// second, and the first stays open while it waits for ClientHello.
+func TestHandshakeRateClosesRefusedConn(t *testing.T) {
+	a := require.New(t)
+	clk := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	l := newTestListener(net.ErrClosed)
+	startTestServer(
+		t, l,
+		ServeWithClock(clk),
+		// The first conn sends no ClientHello, so it waits for the whole test.
+		ServeWithIntroTimeout(time.Hour),
+		// One token and no refill, since the fake clock does not move. The
+		// network and global levels are off, so the source level decides.
+		ServeWithHandshakeRate(
+			RateLimit{PerSecond: 1, Burst: 1}, RateLimit{}, RateLimit{},
+		),
+	)
+
+	conns := make([]*sourceConn, 2)
+	for i := range conns {
+		clientNet, serverNet := net.Pipe()
+		t.Cleanup(func() {
+			_ = clientNet.Close()
+			_ = serverNet.Close()
+		})
+		addr := fmt.Sprintf("10.0.0.1:%d", i+1)
+		conns[i] = newSourceConn(newConn(serverNet), addr)
+		// sendConn returns once Accept has handed the conn over, and the
+		// server runs admit before its next Accept call, so the first conn
+		// has its token before the second is sent.
+		sendConn(t, l, conns[i])
+	}
+	a.Eventually(
+		conns[1].isClosed, 10*time.Second, time.Millisecond,
+		"the refused conn was not closed",
+	)
+	a.False(conns[0].isClosed(), "the admitted conn was closed")
+}

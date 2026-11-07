@@ -398,17 +398,29 @@ func TestUDPServerCloseKeepsSession(t *testing.T) {
 	sendRecv(t, cli, srv, []byte("sent after the server closed"))
 	sendRecv(t, srv, cli, []byte("answer after the server closed"))
 
-	shut := make(chan error, 1)
-	go func() { shut <- server.Shutdown(context.Background()) }()
-	select {
-	case err := <-shut:
-		t.Fatalf("Shutdown returned while the session was open: %v", err)
-	case <-time.After(100 * time.Millisecond):
+	// released is set just before the handler is released. Shutdown records
+	// its value when it returns, so a Shutdown that returned while the
+	// session was open would see false.
+	type shutdownResult struct {
+		err           error
+		releasedFirst bool
 	}
+	var released atomic.Bool
+	shut := make(chan shutdownResult, 1)
+	go func() {
+		err := server.Shutdown(context.Background())
+		shut <- shutdownResult{err: err, releasedFirst: released.Load()}
+	}()
 	a.NoError(cli.Close())
 	a.NoError(srv.Close())
+	released.Store(true)
 	release()
-	a.NoError(recv(t, shut))
+	got := recv(t, shut)
+	a.NoError(got.err)
+	a.True(
+		got.releasedFirst,
+		"Shutdown returned before the handler was released",
+	)
 }
 
 // TestUDPRedialFromSameSource ends a session, binds the dialer's address
@@ -473,6 +485,7 @@ func TestUDPPathCountsAgainstPerSourceCapAtAccept(t *testing.T) {
 		ServeWithMaxPendingPerSource(1),
 	)
 	a.NoError(err)
+	t.Cleanup(func() { _ = server.Close() })
 
 	// dialPath runs the path handshake from pc and sends one datagram, which
 	// makes the path ready for Accept.
