@@ -248,8 +248,8 @@ func (a *App) StartServer(
 			a.emitEvent("p2p-tokens", snapshot)
 		} else if useP2P && directPeerAddr != "" {
 			// Direct P2P: both peers know each other's addresses
-			// upfront. The listener sends NAT-kick packets to the
-			// dialer and waits for its KCP SYN on the punch socket.
+			// upfront. The listener sends NAT kicks to the dialer
+			// and accepts a UDP path only from the peer's IP.
 			listener, err := newDirectP2PListener(addr, directPeerAddr)
 			if err != nil {
 				a.setStatus(StatusError, "Failed to start direct p2p listener")
@@ -795,7 +795,9 @@ func (a *App) ConnectToServer(
 	}
 	opts := slices.Clone(baseOpts)
 	relayTokenHex := token
-	// punched is the connection of a dial over a punched UDP socket.
+	// punched is set only for a broker punch. Direct P2P leaves it nil:
+	// DialUDP has already heard the peer, so a later handshake failure
+	// is not a punch failure.
 	var punched *punchSession
 
 	// P2P: hole-punch the peer via the broker, then run the kamune
@@ -855,9 +857,9 @@ func (a *App) ConnectToServer(
 		addr = "p2p://" + payload.IP.String() +
 			fmt.Sprintf(":%d", payload.Port)
 	} else if transport == "udp" && useP2P && addr != "" {
-		// Direct P2P: both peers know each other's addresses upfront.
-		// Send NAT-kick packets to the server and create a KCP
-		// session on the punched socket.
+		// Direct P2P: both peers know each other's addresses
+		// upfront. The path handshake's HELLOs open the NAT mapping,
+		// so this side sends no NAT kicks.
 		a.addLogEntry("INFO",
 			"Direct P2P: punching "+addr)
 		sess, err := directP2PDial(attempt.ctx, addr)
@@ -865,15 +867,13 @@ func (a *App) ConnectToServer(
 			return failed("hole_punch_failed",
 				fmt.Errorf("direct p2p dial: %w", err))
 		}
-		// As with a broker, the handshake tells whether the punch
-		// worked.
+		// DialUDP returned, so the peer answered. A handshake that
+		// fails after this is not a punch failure.
 		a.addLogEntry("INFO", "Direct P2P: hole-punch started")
-		punched = &punchSession{Conn: sess}
-		punchedConn := kamune.NewConn(punched)
-		attempt.closeOnCancel(punchedConn)
+		attempt.closeOnCancel(sess)
 		opts = append(opts, kamune.DialWithFunc(
 			func(string) (kamune.Conn, error) {
-				return punchedConn, nil
+				return sess, nil
 			},
 		))
 		addr = "p2p://" + addr
@@ -1006,11 +1006,10 @@ func (a *App) ConnectToServer(
 				if err != nil {
 					return nil, fmt.Errorf("direct p2p redial: %w", err)
 				}
-				pConn := kamune.NewConn(sess)
-				preDialed = pConn
+				preDialed = sess
 				resumeOpts = append(resumeOpts, kamune.DialWithFunc(
 					func(string) (kamune.Conn, error) {
-						return pConn, nil
+						return sess, nil
 					},
 				))
 			case transport == "udp":
