@@ -2,34 +2,37 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/binary"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/kamune-org/kamune"
-	"github.com/xtaci/kcp-go/v5"
 )
 
-// directP2PListener is a kamune.Listener that accepts KCP sessions from
-// a peer whose address is known up front. kcp-go reads its socket
-// through a punchFilter that drops every packet from an IP address other
-// than the peer's, so only the peer can open a session. The port is not
-// checked, as the dialer sends from a port of its own.
+// directP2PDialTimeout bounds one direct P2P dial. It covers the
+// listener's 10 s kick window (natKickLoop).
+const directP2PDialTimeout = 10 * time.Second
+
+// directP2PListener is a kamune.Listener that accepts a session from a
+// peer whose address is known up front. The UDP path layer drops every
+// datagram from an IP other than the peer's, so only that peer can open
+// a session. The port is not checked: the dialer binds a port of its
+// own.
 type directP2PListener struct {
-	conn      *net.UDPConn
-	filter    *punchFilter
-	kcp       *kcp.Listener
-	peerAddr  *net.UDPAddr
+	ln        kamune.Listener
 	ctx       context.Context
+	closeErr  error
+	conn      *net.UDPConn
+	peerAddr  *net.UDPAddr
 	cancel    context.CancelFunc
 	closeOnce sync.Once
-	closeErr  error
 }
 
-func newDirectP2PListener(listenAddr, peerAddr string) (*directP2PListener, error) {
+func newDirectP2PListener(
+	listenAddr, peerAddr string,
+) (*directP2PListener, error) {
 	udpAddr, err := net.ResolveUDPAddr("udp4", listenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("resolve listen addr: %w", err)
@@ -41,33 +44,35 @@ func newDirectP2PListener(listenAddr, peerAddr string) (*directP2PListener, erro
 
 	peerUDPAddr, err := net.ResolveUDPAddr("udp4", peerAddr)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("resolve peer addr: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	var peerIP netip.Addr
+	if ap, ok := addrPortOf(peerUDPAddr); ok {
+		peerIP = ap.Addr()
+	}
+	isPeerIP := func(from netip.AddrPort) bool {
+		return peerIP.IsValid() && from.Addr().Unmap() == peerIP
+	}
+	ln, err := kamune.ListenUDP(
+		conn, kamune.UDPWithSourceFilter(isPeerIP),
+	)
+	if err != nil {
+		_ = conn.Close()
+		cancel()
+		return nil, fmt.Errorf("listen udp: %w", err)
+	}
 
 	l := &directP2PListener{
-		conn:     conn,
-		filter:   newPunchFilter(conn),
-		peerAddr: peerUDPAddr,
+		ln:       ln,
 		ctx:      ctx,
+		conn:     conn,
+		peerAddr: peerUDPAddr,
 		cancel:   cancel,
 	}
-	if ap, ok := addrPortOf(peerUDPAddr); ok {
-		l.filter.direct = ap.Addr()
-	}
-
-	kcpL, err := kcp.ServeConn(nil, 0, 0, l.filter)
-	if err != nil {
-		conn.Close()
-		cancel()
-		return nil, fmt.Errorf("kcp listener: %w", err)
-	}
-	l.kcp = kcpL
-
 	go l.natKickLoop()
-
 	return l, nil
 }
 
@@ -86,21 +91,17 @@ func (l *directP2PListener) natKickLoop() {
 }
 
 func (l *directP2PListener) Accept() (kamune.Conn, error) {
-	sess, err := l.kcp.AcceptKCP()
-	if err != nil {
-		return nil, err
-	}
-	return kamune.NewConn(sess), nil
+	return l.ln.Accept()
 }
 
+// Close stops the NAT kicks and closes the path listener. An accepted
+// session keeps the socket until that session ends. Close is safe to
+// call more than once.
 func (l *directP2PListener) Close() error {
 	l.closeOnce.Do(func() {
 		l.cancel()
-		if l.kcp != nil {
-			_ = l.kcp.Close()
-		}
-		if l.conn != nil {
-			l.closeErr = l.conn.Close()
+		if l.ln != nil {
+			l.closeErr = l.ln.Close()
 		}
 	})
 	return l.closeErr
@@ -116,35 +117,31 @@ func (l *directP2PListener) Addr() *net.UDPAddr {
 	return nil
 }
 
-func directP2PDial(ctx context.Context, peerAddr string) (kamune.Conn, error) {
-	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+// directP2PDial binds a UDP socket and runs the path handshake to
+// peerAddr, whose HELLOs open the local NAT mapping. Every error wraps
+// ErrHolePunchFailed, and the socket is closed on error.
+func directP2PDial(
+	ctx context.Context, peerAddr string,
+) (kamune.Conn, error) {
+	conn, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0},
+	)
 	if err != nil {
-		return nil, fmt.Errorf("bind punch socket: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrHolePunchFailed, err)
 	}
-
 	peerUDPAddr, err := net.ResolveUDPAddr("udp4", peerAddr)
 	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("resolve peer addr: %w", err)
+		_ = conn.Close()
+		return nil, fmt.Errorf("%w: %w", ErrHolePunchFailed, err)
 	}
-
-	kickCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ap := peerUDPAddr.AddrPort()
+	ap = netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
+	dialCtx, cancel := context.WithTimeout(ctx, directP2PDialTimeout)
 	defer cancel()
-	_, _ = sendNATKick(kickCtx, conn, peerUDPAddr)
-	if err := ctx.Err(); err != nil {
-		conn.Close()
-		return nil, err
-	}
-
-	var convid uint32
-	if err := binary.Read(rand.Reader, binary.LittleEndian, &convid); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("convid: %w", err)
-	}
-	sess, err := kcp.NewConn4(convid, peerUDPAddr, nil, 0, 0, true, conn)
+	kc, err := kamune.DialUDP(dialCtx, conn, ap)
 	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("kcp session: %w", err)
+		_ = conn.Close()
+		return nil, fmt.Errorf("%w: %w", ErrHolePunchFailed, err)
 	}
-	return kamune.NewConn(sess), nil
+	return kc, nil
 }

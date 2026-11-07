@@ -9,14 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A punchFilter passes on packets from the direct peer's IP, from a
-// matched peer's IP until matchWindow after the match, whatever it sends
-// meanwhile, and from the exact address of a held session until it is
-// released. A peer matched on a token that is forgotten is not expected
-// any more, though a session it holds is kept.
+// A punchFilter passes on packets from a matched peer's IP until
+// matchWindow after the match, whatever it sends meanwhile, and from
+// the exact address of a held session until it is released. A peer
+// matched on a token that is forgotten is not expected any more, though
+// a session it holds is kept.
 func TestPunchFilterAdmits(t *testing.T) {
 	peer := netip.MustParseAddr("192.0.2.1")
-	direct := netip.MustParseAddr("203.0.113.1")
 	held := netip.MustParseAddrPort("198.51.100.1:4000")
 	tests := []struct {
 		name   string
@@ -61,12 +60,6 @@ func TestPunchFilterAdmits(t *testing.T) {
 			name: "other port of a held session",
 			src:  netip.AddrPortFrom(held.Addr(), 4001),
 		},
-		{
-			name:   "direct peer",
-			after:  matchWindow * 10,
-			src:    netip.AddrPortFrom(direct, 5),
-			admits: true,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -74,7 +67,6 @@ func TestPunchFilterAdmits(t *testing.T) {
 			now := time.Unix(1000, 0)
 			f := newPunchFilter(nil)
 			f.now = func() time.Time { return now }
-			f.direct = direct
 			f.expect(peer, "token")
 			f.hold(net.UDPAddrFromAddrPort(held))
 			// Packets from the matched peer do not renew its window.

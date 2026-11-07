@@ -44,35 +44,29 @@ type matchedPeer struct {
 	token string
 }
 
-// punchFilter is the net.PacketConn that a p2p or direct p2p listener
-// hands to kcp-go in place of its punch socket. kcp-go starts a session
-// for any datagram of 24 bytes or more from an address that it has no
-// session with, so a broker NOTIFY, or a datagram from anyone who learns
-// the port, would reach the kamune server as a new connection.
-// punchFilter hands each packet from the broker to onBroker instead, and
-// passes on only the packets of an expected peer: from the IP address of
-// the direct p2p peer, from that of a peer the broker matched within
-// matchWindow on a token the listener still registers, or from the
-// address of a session the listener accepted, until that session
-// closes. The packets of a session that the daemon dialed from the punch
-// socket go to that session instead; see divertFrom.
+// punchFilter is the net.PacketConn that a p2p listener hands to kcp-go
+// in place of its punch socket. kcp-go starts a session for any datagram
+// of 24 bytes or more from an address that it has no session with, so a
+// broker NOTIFY, or a datagram from anyone who learns the port, would
+// reach the kamune server as a new connection. punchFilter hands each
+// packet from the broker to onBroker instead, and passes on only the
+// packets of an expected peer: from the IP address of a peer the broker
+// matched within matchWindow on a token the listener still registers, or
+// from the address of a session the listener accepted, until that
+// session closes. The packets of a session that the daemon dialed from
+// the punch socket go to that session instead; see divertFrom.
 //
-// Only the IP address of a direct or matched peer is checked, not its
-// port: a NAT may send the peer's packets from a port other than the one
-// the broker saw, and a direct p2p dialer sends from a port of its own.
+// Only the IP address of a matched peer is checked, not its port: a NAT
+// may send the peer's packets from a port other than the one the broker
+// saw.
 //
 // punchFilter lacks the methods of *net.UDPConn that kcp-go uses for
 // batch reads, so kcp-go reads it through ReadFrom.
 type punchFilter struct {
 	conn *net.UDPConn
-	// broker is the broker's address, and onBroker gets its packets.
-	// Both are unset for a direct p2p listener.
-	broker   netip.AddrPort
+	// onBroker gets the packets from broker, the broker's address.
 	onBroker func(pkt []byte)
-	// direct is the IP address of the direct p2p peer, if any.
-	direct netip.Addr
-
-	mu      sync.Mutex
+	// mu guards matched, live, diverted and quiet.
 	matched map[netip.Addr]matchedPeer
 	live    map[netip.AddrPort]int
 	// diverted holds the dials from the punch socket by the address of
@@ -81,6 +75,8 @@ type punchFilter struct {
 	diverted map[netip.AddrPort]*divertConn
 	quiet    map[netip.AddrPort]time.Time
 	now      func() time.Time
+	broker   netip.AddrPort
+	mu       sync.Mutex
 }
 
 func newPunchFilter(conn *net.UDPConn) *punchFilter {
@@ -170,9 +166,6 @@ func (f *punchFilter) hold(addr net.Addr) (release func()) {
 
 // admits reports whether a packet from src is passed on to kcp-go.
 func (f *punchFilter) admits(src netip.AddrPort) bool {
-	if f.direct.IsValid() && src.Addr() == f.direct {
-		return true
-	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.live[src] > 0 {

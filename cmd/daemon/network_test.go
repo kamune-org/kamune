@@ -123,6 +123,48 @@ func TestDaemonDialsUDPServer(t *testing.T) {
 	a.Equal(addr, restarted.Data["addr"])
 }
 
+// A direct-p2p server accepts another daemon's dial. Stopping the server
+// ends the client's session.
+func TestDaemonDialsDirectP2P(t *testing.T) {
+	a := require.New(t)
+	server, serverRec := newTestDaemon(t, VerificationModeAutoAccept, false)
+	client, clientRec := newTestDaemon(t, VerificationModeAutoAccept, false)
+	t.Cleanup(server.stopServer)
+	t.Cleanup(client.stopServer)
+
+	server.handleStartServer(Command{
+		ID: "start",
+		Params: mustJSON(StartServerParams{
+			Addr:           "127.0.0.1:0",
+			Transport:      "direct-p2p",
+			DirectPeerAddr: "127.0.0.1:9",
+		}),
+	})
+	started := serverRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "start"
+	})
+	a.Equal(EvtServerStarted, started.Evt, "start failed: %v", started.Data)
+	addr, _ := started.Data["addr"].(string)
+	a.NotEmpty(addr)
+
+	client.handleDial(Command{
+		ID: "dial",
+		Params: mustJSON(DialParams{
+			Transport:      "direct-p2p",
+			DirectPeerAddr: addr,
+		}),
+	})
+	evt := clientRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "dial" &&
+			(e.Evt == EvtSessionStarted || e.Evt == EvtError)
+	})
+	a.Equal(EvtSessionStarted, evt.Evt, "dial failed: %v", evt.Data)
+	serverRec.waitFor(t, isEvent(EvtSessionStarted))
+
+	server.stopServer()
+	clientRec.waitFor(t, isEvent(EvtSessionClosed))
+}
+
 func TestParseServerAddr(t *testing.T) {
 	tests := []struct {
 		addr       string
