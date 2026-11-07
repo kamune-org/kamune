@@ -73,6 +73,56 @@ func TestServerReportsBoundAddr(t *testing.T) {
 	}
 }
 
+// A udp server daemon accepts the path-layer dial of another daemon, so
+// the session starts.
+func TestDaemonDialsUDPServer(t *testing.T) {
+	a := require.New(t)
+	server, serverRec := newTestDaemon(t, VerificationModeAutoAccept, false)
+	client, clientRec := newTestDaemon(t, VerificationModeAutoAccept, false)
+	t.Cleanup(server.stopServer)
+	t.Cleanup(client.stopServer)
+
+	// A fixed port, so that the restart below binds the same one again.
+	free, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	a.NoError(err)
+	fixed := free.LocalAddr().String()
+	a.NoError(free.Close())
+
+	server.handleStartServer(Command{
+		ID: "start",
+		Params: mustJSON(StartServerParams{
+			Addr: fixed, Transport: "udp",
+		}),
+	})
+	started := serverRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "start"
+	})
+	a.Equal(EvtServerStarted, started.Evt, "start failed: %v", started.Data)
+	addr, _ := started.Data["addr"].(string)
+	a.Equal(fixed, addr)
+
+	client.handleDial(Command{
+		ID:     "dial",
+		Params: mustJSON(DialParams{Addr: addr, Transport: "udp"}),
+	})
+	evt := clientRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "dial" &&
+			(e.Evt == EvtSessionStarted || e.Evt == EvtError)
+	})
+	a.Equal(EvtSessionStarted, evt.Evt, "dial failed: %v", evt.Data)
+
+	// The path layer keeps the socket open while a session lives, so a
+	// restart, which binds the same port again, works only because
+	// stopServer closes the sessions first.
+	server.handleRestartServer(Command{ID: "restart"})
+	restarted := serverRec.waitFor(t, func(e recordedEvent) bool {
+		return e.ID == "restart"
+	})
+	a.Equal(EvtServerStarted, restarted.Evt,
+		"restart failed: %v", restarted.Data)
+	a.Equal(addr, restarted.Data["addr"])
+}
+
 func TestParseServerAddr(t *testing.T) {
 	tests := []struct {
 		addr       string

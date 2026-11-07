@@ -18,7 +18,6 @@ import (
 	"github.com/kamune-org/kamune/pkg/fingerprint"
 	"github.com/kamune-org/kamune/pkg/relayconn"
 	"github.com/kamune-org/kamune/pkg/storage"
-	"github.com/xtaci/kcp-go/v5"
 )
 
 // transports are the transports that start_server and dial take. An
@@ -2141,32 +2140,63 @@ func parseServerAddr(addr string) (host, port string, autoDetect bool) {
 	return h, p, false
 }
 
-// boundListener is a tcp or udp server's listener, which the daemon
-// binds itself to learn the address it is bound to.
+// boundListener is a tcp or udp server's listener. The daemon binds it
+// itself to learn the address it is bound to, which is not the one asked
+// for when that port is 0. Addr reports that bound address.
 type boundListener struct {
-	net.Listener
+	kamune.Listener
+	addr net.Addr
 }
 
-// listenDirect binds addr for a server of transport tcp or udp.
+// Addr returns the address that the listener is bound to.
+func (l *boundListener) Addr() net.Addr {
+	return l.addr
+}
+
+// listenDirect binds addr for a server of transport tcp or udp. A udp
+// server runs the kamune path layer on its socket, so that a dialer of
+// transport udp can reach it.
 func listenDirect(transport, addr string) (*boundListener, error) {
 	if addr == "" {
 		return nil, errors.New("listen address is required")
 	}
 	if transport == "udp" {
-		l, err := kcp.Listen(addr)
+		ua, err := net.ResolveUDPAddr("udp", addr)
 		if err != nil {
 			return nil, fmt.Errorf("listening udp: %w", err)
 		}
-		return &boundListener{Listener: l}, nil
+		pc, err := net.ListenUDP("udp", ua)
+		if err != nil {
+			return nil, fmt.Errorf("listening udp: %w", err)
+		}
+		bound := pc.LocalAddr()
+		l, err := kamune.ListenUDP(pc)
+		if err != nil {
+			// On error kamune.ListenUDP leaves pc to the caller, so
+			// close it here.
+			_ = pc.Close()
+			return nil, fmt.Errorf("listening udp: %w", err)
+		}
+		return &boundListener{Listener: l, addr: bound}, nil
 	}
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listening tcp: %w", err)
 	}
-	return &boundListener{Listener: l}, nil
+	return &boundListener{
+		Listener: tcpAdapter{Listener: l},
+		addr:     l.Addr(),
+	}, nil
 }
 
-func (l *boundListener) Accept() (kamune.Conn, error) {
+// tcpAdapter is a kamune.Listener over a net.Listener. Its Accept wraps
+// each accepted connection with kamune.NewConn.
+type tcpAdapter struct {
+	net.Listener
+}
+
+// Accept waits for the next connection and returns it as a kamune.Conn.
+func (l tcpAdapter) Accept() (kamune.Conn, error) {
 	c, err := l.Listener.Accept()
 	if err != nil {
 		return nil, err
