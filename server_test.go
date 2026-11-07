@@ -2893,6 +2893,7 @@ func TestServer_F1FloodDoesNotBlock(t *testing.T) {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	a.NoError(err)
+	fl := &floodListener{Listener: ln}
 	var handled atomic.Int32
 	var verified atomic.Int32
 	server, err := NewServer(
@@ -2906,7 +2907,7 @@ func TestServer_F1FloodDoesNotBlock(t *testing.T) {
 			verified.Add(1)
 			return nil
 		},
-		ServeWithListener(&floodListener{Listener: ln}),
+		ServeWithListener(fl),
 		ServeWithIntroTimeout(time.Hour),
 		// The test is about the hello-stage cap. Its 2,000 conns are
 		// forgeable, since remoteAddrConn has no ReturnRoutable, so they and
@@ -2994,7 +2995,24 @@ func TestServer_F1FloodDoesNotBlock(t *testing.T) {
 			failed.Load(), dialErr,
 		))
 	}
-	a.Greater(wrote.Load(), int32(floodN*9/10))
+	// Every flood conn is held open, so a server that accepted more conns than
+	// the waiting and hello stages can hold together must have evicted, which
+	// is what this test exercises. Client-side connect and write success does
+	// not show that the server got the conn. In a diagnostic run the server's
+	// accept loop sat idle while hundreds of clients that saw success were
+	// never accepted, most likely dropped by the full accept queue (somaxconn,
+	// 128 on macOS) during the burst. So count what the server accepted.
+	accepted := fl.n.Load()
+	t.Logf(
+		"flood: accepted %d, wrote %d, failed %d",
+		accepted, wrote.Load(), failed.Load(),
+	)
+	if accepted <= 2*defaultMaxPendingHandshakes {
+		a.FailNow(fmt.Sprintf(
+			"the server accepted only %d flood conns (wrote %d, failed %d)",
+			accepted, wrote.Load(), failed.Load(),
+		))
+	}
 
 	dialer, err := NewDialer(
 		addr,
