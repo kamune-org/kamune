@@ -86,6 +86,35 @@ func TestCancelConnect(t *testing.T) {
 	}
 }
 
+// TestCancelConnectUDP cancels a connect to a UDP server that never answers,
+// and checks that the connect ends within 2 s, as a cancelled connect, with
+// no session.
+func TestCancelConnectUDP(t *testing.T) {
+	a := require.New(t)
+	app, _ := newUnlockedApp(t, "secret")
+	pc, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+	)
+	a.NoError(err)
+	t.Cleanup(func() { _ = pc.Close() })
+
+	done := startConnect(app, "udp", pc.LocalAddr().String(), "", "udp")
+	a.Eventually(func() bool {
+		return dialAttemptByID(app, "udp") != nil
+	}, testWait, time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+
+	app.CancelConnect("udp")
+	select {
+	case r := <-done:
+		a.NoError(r.err)
+		a.Equal(errCodeCancelled, r.res.ErrorCode)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the cancelled connect did not end within 2 s")
+	}
+	a.Empty(app.GetSessions())
+}
+
 type connectResult struct {
 	res ConnectResult
 	err error

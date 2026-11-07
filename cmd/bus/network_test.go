@@ -78,6 +78,39 @@ func startTestServer(
 	return ln.Addr().String(), srv.PublicKey()
 }
 
+// startTestUDPServer is startTestServer over UDP, through the path layer of
+// kamune. It binds the socket itself, since a server made with
+// kamune.ServeWithUDP does not report the port that the kernel picked.
+func startTestUDPServer(
+	t *testing.T, name string, handler kamune.HandlerFunc,
+) string {
+	t.Helper()
+	a := require.New(t)
+	pc, err := net.ListenUDP(
+		"udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+	)
+	a.NoError(err)
+	l, err := kamune.ListenUDP(pc)
+	a.NoError(err)
+
+	srv, err := kamune.NewServer(
+		"", handler, openTestStorage(t), acceptAll,
+		kamune.ServeWithListener(l),
+		kamune.ServeWithServerName(name),
+	)
+	a.NoError(err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = srv.ListenAndServe()
+	}()
+	t.Cleanup(func() {
+		_ = srv.Close()
+		<-done
+	})
+	return pc.LocalAddr().String()
+}
+
 func TestPinPeer(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -326,6 +359,23 @@ func TestConnectToServerP2PRejectedIsNotPunchFailure(t *testing.T) {
 	a.Equal("verification_rejected", got.res.ErrorCode)
 	requireWindowErrorCode(t, got.err, "verification_rejected")
 	a.Empty(app.GetSessions())
+}
+
+// TestConnectToServerUDP dials a server over UDP, with no P2P, and checks
+// that the dial establishes the session.
+func TestConnectToServerUDP(t *testing.T) {
+	a := require.New(t)
+	app, cleanup := newTestAppWithStorage(t)
+	defer cleanup()
+	app.verifMode = VerificationModeAutoAccept
+
+	addr := startTestUDPServer(t, "srv", readUntilEnd)
+	res, err := app.ConnectToServer(
+		addr, "udp", "", "", "alice", "", "", "", "", false, false, "",
+	)
+	a.NoError(err)
+	a.Empty(res.ErrorCode)
+	a.Len(app.GetSessions(), 1)
 }
 
 // requireWindowErrorCode checks that err, which a ConnectToServer call

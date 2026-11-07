@@ -906,7 +906,9 @@ func (a *App) ConnectToServer(
 			opts = append(opts, kamune.DialWithFunc(attempt.guard(fn)))
 			addr = relayAddr
 		case "udp":
-			opts = append(opts, kamune.DialWithFunc(attempt.guard(dialUDP)))
+			opts = append(opts, kamune.DialWithFunc(
+				attempt.guard(dialUDPWithin(attempt.ctx)),
+			))
 		default:
 			opts = append(opts, kamune.DialWithFunc(
 				attempt.guard(dialTCPWithin(attempt.ctx)),

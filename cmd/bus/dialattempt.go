@@ -2,13 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"slices"
 	"sync"
 	"time"
-
-	"github.com/xtaci/kcp-go/v5"
 
 	"github.com/kamune-org/kamune"
 )
@@ -94,13 +93,35 @@ func dialTCPWithin(
 	}
 }
 
-// dialUDP dials a KCP session over UDP, as kamune.DialWithUDP does.
-func dialUDP(addr string) (kamune.Conn, error) {
-	c, err := kcp.Dial(addr)
-	if err != nil {
-		return nil, err
+// dialUDPWithin returns a dial function for UDP whose path handshake ends
+// with ctx, or after dialTimeout. It dials as kamune.DialWithUDP does, on a
+// socket of its own, and closes that socket when the dial fails.
+func dialUDPWithin(
+	ctx context.Context,
+) func(addr string) (kamune.Conn, error) {
+	return func(addr string) (kamune.Conn, error) {
+		ua, err := net.ResolveUDPAddr("udp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("resolving udp address: %w", err)
+		}
+		dst := ua.AddrPort()
+		network := "udp"
+		if dst.Addr().Unmap().Is4() {
+			network = "udp4"
+		}
+		pc, err := net.ListenUDP(network, nil)
+		if err != nil {
+			return nil, fmt.Errorf("listening udp: %w", err)
+		}
+		hctx, cancel := context.WithTimeout(ctx, dialTimeout)
+		defer cancel()
+		c, err := kamune.DialUDP(hctx, pc, dst)
+		if err != nil {
+			_ = pc.Close()
+			return nil, fmt.Errorf("dialing udp: %w", err)
+		}
+		return c, nil
 	}
-	return kamune.NewConn(c), nil
 }
 
 // beginDial registers a new dial attempt with the attempt ID id, which
