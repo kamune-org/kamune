@@ -465,6 +465,65 @@ func TestSettingCodec(t *testing.T) {
 	}
 }
 
+// TestDeleteSettings sets, deletes and reads settings on a store without a
+// passphrase and on one with a passphrase. Deleting a key leaves the other
+// key of its app, and the same key of another app, as they were.
+func TestDeleteSettings(t *testing.T) {
+	pass := []byte("pass")
+	stores := []struct {
+		name string
+		opts func(path string) []StorageOption
+	}{
+		{"plain", func(path string) []StorageOption {
+			return []StorageOption{WithDBPath(path), WithNoPassphrase()}
+		}},
+		{"passphrase", func(path string) []StorageOption {
+			return []StorageOption{
+				WithDBPath(path),
+				WithPassphraseHandler(func() ([]byte, error) {
+					return pass, nil
+				}),
+			}
+		}},
+	}
+	for _, tc := range stores {
+		t.Run(tc.name, func(t *testing.T) {
+			a := require.New(t)
+			path := filepath.Join(t.TempDir(), "db")
+			s, err := OpenStorage(tc.opts(path)...)
+			a.NoError(err)
+			defer s.Close()
+
+			a.NoError(s.SetSettings("bus", "theme", "dark"))
+			a.NoError(s.SetSettings("bus", "incognito", "true"))
+			a.NoError(s.SetSettings("daemon", "theme", "light"))
+
+			a.NoError(s.DeleteSettings("bus", "theme"))
+			for k, want := range map[[2]string]string{
+				{"bus", "theme"}:     "",
+				{"bus", "incognito"}: "true",
+				{"daemon", "theme"}:  "light",
+			} {
+				got, err := s.GetSettings(k[0], k[1])
+				a.NoError(err)
+				a.Equal(want, got, "%s:%s", k[0], k[1])
+			}
+
+			a.NoError(s.SetSettings("daemon", "theme", ""))
+			got, err := s.GetSettings("daemon", "theme")
+			a.NoError(err)
+			a.Empty(got, "an empty value deletes the key")
+			got, err = s.GetSettings("bus", "incognito")
+			a.NoError(err)
+			a.Equal("true", got)
+
+			a.NoError(s.DeleteSettings("bus", "theme"), "already deleted")
+			a.NoError(s.DeleteSettings("bus", "never-set"))
+			a.ErrorIs(s.DeleteSettings("", "theme"), ErrEmptyAppName)
+		})
+	}
+}
+
 // warnRecorder is a slog handler that keeps the messages of warnings and
 // errors.
 type warnRecorder struct {

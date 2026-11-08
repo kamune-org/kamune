@@ -816,32 +816,41 @@ func (s *Storage) GetSettings(app, key string) (string, error) {
 }
 
 // SetSettings stores a settings value under the given app and key. Pass an
-// empty string to delete the key. The app namespace prevents collisions when
-// multiple apps share the same database. The setting is stored under a
-// keyed name (see [Storage.settingName]), with its value padded to a
-// multiple of 64 bytes.
+// empty string to delete the key, as [Storage.DeleteSettings] does. The app
+// namespace prevents collisions when multiple apps share the same database.
+// The setting is stored under a keyed name (see [Storage.settingName]), with
+// its value padded to a multiple of 64 bytes.
 func (s *Storage) SetSettings(app, key, value string) error {
 	if app == "" {
 		return ErrEmptyAppName
 	}
-	fullKey := app + ":" + key
-	k := s.settingName(fullKey)
 	if value == "" {
-		err := s.engine.Command(func(b engine.Namespace) error {
-			settings := b.Ensure([]byte(engine.SettingsNamespace))
-			return settings.Delete(k)
-		})
-		if err != nil && !errors.Is(err, engine.ErrMissingItem) {
-			return fmt.Errorf("delete settings %q: %w", key, err)
-		}
-		return nil
+		return s.DeleteSettings(app, key)
 	}
+	k := s.settingName(app + ":" + key)
 	err := s.engine.Command(func(b engine.Namespace) error {
 		settings := b.Ensure([]byte(engine.SettingsNamespace))
 		return settings.PutEncrypted(k, encodeSetting([]byte(value)))
 	})
 	if err != nil {
 		return fmt.Errorf("set settings %q: %w", key, err)
+	}
+	return nil
+}
+
+// DeleteSettings removes the settings value under app and key. A key that
+// is not set is not an error.
+func (s *Storage) DeleteSettings(app, key string) error {
+	if app == "" {
+		return ErrEmptyAppName
+	}
+	k := s.settingName(app + ":" + key)
+	err := s.engine.Command(func(b engine.Namespace) error {
+		settings := b.Ensure([]byte(engine.SettingsNamespace))
+		return settings.Delete(k)
+	})
+	if err != nil && !errors.Is(err, engine.ErrMissingItem) {
+		return fmt.Errorf("delete settings %q: %w", key, err)
 	}
 	return nil
 }
