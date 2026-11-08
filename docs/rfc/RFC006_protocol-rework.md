@@ -31,9 +31,10 @@ compatibility is kept: the peer wire protocol, the UDP, relay-leg and broker
 wire formats, the on-disk resumption and token formats, the relay
 configuration, the daemon JSON API and the exported Go APIs all change. A v1
 peer, relay or broker drops or refuses v2 traffic, and the reverse.
-`kamune.AppVersion` is `0.9.0` from RFC007's switch commit. RFC008
-through RFC011 are not in the tree. Logs and share data show which
-peers speak the four-flight handshake.
+`kamune.AppVersion` is `0.9.0` from RFC007's switch commit. RFC008 is
+in the tree except its broker P2P (4b) and docs, RFC009 has started,
+and RFC010 and RFC011 are not in the tree. Logs and share data show
+which peers speak the four-flight handshake.
 
 This RFC holds what crosses the five parts: the findings they close, how the
 parts fit together, the decisions, the shared constants and domain-separation
@@ -794,7 +795,8 @@ Hard edges only:
 
 ```
 L0 -> L3
-L1 -> L2 -> L3 -> L4 -> L5 -> L6 -> L7 -> L8
+L1 -> L2 -> L4 -> L5 -> L6 -> L7 -> L8
+L1 -> L3 -> L4
 T1 -> T2 -> L4            (L4 uses rendezvous.Token and TokenFunc directly)
 T2 -> K1 <- L1            (relayleg.PublicKey, LoadPrivateKeyFile)
 L1 -> K2 -> K3            (PrivateKey.ExtractShared)
@@ -814,6 +816,9 @@ e2e:       H11 after L7, T9, H6; T19 after T9, T15; K8 after K4 (UDP variant
 docs:      after the code of the same RFC, in the order of section 11
 ```
 
+H10 (RFC007) and U13/U14's direct-P2P half (RFC008 group 4a) have landed,
+so the clients now start from them.
+
 ### 10.3 Phases
 
 | Phase | Work, in merge order within a row | Gate |
@@ -826,6 +831,10 @@ docs:      after the code of the same RFC, in the order of section 11
 | 5. Deletions | L12, K7, T17, T18, H9, then F1 and F2 | no caller of a deleted API remains (`grep`) |
 | 6. End-to-end | the relay-leg e2e table, K8, T19, H11; the cross-RFC run of section 9 | all e2e tests green under `-race` |
 | 7. Docs | section 11 order, then F3 | docs build; links checked |
+
+In phase 0, U1, H4, T3 and L0 have landed, and T1, T2 and T4 have not;
+phase 1 has started with L1 to L3; RFC007 and RFC008 (except U13/U14's
+broker half, and U15 to U18) have landed.
 
 Why the UDP path commits come before the handshake switch in phase 3: RFC008's
 root changes are small and local (`ServeWithUDP`, `DialWithUDP`, `admit`,

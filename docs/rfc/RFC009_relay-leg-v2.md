@@ -2,10 +2,11 @@
 
 **Status:** Draft
 
-This proposal is not in the tree. The relay leg is still `pkg/exchange`
-plus [RELAY.md](../RELAY.md).
+Implementation has started, with L0 landed and L1 to L3 (section 18) in
+progress. The relay leg in the tree is still `pkg/exchange` plus
+[RELAY.md](../RELAY.md) until L7.
 
-**Target:** Kamune Protocol Specification before v1.0 (not scheduled)
+**Target:** Kamune Protocol Specification before v1.0 (in progress)
 
 **Relates to:** §9.3 (Relay), §9.4 (Connection Contract), §13 (Constants and
 Limits); `docs/RELAY.md` (Design Goals, Threat Model, Protocol, Authentication
@@ -209,7 +210,7 @@ bytes).
 
 | Question | Decision |
 | -------- | -------- |
-| Schedule | Not implemented now. Draft, targeting the specification before v1.0, not scheduled. |
+| Schedule | In progress, targeting the specification before v1.0; L0 to L3 first; L4 waits for RFC010's T1 and T2. |
 | Compatibility | Wire-incompatible hard cut, as RFC004 is. No backward compatibility: wire format, `pb.Frame`, relay config, Go API and client fields all change. |
 | Relay access secret | Generated access keys only: `psk1-` plus base32 of 32 random bytes (section 6.3). Passwords are not supported, so no PAKE is scheduled (section 19). |
 
@@ -1664,8 +1665,8 @@ until no caller remains. Subjects stay within 72 characters, with
 | 0 | root | `kamune: add Storage.DeleteSettings` | none |
 | 1 | relayconn | `relayconn: add relayleg keys, psk and their text forms` | none |
 | 2 | relayconn | `relayconn: add the relayleg v2 handshake and record channel` | 1 |
-| 3 | relayconn | `relayconn: add relay addresses and the relay key store` | 0, 2 |
-| 4 | relayconn | `relayconn: add Dial and Listen over relayleg`, next to the old helpers | 3; RFC010's `pkg/rendezvous` |
+| 3 | relayconn | `relayconn: add relay addresses and the relay key store` | 0, 1 |
+| 4 | relayconn | `relayconn: add Dial and Listen over relayleg`, next to the old helpers | 3; RFC010's `attest.PairSecret` (T1) and `pkg/rendezvous` |
 | 5 | relayconn | `relayconn: add the relaytest server` | 4 |
 | 6 | relay | `relay: keep a static relay key in the data dir and log it` | 5 |
 | 7 | relay | `relay: authenticate the relay leg with relayleg and a psk`; v1 clients now fail at runtime against the relay, everything compiles. Merges together with end-to-end test 39. | 6 |
@@ -1675,6 +1676,8 @@ until no caller remains. Subjects stay within 72 characters, with
 | 11 | tui | `tui: replace the certificate pin field with a relay key` | 5 |
 | 12 | relayconn | `relayconn: remove the v1 relay helpers, password option and auth frame`: deletes the eight helpers, `WithPassword`, `auth.go`, `pb.Auth`; regenerates `relay.pb.go`; moves the `ReadWriter` and `FrameLimiter` uses to `relayleg` | 9, 10, 11; RFC010's relayconn token options |
 | 13 | docs | `docs: ...`, one commit per document (section 17) | the code of this RFC |
+
+RFC006's graph had order 3 after 2. It uses only L1's types.
 
 The client commits (9 to 11) need only the API and `relaytest`, so they can
 start once commit 5 lands. The sample config and Dockerfile comments are part
@@ -1691,9 +1694,10 @@ Ordering with the other parts (RFC006 holds the combined order):
 - RFC011's broker codec and server use `relayleg.PublicKey`, `KeyHint`,
   `LoadPrivateKeyFile` and `ExtractShared` after commit 1; its relay-module
   switch uses `Service.StaticKey()` after commit 6.
-- In each client file, this RFC's changes come first, then RFC011's,
-  RFC010's token changes, RFC008's, RFC010's reconnect changes, and RFC007's
-  last.
+- RFC007 (H10) and RFC008 group 4a have already changed the client files,
+  so this RFC's client commits (L9 to L11) build on them. The order still
+  to come in each client file is this RFC, then RFC011, then RFC010's token
+  changes, then RFC008's 4b (broker P2P), then RFC010's reconnect changes.
 - In the relay module, commits 6 to 8 come before RFC010's relay changes and
   RFC011's relay switch.
 - Commit 12 belongs to the deletion phase; `pkg/exchange` is deleted by the
