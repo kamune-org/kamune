@@ -28,6 +28,8 @@ fuzz:
 		-fuzztime $(FUZZ_TIME)
 	go test ./pkg/relayconn -run '^$$' -fuzz '^FuzzFramingReadBytes$$' \
 		-fuzztime $(FUZZ_TIME)
+	go test ./pkg/relayconn -run '^$$' -fuzz '^FuzzParseAddress$$' \
+		-fuzztime $(FUZZ_TIME)
 	go test ./pkg/relayconn/relayleg -run '^$$' -fuzz '^FuzzAccept$$' \
 		-fuzztime $(FUZZ_TIME)
 	go test ./pkg/relayconn/relayleg -run '^$$' -fuzz '^FuzzInitiate$$' \
