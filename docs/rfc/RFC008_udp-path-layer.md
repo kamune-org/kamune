@@ -19,11 +19,12 @@ kcp-go. The layer owns the socket, runs a two-round-trip path handshake per
 peer that proves the dialer receives packets at its source address, and then
 gives each path its own `net.PacketConn`. kcp-go runs one client-style
 session (`kcp.NewConn4`) on each path. kcp-go's `Listener` (`kcp.Listen`,
-`kcp.ServeConn`) is no longer used anywhere, so its address-keyed session
-map, its accept backlog and its in-band `conv`/`sn == 0` reset are out of the
-picture. Every KCP packet is sealed with ChaCha20-Poly1305 under a per-path
-key and checked against a replay window, and either side can end a path with
-an authenticated CLOSE.
+`kcp.ServeConn`) is no longer used anywhere once group 4b lands and the
+broker P2P listeners stop using `kcp.ServeConn`, so its address-keyed
+session map, its accept backlog and its in-band `conv`/`sn == 0` reset are
+out of the picture. Every KCP packet is sealed with ChaCha20-Poly1305 under
+a per-path key and checked against a replay window, and either side can end
+a path with an authenticated CLOSE.
 
 The server also gains a three-level handshake rate limit (source, network,
 global) in front of the kamune handshake for every transport, and counts a
@@ -31,10 +32,10 @@ connection's source address against its per-source cap only when the
 connection proves return routability.
 
 This RFC is one part of the pre-v1.0 protocol rework described in RFC006.
-Groups 1 and 2 of section 18 have landed: `internal/admit`,
-`internal/udppath/udptest` and the path layer in `internal/udppath`, which
-nothing uses yet. The root integration, the clients and the docs have not.
-RFC007's handshake v2 landed first, so this RFC now builds on the switched
+Groups 1 to 3 and group 4a have landed. Group 4a is plain UDP and direct
+P2P in bus and daemon. Broker P2P (group 4b) waits for RFC011, the knock
+key waits for RFC010, and the docs (group 5) are still to do. RFC007's
+handshake v2 landed first, so this RFC now builds on the switched
 `server.go`. The change is a wire-incompatible hard cut, as RFC004 is, and
 no backward compatibility is kept: the UDP wire format, the `ServeWithUDP`
 and `DialWithUDP` signatures, the server's source accounting and the
@@ -45,6 +46,8 @@ It closes KAM-11 and the rest of KAM-05 (section 3). The work lives in the
 root module, with follow-up changes in `cmd/bus` and `cmd/daemon`.
 
 ## 2. Current Behavior
+
+This section describes the tree before this RFC.
 
 Root module (`kamune`):
 
@@ -110,7 +113,7 @@ Findings from `docs/RED_TEAM_REVIEW.md` that this RFC closes:
 
 | Finding | Status | What closes it |
 | ------- | ------ | -------------- |
-| KAM-11 | Closed | No kcp-go `Listener` (no address-keyed sessions, no in-band reset); a path handshake before any kcp-go state exists; AEAD and a replay window on every KCP packet; socket read errors never reach kcp-go (section 8.1); `UDPWithSourceFilter` and `UDPWithKnockKey` for P2P listeners; every call site moves off `kcp.Listen`, `kcp.Dial`, `kcp.ServeConn` and raw `kcp.NewConn4`. The FEC claim was already removed from SPEC §9.2 (2a6df97); FEC stays off (section 15). |
+| KAM-11 | Closed | No kcp-go `Listener` (no address-keyed sessions, no in-band reset); a path handshake before any kcp-go state exists; AEAD and a replay window on every KCP packet; socket read errors never reach kcp-go (section 8.1); `UDPWithSourceFilter` and `UDPWithKnockKey` for P2P listeners; every call site moves off `kcp.Listen`, `kcp.Dial`, `kcp.ServeConn` and raw `kcp.NewConn4`. The FEC claim was already removed from SPEC §9.2 (2a6df97); FEC stays off (section 15). Closed for the root. Group 4a moved the clients' plain UDP and direct P2P call sites. Broker P2P still uses `kcp.ServeConn` and raw `kcp.NewConn4` until group 4b. Those sessions are wrapped by `NewConn` and so count as forgeable, which keeps the spoofing gap closed at the server (see the "Raw kcp-go inside kamune" decision in section 15). |
 | KAM-05 | Closed | Already on main: accept backoff (d26e196), the waiting cap and per-source cap (a860952), `io.ErrClosedPipe` read as shutdown. This RFC closes the rest: (1) UDP sources are verified before a `Conn` exists, so forged sources no longer reach the waiting cap; (2) per-source accounting trusts an address only from a conn that proves return routability (`ReturnRoutable`), so a third-party `Listener` cannot reopen the spoofing gap; (3) `ServeWithHandshakeRate`: per-source, per-network and global token buckets in `admit`, before the first KEM operation, with constant memory and no fail-open branch; (4) the path layer has per-source, per-network and eviction-based total caps, so it adds no global lockout that TCP lacks. |
 
 Neither is only partly closed. KAM-05 keeps one residual, which SPEC §10.1
@@ -125,7 +128,7 @@ Related findings, not claimed by this RFC:
 | ------- | -------- |
 | REL-01 | Fixed on main in the relay's broker loop (`TestRun_SurvivesPacketReadErrors`). RFC011's broker server keeps that fix (its loop survives read errors, with the v1 backoff); whether the loop's 2,048-byte buffer grows to 65,536 bytes is RFC011's open question 2. RFC011's Endpoint follows the read rule of section 8.1 (RFC011 §10.4). This RFC applies that rule (65,536-byte buffer, every non-close read error transient) to every socket the path layer reads, where kcp-go today has the same weakness (section 2), and requires it of RFC011's Endpoint (section 13). |
 | RC-05, REL-12 | Closed by RFC011 (authenticated matches). This RFC bounds what a dialer sends to an address that never answers (section 11). |
-| BUS-17 | Fixed on main in the bus (`punchFilter` passes only the direct peer's IP). This RFC replaces that filter with `UDPWithSourceFilter(isPeerIP)` and the knock key, and gives the daemon's direct-P2P listener, which has no filter today, the same (section 12). |
+| BUS-17 | Fixed on main in the bus (`punchFilter` passes only the direct peer's IP). The daemon's direct-P2P listener already filtered by peer IP through `punchFilter.direct`. Group 4a moved both clients' filter into the path layer (`UDPWithSourceFilter(isPeerIP)`). The knock key waits for RFC010's `PunchKey` (section 12). |
 | DMN-20 | Fixed on main on the current KCP code. This RFC replaces that code: `HolePunch` blocks on `DialUDP` within its timeout, and HELLO retransmissions replace the dialer's kick burst (sections 8.3, 12). |
 | BUS-06, DMN-21 | Fixed on main on the current KCP code; RFC011 closes the broker part in v2 (its endpoint consumes broker packets, the listener reads MATCHED and kicks). This RFC's share: the dialer's kick and timeout handling (as DMN-20) and the first-byte rule that keeps any broker datagram out of KCP. Accepting KCP only from hosts a match named is open question 1 (section 20). |
 | DOC-05 | Fixed on main (2a6df97). SPEC §9.2 is rewritten again here and keeps the statement that FEC is off. |
@@ -631,8 +634,10 @@ from `pc.WriteTo` is returned as is; kcp-go then fails the session through
 p := ...  // srv.Accept() or udppath.Dial(...)
 sess, _ := kcp.NewConn4(p.Conv(), p.RemoteUDPAddr(), nil, 0, 0, true, p)
 sess.SetMtu(udppath.KCPMTU)
+sess.SetACKNoDelay(true)
 p.Start()
-conn := newPathConn(sess, p, connOpts...)
+kp := &kcpPath{UDPSession: sess, path: p}
+conn := newConn(kp, connOpts...)
 ```
 
 - The KCP `conv` is `cid` on both ends. kcp-go drops segments with another
@@ -641,11 +646,15 @@ conn := newPathConn(sess, p, connOpts...)
   path and sends CLOSE.
 - `Start` after `SetMtu` guarantees that no packet is read or written at
   kcp-go's default MTU of 1400 (`IKCP_MTU_DEF`).
+- `SetACKNoDelay(true)` runs after `SetMtu` and before `p.Start()`. Without
+  it, kcp-go holds each ACK until its next update tick. The congestion
+  window then holds back a close frame queued behind unacked data, and the
+  close linger could end before that frame leaves.
 
 **Close linger.** `Transport.Close` sends `RouteCloseTransport` and then
 closes the `Conn`; over KCP the send returns once the frame is in kcp-go's
 send queue. `UDPSession.Close` flushes once and stops retransmitting.
-`pathConn.Close` therefore waits `clamp(3 * sess.GetSRTT(), 50 ms, 1 s)`
+`kcpPath.Close` therefore waits `clamp(3 * sess.GetSRTT(), 50 ms, 1 s)`
 before `sess.Close()`, unless a read or write on the session already failed.
 kcp-go v5.6.72 does not export the send queue length on `UDPSession`, so
 SRTT is the only signal. The close frame over UDP stays best effort: if it
@@ -839,12 +848,14 @@ in `server.go`, which wraps kcp-go's listener as a `net.Listener`.
 `DialWithDialTimeout` (default 10 s).
 
 `ListenUDP` returns a new unexported type in `udp.go`, `pathListener`,
-which wraps the `*udppath.Server`. `pathListener.Accept`:
-`p, err := srv.Accept()`, then the setup of section 8.5, then return the
-`pathConn`. `pathListener.Close` calls `srv.Close` (section 8.2).
-`pathConn` embeds the kamune `conn` adapter, implements the close linger
-(section 8.5) and `ReturnRoutable() bool { return true }`, and reports
-`RemoteAddr()` as `p.RemoteUDPAddr()`.
+which wraps the `*udppath.Server`. `pathListener.Accept` and `DialUDP`
+do the setup of section 8.5 and return `newConn` of that `*kcpPath`.
+`pathListener.Close` calls `srv.Close` (section 8.2). `kcpPath` embeds
+`*kcp.UDPSession` and holds the path. It implements the close linger
+(section 8.5) and `ReturnRoutable() bool { return true }`, and its
+`RemoteAddr` is the embedded session's: the address passed to `NewConn4`
+(`p.RemoteUDPAddr()`). The kamune `conn` from `newConn` reports
+`RemoteAddr` and `ReturnRoutable` from that wrapped conn.
 
 A path conn satisfies the connection contract of SPEC §9.4: kcp-go still
 delivers frames reliably, in order and without duplicates, and the KCP MTU
@@ -862,7 +873,7 @@ type returnRoutable interface{ ReturnRoutable() bool }
 
 // (*conn).ReturnRoutable is true when the wrapped net.Conn is a
 // *net.TCPConn or *net.UnixConn, or implements returnRoutable and says so.
-// pathConn returns true.
+// kcpPath returns true.
 
 // server.go: replaces forgeableAddr(addr)
 p.forgeable = !isReturnRoutable(cn)
@@ -1014,102 +1025,132 @@ claim, and no other layer may rely on them.
 
 ## 12. Client Changes
 
-Order: this RFC's `bus:` and `daemon:` commits land after the client commits
-of RFC009, RFC011 and RFC010 in the same files (`broker.go`,
-`p2plistener.go`, `directp2p.go`, `network.go`) and change only the KCP
-lines. By then RFC011's `Endpoint` owns every broker punch socket and
-consumes the broker's datagrams, which replaces the broker half of bus
-`punchFilter` and daemon `punchConn`. When the RFC011, RFC010 and RFC008
-client changes are made together, they go in one commit series.
+The maintainer split group 4. Group 4a, plain UDP and direct P2P in bus
+and daemon, landed before RFC009, RFC011 and RFC010, which are still
+drafts with no code. Group 4b is broker P2P only. It waits for RFC011's
+`Endpoint`, which will own every broker punch socket and consume the
+broker's datagrams, replacing the broker half of bus `punchFilter` and
+daemon `punchConn`. The knock-key wiring for direct P2P waits for
+RFC010's `PunchKey`, in its own commits, not in 4b. 4b is two commits,
+`bus: hole-punch over the kamune udp path layer` and `daemon: hole-punch
+over the kamune udp path layer`. Each item below is marked landed in 4a,
+as is, or waiting for 4b. kcp-go stays a direct dependency of bus and
+daemon until 4b. Broker P2P keeps working, because both of its ends are
+still raw kcp-go. Its sessions are wrapped by `NewConn`, so they count
+as forgeable.
 
 ### 12.1 bus (`cmd/bus`)
 
-- `directp2p.go`:
-  - `newDirectP2PListener`: replace `kcp.ServeConn(nil, 0, 0, l.filter)` and
-    the `punchFilter` with:
+- `directp2p.go` (landed in 4a). `newDirectP2PListener` serves
+  `kamune.ListenUDP` with `UDPWithSourceFilter`:
 
-    ```go
-    kamune.ListenUDP(conn,
-        kamune.UDPWithSourceFilter(isPeerIP),
-        kamune.UDPWithKnockKey(k))
-    ```
+  ```go
+  kamune.ListenUDP(conn, kamune.UDPWithSourceFilter(isPeerIP))
+  ```
 
-    `isPeerIP` accepts the IP of `peerAddr`, any port, as the filter does
-    today: the dialer binds port 0, so its source port is never known in
-    advance. `k` is RFC010's punch key (`PairKey.PunchKey()`, section 13),
-    set only when the peer key is known; without one, the option is left
-    out. The kick loop (`kickFor`) stays; it writes 1-byte `0x00` kicks with
-    `conn.WriteTo`. `Accept` returns the inner listener's `kamune.Conn`;
-    `Close` closes only the inner listener.
-  - `directP2PDial`: drop `sendNATKick` and `kcp.NewConn4`; call
-    `kamune.DialUDP(ctx, conn, peer, kamune.UDPWithKnockKey(k))` with a 10 s
-    context derived from the attempt's context. On error, close `conn` and
-    return an error wrapping `ErrHolePunchFailed`.
-- `p2plistener.go`: RFC011's endpoint owns the punch socket
-  (`brokerClient.NewEndpoint(conn)`); pass `ep.PacketConn()` to
+  `isPeerIP` admits the peer's unmapped IP on any port. The dialer binds
+  port 0, so its source port is never known in advance. There is no knock
+  key yet: RFC010's `PunchKey` does not exist, so `UDPWithKnockKey` is
+  left out until that commit. The kick loop (`kickFor`) stays; it writes
+  1-byte `0x00` kicks with `conn.WriteTo`. `Accept` returns the path
+  listener's `kamune.Conn`. `Close` stops the kicks and closes the path
+  listener, not the socket. The path layer closes the socket with the
+  last accepted path, and the server stop closes the sessions itself.
+  `directP2PDial` drops `sendNATKick` and `kcp.NewConn4`. It calls
+  `kamune.DialUDP` under the attempt's context, bounded by
+  `directP2PDialTimeout` (10 s), and closes the socket on error. The bus
+  did not gain `ErrHolePunchFailed` or `DefaultHolePunchTimeout`. Those
+  stay with the broker `HolePunch` change (4b). The dial's conn is not
+  wrapped in `punchSession`. `DialUDP` returning shows that the peer
+  answered, so a later handshake failure is `dial_failed` or
+  `verification_rejected`. A `directP2PDial` error is still
+  `hole_punch_failed`.
+- `punchFilter` (landed in 4a). It lost its `direct` field. Only the
+  broker P2P listener uses it now.
+- `p2plistener.go` (waiting for 4b). RFC011's endpoint owns the punch
+  socket (`brokerClient.NewEndpoint(conn)`); pass `ep.PacketConn()` to
   `kamune.ListenUDP`. Broker traffic (REGISTER refresh replies,
   PEER_MATCHED) is consumed by the endpoint before the path layer sees it.
   The deadline reset before `serve`, `serve`/`serveWith`, and the
-  `heldSession` wrapper go. `Close` first closes every broker `Registration`
-  (WITHDRAW, RFC011), then the kamune listener, which closes the endpoint's
-  `PacketConn` and with it the endpoint once the last path ends. No knock
-  key here: one listener socket serves every contact registered on it, and
-  `UDPWithKnockKey` takes one key per listener. Whether the listener keeps a
-  source filter fed from RFC011's `Match.Peer` is open question 1
-  (section 20).
-- `broker.go` `HolePunch`: today it takes no timeout and returns at once. It
-  becomes a call that returns `(kamune.Conn, error)` from
-  `kamune.DialUDP(ctx, ep.PacketConn(), peer, ...)` and takes a timeout
-  (`timeout <= 0` means `DefaultHolePunchTimeout`, as in the daemon). Add
-  `DefaultHolePunchTimeout` (10 s) and `ErrHolePunchFailed` to the bus; drop
-  `sendNATKick` from the dial side, the conv id and `kcp.NewConn4`. Wrap
-  failures in `ErrHolePunchFailed`, so `ConnectToServer` returns
-  `hole_punch_failed` and the relay-fallback dialog opens within the punch
-  timeout instead of after the 30 s handshake timeout. Rewrite the doc
-  comments that describe kcp-go dropping non-KCP frames.
-- `dialattempt.go` `dialUDP`: today it calls `kcp.Dial` and wraps the
-  session with `kamune.NewConn`. It becomes a function of the attempt's
-  context, like `dialTCPWithin`: resolve the address, open `udp4` for an
-  IPv4 target and `udp` otherwise, and call `kamune.DialUDP` under the
-  attempt's context bounded by `dialTimeout`.
-- `network.go`: `ConnectToServer` stops wrapping the `HolePunch` result with
-  `kamune.NewConn`. The broker and direct P2P branches of `ConnectToServer`
-  and the direct-P2P branch of its `reconnectFn` call `HolePunch` or
-  `directP2PDial`, which now block for up to 10 s; the reconnect function
-  must absorb the wait (it already runs off the UI goroutine).
+  `heldSession` wrapper go. `Close` first closes every broker
+  `Registration` (WITHDRAW, RFC011), then the kamune listener, which
+  closes the endpoint's `PacketConn` and with it the endpoint once the
+  last path ends. No knock key here: one listener socket serves every
+  contact registered on it, and `UDPWithKnockKey` takes one key per
+  listener. Whether the listener keeps a source filter fed from RFC011's
+  `Match.Peer` is open question 1 (section 20).
+- `broker.go` `HolePunch` (waiting for 4b). Today it takes no timeout and
+  returns at once. It becomes a call that returns `(kamune.Conn, error)`
+  from `kamune.DialUDP(ctx, ep.PacketConn(), peer, ...)` and takes a
+  timeout (`timeout <= 0` means `DefaultHolePunchTimeout`, as in the
+  daemon). Add `DefaultHolePunchTimeout` (10 s) and `ErrHolePunchFailed`
+  to the bus; 4a added neither. Drop `sendNATKick` from the dial side,
+  the conv id and `kcp.NewConn4`. Wrap failures in `ErrHolePunchFailed`,
+  so `ConnectToServer` returns `hole_punch_failed` and the relay-fallback
+  dialog opens within the punch timeout instead of after the 30 s
+  handshake timeout. Rewrite the doc comments that describe kcp-go
+  dropping non-KCP frames.
+- `dialattempt.go` (landed in 4a). `dialUDP` became `dialUDPWithin(ctx)`.
+  It binds `udp4` or `udp` the same way the root's `DialWithUDP` does,
+  then runs `kamune.DialUDP` under the attempt's context, bounded by
+  `dialTimeout`.
+- `network.go`. Direct P2P landed in 4a: `ConnectToServer` and its
+  reconnect function pass the `directP2PDial` conn through `DialWithFunc`
+  with no `punchSession` and no `NewConn`, and both block for up to
+  `directP2PDialTimeout`. Broker P2P is waiting for 4b: `ConnectToServer`
+  still wraps the `HolePunch` result in `punchSession` and
+  `kamune.NewConn`, and `HolePunch` still returns at once. In 4b that
+  wrap goes and `HolePunch` blocks for up to 10 s; the reconnect function
+  must absorb the wait (it already runs off the UI goroutine). As is:
   `StartServer`'s `kamune.ServeWithUDP()` and the reconnect function's
   `kamune.DialWithUDP()` compile unchanged (variadic).
-- `go.mod`: `kcp-go` becomes indirect.
+- `go.mod` (waiting for 4b). `kcp-go` stays direct until broker P2P
+  moves, and then becomes indirect.
 
 ### 12.2 daemon (`cmd/daemon`)
 
-- `directp2p.go`: as the bus. `newDirectP2PListener` gains the
-  `UDPWithSourceFilter(isPeerIP)` filter it lacks today and the knock key;
-  `natKickLoop` stays. `directP2PDial` gains a context parameter and calls
-  `kamune.DialUDP` with a 10 s context, wrapping errors in
-  `ErrHolePunchFailed`.
-- `p2plistener.go`: as the bus. `kcp.ServeConn(nil, 0, 0, &punchConn{...})`
-  becomes `kamune.ListenUDP(ep.PacketConn())`; `punchConn` goes (RFC011
-  removes its broker half, this RFC its KCP half). Close order as the bus.
-- `broker.go` `HolePunch`: it already honours its timeout; the timeout now
-  bounds `DialUDP`, and `DefaultHolePunchTimeout` rises from 5 s to 10 s.
-  The synchronous kick burst and `kcp.NewConn4` go; it returns a
-  `kamune.Conn`, and every failure wraps `ErrHolePunchFailed` (today only a
-  burst that sent no kick does).
-- `network.go`: `dial` stops wrapping the `HolePunch` result with
-  `kamune.NewConn`. The `p2p` and `direct-p2p` cases of `dial` and the
-  direct-P2P branch of `makeReconnectFn` block for up to 10 s, including the
-  reconnect path. `listenDirect` for `udp` binds with `net.ListenUDP` and
-  returns `kamune.ListenUDP(pc)` instead of `kcp.Listen` wrapped in
-  `boundListener`; it still reports the bound address from `pc.LocalAddr()`.
-  The `udp` case of `dial` keeps `kamune.DialWithUDP()`.
-- `DAEMON.md` transport table: the `udp` row reads "`listenDirect`
-  (`kamune.ListenUDP`) + `ServeWithListener`" (it says `ServeWithUDP` today,
-  which the daemon does not use); the `p2p` row reads "`newP2PListener`
-  (`kamune.ListenUDP`) + `ServeWithListener`" (it also says `ServeWithUDP`
-  today) and "`WaitMatch` + `HolePunch` (`kamune.DialUDP`) via
-  `DialWithFunc`"; the `direct-p2p` row likewise.
-- `go.mod`: `kcp-go` becomes indirect.
+- `directp2p.go` (landed in 4a). As the bus, with these differences.
+  `newDirectP2PListener` already filtered by the peer's IP, through
+  `punchFilter.direct`. 4a kept that filter and moved it into the path
+  layer (`UDPWithSourceFilter(isPeerIP)`). It did not gain a filter it
+  lacked. `natKickLoop` stays. The knock key is left out until RFC010.
+  `directP2PDial` takes a context and calls `kamune.DialUDP` under
+  `directP2PDialTimeout` (10 s). Every error it returns wraps
+  `ErrHolePunchFailed`. `Close` stops the kicks and closes the path
+  listener, not the socket. The path layer closes the socket with the
+  last accepted path, and `stopServer` closes the sessions itself.
+- `punchFilter` (landed in 4a). It lost its `direct` field. Only the
+  broker P2P listener uses it now.
+- `p2plistener.go` (waiting for 4b). As the bus.
+  `kcp.ServeConn(nil, 0, 0, &punchConn{...})` becomes
+  `kamune.ListenUDP(ep.PacketConn())`; `punchConn` goes (RFC011 removes
+  its broker half, this RFC its KCP half). Close order as the bus.
+- `broker.go` `HolePunch` (waiting for 4b). It already honours its
+  timeout; the timeout will bound `DialUDP`, and
+  `DefaultHolePunchTimeout` rises from 5 s to 10 s. It stays at 5 s until
+  this change. The synchronous kick burst and `kcp.NewConn4` go; it
+  returns a `kamune.Conn`, and every failure wraps `ErrHolePunchFailed`
+  (today only a burst that sent no kick does).
+- `network.go`. `listenDirect` for `udp` landed in 4a: it binds with
+  `net.ListenUDP` and serves with `kamune.ListenUDP`. `boundListener`
+  holds a `kamune.Listener` and the bound address, for both tcp and udp.
+  It reports that address from `pc.LocalAddr()` for udp and from the TCP
+  listener's `Addr()` for tcp. As is: the `udp` case of `dial` keeps
+  `kamune.DialWithUDP()`. Direct P2P landed in 4a:
+  `dial` and `makeReconnectFn` pass the `directP2PDial` conn through
+  `DialWithFunc` with no `NewConn`, and the dial blocks for up to
+  `directP2PDialTimeout`. Broker P2P is waiting for 4b: `dial` still
+  wraps the `HolePunch` result with `kamune.NewConn`. That wrap goes in
+  4b, and the `p2p` case then blocks for up to 10 s, including the
+  reconnect path.
+- `DAEMON.md` transport table (as is; group 5 docs): the `udp` row reads
+  "`listenDirect` (`kamune.ListenUDP`) + `ServeWithListener`" (it says
+  `ServeWithUDP` today, which the daemon does not use); the `p2p` row
+  reads "`newP2PListener` (`kamune.ListenUDP`) + `ServeWithListener`" (it
+  also says `ServeWithUDP` today) and "`WaitMatch` + `HolePunch`
+  (`kamune.DialUDP`) via `DialWithFunc`"; the `direct-p2p` row likewise.
+- `go.mod` (waiting for 4b). `kcp-go` stays direct until broker P2P
+  moves, and then becomes indirect.
 
 ### 12.3 tui, relay
 
@@ -1279,10 +1320,18 @@ seconds are named below.
   cookies from forged addresses in 1,000 /24s while a real dialer connects;
   the dialer succeeds, no path exists besides the dialer's, and the
   `Server`'s waiting list never held a forged source.
-- Exhaustion from many sources: 64 sources in 64 /24s each hold 32 ACCEPTED
-  paths whose kamune handshakes wait in the verifier (2,048 paths, with
-  `MaxPaths` lowered to 2,048 for the test); a dialer from a 65th network
-  still connects, and one attacker path is evicted.
+- Exhaustion from many sources. The property is 64 sources in 64 /24s,
+  each holding 32 ACCEPTED paths whose kamune handshakes wait in the
+  verifier (2,048 paths, with `MaxPaths` lowered to 2,048); a dialer
+  from another network still connects, and one attacker path is evicted.
+  `TestUDPExhaustionFromManySources` scales that down by 8: 8 sources in
+  8 /24s hold 32 paths each, 256 in all, with `MaxPaths` set to 256.
+  2,048 accepted kamune sessions would take gigabytes under the race
+  detector. The test is skipped under `-short`. It asserts that all 256
+  attacker handshakes enter the verifier while `Evicted` is still 0,
+  that a dialer from another network (`10.0.8.1`) then connects and both
+  sides exchange a message, that `Evicted` grows by 1, that one attacker
+  dial fails with `ErrConnClosed`, and that the other 255 stay blocked.
 - Per-source accounting: a path conn counts against
   `ServeWithMaxPendingPerSource` at accept; a conn without `ReturnRoutable`
   (`newUDPSourceConn`, now a conn type without the method) counts at the
@@ -1323,16 +1372,33 @@ seconds are named below.
 `TestUDPEndToEnd`: `NewServer("127.0.0.1:0", ..., ServeWithUDP())` and
 `NewDialer(..., DialWithUDP())` with real storage, through a UDP forwarder
 goroutine (its own socket between dialer and server) that re-sends each
-DATA datagram once more from the path address. Steps: cold handshake with a
-verifier; 100 messages each way; ping and pong; `Transport.Close` with
-`RouteCloseTransport` seen by the server as `ErrPeerDisconnected` (lossless
-loopback); resume with `DialWithResume` over a new path. Meanwhile an
-attacker goroutine on its own socket sends HELLOs, garbage, raw KCP headers,
-oversize datagrams and copies of captured DATA to the server port. Assert
-that every step passes, the attacker never gets a reply larger than its
-request, the server holds no attacker path beyond HALF_OPEN,
-`Stats.Replay > 0` (the forwarder's duplicates) and `Stats.NoPath > 0` (the
-attacker's copies).
+DATA datagram once more from the path address. An attacker goroutine on
+its own socket sends HELLOs, garbage, raw KCP headers, oversize datagrams
+and copies of captured DATA to the server port. Steps, in order:
+
+1. Cold handshake with a verifier. The dialer's transport is not resumed.
+   The server's verifier saw `Role == RoleResponder` and `Resumed ==
+   false`. The dialer's own verifier call has `Resumed` false.
+2. 100 messages each way.
+3. Ping, then pong.
+4. `CloseAbort` on both sides of the cold session. `Transport.Close`
+   deletes the dialer's resumption row, and the server's receipt of
+   `RouteCloseTransport` deletes its row too, so a resume after that
+   close cannot succeed. `CloseAbort` keeps both rows.
+5. Resume with `DialWithResume` over a new path. The dialer's transport
+   reports the same session id and `Resumed` true. The resume is observed
+   through the server's verifier, whose `VerifyRequest` has `Role ==
+   RoleResponder` and `Resumed == true`. The dialer's own verifier call
+   has `Resumed` false. One message each way after that.
+6. Graceful `Transport.Close` on the resumed session. On lossless
+   loopback the server's `Receive` returns `ErrPeerDisconnected`.
+
+Every step passes. Each attacker reply is at most `udppath.CookieSize`,
+the attacker got at least one reply, and it received no more datagrams
+than it sent. `Stats.Replay`, `Stats.NoPath`, `Stats.Malformed` and
+`Stats.Foreign` all grew. The handler saw two sessions. Each remote
+address is one the forwarder used for a path, and neither is the
+attacker's address. The handler got no further session.
 
 RFC011's broker end-to-end test gains a `DialUDP` variant on
 `ep.PacketConn()`, and RFC006's cross-RFC run uses `ListenUDP` and
@@ -1340,11 +1406,29 @@ RFC011's broker end-to-end test gains a `DialUDP` variant on
 
 ### 14.5 Client tests
 
-- daemon `integration_test.go` and bus `p2p_test.go`: direct P2P on loopback
-  with `newDirectP2PListener` and `directP2PDial`; a third socket bound to
-  `127.0.0.2` gets no COOKIE (skipped when that bind fails, as the root
-  tests that use other loopback addresses skip); with a knock key on both
-  ends the session works, and a dialer with another key gets no COOKIE.
+Group 4a added or rewrote the tests below. None of them sets a knock
+key. That case, a dialer with another key getting no COOKIE, waits for
+RFC010's `PunchKey`.
+
+- bus `TestConnectToServerUDP` dials a plain UDP server and gets one
+  session. `TestCancelConnectUDP` cancels a connect to a UDP server that
+  never answers and ends within 2 s with no session.
+- daemon `TestDaemonDialsUDPServer` dials a plain UDP server and restarts
+  that server on the same port.
+- bus `TestDirectP2P*` (`directp2p_test.go`): the listener accepts the
+  peer from a port of its own; a socket bound to `127.0.0.2` is not
+  accepted (skipped when that bind fails); an unanswered dial fails with
+  `ErrUDPHandshakeTimeout` inside a second; a cancelled dial fails at
+  once; closing the listener leaves an accepted session able to pass one
+  message.
+- daemon `TestDirectP2P*` (`directp2p_test.go`): the listener accepts
+  only its peer's IP (skipped when the extra loopback bind fails), and
+  every `directP2PDial` error wraps `ErrHolePunchFailed`.
+  `TestDaemonDialsDirectP2P` dials another daemon's direct-P2P server,
+  and stopping the server ends the client's session.
+
+Waiting for 4b (broker P2P):
+
 - bus and daemon `HolePunch` to a port with no listener, timeout 500 ms:
   returns `ErrHolePunchFailed` in under 1 s.
 - bus `p2plistener_test.go`: with RFC011's endpoint on the punch socket, a
@@ -1400,7 +1484,7 @@ removes the Windows trigger.
 
 | Question | Decision |
 | -------- | -------- |
-| Rollout | **In progress.** Draft, targeted before v1.0. Groups 1 and 2 have landed (section 18); group 3 is next. A wire-incompatible hard cut, as RFC004 is, with no version negotiation and no backward compatibility (section 17). |
+| Rollout | **In progress.** Draft, targeted before v1.0. Groups 1 to 3 and group 4a have landed (section 18). Group 4b waits for RFC011 and RFC010. Group 5 docs are next. A wire-incompatible hard cut, as RFC004 is, with no version negotiation and no backward compatibility (section 17). |
 | Where KCP packets are authenticated | In the layer, every packet from the first DATA, with the path key. Rejected: kcp-go `BlockCrypt` (fixed at session creation, before the kamune handshake; kcp-go's AEAD mode uses random nonces and has no replay check); rekeying from a kamune exporter after the handshake (needs an agreed switch point while KCP retransmits older packets, and adds nothing against an off-path attacker). Cost: one ChaCha20-Poly1305 operation per packet. |
 | kcp-go `Listener` | Not used. One `NewConn4` session per path. Cost: one channel hop and one copy per inbound packet, and kcp-go's `readLoop` goroutine per server session. kcp-go's `recvmmsg`/`sendmmsg` batching (`newBatchConn` in `platform_linux.go`) needs a `*net.UDPConn`-like socket, so any wrapper loses it, as the clients' `punchFilter` and `punchConn` already do. |
 | Several paths from one address | Allowed, with no takeover rule. DATA is routed by `rid`, and each kcp-go session holds its own `*Path`, so kcp-go never keys anything by address. |
@@ -1436,7 +1520,7 @@ These are the values this RFC proposes; they await maintainer confirmation.
 | Handshake rate per source / per network | 8/s burst 16 / 32/s burst 64 | Raised or disabled with `ServeWithHandshakeRate`. |
 | Global handshake rate | On, `512 * GOMAXPROCS`/s, burst twice that | Sized in section 9.4. Operators who want it off pass `RateLimit{}` for the global level. |
 | KCP MTU | 1200 | Fits every IPv6 path (DATA at most 1232 bytes). kcp-go's 1400 would send fewer packets but may fragment. |
-| Hole-punch dial timeout | 10 s (`DefaultHolePunchTimeout`, bus and daemon) | Covers the direct-P2P listener's 10 s kick window. |
+| Hole-punch dial timeout | 10 s, proposed `DefaultHolePunchTimeout` for broker P2P (4b) | Direct P2P already uses `directP2PDialTimeout` (10 s) in both clients. The daemon's `DefaultHolePunchTimeout` stays at 5 s until 4b. Covers the direct-P2P listener's 10 s kick window. |
 
 ## 17. Compatibility
 
@@ -1459,6 +1543,8 @@ Commits follow AGENTS.md (`kamune:`, `bus:`, `daemon:`, `docs:`), each
 small, in the order below. Groups 1 and 2 have landed, after RFC007's
 switch (`kamune: switch to handshake v2`, 58b2c1c). Group 1 is b63fbd0,
 e169d1e, ef0da3f and 861aa43. Group 2 is 5c8c678, 98fd341 and 7049afa.
+Group 3 is 1eccd27, 29f3b00, 9e8b845, e3f4086, 0164eab, bdc0d6b, fc3b4d5
+and 5b19acc. Group 4a is 1bcc8c5, 2732adb, 2a95f8a and 1c69c5e.
 `kamune: move source and network keys into internal/admit` (e169d1e)
 edited the switched `server.go` and `server_test.go`: it moved
 `sourceKey`, `networkKey`, `prefixKey` and `hostIP` into `internal/admit`
@@ -1471,8 +1557,9 @@ whole rework (RFC006).
 | ----- | ------ | ----------------- | ---------- |
 | 1. Prerequisites | root | `kamune: guard the fake clock with a mutex`; `kamune: move source and network keys into internal/admit`; `kamune: add fixed-memory keyed rate limiter to internal/admit`; `kamune: add in-memory packet network for udp tests` | nothing; landed (b63fbd0, e169d1e, ef0da3f, 861aa43); the fake-clock commit is a shared prerequisite of the whole rework and landed first |
 | 2. Path layer | root (`internal/udppath`) | `kamune: add udp path handshake with return-routability cookies`; `kamune: seal udp path packets with a replay window and close`; `kamune: add udp path server with caps, eviction and accept` (each with its unit tests) | group 1; landed (5c8c678, 98fd341, 7049afa) |
-| 3. Root integration | root | `kamune: run udp listeners and dialers over the path layer` (`ListenUDP`, `DialUDP`, the new `ServeWithUDP` and `DialWithUDP`, `ErrUDPHandshakeTimeout`, close linger, KAM-11 regression); `kamune: trust source addresses only from return-routable conns`; `kamune: rate-limit handshakes per source, network and in total`; `kamune: add udp end-to-end test`; `kamune: fuzz udp path input` | group 2; `errors.go` after RFC010's `ErrPeerKeyMismatch` (it exists already); RFC007's root switch has landed, and group 3 builds on the switched `server.go`, `dial.go` and `errors.go`: the rate check goes first in the switched `admit` and `forgeable` is computed from `ReturnRoutable` |
-| 4. Clients | bus, daemon | `bus: hole-punch over the kamune udp path layer`; `daemon: hole-punch over the kamune udp path layer` | group 3; after RFC007's client commits, which have landed; after the RFC009, RFC011 and RFC010 client commits in the same files; before RFC010's reconnect-root commits; the knock key needs RFC010's `PunchKey`; if `PunchKey` lands later, the knock-key wiring follows in its own commit |
+| 3. Root integration | root | `Makefile: fuzz the handshake v2 frame parsers`; `kamune: fuzz udp path input`; `kamune: run udp listeners and dialers over the path layer` (`ListenUDP`, `DialUDP`, the new `ServeWithUDP` and `DialWithUDP`, `ErrUDPHandshakeTimeout`, close linger, KAM-11 regression); `kamune: trust source addresses only from return-routable conns`; `kamune: rate-limit handshakes per source, network and in total`; `kamune: add udp end-to-end test`; `kamune: tighten udp spoof flood, shutdown and rate tests`; `kamune: count server accepts in the f1 flood test` | group 2; landed (1eccd27, 29f3b00, 9e8b845, e3f4086, 0164eab, bdc0d6b, fc3b4d5, 5b19acc). `kamune: fuzz udp path input` (29f3b00) was listed in this group but landed before the rest of it, after the Makefile fuzz commit (1eccd27). fc3b4d5 and 5b19acc are the test fixes after the end-to-end test. `errors.go` after RFC010's `ErrPeerKeyMismatch` (it exists already); RFC007's root switch has landed, and group 3 built on the switched `server.go`, `dial.go` and `errors.go`: the rate check goes first in the switched `admit` and `forgeable` is computed from `ReturnRoutable` |
+| 4a. Plain UDP and direct P2P | bus, daemon | `bus: dial udp servers over the kamune path layer`; `daemon: serve udp over the kamune path layer`; `bus: punch direct p2p over the kamune path layer`; `daemon: punch direct p2p over the kamune path layer` | group 3; landed before RFC009, RFC010 and RFC011, which are still drafts (1bcc8c5, 2732adb, 2a95f8a, 1c69c5e). No knock key: RFC010's `PunchKey` does not exist yet |
+| 4b. Broker P2P | bus, daemon | `bus: hole-punch over the kamune udp path layer`; `daemon: hole-punch over the kamune udp path layer` | waits for RFC011's `Endpoint`; broker P2P only. The knock-key wiring for direct P2P is not these two commits: it lands after RFC010's `PunchKey`, in its own commits. Before RFC010's reconnect-root commits |
 | 5. Docs | docs | `docs: describe the udp path layer in SPEC 9.2`; `docs: update server limits, constants and errors for udp paths`; `docs: update daemon transport table and broker socket text`; `docs: list admit and udppath internal packages` | the code groups; SPEC after RFC007's SPEC edits, which have landed (`docs: match the docs to the current handshake`, 41b91e9); the RELAY.md broker text after RFC011's rewrite of that section; DAEMON.md after RFC007's DAEMON.md edits, which have landed (41b91e9), and after RFC009, RFC011 and RFC010 |
 
 Files shared with other RFCs, and the order of changes:
@@ -1484,7 +1571,7 @@ Files shared with other RFCs, and the order of changes:
 | `conn.go` | RFC008, then final cleanup | `returnRoutable`, `(*conn).ReturnRoutable`, `NewConn` doc |
 | `errors.go` | RFC007, RFC010, then RFC008 | `ErrUDPHandshakeTimeout` |
 | `server_test.go` | RFC007, then RFC008 | KCP flood test rewrite, `TestPendingCapsByTransport` udp case, rate-limit opt-outs; group 1 already moved `TestSourceKey` |
-| bus and daemon `broker.go`, `p2plistener.go`, `directp2p.go`, `network.go` | RFC007, then RFC009, RFC011, RFC010, RFC008, then RFC010 (reconnect roots) | the KCP lines only (section 12) |
+| bus and daemon `broker.go`, `p2plistener.go`, `directp2p.go`, `dialattempt.go` (bus), `network.go`, `punchfilter.go` | RFC007, then group 4a, then RFC009, RFC011 and RFC010, then group 4b, then RFC010 (reconnect roots) | 4a changed `directp2p.go`, `dialattempt.go` (bus), `network.go` and `punchfilter.go` before RFC009 to RFC011. 4b's broker lines stay after them (section 12) |
 | `AGENTS.md` | RFC008, then final cleanup | `admit`, `udppath` in the root `internal/` list |
 
 Rate-limit opt-outs that bus and daemon tests need go in their own `bus:`
